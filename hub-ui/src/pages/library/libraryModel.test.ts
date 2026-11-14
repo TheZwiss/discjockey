@@ -7,8 +7,10 @@ import {
   playlistCell, playlistsLine, libraryCalls, filterKey, nextTryLine, notFoundTip, localDay, nextSort, offTable, optionalColumns, rowAway, rowDim, rowInTodo, rowOf, rowOff,
   rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
   titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, artistColumnFor, shownSort, tooManyFor,
-  heldRow, holdApplies, withHeld, rowMenu,
+  heldRow, holdApplies, withHeld, rowMenu, FILES_SCOPE, MAKE_AIFF, aiffHeader, inspectorSubject, isBatchSubject,
+  keepTableSelection, selectAllRows, tableScope,
 } from './libraryModel';
+import { click, escape, move, single, NONE, type Selection } from '$lib/components/selectionModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
 const row = (id: string, extra: Partial<TrackRow> = {}): TrackRow => ({
@@ -623,5 +625,109 @@ describe('rowMenu (the row context menu)', () => {
     const m = { todo: false, finder: true, link };
     expect(rowMenu(m)).toEqual(rowMenu({ ...m }));
     expect(rowMenu(m).find((i) => i.kind === 'open')?.test).toBe('menu-open-in');
+  });
+});
+
+// ---------- multi-select on the table, the inspector's subject, the header's AIFF button (issue 33 stage D) ----------
+describe('the table\'s multi-select (one scope: the rows with a file, `also` rows included)', () => {
+  const r = (id: string, file_state: LibraryRow['file_state'] = 'here') => ({ track_id: id, file_state } as LibraryRow);
+  // a playlist: three songs with a file, one without, then two files of its folder (`also`), one of them away
+  const walk = [r('a'), r('b'), r('c'), r('n', 'no_file'), r('x'), r('y', 'offline')];
+  const order = walk.map((x) => x.track_id);
+  const scopeOf = tableScope(walk);
+  const mod = (sel: Selection, id: string, mods: { meta?: boolean; shift?: boolean }) => click(sel, id, mods, order, scopeOf);
+
+  it('rows with a file are in the one scope (also rows and away rows too); a song without a file is in none', () => {
+    expect(['a', 'x', 'y'].map(scopeOf)).toEqual([FILES_SCOPE, FILES_SCOPE, FILES_SCOPE]);
+    expect(scopeOf('n')).toBeNull();
+    expect(scopeOf('gone')).toBeNull();
+  });
+  it('a plain click selects one; ⌘-click adds and takes out; the last one picked is the anchor', () => {
+    let sel = mod(NONE, 'a', {});
+    sel = mod(sel, 'c', { meta: true });
+    expect([sel.keys, sel.anchor]).toEqual([['a', 'c'], 'c']);
+    sel = mod(sel, 'x', { meta: true });
+    expect([sel.keys, sel.anchor]).toEqual([['a', 'c', 'x'], 'x']);
+    sel = mod(sel, 'x', { meta: true });
+    expect([sel.keys, sel.anchor]).toEqual([['a', 'c'], 'c']);
+  });
+  it('⇧-click ranges from the anchor in the table\'s order and leaves the song without a file out', () => {
+    const sel = mod(single('b'), 'x', { shift: true });
+    expect(sel.keys).toEqual(['b', 'c', 'x']);   // n (no file) is skipped
+    expect(sel.anchor).toBe('b');
+    expect(mod(single('x'), 'a', { shift: true }).keys).toEqual(['a', 'b', 'c', 'x']);
+  });
+  it('a song without a file is always selected alone, and ⌘-click on it starts over', () => {
+    expect(mod(single('a'), 'n', { meta: true })).toEqual(single('n'));
+    expect(mod(single('n'), 'a', { meta: true })).toEqual(single('a'));
+    expect(mod(single('n'), 'b', { shift: true })).toEqual(single('b'));
+  });
+  it('⌘A selects the rows on screen with a file; from nothing it starts at the first of them', () => {
+    expect(selectAllRows(single('b'), order, scopeOf).keys).toEqual(['a', 'b', 'c', 'x', 'y']);
+    expect(selectAllRows(single('b'), order, scopeOf).anchor).toBe('b');
+    expect(selectAllRows(NONE, order, scopeOf).keys).toEqual(['a', 'b', 'c', 'x', 'y']);
+    // a filter or search shows fewer rows: only they are the order
+    const some = ['b', 'x'];
+    expect(selectAllRows(single('b'), some, scopeOf).keys).toEqual(['b', 'x']);
+    // only a song without a file selected: nothing more to take
+    const alone = single('n');
+    expect(selectAllRows(alone, order, scopeOf)).toBe(alone);
+    expect(selectAllRows(NONE, ['n'], scopeOf)).toBe(NONE);
+  });
+  it('Esc goes back to the anchor alone; ↑ ↓ move one row from the anchor and end the multi-selection', () => {
+    const sel = mod(mod(single('a'), 'c', { meta: true }), 'x', { meta: true });
+    expect(escape(sel)).toEqual(single('x'));
+    expect(move(sel, order, -1)).toEqual(single('n'));   // the table walks every row, also one without a file
+    expect(move(sel, order, 1)).toEqual(single('y'));
+  });
+});
+
+describe('the selection after the table\'s answer changed (a done file, a filter)', () => {
+  const sel: Selection = { keys: ['a', 'b', 'd'], anchor: 'b' };
+  it('the same rows (a done file only changed its format and name): the very same selection', () => {
+    expect(keepTableSelection(sel, ['a', 'b', 'c', 'd'], ['a', 'b', 'c', 'd'])).toBe(sel);
+  });
+  it('rows that left drop out; the anchor going goes to the nearest one left', () => {
+    expect(keepTableSelection(sel, ['a', 'b', 'c', 'd'], ['a', 'b', 'c'])).toEqual({ keys: ['a', 'b'], anchor: 'b' });
+    expect(keepTableSelection(sel, ['a', 'b', 'c', 'd'], ['a', 'c', 'd'])).toEqual({ keys: ['a', 'd'], anchor: 'd' });
+  });
+  it('none left: nothing selected', () => {
+    expect(keepTableSelection(sel, ['a', 'b', 'd'], ['z'])).toEqual(NONE);
+  });
+  it('a single selection is never touched: its track may be off the table on purpose', () => {
+    const one = single('q');
+    expect(keepTableSelection(one, ['q'], ['a'])).toBe(one);
+  });
+});
+
+describe('the inspector\'s subject', () => {
+  it('one row: its details; two or more: the batch panel for them; nothing: nothing', () => {
+    expect(inspectorSubject(single('a'), false)).toEqual({ kind: 'track', id: 'a' });
+    expect(inspectorSubject({ keys: ['a', 'b'], anchor: 'b' }, false)).toEqual({ kind: 'tracks', ids: ['a', 'b'] });
+    expect(inspectorSubject(NONE, false)).toBeNull();
+  });
+  it('the view\'s plan comes before any selection, and it is a batch subject; a pick closes it (the page clears the flag)', () => {
+    expect(inspectorSubject(NONE, true)).toEqual({ kind: 'view' });
+    expect(inspectorSubject({ keys: ['a', 'b'], anchor: 'b' }, true)).toEqual({ kind: 'view' });
+    expect(isBatchSubject({ kind: 'view' })).toBe(true);
+    expect(isBatchSubject({ kind: 'tracks', ids: ['a', 'b'] })).toBe(true);
+    expect(isBatchSubject({ kind: 'track', id: 'a' })).toBe(false);
+    expect(isBatchSubject(null)).toBe(false);
+  });
+});
+
+describe('the header\'s AIFF button (three states)', () => {
+  const stopped = { batch_id: 3, left: 7 };
+  it('"Make AIFF…" with its tip; "Resume · k left" while a library batch is stopped', () => {
+    expect(aiffHeader(null, false)).toEqual({ kind: 'make', label: MAKE_AIFF, tip: 'Make all lossless files AIFF', batch_id: null });
+    expect(aiffHeader(stopped, false)).toMatchObject({ kind: 'resume', label: 'Resume · 7 left', batch_id: 3 });
+  });
+  it('while the flow runs it keeps the label it had when it started', () => {
+    expect(aiffHeader(null, true, MAKE_AIFF).label).toBe('Make AIFF…');
+    // a Resume that started: the stopped batch is running now, the answer still (or no longer) says it was stopped
+    expect(aiffHeader(stopped, true, 'Resume · 7 left').label).toBe('Resume · 7 left');
+    expect(aiffHeader(null, true, 'Resume · 7 left').label).toBe('Resume · 7 left');
+    // a run found in a reloaded window has no frozen label: the idle one
+    expect(aiffHeader(null, true).label).toBe('Make AIFF…');
   });
 });

@@ -8,6 +8,9 @@ import type { SegOption } from '$lib/components/segmentedModel';
 import { dayMonth, rowAway } from '$lib/format';
 import { EMPTY } from '$lib/copy';
 import { heldRow, putAt } from '$lib/decisions/hold';
+import {
+  keep as keepSelected, only, selectAll, single, type ScopeOf, type Selection,
+} from '$lib/components/selectionModel';
 
 // ---------- what kind of collection the table shows ----------
 /** The table's kind: the four views, with a folder view told apart by what the folder is (plan library stage 5 D10:
@@ -548,4 +551,59 @@ export function rowMenu(m: { todo: boolean; finder: boolean; link: LibraryRow['t
     ...(m.finder ? [{ kind: 'finder' as const, label: 'Show in Finder' }] : []),
     ...(m.link ? [{ kind: 'open' as const, label: m.link.label, test: 'menu-open-in' }] : []),
     ...(m.todo ? [{ kind: 'todo' as const, label: 'Open in to-do', test: 'menu-todo' }] : [])];
+}
+
+// ---------- multi-select and the AIFF batch (issue 33 stage D, plan §6.0.1, §6.2) ----------
+/** The one scope several rows can be selected in: rows with a file (an `also` row too). A song without a file is null:
+ *  a click selects it alone, and ⌘-click, ⇧-click and ⌘A leave it out. Away rows have a file and take part (the
+ *  plan leaves them out with their reason). */
+export const FILES_SCOPE = 'files';
+export function tableScope(rows: Pick<LibraryRow, 'track_id' | 'file_state'>[]): ScopeOf {
+  const scopes = new Map(rows.map((r): [string, string | null] => [r.track_id, r.file_state === 'no_file' ? null : FILES_SCOPE]));
+  return (key) => scopes.get(key) ?? null;
+}
+/** ⌘A: every row of the scope on screen (the table's rows after filter and search, in its order). With nothing selected
+ *  it starts from the first row that can take part; with only a song without a file selected it does nothing. */
+export function selectAllRows(sel: Selection, order: string[], scopeOf: ScopeOf): Selection {
+  if (sel.anchor === null) {
+    const first = order.find((k) => scopeOf(k) !== null);
+    return first === undefined ? sel : selectAll(single(first), order, scopeOf);
+  }
+  return selectAll(sel, order, scopeOf);
+}
+/** The selection after a new answer of the table: keys that left drop out, the anchor goes to the nearest one left,
+ *  none left: nothing. A single selection is never touched (its track may be off the table on purpose: `offTable`,
+ *  Hold); the selection stays on the same tracks when a done file changed its row's format and name. */
+export function keepTableSelection(sel: Selection, before: string[], after: string[]): Selection {
+  if (sel.keys.length < 2) return sel;
+  const next = keepSelected(sel, before, after, () => null);
+  const same = next.keys.length === sel.keys.length && next.anchor === sel.anchor;
+  return same ? sel : next;
+}
+
+/** What the inspector shows: one track's details, a batch panel for two or more rows, the view's plan (the header's
+ *  Make AIFF…), or nothing. The view's plan comes before the selection (opening it clears the selection, a pick
+ *  closes it). */
+export type InspectorSubject = { kind: 'track'; id: string } | { kind: 'tracks'; ids: string[] } | { kind: 'view' } | null;
+export function inspectorSubject(sel: Selection, viewOpen: boolean): InspectorSubject {
+  if (viewOpen) return { kind: 'view' };
+  if (sel.keys.length > 1) return { kind: 'tracks', ids: sel.keys };
+  const id = only(sel);
+  return id === null ? null : { kind: 'track', id };
+}
+/** Whether the subject is a batch panel (the chrome's `batchSubject`). */
+export const isBatchSubject = (s: InspectorSubject): boolean => s?.kind === 'tracks' || s?.kind === 'view';
+
+export const MAKE_AIFF = 'Make AIFF…';
+export const MAKE_AIFF_TIP = 'Make all lossless files AIFF';
+/** The header's AIFF button: "Make AIFF…" opens the view's plan; "Resume · {k} left" while a library batch is stopped.
+ *  While the flow runs it keeps the label it had when it started (`frozen`) and opens the panel. */
+export type AiffHeader = { kind: 'make' | 'resume'; label: string; tip: string | null; batch_id: number | null };
+export function aiffHeader(stopped: { batch_id: number; left: number } | null, running: boolean,
+  frozen: string | null = null): AiffHeader {
+  const resume = !!stopped && !running;
+  const base: AiffHeader = resume
+    ? { kind: 'resume', label: `Resume · ${stopped.left} left`, tip: 'Carry on with the files this batch left', batch_id: stopped.batch_id }
+    : { kind: 'make', label: MAKE_AIFF, tip: MAKE_AIFF_TIP, batch_id: null };
+  return running && frozen ? { ...base, label: frozen } : base;
 }

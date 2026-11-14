@@ -5,6 +5,8 @@ import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import { MUSIC_DIR, MUSIC_SCOPE } from '$lib/bridge/fake/aiffScenes';
 import type { HubEvent } from '$lib/bridge/events';
 import type { AiffBatchResult, AiffPlan, Library, Todo, TrackDetail } from '$lib/bridge/types';
+import type { Selection } from '$lib/components/selectionModel';
+import { keepTableSelection } from './libraryModel';
 import { scenarios } from './fake';
 
 const name = (n: string) => `library:${n}`;
@@ -111,5 +113,24 @@ describe('the Library fake scenarios', () => {
     expect(result.done).toBeGreaterThan(10);
     const open = await run('aiff-rekordbox-open');
     expect(open).toMatchObject({ ok: false, problem: 'rekordbox_open' });
+  });
+
+  it('the table follows a selection\'s Convert and keeps the selection on the same tracks', async () => {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge(name('aiff-multi'), { speed: 1000, emit: (e) => evs.push(e) });
+    const ids = ['own:1', 'own:2', 'own:6', 'own:7'];
+    const keys = async () => (await folder(f)).rows.map((r) => r.track_id);
+    const before = await keys();
+    const sel: Selection = { keys: ids, anchor: 'own:7' };
+    expect(ids.every((id) => before.includes(id))).toBe(true);
+    const r = await f.convert(ids, 'library');
+    if (!r.ok) throw new Error(JSON.stringify(r));
+    for (let i = 0; i < 600 && !evs.some((x) => x.type === 'JobFinished' && x.job_id === r.job_id); i++) {
+      await new Promise((res) => setTimeout(res, 5));
+    }
+    const lib = await folder(f);
+    // the rows now hold the AIFFs (a new format and name), the tracks are the same ones
+    expect(lib.rows.find((x) => x.track_id === 'own:1')?.path).toMatch(/\.aiff?$/i);
+    expect(keepTableSelection(sel, before, await keys())).toBe(sel);
   });
 });

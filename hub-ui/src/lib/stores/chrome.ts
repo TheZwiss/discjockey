@@ -96,6 +96,11 @@ export const detailsHidden = persisted<boolean>('library.details.hidden', false)
  *  library, or no table at all (an empty library or folder, nothing matches); false while it doesn't know yet (the
  *  first load) and again when the page goes. */
 export const trackOffTable = writable(false);
+/** Library sets it true while the inspector's subject is a batch panel, not one track: two or more rows selected, or
+ *  the header's "Make AIFF…" plan of the view (issue 33 stage D). Such a subject stands with no `?track=` in the route
+ *  (the view's plan) and whatever the anchor's row does, so the details never stand empty and the toggle waits for
+ *  nothing; false while Library doesn't have one and again when the page goes. */
+export const batchSubject = writable(false);
 
 const hasWindow = () => typeof window !== 'undefined';
 export const windowWidth: Readable<number> = readable(hasWindow() ? window.innerWidth : 1280, (set) => {
@@ -117,19 +122,19 @@ export function libraryTrack(r: Route): string | null {
 }
 /** Whether Library has a track to show details of: one selected, and not known to be off the table. Without one the
  *  details toggle waits (disabled) and ⌘I does nothing. */
-export function hasDetailsSubject(track: string | null, offTable: boolean): boolean {
-  return track !== null && !offTable;
+export function hasDetailsSubject(track: string | null, offTable: boolean, batch = false): boolean {
+  return batch || (track !== null && !offTable);
 }
 /** Whether Library's details stand (the inspector, and below 1240 px the step-back): wanted, and a track to show.
  *  Never an empty inspector: no selection (a first open, a new playlist, a remembered open from before), the
  *  selected track filtered or searched away or gone, an empty folder: closed, the wish kept for the next track. */
-export function detailsStand(s: DetailsState, track: string | null, offTable: boolean): boolean {
-  return s.open && !s.hidden && hasDetailsSubject(track, offTable);
+export function detailsStand(s: DetailsState, track: string | null, offTable: boolean, batch = false): boolean {
+  return s.open && !s.hidden && hasDetailsSubject(track, offTable, batch);
 }
-export const detailsSubject: Readable<boolean> = derived([route, trackOffTable],
-  ([r, off]) => hasDetailsSubject(libraryTrack(r), off));
-export const detailsShown: Readable<boolean> = derived([inspectorOpen, detailsHidden, route, trackOffTable],
-  ([o, h, r, off]) => detailsStand({ open: o, hidden: h }, libraryTrack(r), off));
+export const detailsSubject: Readable<boolean> = derived([route, trackOffTable, batchSubject],
+  ([r, off, batch]) => hasDetailsSubject(libraryTrack(r), off, batch));
+export const detailsShown: Readable<boolean> = derived([inspectorOpen, detailsHidden, route, trackOffTable, batchSubject],
+  ([o, h, r, off, batch]) => detailsStand({ open: o, hidden: h }, libraryTrack(r), off, batch));
 
 export const chrome: Readable<ChromeLayout> = derived(
   [route, formLibrary, formOther, browserWidth, detailsShown, windowWidth],

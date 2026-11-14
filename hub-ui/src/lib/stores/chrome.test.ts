@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
 import { parseHash } from '../router';
 import {
-  BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chrome, chromeLayout, chromeMotion, chromeMove,
+  batchSubject, BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chrome, chromeLayout, chromeMotion, chromeMove,
   clampBrowserWidth, detailsAfter, detailsHidden, detailsShown, detailsStand, detailsSubject, detailsWanted, edgeCursor,
   edgeKeyWidth, filterFocus, fold, formOther, hasDetailsSubject, inspectorOpen, inspectorToggles, libraryTrack, pickTrack,
   showDetails, trackOffTable, type DetailsState, libraryReturn, placeOf, requestFilterFocus, setBrowserWidth,
@@ -233,6 +233,27 @@ describe('the details stores', () => {
     trackOffTable.set(true);
     expect(get(detailsSubject)).toBe(false);
     trackOffTable.set(false);
+  });
+});
+
+describe('a batch panel is a subject (issue 33 stage D: several rows selected, the header\'s Make AIFF… plan)', () => {
+  const wanted: DetailsState = { open: true, hidden: false };
+  it('it stands with no track in the route, and whatever the anchor\'s row does', () => {
+    expect(detailsStand(wanted, null, false, true)).toBe(true);
+    expect(detailsStand(wanted, 't2', true, true)).toBe(true);
+    expect(hasDetailsSubject(null, false, true)).toBe(true);
+    expect(hasDetailsSubject(null, false)).toBe(false);
+  });
+  it('it is still only a wish: closed or hidden by hand, nothing stands', () => {
+    expect(detailsStand({ open: false, hidden: false }, null, false, true)).toBe(false);
+    expect(detailsStand({ open: true, hidden: true }, null, false, true)).toBe(false);
+  });
+  it('the page\'s word reaches the subject store (the route here is not Library: only the subject says it)', () => {
+    expect(get(batchSubject)).toBe(false);
+    batchSubject.set(true);
+    expect(get(detailsSubject)).toBe(true);
+    batchSubject.set(false);
+    expect(get(detailsSubject)).toBe(false);
   });
 });
 
