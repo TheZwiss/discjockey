@@ -54,7 +54,6 @@ NOTHING_TO_CHANGE = "Nothing to change: these are clean AIFFs already."
 
 # the reasons a file can't run now but may later, in the order `waiting` lists them
 WAITING = ("away", "file_missing", "no_name", "rekordbox_unreadable", "cloud", "rename_blocked", "upgrade_waits")
-NO_FREE_NAME = "no free file name is left for it"
 
 # the kinds in the order the panel lists them: the lossless formats, then the AIFFs that only need a fix, then the
 # lossy ones; a codec not listed (WMA, ...) follows by name
@@ -180,7 +179,8 @@ def format_line(audio_: FileAudio, ext: str) -> str:
 
 def waiting_of(counts: Mapping[str, int]) -> tuple[dict, ...]:
     """`[{"reason", "message", "n"}]` for the files that wait, in `WAITING`'s order, only reasons with files."""
-    return tuple({"reason": r, "message": batches.words(r, "convert", NO_FREE_NAME if r == "rename_blocked" else None),
+    return tuple({"reason": r,
+                  "message": batches.words(r, "convert", rename.NO_FREE_NAME if r == "rename_blocked" else None),
                   "n": counts[r]} for r in WAITING if counts.get(r))
 
 
@@ -308,7 +308,7 @@ def _judge(paths: Paths, state: dict, key: str, rb: Status, entries: Callable[[P
         return None, _Skip("file_missing", UNREADABLE), bool(found)
     if action == "rename":
         if clean is None:  # no free name for it
-            return None, _Skip("rename_blocked", batches.words("rename_blocked", "rename", NO_FREE_NAME)), bool(found)
+            return None, _Skip("rename_blocked", batches.words("rename_blocked", "rename", rename.NO_FREE_NAME)), bool(found)
         names.taken.add(fold(clean))
         new, superseded, needs = clean, None, 0
     else:

@@ -2091,7 +2091,8 @@ answer `no_library` without a music folder.
     eligibility key (`eligible.REASONS`: `named_already`, `downloaded`, `needs_convert`, `away`, …) with its words.
   - `waiting`: `[{reason, message, n}]`, the files that can't run now but may later, each file once and never an item, in
     every scope, in this order: `away`, `file_missing`, `no_name`, `rekordbox_unreadable`, `cloud`, `rename_blocked`,
-    `upgrade_waits`.
+    `upgrade_waits`. `rename_blocked` is only ever the no-free-name case here, and its words (in `waiting` and `skipped`) are
+    "Every name this file could take is in use, so it keeps its name for now. Nothing was changed.", not about rekordbox.
   - `kinds`: `[{kind, label, n}]` for the kinds with files, in the panel's order ("FLAC → AIFF", "WAV → AIFF", "ALAC → AIFF",
     "AIFF 24-bit or above 44.1 kHz → 16-bit", "New tags", "Clean name only", then "{format} → AIFF").
   - `lossy`: how many items have a lossy file now. `space`: `[{drive, needed, free, enough}]`, the room per drive

@@ -13,7 +13,6 @@ export const NOTHING_TO_CHANGE = 'Nothing to change: these are clean AIFFs alrea
 export const BAD_SCOPE = "That isn't a set of files Discjockey can make AIFF.";
 export const NONE_CHANGEABLE = 'None of these can be changed right now.';
 const NO_TRACK_NOTE = "This file isn't in your rekordbox collection, so there was nothing to keep there.";
-const NO_FREE_NAME = 'no free file name is left for it';
 /** the room a drive has unless `FakeState.freeBytes` says otherwise */
 const DEFAULT_FREE = 400_000_000_000;
 
@@ -30,7 +29,7 @@ export const SKIP_WORDS: Record<string, string> = {
   file_missing: "Discjockey can't find the file where it expects it. Run a sync first, so it can find the file again. Nothing was changed.",
   rekordbox_unreadable: "Discjockey can't open this rekordbox version's library yet, so it can't point your rekordbox track at the file. Nothing was changed.",
   cloud: "This track is in rekordbox's Cloud Library Sync, which Discjockey doesn't change yet. Nothing was changed.",
-  rename_blocked: `Discjockey can only give this file its new name while it can point your rekordbox track at it, and it can't right now (${NO_FREE_NAME}). Nothing was changed.`,
+  rename_blocked: 'Every name this file could take is in use, so it keeps its name for now. Nothing was changed.',
   timing: "Discjockey couldn't line the new file up with your rekordbox track exactly, so nothing was changed. Analyse the track again in rekordbox and try again.",
   not_analysed: "rekordbox hasn't analysed this track yet, so Discjockey can't tell exactly where your cues sit. Nothing was changed. Analyse it in rekordbox, quit rekordbox, and try again.",
   changed: 'Your rekordbox track changed while Discjockey was working on it, so nothing was changed. Try again.',

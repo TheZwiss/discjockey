@@ -588,6 +588,9 @@ def test_a_blocked_one_file_answer_still_says_what_the_step_would_do(lib, monkey
     assert (none["action"], none["why_not"], none["kind"], none["to"], none["new_name"], none["bytes"]) == \
         ("rename", "rename_blocked", "name", None, None, 0)
     assert none["name_now"] == "messy name.aiff" and none["from"].startswith("AIFF")
+    blocked = run(paths, state, picked("name"))                  # the plan's skip and wait say it without blaming rekordbox
+    assert [(s.reason, s.message) for s in blocked.skipped] == [("rename_blocked", rbstep.NO_FREE_NAME_WORDS)]
+    assert [(w["reason"], w["message"]) for w in blocked.waiting] == [("rename_blocked", rbstep.NO_FREE_NAME_WORDS)]
 
 
 def test_a_one_file_answer_blocked_for_any_other_reason_has_no_action(lib):

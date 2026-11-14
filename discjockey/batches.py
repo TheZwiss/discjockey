@@ -208,8 +208,11 @@ SWITCHED = {"convert": "clean_aiff", "rename": "needs_convert"}  # the reason of
 def words(reason: str, action: str = "same_track", why: str | None = None) -> str:
     """The words of a skip (`reason` an `eligible.REASONS` key) for an item of `action`. A Convert or Rename item says
     `rbstep.CONVERT_REFUSED`'s sentences (rekordbox lower case, no "upgrade"); `why` (a `rename.BLOCKED_WHY` text)
-    fills `rename_blocked`'s `{reason}`."""
+    fills `rename_blocked`'s `{reason}`, except `rename.NO_FREE_NAME`: a name clash has its own sentence that does not
+    blame rekordbox."""
     if action != "same_track":
+        if reason == "rename_blocked" and why == rename.NO_FREE_NAME:
+            return rbstep.NO_FREE_NAME_WORDS
         if reason == "rename_blocked":
             return rbstep.REFUSED[reason].format(reason=why or rename.BLOCKED_WHY["unreadable"])
         if text := rbstep.OWN_FILE_REFUSED.get(reason) or rbstep.CONVERT_REFUSED.get(reason):

@@ -640,6 +640,7 @@ Console: the new commands (and issue 39's agent docs).
 | Refused, changed | "Your rekordbox track changed while Discjockey was working on it, so nothing was changed. Try again." |
 | Refused, space | "There isn't enough free space for the new AIFF files ({size} needed, {free} free). Nothing was changed." |
 | Refused, rename blocked | "Discjockey can only give this file its new name while it can point your rekordbox track at it, and it can't right now ({reason}). Nothing was changed." |
+| Refused, rename blocked, no free file name | "Every name this file could take is in use, so it keeps its name for now. Nothing was changed." |
 | Undo, rekordbox open | "Quit rekordbox to undo: Discjockey points your rekordbox track back at your old file only while rekordbox is closed." |
 | Undo refused | "This track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely. Nothing was changed." |
 | Result note, no rekordbox track | "This file isn't in your rekordbox collection, so there was nothing to keep there." |
