@@ -16,21 +16,29 @@ const convert = (extra: Partial<TrackAiff> = {}): TrackAiff => ({ action: 'conve
 const rename = (extra: Partial<TrackAiff> = {}): TrackAiff => ({ action: 'rename', why_not: null, kind: 'name', from: AIFF_LINE,
   to: null, name_now: 'neon_riot_-_neonfieber_(Original_Mix).aiff', new_name: 'Neon Riot - Neonfieber.aiff', bytes: 0, lossy: false,
   cdj: null, ...extra });
-const blocked = (why_not: string, extra: Partial<TrackAiff> = {}): TrackAiff => ({ action: null, why_not, kind: null,
+// a file with no step at all (named already, away, ...): the engine answers `action` null
+const none = (why_not: string, extra: Partial<TrackAiff> = {}): TrackAiff => ({ action: null, why_not, kind: null,
   from: 'FLAC · 24-bit · 96 kHz', to: null, name_now: 'Neon Riot - Neonfieber.flac', new_name: null, bytes: 0, lossy: false, cdj: null, ...extra });
+// a blocked step (A-1): the step's own values, `why_not` says why it waits
+const blocked = (why_not: string, extra: Partial<TrackAiff> = {}): TrackAiff => ({ ...convert(), why_not, ...extra });
+// no free name: a rename with no new name and no room needed
+const noName = (extra: Partial<TrackAiff> = {}): TrackAiff => ({ ...rename(), why_not: 'rename_blocked', new_name: null, ...extra });
 const rb = (state: RekordboxStatus['state'], running = false): RekordboxStatus => ({ state, running });
 
 describe('when the card shows', () => {
   it('for a file with an action, and for the three reasons the card explains', () => {
     expect(aiffShown(convert(), null, false)).toBe(true);
     expect(aiffShown(rename(), null, false)).toBe(true);
-    for (const r of ['rekordbox_unreadable', 'cloud', 'rename_blocked']) expect(aiffShown(blocked(r), null, false), r).toBe(true);
+    for (const r of ['rekordbox_unreadable', 'cloud']) expect(aiffShown(blocked(r), null, false), r).toBe(true);
+    expect(aiffShown(noName(), null, false)).toBe(true);
+    // the same reasons without a step (an older answer) still show the card with its Hint
+    for (const r of ['rekordbox_unreadable', 'cloud', 'rename_blocked']) expect(aiffShown(none(r), null, false), r).toBe(true);
   });
   it('not for a download, a clean AIFF with its name, a file that is away or missing, or with nothing known', () => {
     expect(aiffShown(null, null, false)).toBe(false);
     expect(aiffShown(undefined, null, false)).toBe(false);
     for (const r of ['named_already', 'away', 'file_missing', 'downloaded', 'no_name', 'upgrade_waits']) {
-      expect(aiffShown(blocked(r), null, false), r).toBe(false);
+      expect(aiffShown(none(r), null, false), r).toBe(false);
     }
     expect(aiffShown(convert(), null, true)).toBe(false);
   });
@@ -45,9 +53,14 @@ describe('the button', () => {
   it('says Convert to AIFF or Give it its clean name', () => {
     expect([aiffLabel(convert()), aiffAction(convert())]).toEqual([CONVERT_LABEL, 'convert']);
     expect([aiffLabel(rename()), aiffAction(rename())]).toEqual([RENAME_LABEL, 'rename']);
-    // a card that can't run has no action: a clean 16-bit/44.1 AIFF is a Rename, any other file a Convert
+    // a blocked card carries the step it would run: its `action` decides, never the file's format line
     expect(aiffAction(blocked('rekordbox_unreadable'))).toBe('convert');
-    expect(aiffAction(blocked('rekordbox_unreadable', { from: AIFF_LINE }))).toBe('rename');
+    expect(aiffLabel(blocked('cloud'))).toBe(CONVERT_LABEL);
+    expect(aiffAction(noName())).toBe('rename');
+    expect(aiffLabel(noName())).toBe(RENAME_LABEL);
+    // a 16-bit / 44.1 kHz AIFF whose tags are wrong is a Convert, blocked or not (it is not a rename)
+    expect(aiffAction(blocked('rekordbox_unreadable', { kind: 'tags', from: AIFF_LINE }))).toBe('convert');
+    expect(aiffAction(convert({ kind: 'tags', from: AIFF_LINE }))).toBe('convert');
   });
   it('is filled for a lossless file, a file the CDJs refuse and a Rename; outlined for any other lossy file', () => {
     expect(aiffVariant(convert())).toBe('filled');
@@ -55,17 +68,19 @@ describe('the button', () => {
     expect(aiffVariant(convert({ kind: 'mp3', from: 'MP3 · 320 kbps', lossy: true, cdj: CDJ }))).toBe('filled');
     expect(aiffVariant(rename())).toBe('filled');
     expect(aiffVariant(blocked('cloud', { lossy: true }))).toBe('outline');
+    expect(aiffVariant(noName())).toBe('filled');
   });
 });
 
 describe('why the button is off', () => {
   it('rekordbox\'s library can\'t be opened, a track in Cloud Library Sync, no free name: design §8\'s words, each under 90 characters', () => {
     const texts = [aiffBlocked(blocked('rekordbox_unreadable'), rb('ready')), aiffBlocked(blocked('cloud'), rb('ready')),
-      aiffBlocked(blocked('rename_blocked'), null)];
+      aiffBlocked(noName(), null)];
     expect(texts).toEqual([
       "Discjockey can't open rekordbox's library yet, so it can't point your track at the file.",
       "This track is in rekordbox's Cloud Library Sync, which Discjockey doesn't change yet.",
-      "No free file name is left for it, so Discjockey can't point your track at the new name."]);
+      // the engine's own sentence (A6): a name clash, not rekordbox's fault; "Nothing was changed." left out, nothing ran
+      'Every name this file could take is in use, so it keeps its name for now.']);
     for (const t of texts) expect(t!.length).toBeLessThanOrEqual(90);
   });
   it('a Rename waits while rekordbox is open, and when its library can\'t be opened, with the reason first', () => {
@@ -100,9 +115,16 @@ describe('the rows', () => {
     expect(aiffRows(rename())).toEqual([{ key: 'name', k: 'Name', v: null, from: 'neon_riot_-_neonfieber_(Original_Mix).aiff',
       to: 'Neon Riot - Neonfieber.aiff' }]);
   });
-  it('a card that can\'t run says what the file is now, nothing else', () => {
-    expect(aiffRows(blocked('cloud'))).toEqual([{ key: 'now', k: 'Now', v: 'FLAC · 24-bit · 96 kHz' }]);
-    expect(aiffRows(blocked('cloud', { from: null }))).toEqual([]);
+  it('a file with no step says what it is now, nothing else', () => {
+    expect(aiffRows(none('cloud'))).toEqual([{ key: 'now', k: 'Now', v: 'FLAC · 24-bit · 96 kHz' }]);
+    expect(aiffRows(none('cloud', { from: null }))).toEqual([]);
+  });
+  it('a blocked step shows the rows of the step it would run: Now, Becomes, Name, Space', () => {
+    for (const r of ['rekordbox_unreadable', 'cloud']) expect(aiffRows(blocked(r)), r).toEqual(aiffRows(convert()));
+    expect(aiffRows(blocked('cloud')).map((x) => x.key)).toEqual(['now', 'becomes', 'name', 'space']);
+  });
+  it('no free name: the Name row alone, the name once (nothing to point at)', () => {
+    expect(aiffRows(noName())).toEqual([{ key: 'name', k: 'Name', v: null, from: 'neon_riot_-_neonfieber_(Original_Mix).aiff', to: undefined }]);
   });
 });
 
@@ -118,7 +140,8 @@ describe('the outcome rows of a Convert', () => {
     expect(aiffOutcomes(convert(), rb('unreadable', true))).toEqual([]);
     expect(aiffOutcomes(convert(), null)).toEqual([]);
     expect(aiffOutcomes(rename(), rb('ready', true))).toEqual([]);
-    expect(aiffOutcomes(blocked('cloud'), rb('ready'))).toEqual([]);
+    expect(aiffOutcomes(none('cloud'), rb('ready'))).toEqual([]);
+    expect(aiffOutcomes(blocked('cloud'), rb('ready'))).toEqual([]);  // it doesn't run: no outcome to promise
   });
 });
 
@@ -135,7 +158,8 @@ describe('the notes', () => {
     expect([n.above.length, n.below.length]).toEqual([1, 1]);
     expect(aiffNotes(convert())).toEqual({ above: [], below: [] });
     expect(aiffNotes(rename()).below).toEqual([]);
-    expect(aiffNotes(blocked('cloud', { lossy: true })).below).toEqual([]);
+    expect(aiffNotes(none('cloud', { lossy: true })).below).toEqual([]);
+    expect(aiffNotes(blocked('cloud', { lossy: true, kind: 'mp3' })).below).toEqual([]);
   });
 });
 

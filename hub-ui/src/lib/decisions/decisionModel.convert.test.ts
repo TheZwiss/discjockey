@@ -3,7 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import type { RekordboxCheckView, TodoItem } from '$lib/bridge/types';
 import {
-  NOT_IN_REKORDBOX, USB_STEP, batchCheckCard, batchListTitle, checkCard, checkRow, isOwnCheck, replacedCard, undoAsk, undoLabel,
+  CONVERTED_BATCH_LEAD, NOT_IN_REKORDBOX, USB_STEP, batchCheckCard, batchListTitle, checkCard, checkRow, doneLabel, isOwnCheck,
+  replacedCard, undoAsk, undoLabel, undoTitle,
 } from './decisionModel';
 
 const view = (extra: Partial<RekordboxCheckView> = {}): RekordboxCheckView => ({ reason: 'converted', since: '2026-11-14',
@@ -66,6 +67,14 @@ describe('a batch of converts', () => {
     expect(batchCheckCard([check('a', { rekordbox: null })], name)).toBeNull();
     expect(batchCheckCard([check('a', { reason: 'renamed' }), check('b')], name)!.steps).toHaveLength(1);
   });
+  it('leads with the plural words for several files, the check\'s own words for one, and not at all beside an upgrade', () => {
+    expect(batchCheckCard([check('a'), check('b'), check('c')], name)!.lead).toBe(CONVERTED_BATCH_LEAD);
+    expect(CONVERTED_BATCH_LEAD).toBe('Your files are now AIFFs with clean names and tags, and your rekordbox tracks play them with their cues, '
+      + 'playlists and history. The sound is the same.');
+    expect(batchCheckCard([check('a', { reason: 'renamed' }), check('b')], name)!.lead).toBe(CONVERTED_BATCH_LEAD);
+    expect(batchCheckCard([check('a')], name)!.lead).toBe('Your file is now an AIFF with a clean name and tags.');
+    expect(batchCheckCard([check('a'), check('u', { reason: 'repointed' })], name)!.lead).toBeUndefined();
+  });
   it('mixed with an upgrade it keeps the upgrade\'s steps (analyse again for it alone)', () => {
     const c = batchCheckCard([check('a'), check('u', { reason: 'repointed', reload_tag: false })], name)!;
     expect(c.steps.map(words)).toEqual(['Analyse it again, so the waveform shows the full sound (lock the beatgrid first if you set it by hand)',
@@ -99,5 +108,34 @@ describe('Undo for a Convert or a clean name', () => {
     expect(undoAsk([view({ reason: 'repointed' }), view({ reason: 'repointed' })]).title).toBe('Undo 2 replaces?');
     expect([undoLabel(view()), undoLabel(view({ reason: 'renamed' })), undoLabel(view({ reason: 'repointed' })), undoLabel(undefined)])
       .toEqual(['Undo the conversion', 'Undo the clean name', 'Undo the replace', 'Undo the replace']);
+  });
+});
+
+describe('Undo and Done for a check of a file rekordbox doesn\'t hold', () => {
+  const away = { rekordbox: null };
+  it('the question drops the rekordbox clause: only a track that is in rekordbox plays the old file or follows the name', () => {
+    expect(undoAsk([view()]).body).toBe('Your old file goes back where it was, and your rekordbox track plays it again.');
+    expect(undoAsk([view(away)]).body).toBe('Your old file goes back where it was.');
+    expect(undoAsk([view({ rekordbox: { entries: 0, kept: [] } })]).body).toBe('Your old file goes back where it was.');
+    expect(undoAsk([view({ reason: 'renamed' })]).body).toBe('Your file gets its old name back, and your rekordbox track follows it.');
+    expect(undoAsk([view({ reason: 'renamed', ...away })]).body).toBe('Your file gets its old name back.');
+    expect(undoAsk([view(away)]).title).toBe('Undo the conversion?');
+  });
+  it('the tooltip says the kind\'s words: files back for a Convert, names back for a clean name, the new version waits for an upgrade', () => {
+    const c = (reason: string) => view({ reason });
+    expect([undoTitle([c('converted')]), undoTitle([c('converted'), c('converted')]), undoTitle([c('renamed')]),
+      undoTitle([c('renamed'), c('renamed')]), undoTitle([c('converted'), c('renamed')]), undoTitle([c('swapped')]),
+      undoTitle([c('swapped'), c('repointed')]), undoTitle([c('converted'), c('swapped')])]).toEqual([
+      'Puts your old file back', 'Puts your old files back', 'Puts your old name back', 'Puts your old names back',
+      'Puts your old files and names back', 'Puts your old file back; the new version waits again',
+      'Puts your old files back; the new versions wait again', 'Puts your old files and names back; upgraded files wait again']);
+  });
+  it('the filled button says Done when nothing is left in rekordbox, else Done, checked in rekordbox', () => {
+    expect(doneLabel([view(away)])).toBe('Done');
+    expect(doneLabel([view({ reason: 'renamed', ...away }), view(away)])).toBe('Done');
+    expect(doneLabel([view()])).toBe('Done, checked in rekordbox');
+    expect(doneLabel([view(away), view()])).toBe('Done, checked in rekordbox');
+    expect(doneLabel([view({ reason: 'repointed', ...away })])).toBe('Done, checked in rekordbox');  // an upgrade: its check is rekordbox's
+    expect(doneLabel([undefined])).toBe('Done, checked in rekordbox');
   });
 });
