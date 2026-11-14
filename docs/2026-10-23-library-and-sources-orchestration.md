@@ -496,6 +496,13 @@ Results:
     judgements made by looking/listening (spectrum → numbers + verdict), reasons and next steps as data, a cross-screen
     overview, time (waits, what changed since), goal-level health checks, recovery/history, a concept model in the
     agent docs. Step 3's review and the fresh-agent test use these goal-level tasks too.
+    HARD RULES from the user (2026-11-14 night, binding for design, review and build): (1) the CLI gives at least
+    EVERYTHING the window shows a person (every text, number, sentence, badge, colour/dimming meaning, tooltip, count,
+    picture's data) and more where the window leaves things out for clutter; nothing is reachable only in the window.
+    (2) The CLI is for humans too: the same information in readable text by default (`--json` for agents), e.g.
+    quality cutoff + verdict visible to a person in the terminal; pictures as data plus an image file a person (or an
+    agent with vision) can open. Structural guarantee: read commands return the bridge's own payloads (parity test) +
+    UI-side computations moved into the engine. Audits got a "3b. Information shown" section by message (all three).
   - **NOW (2026-11-14 evening, user active):** STAGE D MERGED into main a72530d1 (issue 33 stages A–D all on main, none
     released). No agent running, no worktrees, nothing in the background. First after a compact: check CI on main once
     (`gh run list --branch main --limit 2`; the merge run was cancelled by the next push, the docs push run covers it).
