@@ -507,6 +507,16 @@ Results:
     todo audit Sonnet **434k** (88 calls). Step 1 total ~1.25M (est. 470k). All 95 methods named across the three files
     (script check); 15 "not checked" cells (exact words/tooltips) left for the build, no follow-up agent. Estimated ~150k each without measuring (borrowed the review record); the material per area is
     200-300k of code. Gate now requires a measured `material: <N>k` (checklist line 10).
+    Designer dispatched too early on unverified audits (121/196 UI files named by none), stopped by the user's call
+    (~200k Opus lost, no file). Step 1b: two Sonnet supplement audits in parallel (supp-a 28 files 32k material,
+    supp-b 59 files 61k; brief `brief-39-supp.md`, lists `supp-a.txt`/`supp-b.txt`) → `docs/2026-11-14-cli-audit-
+    supplement-{a,b}.md`. 34 generic building blocks excluded (list in this session's step 1b command); their callers
+    are audited. GATES for the rest of issue 39 (user: "the whole reason we do this design round is to GET IT RIGHT"):
+    (G1) no step starts before its input passes a scripted completeness check on every count (95 methods; every UI
+    file covered or generic with covered callers; every page's screen states; every A-D live-test step), the result
+    told to the user first; (G2) any change to an announced plan is told to the user before it happens, never decided
+    silently; (G3) no "covered by construction" to skip a check; (G4) every agent measured (`material:`) and its real
+    size logged; (G5) each step's output is read by me against its brief before the next dispatch.
   - **NOW (2026-11-14 evening, user active):** STAGE D MERGED into main a72530d1 (issue 33 stages A–D all on main, none
     released). No agent running, no worktrees, nothing in the background. First after a compact: check CI on main once
     (`gh run list --branch main --limit 2`; the merge run was cancelled by the next push, the docs push run covers it).
