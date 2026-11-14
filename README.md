@@ -681,9 +681,10 @@ version is removed because it's no longer needed.
 ## Making files AIFF
 
 A downloaded file is always a 16-bit, 44.1 kHz AIFF with its clean name. Music you added yourself keeps the format and the
-name it came with, which is fine until a player won't play it. Three actions, all in the **Library**, make such a file
-what a download is: **Every file becomes a 16-bit/44.1 kHz AIFF, the format every CDJ plays and every download has; your
-original stays in Superseded/.**
+name it came with, which is fine until a player won't play it. Three actions make such a file what a download is. You
+start them from a file's details or from several selected files, in the **Library** and in **To-do**'s CDJ group
+(below), and **Make AIFF…** in the Library does a whole view: **Every file becomes a 16-bit/44.1 kHz AIFF, the format
+every CDJ plays and every download has; your original stays in Superseded/.**
 
 - **Convert to AIFF** (a track's details): the file becomes a new AIFF with the song's tags and cover and the name
   `Artist - Title.aiff`, in the same folder. The details first show what you have now, what it becomes and how much room
@@ -714,10 +715,12 @@ cues, playlists and history.
 **One batch, one backup, one undo.** Several files are one **batch**, as with Upgrade all: one copy of rekordbox's library
 made first, a progress line ("Converting 3 of 52: Artist - Title"), **Stop** between files and **Resume · {k} left** where
 you started it. It ends with "Made 52 files AIFF" and "{k} left as they are". The finished batch is one line under **Check
-in rekordbox** with the steps for rekordbox (analyse the tracks again so the waveform shows; on a USB stick, sync the
-stick in rekordbox), and **Undo** puts the old files back with their old names and rekordbox's tracks back too, until you
-press **Done, checked in rekordbox**. If Discjockey or the Mac stops halfway, the file in work is finished or put back
-the next time it opens your library.
+in rekordbox**. There is nothing to analyse again, because the sound is the same and Discjockey wrote rekordbox's text
+itself; the one step is for a USB stick: it still plays the old files, so **Rebuild the stick** in rekordbox before your
+next gig (only for tracks that are in rekordbox; a batch of clean names has no step). **Undo all {n}** (**Undo {n}**
+when some can't be undone) puts the old files back with their old names and rekordbox's tracks back too, one file's
+check says **Undo the conversion** or **Undo the clean name**, all until you press **Done, checked in rekordbox**. If
+Discjockey or the Mac stops halfway, the file in work is finished or put back the next time it opens your library.
 
 **Won't play well on CDJs.** A group on the **To-do** page (hint "CDJs refuse or stutter on these files") lists your own
 files that the two players you meet in clubs, the CDJ-3000 and the CDJ-2000NXS2, refuse or stutter on:

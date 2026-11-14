@@ -224,7 +224,7 @@ shows:
            "key": …, "label": "<words>"},
  "items": [{"track": "<key>", "name": "Artist - Title", "action": "convert" | "rename", "kind": "<kind>",
             "from": "FLAC · 24-bit · 96 kHz", "path": "<relative>", "new_path": "<relative>",
-            "superseded": "<relative>" | null, "bytes": int, "cdj": null | {"reason", "short", "words"}}],
+            "superseded": "<relative>" | null, "bytes": int, "cdj": null | {"short", "words"}}],
  "skipped": [{"track", "name", "reason", "message"}],
  "waiting": [{"reason", "message", "n"}],
  "kinds": [{"kind", "label", "n"}], "lossy": int, "total": int,
@@ -261,10 +261,12 @@ Refusals, all `{"ok": false, "kind": "refused", …}` with exit 1 and no batch (
 
 **Undo.** `batch undo <id>` puts each file back (newest first), as for any batch. A file Convert made and then renamed
 (an AIFF whose old file held the clean name) takes two undo steps, which `batch undo` does in one. A file that can't be
-undone is listed with its reason, and the exit is 1.
+undone is listed with its reason, and the exit is 1. For one file the hub's buttons have their commands too: `upgrade
+undo <track>` is a file's **Undo the conversion** (after a Convert) or **Undo the clean name** (after Give it its clean
+name), and `rekordbox checked <track>` is its **Done, checked in rekordbox** (no undo after it).
 
 **Reading the two lists agents ask for.** The CDJ group's state is `convert --all cdj --dry-run --json`: `plan.items`
-are the files Convert all would run (each with its `cdj` reason, `short` and `words`), `plan.total` is the group's
+are the files Convert all would run (each with its `cdj` `short` and `words`; a To-do row's `cdj` also has the `reason`), `plan.total` is the group's
 "Convert all" number, and the sum of `plan.waiting[].n` is how many more are in the group but can't run now. A view's
 Make-all state is `convert --all lossless --in playlist:<name> --dry-run --json` (leave `--in` out for the whole
 library; `unlisted` is "Not in a playlist"), and one selection's is `convert <track>… --dry-run --json`, whose `items`,
