@@ -107,6 +107,19 @@ describe('the panel', () => {
     expect(footAction(t({}), null)).toBeNull();
     expect(footAction(t({ status: 'not_lossless', in_playlists: false }), null)).toBeNull();
   });
+  it('foot with the AIFF card: its button stands in for Open in to-do on a CDJ file, else both, the filled one first', () => {
+    const weak = t({ status: 'not_lossless' });
+    const filled = { variant: 'filled' as const, cdj: false };
+    expect(footAction(t({}), null, filled)).toBe('aiff');                       // lossless: not on the to-do list
+    expect(footAction(weak, null, { variant: 'filled', cdj: true })).toBe('aiff');   // the to-do item is the CDJ item
+    expect(footAction(weak, null, { variant: 'outline', cdj: true })).toBe('aiff');
+    expect(footAction(weak, null, filled)).toBe('aiff_todo');
+    expect(footAction(weak, null, { variant: 'outline', cdj: false })).toBe('todo_aiff');
+    expect(footAction(t({ status: 'not_lossless', in_playlists: false }), null, { variant: 'outline', cdj: false })).toBe('aiff');
+    // a decision wins; the card isn't there then, and without it the foot is as before
+    expect(footAction(weak, { kind: 'upgrade' }, filled)).toBe('upgrade');
+    expect(footAction(weak, null, null)).toBe('todo');
+  });
   it('file name without the folders', () => {
     expect(fileName('Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff')).toBe('Armin Hermann - Get Naughty.aiff');
     expect(fileName('x.aiff')).toBe('x.aiff');

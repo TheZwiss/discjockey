@@ -8,7 +8,9 @@
   // player, "In rekordbox"; Replace with lossless and Discard in the foot). Without an upgrade the cutoff follows as a
   // number over the spectrum, then Current file (the player, Format, Source, Added, File) with Show in Finder as its
   // link (not for a file that isn't there: the pictures say why). The foot holds the decision's buttons (its one
-  // filled button), else Open in to-do (outline) for any other track on the to-do list, else nothing. The head's place line
+  // filled button), else Open in to-do (outline) for any other track on the to-do list, else nothing. Without a decision
+  // a file Convert or Give it its clean name can do something for (or says why it can't) has the AIFF card after the
+  // track card, its button in the foot (issue 33 stage D, plan §6.1; lib/decisions AiffCard, AiffFoot). The head's place line
   // says where the file sits, in the Folder and Subfolder columns' words ("in Hardtechno › 2019", plan library stage 5
   // D11); the playlists it is in are the Playlists row, by name ("–" for none).
   // A playlist song without a file (`pending`, the selected row: a song only just read isn't a track `track()` knows)
@@ -21,8 +23,8 @@
     Spectrum, StatCard, Surface, TrackHead, envelope,
   } from '$lib/components';
   import {
-    CheckCards, CheckFoot, DuplicateChoice, DuplicateFlow, DuplicateFoot, UpgradeCards, UpgradeFlow, UpgradeFoot, canSwap, upgradeWays,
-    type Decision,
+    AiffCard, AiffFlow, AiffFoot, CheckCards, CheckFoot, DuplicateChoice, DuplicateFlow, DuplicateFoot, UpgradeCards, UpgradeFlow,
+    UpgradeFoot, aiffShown, aiffVariant, canSwap, upgradeWays, type Decision,
   } from '$lib/decisions';
   import { Panel } from '$lib/frames';
   import { artistTitle, cutoffStat, dateShort, fileAwayWords, qualityWords } from '$lib/format';
@@ -54,10 +56,19 @@
   } = $props();
 
   const t = $derived(detail);
+  // the file isn't there (drive away, folder or file not found): the picture says why, the player stays off, there is
+  // nothing to show in Finder; the AIFF card isn't offered either
+  const away = $derived(t ? fileAwayWords(t) : null);
+  // the AIFF card (Convert, Give it its clean name): only without a decision, for a file there
+  const aiff = $derived(t && aiffShown(t.aiff, decision, !!away) ? t.aiff : null);
+  const aiffFlow = new AiffFlow({ onact: () => onacted?.(null) });
+  $effect(() => { if (t) aiffFlow.follow(t.track_id); });
+  // rekordbox as it is now, asked while the card shows (for each track) and when the window gets focus back
+  $effect(() => { if (!aiff || !t) return; void t.track_id; return aiffFlow.attach(); });
   // the upgrade decision's Now/New and compare player stand in for the cutoff and the file's own spectrum and player
   const upgrading = $derived(decision?.kind === 'upgrade' && !!t?.upgrade);
   const cutoff = $derived(t && !upgrading ? cutoffStat(t) : null);
-  const action = $derived(t ? footAction(t, decision) : null);
+  const action = $derived(t ? footAction(t, decision, aiff ? { variant: aiffVariant(aiff), cdj: !!aiff.cdj } : null) : null);
   // the decisions' state (the "In rekordbox" pick, the file that stays, the running job), as in To-do's panel
   const upFlow = new UpgradeFlow({ onact: () => onacted?.(null) });
   const dupFlow = new DuplicateFlow({ onact: (keep) => onacted?.(keep) });
@@ -70,9 +81,6 @@
   // or the playlists weren't read yet
   const playlists = $derived(t ? playlistsLine(t) : null);
   const hasFile = $derived(!!t && t.status !== 'missing');
-  // the file isn't there (drive away, folder or file not found): the picture says why, the player stays off, there is
-  // nothing to show in Finder
-  const away = $derived(t ? fileAwayWords(t) : null);
 </script>
 
 {#snippet waiting()}<Skeleton lines={6} height={18} gap={10} />{/snippet}
@@ -90,6 +98,7 @@
         </TrackHead>
       </Surface>
 
+      {#if aiff}<AiffCard {aiff} rekordbox={aiffFlow.rekordbox} problem={aiffFlow.problem} />{/if}
       {#if check}<CheckCards item={check} />{/if}
       {#if dup}<DuplicateChoice item={dup} flow={dupFlow} source={playSource} />{/if}
 
@@ -157,6 +166,14 @@
     <CheckFoot item={check} flow={upFlow} />
   {:else if action === 'duplicate' && dup}
     <DuplicateFoot item={dup} flow={dupFlow} />
+  {:else if action === 'aiff' && t && aiff}
+    <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
+  {:else if action === 'aiff_todo' && t && aiff}
+    <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
+    <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
+  {:else if action === 'todo_aiff' && t && aiff}
+    <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
+    <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
   {:else if action === 'todo'}
     <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
   {/if}

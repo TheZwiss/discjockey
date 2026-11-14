@@ -2,12 +2,14 @@
 // choice does the same thing on both pages (mockup todo-decisions). One flow per details panel: its cards (the choice,
 // disabled while a job runs) and its foot (the buttons) read the same flow. Every action is a write job through
 // runJob (its toast on a refusal); the finished job bumps filesVersion, and each page re-fetches what it shows.
-import { api, runJob, type JobOutcome } from '$lib/bridge/client';
+import { api, rekordboxStatus, runJob, type JobOutcome } from '$lib/bridge/client';
 import { onEvent } from '$lib/bridge/events';
 import { waitForJob } from '$lib/stores/jobs';
 import type {
-  AiffBatchResult, DuplicatePair, JobSnap, JobStart, RekordboxCheckView, Result, TodoItem, UndoResult,
+  AiffBatchResult, DuplicatePair, JobSnap, JobStart, RekordboxCheckView, RekordboxStatus, Result, TodoItem, UndoResult,
 } from '$lib/bridge/types';
+import { latestOnly } from '$lib/latest';
+import { aiffProblem } from './aiffModel';
 import { confirm } from '$lib/components/confirm';
 import { toasts } from '$lib/stores/toasts';
 import { problemCopy } from '$lib/copy';
@@ -77,6 +79,60 @@ export class UpgradeFlow {
     const r = await runJob(api.undo_upgrade([track_id]));
     this.busy = null;
     if (!r.ok) this.undoProblem = r.message;
+  }
+}
+
+/** Convert to AIFF and Give it its clean name for one track (issue 33 stage D, plan §6.1): the button's running state,
+ *  what a refusal or a skip said (the card's warn note, until the next track or the next press), and rekordbox as it is
+ *  now (`rekordboxStatus`: the one answer the Sync page reads too), asked by `attach` while the card shows and when the
+ *  window gets focus back (the user quits rekordbox, then returns) and after a job. `origin` is where the press came
+ *  from (the job's batch scope: `library:selection` / `todo:selection`). One per panel. */
+export class AiffFlow {
+  busy = $state(false);
+  problem = $state<string | null>(null);
+  /** null until the first answer (or when the bridge couldn't say): the card then leaves out what depends on it */
+  rekordbox = $state<RekordboxStatus | null>(null);
+  #for = '';
+  #origin: 'library' | 'todo';
+  #onact: (() => void) | undefined;
+  #reads = latestOnly();
+
+  /** `onact`: called as the job starts, so a page keeps the track in view while its file and name change under it. */
+  constructor(opts: { onact?: () => void; origin?: 'library' | 'todo' } = {}) {
+    this.#onact = opts.onact;
+    this.#origin = opts.origin ?? 'library';
+  }
+
+  /** A new track starts over: no old problem. */
+  follow(track_id: string): void {
+    if (track_id === this.#for) return;
+    this.#for = track_id;
+    this.problem = null;
+  }
+  async read(): Promise<void> {
+    const ticket = this.#reads.next();
+    const r = await rekordboxStatus();
+    if (this.#reads.isLatest(ticket) && r) this.rekordbox = r;
+  }
+  /** Reads rekordbox's state now and again whenever the window gets focus, while the card shows; returns what stops it. */
+  attach(): () => void {
+    void this.read();
+    const onFocus = () => void this.read();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }
+  /** The card's button: Convert to AIFF, or Give it its clean name. A refusal (rekordbox open, the song's reason) and a
+   *  skipped track stay in `problem`; no toast, the card says it where the button is. */
+  async run(track_id: string, action: 'convert' | 'rename'): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    this.problem = null;
+    this.#onact?.();
+    const out = await runJob<AiffBatchResult>(action === 'rename' ? api.rename([track_id]) : api.convert([track_id], this.#origin),
+      { quiet: true, success: false });
+    this.busy = false;
+    this.problem = aiffProblem(out);
+    void this.read();
   }
 }
 
