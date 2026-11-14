@@ -18,7 +18,8 @@
   import Foot from '../shell/Foot.svelte';
   import NowPlayingRow from '../shell/NowPlayingRow.svelte';
   import { ColumnFrame, ListPanelFrame, Panel } from '../frames';
-  import { UpgradeCards } from '../decisions';
+  import { AiffBatchPanel, UpgradeCards } from '../decisions';
+  import { galleryAiffPanels } from './aiffBatchGallery';
   import {
     AccountPanel, AddRow, LinkGuide, CopyCode, NumberedSteps, ChoiceGroup, OutcomeList, SecretField, StepStrip, type AccountActions, type PanelPhase, type StripStep,
     AwayTag, Badge, Banner, Button, Card, FolderField, Chip, ChipGroup, ComparePlayer, Cover, DayBar, DeltaBar, Dialog, DropZone, EmptyState, ExternalLink,
@@ -60,6 +61,8 @@
   /** Gallery only: starts a scroller at a given offset, so a stuck state shows without scrolling by hand. */
   function scrollAt(node: HTMLElement, y: number) { requestAnimationFrame(() => { node.scrollTop = y; }); }
   let inspectorOpen = $state(true);
+  // AiffBatchPanel: every state from a stand-in flow (aiffBatchGallery.ts)
+  const aiffPanels = galleryAiffPanels();
   let galleryWay = $state<string>('same');
   let galleryUpWay = $state<'swap' | 'add_new'>('swap');
   // multi-select (selectionModel): four rows of one group
@@ -1513,6 +1516,20 @@
         upgrade={specFull} loading={false} swap way={galleryUpWay} onway={(w) => (galleryUpWay = w)} />
       <UpgradeCards track={{ ...weak, audio_url: null, source_format_line: null, upgrade: upDifferent }} current={specCut}
         upgrade={null} loading swap={false} way="add_new" onway={() => {}} />
+    </div>
+  </section>
+
+  <section data-test="gallery-aiffbatch">
+    {@render head('AiffBatchPanel', 'Make all lossless files AIFF, a selection\'s Convert and the CDJ group\'s Convert all (lib/decisions): decide, running, ended in one Panel; the counts lead past 8 files; the filled button off with its reason under it; nothing to change has none')}
+    <div class="row top">
+      {#each aiffPanels as g (g.key)}
+        <div class="col tight" data-test="g-aiff-{g.key}">
+          <span class="cap w320">{g.cap}</span>
+          <div class="panelbox" style="height: 640px">
+            <AiffBatchPanel scope={g.scope} origin={g.origin} label={g.label} flow={g.flow} oncancel={() => {}} ondone={() => {}} />
+          </div>
+        </div>
+      {/each}
     </div>
   </section>
 
