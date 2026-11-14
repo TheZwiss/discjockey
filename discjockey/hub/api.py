@@ -625,13 +625,14 @@ class HubApi:
         rows = [] if count_only else self._aiff_batches()
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
-        cdj_all = (views.cdj_counts(self._planned(state, {"kind": "cdj"}).to_dict())
-                   if members and filt in (None, "all", "cdj") else (0, 0))
+        cdj_plan = self._planned(state, {"kind": "cdj"}) if members and filt in (None, "all", "cdj") else None
+        cdj_all = views.cdj_counts(cdj_plan.to_dict()) if cdj_plan else (0, 0)
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
                           questions, groups, files, self._audio, counted, away, rb, present,
                           views.stopped_batch(rows, kinds=("upgrade",)), self._auto_upgrade_on(),
                           {i: r.started_by for i, r in checked.items()}, cdj_all,
-                          views.stopped_batch(rows, scope="todo:"), {i: r.kind for i, r in checked.items()})
+                          views.stopped_batch(rows, scope="todo:"), {i: r.kind for i, r in checked.items()},
+                          cdj_plan.waits if cdj_plan else None)
 
     def _rekordbox_status(self) -> rekordbox.Status:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs

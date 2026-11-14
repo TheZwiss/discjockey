@@ -1705,15 +1705,20 @@ def _upgrade_all(rows: list[dict], stopped: tuple[int, int] | None) -> dict:
 
 
 def _cdj_item(k: str, e: dict, problem: cdj_rule.CdjProblem, cover: Url | None, away: Mapping[str, str] | None,
-              rb: RekordboxStatus | None, present: Mapping[str, str] | None) -> dict:
-    """An item of the CDJ group (see `todo`). `aiff` is `eligible.aiff_action` with the stored facts only (no tag read,
-    no timing): none of these files is a clean AIFF, so the stored facts alone decide Convert's answer."""
+              rb: RekordboxStatus | None, present: Mapping[str, str] | None,
+              waits: Mapping[str, str] | None = None) -> dict:
+    """An item of the CDJ group (see `todo`). `aiff` is why Convert can't run now, null when it can. When the caller ran
+    the group's plan (`waits`: song key -> the reason of every file that waits, `AiffPlan.waits`) a waiting file says
+    that reason, the very answer the head's `all.k` counts (a file in Cloud Library Sync waits there, which the stored
+    facts can't tell); else, and for a file the plan doesn't hold back, it is `eligible.aiff_action` with the stored
+    facts only (no tag read, no timing): none of these files is a clean AIFF, so the stored facts alone decide
+    Convert's answer."""
     state_of = row_file_state(e, away)
     _action, verdict = eligible.aiff_action(e, None, rb or UNKNOWN_REKORDBOX, None,
                                             present=(present or {}).get(k) or present_of(state_of))  # type: ignore[arg-type]
+    aiff = (waits or {}).get(k) or (verdict.reason if isinstance(verdict, eligible.Skip) else None)
     return {**track_row(k, e, cover), "group": "cdj", "detail": problem.short, "free": False, "file_state": state_of,
-            "cdj": {"reason": problem.reason, "short": problem.short, "words": problem.words},
-            "aiff": verdict.reason if isinstance(verdict, eligible.Skip) else None}
+            "cdj": {"reason": problem.reason, "short": problem.short, "words": problem.words}, "aiff": aiff}
 
 
 def cdj_counts(plan: Mapping) -> tuple[int, int]:
@@ -1746,7 +1751,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
          rb: RekordboxStatus | None = None, present: Mapping[str, str] | None = None,
          stopped: tuple[int, int] | None = None, auto_on: bool = True,
          started_by: Mapping[int, str] | None = None, cdj_all: tuple[int, int] = (0, 0),
-         cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None) -> dict:
+         cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None,
+         cdj_waits: Mapping[str, str] | None = None) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
     CDJs, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
@@ -1784,8 +1790,10 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     Stage D (plan §1.5, §3): the group `cdj` lists `cdj.group_members(state, include_hidden=True)`: the user's own
     files whose stored facts CDJs play badly, with no parked upgrade, hidden as any item (the one place To-do lists an
     own file outside Upgrade ready, a question and a duplicate; such a song is listed there only). An item is a row
-    with `detail` = its `short`, `cdj: {reason, short, words}` and `aiff` (`eligible.aiff_action`'s answer from the
-    stored facts and `rb`, rekordbox's state, no timing: null when Convert can run, else the reason key). The group
+    with `detail` = its `short`, `cdj: {reason, short, words}` and `aiff` (null when Convert can run, else the reason
+    key: the reason the `cdj` plan holds the file back for (`cdj_waits`, `AiffPlan.waits`: the very files `all.k`
+    counts, a Cloud Library Sync file among them) when the api ran the plan, else, and for a file the plan doesn't
+    hold back, `eligible.aiff_action`'s answer from the stored facts and `rb`, rekordbox's state, no timing). The group
     carries `all: {n, k}` (`cdj_all`: n what Convert all can do now, k what waits; the api takes both from the `cdj`
     `aiff_plan`: `total` and the sum of `waiting[].n`) and `stopped: {batch_id, left} | null` (`cdj_stopped`: the newest
     stopped `todo:*` batch, `stopped_batch`). `batch_kinds`: AIFF batch id -> `aiff_batches.kind` for the batch items
@@ -1842,7 +1850,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
                 hidden += 1
                 if not show_hidden:
                     continue
-            items["cdj"].append(_cdj_item(k, e, members[k], cover, away, rb, present))
+            items["cdj"].append(_cdj_item(k, e, members[k], cover, away, rb, present, cdj_waits))
             listed.add(k)
             continue
         if not todo_listed(k, e, held, never):

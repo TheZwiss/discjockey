@@ -241,6 +241,17 @@ def test_the_cdj_group_counts_and_convert_all_runs_it(hub):
     assert (row.started_by, row.scope) == ("cdj_all", "todo:cdj") and f.result["done"] == 2
 
 
+def test_the_cdj_groups_rows_and_head_agree_on_what_can_run_now(hub):
+    lib, box, api, rec = hub(["mp3", "mp3_free", "clean"])
+    for i in (0, 1):
+        set_kbps(lib, i, 400)
+    (lib.paths.root / lib.olds[1]).unlink()                   # waits: its file is gone
+    group = cdj_group(api)
+    rows = {i["track_id"]: i["aiff"] for i in group["items"]}
+    assert rows == {lib.tracks[0]: None, lib.tracks[1]: "file_missing"}
+    assert group["all"] == {"n": sum(why is None for why in rows.values()), "k": sum(why is not None for why in rows.values())}
+
+
 def test_a_stopped_convert_all_is_the_cdj_groups_resume(hub):
     lib, box, api, rec = hub(["mp3", "mp3_free"], running=True)
     set_kbps(lib, 0, 400)

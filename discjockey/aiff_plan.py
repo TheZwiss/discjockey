@@ -28,7 +28,7 @@ included (its tracks can't be known), and stops the batch when rekordbox runs: s
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
 from . import audio, batches, cdj, convert, db, library, playlists_file as pf, quality, rbstep, rename
@@ -114,6 +114,9 @@ class AiffPlan:
     space: tuple[dict, ...]
     superseded_bytes: int
     rekordbox: dict
+    # song key -> the `WAITING` reason, of every file that waits in this scope (whatever the scope; not in `to_dict`):
+    # the CDJ group's rows say the same as its `all.k`
+    waits: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def total(self) -> int:
@@ -364,6 +367,7 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
     items: list[Item] = []
     left: list[Left] = []
     waits: dict[str, int] = {}
+    waiting_keys: dict[str, str] = {}
     in_rekordbox = False
     for key in keys:
         item, skip, held = _judge(paths, state, key, rb, entries, tags, names, problems.get(key), only)
@@ -373,6 +377,7 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
             continue
         if skip.reason in WAITING:
             waits[skip.reason] = waits.get(skip.reason, 0) + 1
+            waiting_keys[key] = skip.reason
         if selected:
             e = state["tracks"].get(key)
             left.append(Left(key, rbstep.track_name(e, key) if e else key, skip.reason, skip.message))
@@ -383,7 +388,8 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
         kinds=kinds_of(items),
         lossy=sum(1 for i in items if i.lossy), space=space_of(paths, items, convert.free_space),
         superseded_bytes=sum(i.old_bytes for i in items),
-        rekordbox={"state": rb.state, "running": rb.running, "needs_closed": in_rekordbox or unknown})
+        rekordbox={"state": rb.state, "running": rb.running, "needs_closed": in_rekordbox or unknown},
+        waits=waiting_keys)
 
 
 def read_plan(paths: Paths, state: dict, scope: Mapping, *, place: Place | None, running: bool,

@@ -689,6 +689,25 @@ def test_the_todo_group_counts_are_the_cdj_plans_and_its_items_are_the_plans_ite
     assert {i["track_id"] for i in group["items"] if i["aiff"] is None} == {i.track for i in plan.items} == {"hidden"}
 
 
+def test_a_row_of_the_cdj_group_says_what_the_head_counts_a_cloud_file_waits_in_both(lib):
+    """The plan keeps each waiting file's reason (`waits`, not in `to_dict`), and To-do's rows take it: a file in Cloud
+    Library Sync waits in the plan, so its row says `cloud` where the stored facts alone would say it can run."""
+    paths, state = lib
+    state["tracks"]["hidden"].update(hidden=False)
+    plan = run(paths, state, {"kind": "cdj"}, entries=lambda file: [row(cloud=True)] if file.name == "h.m4a" else [])
+    assert dict(plan.waits) == {"aac": "cloud"} and "waits" not in plan.to_dict()
+    assert views.cdj_counts(plan.to_dict()) == (plan.total, 1) == (2, 1)
+
+    def aiff_of(**kw):
+        out = views.todo(state, "all", False, {}, date(2026, 11, 13), cdj_all=views.cdj_counts(plan.to_dict()), **kw)
+        return {i["track_id"]: i["aiff"] for g in out["groups"] if g["key"] == "cdj" for i in g["items"]}
+
+    assert aiff_of() == {"wavpack": None, "aac": None, "hidden": None}              # no plan ran: the quick answer
+    rows = aiff_of(cdj_waits=plan.waits)
+    assert rows == {"wavpack": None, "aac": "cloud", "hidden": None}
+    assert sorted(k for k, why in rows.items() if why is None) == sorted(i.track for i in plan.items)   # n rows run
+
+
 # --- the room a file's AIFF needs comes from the file ---
 
 def test_a_file_without_a_rekordbox_track_or_a_stored_length_is_sized_from_its_header(lib):

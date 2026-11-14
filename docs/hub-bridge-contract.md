@@ -2139,7 +2139,8 @@ answer `no_library` without a music folder.
 - **`todo()`**: `TodoFilter` and the group list gain `cdj` after `upgrade_ready` (label "Won't play well on CDJs", hint "CDJs
   refuse or stutter on these files"; `chips.cdj`). An item is a row (`TodoItem`) with `group: "cdj"`, `detail` = its `cdj.short`,
   `free` false, `cdj: {reason: format\|bitrate\|bits\|rate_high\|rate_low, short, words}` and `aiff: reason\|null` (null:
-  Convert can run now). The group lists an own file with stored facts the rule flags (CDJ-3000 and CDJ-2000NXS2: MP3 / AAC up
+  Convert can run now; the reason is the one the head's `all.k` counts: a file the `cdj` plan holds back says its reason there, a
+  Cloud Library Sync file's `cloud` among them, so the group's not-hidden rows with `aiff` null are exactly `all.n`). The group lists an own file with stored facts the rule flags (CDJ-3000 and CDJ-2000NXS2: MP3 / AAC up
   to 320 kbps and 48 kHz, WAV / AIFF / FLAC / ALAC 16- or 24-bit at 44.1-96 kHz; anything else), no parked upgrade (that song
   is Upgrade ready's), hidden as any item; a song listed there is listed nowhere else. The group carries `all: {n, k}`
   (what Convert all can do now / what waits, from the `cdj` plan: `total` and the sum of `waiting[].n`; no `m`) and
