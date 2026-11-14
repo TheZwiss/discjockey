@@ -474,6 +474,21 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
+  - **NIGHT RUN (2026-11-14 ~23:55, user asleep, go: "finish the design work through the night"):** scope = steps 2-5
+    only (design → adversarial review → design fixes → build plan), then STOP for the user's go before any build.
+    Step 2 running: Opus designer, brief `brief-39-design.md`, output `docs/2026-11-14-agent-cli-design.md` (est.
+    ~280k). On its notice: log size; G1/G5 script check of the design (catalogue covers 95 methods, required sections
+    present: principles, grammar+catalogue, output/exit codes, long runs, open window, writes/dry run, selection,
+    identity, person-only steps, sandbox, UI→engine rule with audit row ids, goals-and-questions, A-D live tests
+    walk-through, keep/change/drop table, completeness tests + agent docs, risks); gaps → back to the designer by
+    message (if <~300k) or a fresh Sonnet with the gap list. Step 3: fresh Opus adversarial review (material: design +
+    6 audits ~ measure; writes `docs/2026-11-14-agent-cli-design-review.md` with numbered findings, each Critical/
+    Important/Minor + stated fix where possible; walks the A-D live tests and the goal questions on paper). Step 4:
+    fixes (Sonnet if all fixes stated, Opus if new decisions). Step 5: Opus build plan `docs/2026-11-15-agent-cli-
+    plan.md` (Sonnet groups, material-measured, <250k each, write-side groups get own review + rehearsal on a copy).
+    Hourly heartbeat (session cron, :17): `wc -l` of the running step's file only; stalled → message the agent.
+    Morning summary for the user (short): the CLI for an agent, what changed vs today and why, review findings, plan
+    size. Gates G1-G5 below apply.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
