@@ -510,7 +510,10 @@ Results:
     Designer dispatched too early on unverified audits (121/196 UI files named by none), stopped by the user's call
     (~200k Opus lost, no file). Step 1b: two Sonnet supplement audits in parallel (supp-a 28 files 32k material,
     supp-b 59 files 61k; brief `brief-39-supp.md`, lists `supp-a.txt`/`supp-b.txt`) → `docs/2026-11-14-cli-audit-
-    supplement-{a,b}.md`. 34 generic building blocks excluded (list in this session's step 1b command); their callers
+    supplement-{a,b}.md` (A Sonnet **223k**, 43 calls, est. ~100k; B Sonnet **284k**, 63 calls, est. ~140k: file-list audits land ~2x
+    material+work). G1 check: 95/95 methods, 162/162 non-generic UI files, A-D live-test rows 11/16/12/12 for 3/9/4/6
+    plan steps; 37 Library screen states unnamed (24 families) → supplement C (Sonnet). Supplement C Sonnet **90k** (15 calls):
+    37/37 states mapped (re-checked by script). G1 passed on all counts. Issue 39 total so far ~2.05M. 34 generic building blocks excluded (list in this session's step 1b command); their callers
     are audited. GATES for the rest of issue 39 (user: "the whole reason we do this design round is to GET IT RIGHT"):
     (G1) no step starts before its input passes a scripted completeness check on every count (95 methods; every UI
     file covered or generic with covered callers; every page's screen states; every A-D live-test step), the result
