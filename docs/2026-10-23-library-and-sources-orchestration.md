@@ -474,7 +474,13 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
-  - **NOW (2026-11-13 ~04:00, user asleep, "work through the night"):** STAGE C MERGED de95052; stage D building (see the Stage D entry below; briefs
+  - **NOW (2026-11-14 evening, user active):** STAGE D MERGED into main a72530d1 (issue 33 stages A–D all on main, none
+    released). No agent running, no worktrees, nothing in the background. First after a compact: check CI on main once
+    (`gh run list --branch main --limit 2`; the merge run was cancelled by the next push, the docs push run covers it).
+    User paused agents ("no new agents"): start nothing without the user's go. Open, user decides the order: live
+    tests A–D with the user (each plan's last section), release only on go, issue 40 = stage E (design round, Opus
+    ~250k), then 41 + 39 together, 24 last (my suggestion).
+  - (old) **2026-11-13 ~04:00, user asleep, "work through the night":** STAGE C MERGED de95052; stage D building (see the Stage D entry below; briefs
     `brief-33-D*.md` in the scratchpad). (Old: fix round B, agent
     a3cae3cb1fbba6d5f, brief `brief-33-FB-C.md` in scratchpad a540fc7e…; findings `r2c-findings.md`). On its notice:
     log its `subagent_tokens`, `ps`, `check_public.sh --require-denylist` on its branch, merge `feat/rekordbox-c-fb`
