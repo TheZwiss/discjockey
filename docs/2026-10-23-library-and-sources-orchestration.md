@@ -503,6 +503,10 @@ Results:
     quality cutoff + verdict visible to a person in the terminal; pictures as data plus an image file a person (or an
     agent with vision) can open. Structural guarantee: read commands return the bridge's own payloads (parity test) +
     UI-side computations moved into the engine. Audits got a "3b. Information shown" section by message (all three).
+    Step 1 sizes: library audit Sonnet **391k** (70 calls), app audit Sonnet **425k** (86 calls; over the 400k cap),
+    todo audit Sonnet **434k** (88 calls). Step 1 total ~1.25M (est. 470k). All 95 methods named across the three files
+    (script check); 15 "not checked" cells (exact words/tooltips) left for the build, no follow-up agent. Estimated ~150k each without measuring (borrowed the review record); the material per area is
+    200-300k of code. Gate now requires a measured `material: <N>k` (checklist line 10).
   - **NOW (2026-11-14 evening, user active):** STAGE D MERGED into main a72530d1 (issue 33 stages A–D all on main, none
     released). No agent running, no worktrees, nothing in the background. First after a compact: check CI on main once
     (`gh run list --branch main --limit 2`; the merge run was cancelled by the next push, the docs push run covers it).
