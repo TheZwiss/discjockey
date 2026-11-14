@@ -3,7 +3,7 @@
 // what was replaced, Undo), and duplicates ("Which file stays?"). Pure: the words, the choices and their outcomes,
 // and which of them the selected Library track waits for (`decisionFor`). The components beside it render them.
 import type {
-  AiffBatchResult, Alignment, AutoRefused, DuplicateItem, FileSide, ItemResult, ProblemKind, RekordboxCheckView, TodoItem, TrackDetail,
+  AiffBatchResult, Alignment, AutoRefused, BatchCheck, DuplicateItem, FileSide, ItemResult, ProblemKind, RekordboxCheckView, TodoItem, TrackDetail,
   UndoResult, Upgrade,
 } from '$lib/bridge/types';
 import { isBatch, isDuplicate } from '$lib/bridge/types';
@@ -174,7 +174,12 @@ export function autoNotes(up: Pick<Upgrade, 'auto_waits' | 'auto_refused'>): { w
 /** One numbered step: its words, parts in bold (a rekordbox command), a muted note after them, and the tracks it is
  *  for when it is for some of several (`list`, names under the words: the batch card's Reload Tag). */
 export type CheckStep = { parts: { text: string; strong?: boolean }[]; note?: string; list?: string[] };
-export type CheckCard = { summary: string; steps: CheckStep[]; hint: string | null };
+/** `lead`: the check's own words when they say more than the steps (a Convert: what became of the file), shown above them. */
+export type CheckCard = { summary: string; steps: CheckStep[]; hint: string | null; lead?: string };
+/** The checks Convert to AIFF and Give it its clean name leave (issue 33 stage D): Discjockey wrote rekordbox's text
+ *  itself and the sound is the same, so there is no Reload Tag and no analyse step. */
+export const isOwnCheck = (c: Pick<RekordboxCheckView, 'reason'> | undefined): boolean =>
+  c?.reason === 'converted' || c?.reason === 'renamed';
 /** An added file is never found by Auto Relocate (its name or extension can differ, and the old file now sits in
  *  Superseded/): the user points the old track at it by hand. */
 const RELOCATE_NEW: CheckStep = { parts: [{ text: 'Right-click your old track › ' }, { text: 'Relocate', strong: true },
@@ -212,6 +217,13 @@ export function checkCard(c: RekordboxCheckView | undefined): CheckCard | null {
   const analyse: CheckStep = { parts: [{ text: 'Analyse it again, so the waveform shows the full sound' }], note: BEATGRID };
   const reload: CheckStep = { parts: [{ text: 'Right-click the track › ' }, { text: 'Reload Tag', strong: true }] };
   const reloads = c.reload_tag ? [reload] : [];
+  // a Convert's rekordbox track plays the new file with everything it had: only a USB stick still has the old one; a
+  // clean name (and a file rekordbox doesn't have) leaves nothing to do, the check's words say it whole
+  if (c.reason === 'converted') {
+    if (!inRekordbox(c)) return null;
+    return { summary: 'same track, cues kept', steps: [USB_STEP], hint: keptLine(c.rekordbox?.kept) || null, lead: c.text };
+  }
+  if (c.reason === 'renamed') return null;
   if (c.reason === 'repointed') {
     if (!inRekordbox(c)) return null;
     return { summary: 'same track, cues kept', steps: [...reloads, analyse, USB_STEP],
@@ -245,6 +257,18 @@ export type ReplacedRow = { icon: 'file' | 'folder'; name: string; where: string
 export type ReplacedCard = { title: string; rows: ReplacedRow[]; undo: string };
 /** "Replaced with lossless": where each file is now, and what Undo puts back. Null for a check of another kind. */
 export function replacedCard(c: RekordboxCheckView | undefined, item: Pick<TodoItem, 'path' | 'quality'>): ReplacedCard | null {
+  if (c?.reason === 'converted') {
+    return { title: 'Converted to AIFF', undo: inRekordbox(c) ? 'Undo points rekordbox back at your old file.'
+      : 'Undo puts your old file back as it was.', rows: [
+      { icon: 'file', name: 'New AIFF with a clean name', where: item.path ? `in ${dirOf(item.path)}` : 'in your library' },
+      { icon: 'folder', name: 'Your old file', where: c.old_path ? `in ${dirOf(c.old_path)}` : 'in Superseded/' }] };
+  }
+  if (c?.reason === 'renamed') {
+    return { title: 'Given its clean name', undo: inRekordbox(c) ? 'Undo gives it its old name and points rekordbox back at it.'
+      : 'Undo gives it its old name back.', rows: [
+      { icon: 'file', name: item.path ? fileName(item.path) : 'Its clean name', where: 'its name now' },
+      { icon: 'file', name: c.old_name ?? 'Its old name', where: 'its name before' }] };
+  }
   if (!c || (c.reason !== 'swapped' && c.reason !== 'added_as_new' && c.reason !== 'repointed')) return null;
   const title = item.quality === 'lossless' ? 'Replaced with lossless' : 'Replaced with the better version';
   const here = item.path ? `in ${dirOf(item.path)}` : 'in your library';
@@ -409,6 +433,8 @@ export function beforeLine(w: Pick<SelectionWays, 'n' | 'm' | 'k'>): string | nu
 }
 /** "Upgrade all · n" is offered from two: with one, the row's own button does it. */
 export const upgradeAllShown = (n: number): boolean => n >= 2;
+/** The CDJ group's head: "Convert all · n" (shown from two, as "Upgrade all"). */
+export const convertAllLabel = (n: number): string => `Convert all · ${n}`;
 /** The selection's main button, named by the result and the count the picked way replaces. */
 export function replaceManyLabel(count: number, items: Pick<TodoItem, 'detail'>[]): string {
   return items.every(lossless) ? `Replace ${count} with lossless` : `Replace ${count} with the better versions`;
@@ -549,13 +575,16 @@ export function checkTracks(items: TodoItem[]): TodoItem[] {
   return items.flatMap((i) => (isBatch(i) ? i.batch.tracks : [i]));
 }
 /** A batch item's row in the to-do list: "{n} tracks upgraded" over "{day} · Same track" (§3). */
-export const batchRowName = (n: number): string => `${n} tracks upgraded`;
+export const batchRowName = (n: number, kind: BatchCheck['kind'] = null): string =>
+  (kind === 'convert' || kind === 'mixed' ? `${n} tracks` : `${n} tracks upgraded`);
 /** What a batch's row says it was: "Same track", or for the sync's Auto-upgrade "Upgraded during your sync" (plan §3). */
 export const AUTO_BATCH_SUB = 'Upgraded during your sync';
 export const isAutoBatch = (startedBy: string | null | undefined): boolean => startedBy === 'auto_upgrade';
-export function batchRowSub(started: string | null, today: string, startedBy: string | null = null): string {
+export function batchRowSub(started: string | null, today: string, startedBy: string | null = null,
+  kind: BatchCheck['kind'] = null, renamed = false): string {
   const day = sinceText(started, today);
-  const how = isAutoBatch(startedBy) ? AUTO_BATCH_SUB : 'Same track';
+  // a Convert batch says what it made ("Clean name" when every check is a clean name, the engine's own word)
+  const how = isAutoBatch(startedBy) ? AUTO_BATCH_SUB : kind === 'convert' || kind === 'mixed' ? (renamed ? 'Clean name' : 'Made AIFF') : 'Same track';
   return day ? `${day} · ${how}` : how;
 }
 /** The "In rekordbox" card of a batch: the steps for the tracks rekordbox has (Reload Tag only for the tracks whose
@@ -563,10 +592,14 @@ export function batchRowSub(started: string | null, today: string, startedBy: st
  *  them (each row then says so). */
 export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string): CheckCard | null {
   const rb = tracks.filter((t) => inRekordbox(t.check));
-  if (!rb.length) return null;
-  const many = rb.length > 1;
-  const reload = rb.filter((t) => t.check?.reload_tag);
-  const moved = rb.filter((t) => t.check?.reason === 'swapped' && t.check.moved);
+  // a clean name leaves nothing to do in rekordbox; a Convert only the USB stick (the sound is the same, the text is
+  // written): the steps below are for the upgrades among them
+  const ups = rb.filter((t) => !isOwnCheck(t.check));
+  const usb = rb.filter((t) => t.check?.reason !== 'renamed');
+  if (!usb.length) return null;
+  const many = usb.length > 1;
+  const reload = ups.filter((t) => t.check?.reload_tag);
+  const moved = ups.filter((t) => t.check?.reason === 'swapped' && t.check.moved);
   const steps: CheckStep[] = [];
   if (moved.length) {
     steps.push({ parts: [{ text: moved.length > 1 ? 'These show as missing: ' : 'This one shows as missing: ' },
@@ -579,11 +612,20 @@ export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => stri
       { text: 'Reload Tag', strong: true }, { text: ' · ' }, { text: "don't select all", strong: true },
       { text: ': it replaces every name you changed in rekordbox' }], list: reload.map(nameOf) });
   }
-  steps.push({ parts: [{ text: many ? 'Analyse them again, so the waveform shows the full sound'
-    : 'Analyse it again, so the waveform shows the full sound' }], note: BEATGRID });
+  if (ups.length) {
+    steps.push({ parts: [{ text: ups.length > 1 ? 'Analyse them again, so the waveform shows the full sound'
+      : 'Analyse it again, so the waveform shows the full sound' }], note: BEATGRID });
+  }
   steps.push(many ? { parts: [{ text: 'On a USB stick? The stick still plays the old files. ' },
     { text: 'Rebuild the stick', strong: true }, { text: ' in rekordbox before your next gig' }] } : USB_STEP);
   return { summary: many ? 'same tracks, cues kept' : 'same track, cues kept', steps, hint: null };
+}
+/** The batch list's title ("Upgraded", "Made AIFF" for Converts, "Clean names" when all are clean names, "Changed" for a mix). */
+export function batchListTitle(tracks: Pick<TodoItem, 'check'>[]): string {
+  const r = tracks.map((t) => t.check?.reason);
+  if (r.length && r.every((x) => x === 'converted')) return 'Made AIFF';
+  if (r.length && r.every((x) => x === 'renamed')) return 'Clean names';
+  return r.some((x) => x === 'converted' || x === 'renamed') ? 'Changed' : 'Upgraded';
 }
 /** One track's row on a batch card or in several selected checks: its new file's name (batch) or what is left to do
  *  in rekordbox (several checks: the to-do row's own line), and the notes design §8 gives a track's result. */
@@ -592,7 +634,7 @@ export type CheckRow = { track_id: string; name: string; sub: string; notes: str
 export function checkRow(i: TodoItem, name: string, sub: 'file' | 'detail'): CheckRow {
   const c = i.check;
   const notes = [keptLine(c?.rekordbox?.kept)];
-  if (c?.reason === 'repointed' && !inRekordbox(c)) notes.push(NOT_IN_REKORDBOX);
+  if ((c?.reason === 'repointed' || isOwnCheck(c)) && !inRekordbox(c)) notes.push(NOT_IN_REKORDBOX);
   return { track_id: i.track_id, name, cover_url: i.cover_url, can_undo: !!i.can_undo,
     sub: sub === 'file' && i.path ? fileName(i.path) : i.detail, notes: notes.filter(Boolean) };
 }
@@ -616,6 +658,27 @@ export function undoFoot(tracks: Pick<TodoItem, 'track_id' | 'can_undo'>[], refu
   return { ids, label: ids.length === tracks.length ? all : undoManyLabel(ids.length),
     cant: none ? `${none} can't be undone` : null };
 }
+/** What an undo asks and what its button says, by what is undone: an upgrade's replace (its new version waits again), a
+ *  Convert (the old file comes back) or a clean name (the old name comes back); a mix of kinds says the common words.
+ *  `confirmLabel` is the button's. One check: its own question; several: how many. */
+export function undoAsk(checks: (Pick<RekordboxCheckView, 'reason'> | undefined)[]): { title: string; body: string; confirmLabel: string } {
+  const own = checks.filter(isOwnCheck).length;
+  const n = checks.length;
+  if (!own) return n === 1 ? { title: 'Undo the replace?', confirmLabel: 'Undo the replace',
+    body: checks[0]?.reason === 'swapped' ? 'Your old audio goes back in the file. The new version waits in Upgrades ready again.'
+      : 'Your old file goes back where it was. The new version waits in Upgrades ready again.' } : undoManyConfirm(n);
+  const reasons = new Set(checks.map((c) => c?.reason));
+  if (n === 1 && reasons.has('converted')) return { title: 'Undo the conversion?', confirmLabel: 'Undo the conversion',
+    body: 'Your old file goes back where it was, and your rekordbox track plays it again.' };
+  if (n === 1) return { title: 'Undo the clean name?', confirmLabel: 'Undo the clean name',
+    body: 'Your file gets its old name back, and your rekordbox track follows it.' };
+  const what = own === n && reasons.size === 1 ? (reasons.has('converted') ? 'conversions' : 'clean names') : 'changes';
+  return { title: `Undo ${n} ${what}?`, confirmLabel: `Undo ${n}`,
+    body: own === n && reasons.size === 1 ? (reasons.has('converted') ? 'Your old files go back where they were.' : 'Your files get their old names back.')
+      : 'Your old files and names go back where they were.' };
+}
+/** The single check's undo button: "Undo the replace" for an upgrade, "Undo the conversion", "Undo the clean name". */
+export const undoLabel = (c: Pick<RekordboxCheckView, 'reason'> | undefined): string => undoAsk([c]).confirmLabel;
 export const undoManyConfirm = (n: number) => ({ title: `Undo ${n} ${plural(n, 'replace', 'replaces')}?`,
   body: n === 1 ? 'Your old file goes back where it was. The new version waits in Upgrades ready again.'
     : 'Your old files go back where they were. The new versions wait in Upgrades ready again.',

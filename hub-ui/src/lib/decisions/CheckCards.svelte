@@ -6,7 +6,7 @@
   // note, the engine's whole instruction.
   import type { TodoItem } from '$lib/bridge/types';
   import { Hint, NoteCard, NumberedSteps, Surface } from '$lib/components';
-  import { checkCard, localDay, replacedCard, sinceText } from './decisionModel';
+  import { checkCard, isOwnCheck, localDay, replacedCard, sinceText } from './decisionModel';
 
   let { item }: { item: TodoItem } = $props();
 
@@ -19,6 +19,7 @@
   <Surface kind="card" tone="warn" label="In rekordbox" summary={card.summary} data-test="rekordbox-check"
     data-reason={item.check?.reason}>
     <div class="col">
+      {#if card.lead}<p class="lead" data-test="check-lead">{card.lead}</p>{/if}
       <NumberedSteps tone="warn" test="rekordbox-steps">
         {#each card.steps as s, i (i)}
           <li><span class="step">{#each s.parts as p, j (j)}{#if p.strong}<b>{p.text}</b>{:else}{p.text}{/if}{/each}{#if s.note}{' '}<span class="note">{s.note}</span>{/if}</span></li>
@@ -47,11 +48,13 @@
     </Surface>
   {/if}
 {:else}
-  <NoteCard tone="warn" data-test="rekordbox-check">{item.check?.text ?? item.detail}</NoteCard>
+  <!-- a Convert or a clean name has nothing left to do (rekordbox follows the file): its words are a note, not a warning -->
+  <NoteCard tone={isOwnCheck(item.check) ? 'info' : 'warn'} data-test="rekordbox-check" data-reason={item.check?.reason}>{item.check?.text ?? item.detail}</NoteCard>
 {/if}
 
 <style>
   .col { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
+  .lead { margin: 0; font-size: var(--fs-small); line-height: 1.45; color: var(--text); }
   .step { font-size: var(--fs-small); line-height: 17px; color: var(--text); }
   .step b { font-weight: var(--fw-semi); }
   .note { color: var(--text-muted); }

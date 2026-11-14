@@ -483,3 +483,36 @@ describe('AiffBatchFlow (Make all lossless files AIFF, a selection\'s Convert, t
     expect(flow.view!.end).toMatchObject({ kind: 'done' });
   });
 });
+
+describe('Undo of a Convert and a clean name (issue 33 stage D §6.3)', () => {
+  const yes = () => { const stop = confirmRequest.subscribe((p) => { if (p) queueMicrotask(() => { stop(); answerConfirm(true); }); }); };
+  const asked = () => { let title = ''; const stop = confirmRequest.subscribe((p) => { if (p) { title = p.title; queueMicrotask(() => { stop(); answerConfirm(true); }); } }); return () => title; };
+  it('the toast is the engine\'s words, the question is a Convert\'s own', async () => {
+    const { group } = setup('todo:check-converted', 1000);
+    const one = (await group('rekordbox_check'))!.items.find((i) => i.track_id === 'own:13')!;
+    expect(one.check!.reason).toBe('converted');
+    const flow = new ChecksFlow();
+    const title = asked();
+    await flow.undo(['own:13'], one.check);
+    expect(title()).toBe('Undo the conversion?');
+    expect(get(toasts)).toMatchObject([{ tone: 'success', title: 'Conversion undone. Your old file is back.' }]);
+  });
+  it('several converts ask by count and say the engine\'s words for several', async () => {
+    const { group } = setup('todo:check-convert-batch', 1000);
+    const batch = (await group('rekordbox_check'))!.items.find((i) => i.batch)!;
+    const tracks = batch.batch!.tracks;
+    const flow = new ChecksFlow();
+    const title = asked();
+    await flow.undo(tracks.map((t) => t.track_id), undefined, tracks.map((t) => t.check));
+    expect(title()).toBe('Undo 3 conversions?');
+    expect(get(toasts)).toMatchObject([{ tone: 'success', title: 'Undone. Your old files are back.' }]);
+  });
+  it('the single card\'s undo (UpgradeFlow) toasts the same words', async () => {
+    const { group } = setup('todo:check-renamed', 1000);
+    const one = (await group('rekordbox_check'))!.items.find((i) => i.track_id === 'own:7')!;
+    yes();
+    const { UpgradeFlow } = await import('./flows.svelte');
+    await new UpgradeFlow().undo('own:7', one.check);
+    expect(get(toasts)).toMatchObject([{ tone: 'success', title: 'Clean name undone. Your old name is back.' }]);
+  });
+});

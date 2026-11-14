@@ -9,6 +9,8 @@
   // Done, checked in rekordbox, Find a version, Show in Finder; a lossy file has none in the app (it is bought and
   // dropped), so its foot stays empty. The upgrade decision and the rekordbox check are the shared ones
   // (lib/decisions: UpgradeCards + UpgradeFoot, CheckCards + CheckFoot, one UpgradeFlow), as in the Library's details.
+  // A file in the CDJ group (issue 33 stage D §6.3) shows the Library's AIFF card, with its warn note of what the CDJs
+  // refuse, and "Convert to AIFF" as the foot's filled button (AiffCard + AiffFoot, one AiffFlow); Hide stays at the title's end.
   import { untrack } from 'svelte';
   import type { Spectrum as Spec, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
@@ -21,7 +23,8 @@
     Badge, Button, ExternalLink, Hint, KeyValue, MiniPlayer, NoteCard, QualityBadge, Spectrum, StatCard, Surface,
     TrackHead, WriteButton, envelope,
   } from '$lib/components';
-  import { CheckCards, CheckFoot, UpgradeCards, UpgradeFlow, UpgradeFoot } from '$lib/decisions';
+  import { AiffCard, AiffFlow, AiffFoot, CheckCards, CheckFoot, UpgradeCards, UpgradeFlow, UpgradeFoot } from '$lib/decisions';
+  import { aiffShown } from '$lib/decisions/aiffModel';
   import { Panel } from '$lib/frames';
   import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText, upgradeWays } from './todoModel';
   import BoughtFile from './BoughtFile.svelte';
@@ -77,6 +80,14 @@
     upSpec = u && u.ok ? u.spectrum : null;
   }
 
+  // A file the CDJs refuse (the CDJ group's item) offers Convert to AIFF as the lib/decisions AiffCard with its own foot;
+  // never beside an upgrade (which wins, as in the Library) and not for a file that is away
+  const aiff = $derived(item?.group === 'cdj' && !track.upgrade && aiffShown(track.aiff, null, !!driveAway) ? track.aiff : null);
+  const aiffFlow = new AiffFlow({ origin: 'todo', onact: () => onacted?.() });
+  $effect(() => aiffFlow.follow(track.track_id));
+  // rekordbox as it is now, asked while the card shows and when the window gets focus back
+  $effect(() => { if (!aiff) return; void track.track_id; return aiffFlow.attach(); });
+
   // the "In rekordbox" pick, the running action and an undo's refusal; a new track starts over
   const flow = new UpgradeFlow({ onact: () => onacted?.() });
   $effect(() => flow.follow(track.track_id));
@@ -117,6 +128,7 @@
       </TrackHead>
     </Surface>
 
+    {#if aiff}<AiffCard {aiff} rekordbox={aiffFlow.rekordbox} problem={aiffFlow.problem} />{/if}
     {#if act.rekordboxDone && item}<CheckCards {item} />{/if}
     {#if item?.group === 'other'}
       <NoteCard data-test="other">{item.detail}</NoteCard>
@@ -209,10 +221,12 @@
       data-test="wrong-song">Find a version</Button>
   {:else if act.main === 'finder'}
     <Button variant="filled" wide onclick={finder} data-test="show-in-finder">Show in Finder</Button>
+  {:else if aiff}
+    <AiffFoot track_id={track.track_id} {aiff} flow={aiffFlow} />
   {/if}
 {/snippet}
 
-<Panel {head} foot={act.main ? foot : undefined} />
+<Panel {head} foot={act.main || aiff ? foot : undefined} />
 
 <style>
   /* the format reads as one piece ("Opus · 135 kbps"): a narrow panel wraps before it, never inside it */

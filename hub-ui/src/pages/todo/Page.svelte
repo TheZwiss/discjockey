@@ -12,6 +12,10 @@
   // two or more Upgrade ready items show the selection panel (lib/decisions/UpgradeSelection). The group's head
   // carries "Upgrade all · n" (selects the group) or, while a Same track batch is stopped, "Resume · k left". A batch
   // keeps its panel until the next pick, also when its tracks have left the group (`pinned`).
+  // The CDJ group (stage D §6.3, "Won't play well on CDJs"): selectable like Upgrade ready; its head carries "Convert
+  // all · n" (selects the group) or, while a todo batch is stopped, "Resume · k left"; one item has the AIFF card in its
+  // details, two or more the AIFF batch panel (lib/decisions AiffBatchPanel, scope `tracks`, or `cdj` for the whole
+  // group), kept with its progress and result until the next pick (`aiffPinned`).
   // Check in rekordbox (stage B §6.4): a Same track batch's open checks are one row ("3 tracks upgraded", its panel
   // BatchCheckCards: the steps for all, a row per track, Done and Undo all); two or more checks selected show the
   // same panel for the selection ("4 checks selected", Done for all, Undo n).
@@ -19,14 +23,14 @@
   import { api } from '$lib/bridge/client';
   import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
   import { hub, writeBlockedReason } from '$lib/stores/hub';
-  import type { Fail, Todo, TodoFilter, TodoItem, TrackDetail } from '$lib/bridge/types';
+  import type { AiffScope, Fail, Todo, TodoFilter, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { filesVersion } from '$lib/stores/hub';
   import {
     NO_SELECTION, clickSelect, dropSelected, escapeSelection, isSelected, keepSelected, moveSelected, onlySelected,
     selectAll, selectOne, type Selection,
   } from '$lib/components';
-  import { BatchCheckCards, ChecksFlow, UpgradeSelection, upgradeBatch } from '$lib/decisions';
-  import { batchRowName, batchRowSub, checkTracks, localDay, resumeLabel, upgradeAllLabel, upgradeAllShown } from '$lib/decisions/decisionModel';
+  import { AiffBatchPanel, BatchCheckCards, ChecksFlow, UpgradeSelection, aiffBatch, upgradeBatch } from '$lib/decisions';
+  import { batchRowName, batchRowSub, checkTracks, convertAllLabel, localDay, resumeLabel, upgradeAllLabel, upgradeAllShown } from '$lib/decisions/decisionModel';
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
   import {
@@ -36,8 +40,9 @@
   import { artistTitle, rowAway } from '$lib/format';
   import {
     FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
-    batchListStep, checksPanelShows, coalesce, heldChecks, keepPinned, multiChecks, multiScope, openCount, queueRows, rowBadge, rowDim,
-    selectAfterHide, selectFromTrack, upgradeAllKeys, upgradeGroup, wholeUpgradeGroup, withHeldItem, MULTI_GROUPS,
+    batchListStep, cdjAllKeys, cdjGroup, checksPanelShows, coalesce, heldChecks, keepPinned, multiCdj, multiChecks, multiScope, openCount,
+    queueRows, rowBadge, rowDim, selectAfterHide, selectFromTrack, upgradeAllKeys, upgradeGroup, wholeCdjGroup, wholeUpgradeGroup,
+    withHeldItem, MULTI_GROUPS,
     type CheckHold, type TodoHold,
   } from './todoModel';
   import Details from './Details.svelte';
@@ -86,9 +91,23 @@
   } });
   const upGroup = $derived(upgradeGroup(data));
   const wholeGroup = $derived(multiUp && wholeUpgradeGroup(upGroup, selItems));
+  // two or more CDJ files: the AIFF batch panel for them, or for the whole group (Convert all). `aiffPinned`: the panel
+  // of a batch it started (or a Resume, or one found running) stays, with its progress and result, until the next pick,
+  // whatever the selection becomes as the files leave the group; `pinnedScope` is what it was started for
+  const cdjG = $derived(cdjGroup(data));
+  const multiCdjSel = $derived(multiCdj(selItems));
+  const cdjScope = $derived<AiffScope | null>(!multiCdjSel ? null
+    : wholeCdjGroup(cdjG, selItems) ? { kind: 'cdj' } : { kind: 'tracks', tracks: selItems.map((i) => i.track_id) });
+  let aiffPinned = $state(false);
+  let pinnedScope = $state<AiffScope | null>(null);
+  const aiffRun = $derived(!!aiffBatch.view && aiffPinned);
+  const aiffScope = $derived<AiffScope | null>(aiffRun ? pinnedScope ?? { kind: 'cdj' } : cdjScope);
+  /** the track's name and cover as this list shows them (the panel's rows, and the names of a batch's end) */
+  const known = $derived(new Map(items.filter((i) => !isBatch(i)).map((i) => [i.track_id,
+    { name: artistTitle(i.artist, i.title), cover_url: i.cover_url }])));
   // a batch's panel with its progress or result, kept until the next pick: it comes before the checks' panel, which the
   // finished batch's own check row (another group, picked by position) would otherwise put in its place
-  const pinnedBatch = $derived(pinned && !!upgradeBatch.view);
+  const pinnedBatch = $derived((pinned && !!upgradeBatch.view) || aiffRun);
   // a batch the hub runs that this window didn't start (it was reloaded): its panel follows it from the start
   $effect(() => {
     const j = $hub.job;
@@ -98,6 +117,15 @@
       if (!had && upgradeBatch.view) pinned = true;
     });
   });
+  // an AIFF batch the hub runs that this window didn't start (it was reloaded): its panel follows it from the start
+  $effect(() => {
+    const j = $hub.job;
+    untrack(() => {
+      const had = !!aiffBatch.view;
+      aiffBatch.adopt(j);
+      if (!had && aiffBatch.view) { aiffPinned = true; pinnedScope = null; }
+    });
+  });
   // the list follows a running batch: a fresh answer per track done, so the rows and counts move as the engine's state does
   const liveLoad = coalesce(() => load());
   let seenDone = -1;
@@ -105,6 +133,12 @@
     const v = upgradeBatch.view;
     const step = batchListStep(untrack(() => seenDone), v ? { phase: v.phase, done: v.done } : null);
     untrack(() => { seenDone = step.seen; if (step.reload) liveLoad(); });
+  });
+  let seenAiff = -1;
+  $effect(() => {
+    const v = aiffBatch.view;
+    const step = batchListStep(untrack(() => seenAiff), v ? { phase: v.phase, done: v.done } : null);
+    untrack(() => { seenAiff = step.seen; if (step.reload) liveLoad(); });
   });
   // the names of the listed upgrades, for a batch's end to name tracks it had no progress row for (Resume, adopt)
   $effect(() => {
@@ -199,7 +233,7 @@
       // the checks the panel acted on: the rows that still hold them stay selected; none left ends the hold
       const checks = !fromQuery && checkHold ? heldChecks(after, checkHold) : null;
       if (checkHold && !checks) checkHold = null;
-      sel = fromQuery ? selectOne(fromQuery) : upgradeBatch.view && pinned ? keepPinned(sel, before.map(itemKey), after.map(itemKey))
+      sel = fromQuery ? selectOne(fromQuery) : (upgradeBatch.view && pinned) || aiffRun ? keepPinned(sel, before.map(itemKey), after.map(itemKey))
         : held ? selectOne(itemKey(held))
         : checks ? { keys: checks.keys, anchor: checks.keys[0] }
         : keepSelected(sel, before.map(itemKey), after.map(itemKey), (a) => keepSelection(a, before, after));
@@ -264,6 +298,8 @@
     checksFlow.follow(next.keys.join('|'));
     pinned = false;
     upgradeBatch.clear();
+    aiffPinned = false;
+    aiffBatch.clear();
   }
   function pickOne(key: string | null) { picked(selectOne(key)); }
   function choose(key: string, e: MouseEvent) {
@@ -301,6 +337,34 @@
     pinned = true;
     void upgradeBatch.resume(batch_id);
   }
+  /** "Convert all · n": the CDJ group selected, its first item the anchor; the panel then offers it. */
+  function convertAll() {
+    const keys = cdjAllKeys(cdjG);
+    picked(keys.length ? { keys, anchor: keys[0] } : NO_SELECTION);
+  }
+  /** "Resume · k left" of a stopped Convert all: confirmed when the batch started, so it runs at once; the panel shows it. */
+  function resumeCdj(batch_id: number) {
+    if (aiffBatch.view?.phase === 'running') return;
+    aiffBatch.clear();
+    aiffPinned = true;
+    pinnedScope = null;
+    void aiffBatch.resume(batch_id);
+  }
+  /** The AIFF panel's Convert (or Resume, Try again): it stays, with its progress, until the next pick. */
+  function aiffActed() {
+    aiffPinned = true;
+    pinnedScope = cdjScope ?? pinnedScope;
+  }
+  /** The AIFF panel's Done: back to the group's first item (or the list's first one). */
+  function aiffDone() {
+    aiffPinned = false;
+    const first = cdjG?.items[0] ?? items[0];
+    pickOne(first ? itemKey(first) : null);
+  }
+  /** The AIFF panel's Cancel: back to the item the selection started from. */
+  function aiffCancel() {
+    picked(escapeSelection(sel));
+  }
   /** The selection panel's Done: back to the group's first item (or the list's first one). */
   function batchDone() {
     pinned = false;
@@ -310,6 +374,10 @@
   // the panel's own Resume says it while it shows that batch's end, so the head doesn't say it twice
   const headResume = $derived(upGroup?.stopped && !(batchShown && upgradeBatch.view?.end?.resume?.batch_id === upGroup.stopped.batch_id)
     ? upGroup.stopped : null);
+
+  // the panel's own Resume says it while it shows that batch's end, so the head doesn't say it twice
+  const headResumeCdj = $derived(cdjG?.stopped && !(aiffRun && aiffBatch.view?.end?.resume?.batch_id === cdjG.stopped.batch_id)
+    ? cdjG.stopped : null);
 
   // Part B: the "Wrong song?" / "Find a version" dialog opens for this track.
   let versionsFor = $state<TrackDetail | null>(null);
@@ -340,8 +408,8 @@
   {@const batch = isBatch(i) ? i.batch : null}
   <!-- a batch's row: the first track's cover, "{n} tracks upgraded" over "{day} · Same track" (the sync's: "· Upgraded during your sync") -->
   {#snippet lead()}<Cover url={i.cover_url} seed={batch?.tracks[0]?.track_id ?? i.track_id} size={28} />{/snippet}
-  {#snippet name()}{batch ? batchRowName(batch.size) : artistTitle(i.artist, i.title)}{/snippet}
-  {#snippet sub()}{batch ? batchRowSub(batch.started, localDay(new Date()), batch.started_by) : [i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
+  {#snippet name()}{batch ? batchRowName(batch.size, batch.kind) : artistTitle(i.artist, i.title)}{/snippet}
+  {#snippet sub()}{batch ? batchRowSub(batch.started, localDay(new Date()), batch.started_by, batch.kind, batch.tracks.every((t) => t.check?.reason === 'renamed')) : [i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
   {#snippet trailing()}
     {@const b = rowBadge(i)}
     {@const away = batch ? null : rowAway(i)}
@@ -369,6 +437,17 @@
   {/if}
 {/snippet}
 
+{#snippet cdjAction()}
+  <!-- as Upgrade all: a stopped batch is resumed, not started again, and "Convert all · 1" would only be the row's own button -->
+  {#if headResumeCdj}
+    {@const r = headResumeCdj}
+    <Button variant="link" size="sm" disabled={!!$writeBlockedReason || aiffBatch.view?.phase === 'running'}
+      title={$writeBlockedReason ?? undefined} onclick={() => resumeCdj(r.batch_id)} data-test="todo-cdj-resume">{resumeLabel(r.left)}</Button>
+  {:else if !cdjG?.stopped && upgradeAllShown(cdjG?.all?.n ?? 0)}
+    <Button variant="link" size="sm" onclick={convertAll} data-test="todo-convert-all">{convertAllLabel(cdjG?.all?.n ?? 0)}</Button>
+  {/if}
+{/snippet}
+
 {#snippet main()}
   <PageHeader title="To-do" sub={data ? headerSub(data) : undefined} readStatus />
 
@@ -388,11 +467,11 @@
     {:else}
       <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(openCount(only.items, extraKey)) : undefined} hint={only?.hint} summaryTest="todo-count"
         header={data.hidden_count || showHidden ? hiddenToggle : undefined} style={COLS}
-        action={only?.key === 'upgrade_ready' ? groupAction : undefined}
+        action={only?.key === 'upgrade_ready' ? groupAction : only?.key === 'cdj' ? cdjAction : undefined}
         grow={{ rows: rowCount, tall: true }} data-test="todo-list">
         {#each data.groups as g (g.key)}
           {#if sections}<ListSection label={g.label} summary={String(openCount(g.items, extraKey))} hint={g.hint}
-            action={g.key === 'upgrade_ready' ? groupAction : undefined} test="todo-section" />{/if}
+            action={g.key === 'upgrade_ready' ? groupAction : g.key === 'cdj' ? cdjAction : undefined} test="todo-section" />{/if}
           {#each g.items as i (itemKey(i))}{@render row(i)}{/each}
         {/each}
       </Surface>
@@ -408,7 +487,10 @@
 {/snippet}
 
 {#snippet panel()}
-  {#if panelChecks && checksPanelShows(pinnedBatch, true)}
+  {#if aiffScope && (aiffRun || multiCdjSel)}
+    <AiffBatchPanel scope={aiffScope} origin="todo" known={(id) => known.get(id) ?? null} oncancel={aiffCancel}
+      ondone={aiffDone} onact={aiffActed} />
+  {:else if panelChecks && checksPanelShows(pinnedBatch, true)}
     <BatchCheckCards tracks={panelChecks.tracks} batch={panelChecks.batch} selected={panelChecks.batch ? undefined : selItems.length || undefined} nameOf={(i) => artistTitle(i.artist, i.title)}
       flow={checksFlow} />
   {:else if selPanel}
@@ -436,7 +518,7 @@
 {/snippet}
 
 <!-- with no to-do left the panel says when it will have something, never blank (mockup todo-decisions) -->
-<ListPanelFrame {main} panel={selected || selPanel || panelChecks ? panel : data?.empty === 'all_lossless' || data?.empty === 'all_hidden' ? nothing : null}
+<ListPanelFrame {main} panel={selected || selPanel || panelChecks || aiffScope ? panel : data?.empty === 'all_lossless' || data?.empty === 'all_hidden' ? nothing : null}
   emptyPanel="Pick a track to see what you can do." />
 
 {#if versionsFor}
