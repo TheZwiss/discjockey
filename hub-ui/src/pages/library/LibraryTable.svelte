@@ -10,8 +10,13 @@
   // then, under the `Also in this folder` section head, the other files of its folder (`also`, D9): one table, one
   // grid. Above 300 lines only the visible ones are rendered (windowSlice). A click or ↑ / ↓ picks a row (`onselect`;
   // the page opens the details unless the user hid them by hand); a click on a row's quality badge opens the details
-  // even then ("why is this weak?", N5). Enter plays, right-click selects without picking (`onselect(id, false)`) and
+  // even then ("why is this weak?", N5). Enter plays, right-click selects without picking (`onselect(…, false)`) and
   // opens the shared menu; the cover is the row's play button (▶ while the row is hovered, ❚❚ while it plays).
+  // Several rows can be selected (issue 33 stage D, lib/components/selectionModel, scope libraryModel.tableScope: the
+  // rows with a file, `also` rows included): ⌘-click toggles, ⇧-click ranges from the anchor, ⌘A the rows on screen
+  // (filter and search apply), Esc back to the anchor, ↑ ↓ one row from the anchor. Every selected row wears the
+  // picked wash (`.sel`, as `ListRow selected pick`), only the anchor scrolls into view. Right-click on a selected row
+  // keeps the selection; outside it selects that row alone. Double-click and Enter play the anchor.
   // Row signals (D6): a dimmed lead is a song that left every playlist, a file that is away (an `AwayTag` in the
   // quality column says why), or a playlist song without a file (a dashed empty cover; "Waiting" in muted words or the
   // red NOT FOUND badge in the quality column). Only a row whose file is there plays.
@@ -22,18 +27,19 @@
     AwayTag, Badge, ContextMenu, Cover, InfoTip, ListLine, ListSection, MiddleText, QualityBadge, Skeleton, SortHeader, Surface, tip,
   } from '$lib/components';
   import { artistTitle, duration } from '$lib/format';
+  import { click as clickSelection, escape as escapeSelection, isSelected, single, type Selection } from '$lib/components/selectionModel';
   import type { LibraryRow, LibrarySort } from '$lib/bridge/types';
   import { api } from '$lib/bridge/client';
   import {
     NOT_FOUND_WORD, columnsAt, localDay, notFoundTip, folderCell, gridColumns, lineTop, moveSelection,
-    playable, playlistCell, rowAway, rowDim, rowInTodo, rowTitleTip, centerLine, keepLine, selectedIndex,
+    playable, playlistCell, rowAway, rowDim, rowInTodo, rowTitleTip, centerLine, keepLine, selectedIndex, selectAllRows, tableScope,
     sortColumns, sortState, subfolderCell, tableLines, titleNote, waitWords, windowSlice, type OptionalColumn, type SortColumn,
     type TableKind, rowMenu,
   } from './libraryModel';
 
   let { rows, also = null, alsoHint = '', emptyLine = null, loading = false, kind = 'library', subfolders = false,
     playlistColumn = true, artistColumn = true, off = false, sort,
-    selected, playing = null, onsort, onselect, onplay, onfinder, ontodo, ondetails }: {
+    sel, playing = null, onsort, onselect, onplay, onfinder, ontodo, ondetails }: {
     rows: LibraryRow[];
     /** a playlist's other files of its folder, under their own section head (null elsewhere) */
     also?: LibraryRow[] | null; alsoHint?: string;
@@ -50,12 +56,14 @@
     artistColumn?: boolean;
     /** a switched-off playlist: its songs without a file wait for nothing (libraryModel.waitWords) */
     off?: boolean;
-    sort: LibrarySort; selected: string | null;
+    sort: LibrarySort;
+    /** the selected rows' keys and the anchor (selectionModel): the anchor is the row that scrolls and plays */
+    sel: Selection;
     /** the track playing now */
     playing?: string | null;
     onsort: (c: SortColumn) => void;
-    /** a row selected; `pick` false: selected for the right-click menu only, not picked to look at */
-    onselect: (id: string, pick?: boolean) => void;
+    /** the selection after a click or key; `pick` false: selected for the right-click menu only, not picked to look at */
+    onselect: (next: Selection, pick?: boolean) => void;
     onplay: (id: string) => void;
     onfinder: (id: string) => void; ontodo: (id: string) => void;
     /** open the details inspector (a quality badge, the menu's Show details); the row is selected first */
@@ -90,6 +98,10 @@
   const today = $derived.by(() => { void rows; return localDay(new Date()); });
   // what ↑ ↓ walk and a selection is found in: the rows, the section's included, in the table's order
   const walk = $derived(lines.flatMap((l) => (l.kind === 'row' ? [l.row] : [])));
+  const order = $derived(walk.map((r) => r.track_id));
+  const scopeOf = $derived(tableScope(walk));
+  // the row that scrolls into view, plays on Enter and ranges ⇧-clicks: the selection's anchor
+  const selected = $derived(sel.anchor);
   const slice = $derived(windowSlice(scrollTop, viewport, rowH, lines.length));
   const visible = $derived(lines.slice(slice.start, slice.end).map((l, i) => ({ l, i: slice.start + i })));
   const above = $derived(lineTop(lines, slice.start, rowH, otherH));
@@ -129,10 +141,17 @@
   });
 
   function key(e: KeyboardEvent) {
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !e.metaKey) {
       e.preventDefault();
       const id = moveSelection(walk, selected, e.key === 'ArrowDown' ? 1 : -1);
-      if (id) onselect(id);
+      if (id) onselect(single(id));
+    } else if (e.key === 'a' && e.metaKey && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      const all = selectAllRows(sel, order, scopeOf);
+      if (all !== sel) onselect(all);
+    } else if (e.key === 'Escape' && !menu && sel.keys.length > 1) {
+      e.preventDefault();
+      onselect(escapeSelection(sel), false);
     } else if (e.key === 'Enter' && selected) {
       e.preventDefault();
       const r = walk[selectedIndex(walk, selected)];
@@ -141,9 +160,13 @@
       menu = null;
     }
   }
+  function choose(e: MouseEvent, r: LibraryRow) {
+    onselect(clickSelection(sel, r.track_id, { meta: e.metaKey, shift: e.shiftKey }, order, scopeOf));
+  }
   function context(e: MouseEvent, r: LibraryRow) {
     e.preventDefault();
-    onselect(r.track_id, false);
+    // a row inside the selection keeps it (the menu acts on this row); outside it, the row alone
+    if (!isSelected(sel, r.track_id)) onselect(single(r.track_id), false);
     // a file that isn't there can't be shown in Finder (the panel offers it only for a file that is there)
     menu = { id: r.track_id, x: e.clientX, y: e.clientY, todo: rowInTodo(r), finder: playable(r), link: r.track_link };
   }
@@ -151,7 +174,7 @@
   // also play: the badge is a button of its own)
   function badge(e: MouseEvent, id: string) {
     e.stopPropagation();
-    onselect(id);
+    onselect(single(id));
     ondetails();
   }
   function pick(fn: (id: string) => void) {
@@ -179,8 +202,8 @@
     {#each extra as c (c)}{@render head(c)}{/each}
     {@render head('quality')}
     <span class="tip"><InfoTip label="Keys and clicks" data-test="library-keys">Click a header to sort, again to turn it
-      round. A click or ↑ ↓ selects a row and shows its details, unless you hid them. Double-click, Enter or the cover
-      plays. ⌘I shows or hides the details; a quality badge shows them. Right-click: Show details, Show in Finder, Open
+      round. A click or ↑ ↓ selects a row and shows its details, unless you hid them. ⌘-click and ⇧-click select
+      several rows, ⌘A all of them, Esc goes back to one. Double-click, Enter or the cover plays. ⌘I shows or hides the details; a quality badge shows them. Right-click: Show details, Show in Finder, Open
       in to-do.</InfoTip></span>
   </div>
 {/snippet}
@@ -191,7 +214,7 @@
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <Surface kind="table" grow={{ rows: Math.max(1, lines.length) }} {columns} bind:scroller role="grid" aria-label="Tracks"
-  tabindex={0} onkeydown={key} data-test="library-table">
+  tabindex={0} onkeydown={key} aria-multiselectable="true" data-test="library-table">
   {#if loading && !lines.length}
     <div class="sk"><Skeleton lines={8} height={14} gap={24} /></div>
   {:else}
@@ -207,10 +230,11 @@
         {@const noFile = r.file_state === 'no_file'}
         {@const note = titleNote(r, kind)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <div class="tr" style:grid-template-columns={grid} class:sel={r.track_id === selected} class:off={rowDim(r)} role="row"
-          tabindex="-1" aria-selected={r.track_id === selected} data-test="row-{r.track_id}" data-away={away}
+        <div class="tr" style:grid-template-columns={grid} class:sel={isSelected(sel, r.track_id)} class:off={rowDim(r)} role="row"
+          tabindex="-1"  aria-selected={isSelected(sel, r.track_id)} data-test="row-{r.track_id}" data-away={away}
           data-wait={r.wait ?? undefined}
-          onclick={() => onselect(r.track_id)} ondblclick={() => { if (playable(r)) onplay(r.track_id); }}
+          onmousedown={(e) => { if (e.shiftKey) e.preventDefault(); }}
+          onclick={(e) => choose(e, r)} ondblclick={() => { if (playable(r)) onplay(r.track_id); }}
           oncontextmenu={(e) => context(e, r)}
           onpointerenter={() => (hovered = r.track_id)} onpointerleave={() => { if (hovered === r.track_id) hovered = null; }}>
           {#if playlist}<span class="td num pos">{r.position ?? ''}</span>{/if}
