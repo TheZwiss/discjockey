@@ -53,7 +53,7 @@ throwaway scripts of its own rather than through Discjockey.
   the first of a `settings` group the other settings join; also in `CONTRIBUTING.md`, and in the agent docs once
   they exist.
 
-## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stages C–E open
+## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stage E open (issue 40)
 
 Design: `docs/2026-11-07-rekordbox-repoint-design.md` (the user's answers and wishes A–C built in; stage E is issue 40).
 
@@ -68,8 +68,12 @@ on by default; the sync's last phase as one AIFF batch with its backup and undo;
 end screen's Upgraded / Still waiting / Couldn't go in; `settings auto-upgrade`, the run's `--json` block); its live
 test is plan stage C §9, before any release.
 
-**Still open:** stage D, Convert, Give it its clean name, the CDJ group and "Make all lossless files AIFF" (wish C);
-stage E is issue 40.
+**Stage D** is merged into main (verify 1216 shots green): Convert to AIFF, Give it its clean name, To-do's **Won't play well on CDJs** group
+with Convert all, and **Make all lossless files AIFF** (Library's **Make AIFF…**, wish C), each as one AIFF batch with
+its backup, undo and check card; console `convert` (`--all <view>`, `--all cdj`) and `rename` (CONTRIBUTING); rehearsal on a copy
+216 checks passed. Its live test is plan stage D §9, before any release.
+
+**Still open:** stage E is issue 40. The live tests of stages A–D (each plan's last section) wait for the user.
 
 **Facts the later stages build on:** cues and beatgrid live at rekordbox's track, not in the file; Relocate matches on
 file name only; rekordbox keeps following files it finds anywhere in a watched folder; every write to the user's
