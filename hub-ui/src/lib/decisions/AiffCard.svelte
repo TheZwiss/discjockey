@@ -2,7 +2,8 @@
   // The AIFF card of one track (issue 33 stage D, plan §6.1): what Convert to AIFF or Give it its clean name would do
   // for this file, the same in the Library's details and, in U3, in To-do's CDJ item (each with its own foot: AiffFoot
   // is the Library's). The card is the "AIFF" Surface with its rows (NOW, BECOMES, NAME and SPACE for a Convert; NAME
-  // alone for a Rename, as old name over new name: file names are too long to share a 320 px line) and, for a Convert
+  // alone for a Rename, as old name over new name: file names are too long to share a 320 px line; the old name gives way
+  // in its middle, the new one is shown whole and wraps; a blocked step shows the same rows, its Hint says why) and, for a Convert
   // with a rekordbox Discjockey can open, design §8's outcome rows. Around it, as sibling NoteCards (a note inside a
   // card would be a container in a container): the job's problem and what the CDJs refuse in the file (warn, above, where the
   // sync's refusals stand in UpgradeCards) and, for a lossy file, what the AIFF costs (info, under it). The button and
@@ -35,7 +36,7 @@
             <KeyValue keyWidth={76} k={r.k}>
               <span class="names" data-test="aiff-name">
                 <MiddleText text={r.from ?? ''} />
-                {#if r.to}<span class="to"><span class="arrow" aria-hidden="true">→</span><MiddleText text={r.to} /></span>{/if}
+                {#if r.to}<span class="to"><span class="arrow" aria-hidden="true">→</span><span class="new" data-test="aiff-new-name">{r.to}</span></span>{/if}
               </span>
             </KeyValue>
           {:else}<KeyValue keyWidth={76} k={r.k} v={r.v} />{/if}
@@ -54,6 +55,8 @@
   /* the name now, then the name it gets on its own line: the old one is the past, so it is the quiet one */
   .names { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .names > :global(.mid:first-child:not(:last-child)) { color: var(--text-muted); }
+  /* the new name is the one to read: whole, wrapping where the column ends; only the old name gives way in its middle */
+  .new { min-width: 0; overflow-wrap: anywhere; }
   .to { display: grid; grid-template-columns: 14px minmax(0, 1fr); align-items: baseline; min-width: 0; }
   .arrow { color: var(--text-label); }
 </style>

@@ -2,8 +2,9 @@
   // The rekordbox check a replace left (mockup todo-decisions, "After the step"; README "Upgrades"), the same in To-do's
   // and the Library's details: "In rekordbox"
   // (yellow: it waits for the user) as numbered steps in place of a paragraph, then "Replaced with lossless" with where
-  // each file is now and what Undo puts back (only while it can). Any other check (a wrong song fixed) keeps its one
-  // note, the engine's whole instruction.
+  // each file is now and what Undo puts back (only while it can); it follows the steps card, or the info note of a check
+  // with nothing left to do (a clean name, a Convert of a file rekordbox doesn't hold), never only inside the steps
+  // branch. Any other check (a wrong song fixed) keeps its one note, the engine's whole instruction.
   import type { TodoItem } from '$lib/bridge/types';
   import { Hint, NoteCard, NumberedSteps, Surface } from '$lib/components';
   import { checkCard, isOwnCheck, localDay, replacedCard, sinceText } from './decisionModel';
@@ -28,28 +29,28 @@
       {#if card.hint}<Hint text={card.hint} wrap />{/if}
     </div>
   </Surface>
-  {#if replaced}
-    <Surface kind="card" label={replaced.title} summary={since || undefined} data-test="replaced">
-      <div class="col">
-        <div class="changes">
-          {#each replaced.rows as r (r.name)}
-            <div class="chg">
-              <svg viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"
-                stroke-linejoin="round">
-                {#if r.icon === 'file'}<path d="M3.5 1.5h4.5l2.5 2.5v8.5h-7z" /><path d="M8 1.5V4h2.5" />
-                {:else}<path d="M1.5 3.5h4l1.2 1.3h5.8v6.7h-11z" />{/if}
-              </svg>
-              <span class="p"><b title={r.name}>{r.name}</b><span title={r.where}>{r.where}</span></span>
-            </div>
-          {/each}
-        </div>
-        {#if item.can_undo}<Hint text={replaced.undo} />{/if}
-      </div>
-    </Surface>
-  {/if}
 {:else}
   <!-- a Convert or a clean name has nothing left to do (rekordbox follows the file): its words are a note, not a warning -->
   <NoteCard tone={isOwnCheck(item.check) ? 'info' : 'warn'} data-test="rekordbox-check" data-reason={item.check?.reason}>{item.check?.text ?? item.detail}</NoteCard>
+{/if}
+{#if replaced}
+  <Surface kind="card" label={replaced.title} summary={since || undefined} data-test="replaced">
+    <div class="col">
+      <div class="changes">
+        {#each replaced.rows as r (r.name)}
+          <div class="chg">
+            <svg viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"
+              stroke-linejoin="round">
+              {#if r.icon === 'file'}<path d="M3.5 1.5h4.5l2.5 2.5v8.5h-7z" /><path d="M8 1.5V4h2.5" />
+              {:else}<path d="M1.5 3.5h4l1.2 1.3h5.8v6.7h-11z" />{/if}
+            </svg>
+            <span class="p"><b title={r.name}>{r.name}</b><span title={r.where}>{r.where}</span></span>
+          </div>
+        {/each}
+      </div>
+      {#if item.can_undo}<Hint text={replaced.undo} />{/if}
+    </div>
+  </Surface>
 {/if}
 
 <style>

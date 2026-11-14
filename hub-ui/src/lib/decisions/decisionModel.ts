@@ -587,6 +587,10 @@ export function batchRowSub(started: string | null, today: string, startedBy: st
   const how = isAutoBatch(startedBy) ? AUTO_BATCH_SUB : kind === 'convert' || kind === 'mixed' ? (renamed ? 'Clean name' : 'Made AIFF') : 'Same track';
   return day ? `${day} · ${how}` : how;
 }
+/** A batch of Converts' lead, in `report.CONVERTED_CHECK`'s voice for several files (the single check's `text` says it
+ *  for one): what became of the files, then that the sound is the same. */
+export const CONVERTED_BATCH_LEAD = 'Your files are now AIFFs with clean names and tags, and your rekordbox tracks play them '
+  + 'with their cues, playlists and history. The sound is the same.';
 /** The "In rekordbox" card of a batch: the steps for the tracks rekordbox has (Reload Tag only for the tracks whose
  *  text Discjockey couldn't write, by name; design §8's words for several tracks), null when rekordbox has none of
  *  them (each row then says so). */
@@ -616,9 +620,11 @@ export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => stri
     steps.push({ parts: [{ text: ups.length > 1 ? 'Analyse them again, so the waveform shows the full sound'
       : 'Analyse it again, so the waveform shows the full sound' }], note: BEATGRID });
   }
+  const lead = ups.length ? undefined : CONVERTED_BATCH_LEAD;
   steps.push(many ? { parts: [{ text: 'On a USB stick? The stick still plays the old files. ' },
     { text: 'Rebuild the stick', strong: true }, { text: ' in rekordbox before your next gig' }] } : USB_STEP);
-  return { summary: many ? 'same tracks, cues kept' : 'same track, cues kept', steps, hint: null };
+  return { summary: many ? 'same tracks, cues kept' : 'same track, cues kept', steps, hint: null,
+    ...(lead ? { lead: tracks.length === 1 ? tracks[0].check?.text ?? lead : lead } : {}) };
 }
 /** The batch list's title ("Upgraded", "Made AIFF" for Converts, "Clean names" when all are clean names, "Changed" for a mix). */
 export function batchListTitle(tracks: Pick<TodoItem, 'check'>[]): string {
@@ -660,8 +666,9 @@ export function undoFoot(tracks: Pick<TodoItem, 'track_id' | 'can_undo'>[], refu
 }
 /** What an undo asks and what its button says, by what is undone: an upgrade's replace (its new version waits again), a
  *  Convert (the old file comes back) or a clean name (the old name comes back); a mix of kinds says the common words.
- *  `confirmLabel` is the button's. One check: its own question; several: how many. */
-export function undoAsk(checks: (Pick<RekordboxCheckView, 'reason'> | undefined)[]): { title: string; body: string; confirmLabel: string } {
+ *  `confirmLabel` is the button's. One check: its own question, with the rekordbox clause only for a track that is in
+ *  rekordbox; several: how many. */
+export function undoAsk(checks: (Pick<RekordboxCheckView, 'reason' | 'rekordbox'> | undefined)[]): { title: string; body: string; confirmLabel: string } {
   const own = checks.filter(isOwnCheck).length;
   const n = checks.length;
   if (!own) return n === 1 ? { title: 'Undo the replace?', confirmLabel: 'Undo the replace',
@@ -669,16 +676,34 @@ export function undoAsk(checks: (Pick<RekordboxCheckView, 'reason'> | undefined)
       : 'Your old file goes back where it was. The new version waits in Upgrades ready again.' } : undoManyConfirm(n);
   const reasons = new Set(checks.map((c) => c?.reason));
   if (n === 1 && reasons.has('converted')) return { title: 'Undo the conversion?', confirmLabel: 'Undo the conversion',
-    body: 'Your old file goes back where it was, and your rekordbox track plays it again.' };
+    body: `Your old file goes back where it was${inRekordbox(checks[0]) ? ', and your rekordbox track plays it again' : ''}.` };
   if (n === 1) return { title: 'Undo the clean name?', confirmLabel: 'Undo the clean name',
-    body: 'Your file gets its old name back, and your rekordbox track follows it.' };
+    body: `Your file gets its old name back${inRekordbox(checks[0]) ? ', and your rekordbox track follows it' : ''}.` };
   const what = own === n && reasons.size === 1 ? (reasons.has('converted') ? 'conversions' : 'clean names') : 'changes';
   return { title: `Undo ${n} ${what}?`, confirmLabel: `Undo ${n}`,
     body: own === n && reasons.size === 1 ? (reasons.has('converted') ? 'Your old files go back where they were.' : 'Your files get their old names back.')
       : 'Your old files and names go back where they were.' };
 }
+/** What the undo button's tooltip promises, in the kind's words: an upgrade's new version waits again, a Convert puts the
+ *  old file back, a clean name the old name back; a mix says the common words. Works for one check or several. */
+export function undoTitle(checks: (Pick<RekordboxCheckView, 'reason'> | undefined)[]): string {
+  const own = checks.filter(isOwnCheck).length;
+  const many = checks.length > 1;
+  if (!own) return many ? 'Puts your old files back; the new versions wait again' : 'Puts your old file back; the new version waits again';
+  const reasons = new Set(checks.map((c) => c?.reason));
+  if (own === checks.length && reasons.size === 1) {
+    if (reasons.has('converted')) return many ? 'Puts your old files back' : 'Puts your old file back';
+    return many ? 'Puts your old names back' : 'Puts your old name back';
+  }
+  return own === checks.length ? 'Puts your old files and names back' : 'Puts your old files and names back; upgraded files wait again';
+}
+/** The rekordbox check foot's filled button: "Done, checked in rekordbox", or plainly "Done" when nothing is left in
+ *  rekordbox, that is for every check being a Convert or a clean name of a file rekordbox doesn't hold. */
+export function doneLabel(checks: (Pick<RekordboxCheckView, 'reason' | 'rekordbox'> | undefined)[]): string {
+  return checks.length && checks.every((c) => isOwnCheck(c) && !inRekordbox(c)) ? 'Done' : 'Done, checked in rekordbox';
+}
 /** The single check's undo button: "Undo the replace" for an upgrade, "Undo the conversion", "Undo the clean name". */
-export const undoLabel = (c: Pick<RekordboxCheckView, 'reason'> | undefined): string => undoAsk([c]).confirmLabel;
+export const undoLabel = (c: Pick<RekordboxCheckView, 'reason' | 'rekordbox'> | undefined): string => undoAsk([c]).confirmLabel;
 export const undoManyConfirm = (n: number) => ({ title: `Undo ${n} ${plural(n, 'replace', 'replaces')}?`,
   body: n === 1 ? 'Your old file goes back where it was. The new version waits in Upgrades ready again.'
     : 'Your old files go back where they were. The new versions wait in Upgrades ready again.',

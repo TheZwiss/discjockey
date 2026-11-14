@@ -5,8 +5,11 @@
   // - decide: the head card (what the panel is about and how many can change), the plan as the fill's one list ("What
   //   happens": each file with its kind under its name, or, for more than 8, the counts per kind with the files folded
   //   under "Files"; then "Left as they are" with each reason), then the "AIFF" card (the format sentence, the room per
-  //   drive, the rekordbox and Superseded/ outcome rows) and the lossy note; the foot's one filled button, off with its
-  //   reason as the Hint under it (a short drive, rekordbox open while it holds some of these files), and Cancel.
+  //   drive, the rekordbox and Superseded/ outcome rows) under the lossy note; the foot's one filled button, off with
+  //   its reason as the Hint under it (a short drive, rekordbox open while it holds some of these files), and Cancel.
+  //   The decide phase is one scrolling column (the panel's body): the plan's list has no scroller of its own, so
+  //   "Left as they are", the "Files" fold, the note and every space row are reached by scrolling the one column. A
+  //   shortage is said once, by the foot's Hint in the problem tone; the space rows stay neutral.
   //   While the plan is read the head keeps its height and the list waits as Skeleton rows; nothing to change is an
   //   EmptyState and no filled button;
   // - running: how many of how many with the file in work and its bar, the rows marked as they pass, Stop;
@@ -119,14 +122,6 @@
       if (target) void refocus(() => root?.querySelector<HTMLElement>(`[data-test="${target}"]`));
     });
   });
-
-  /** the plan list's rows, for its grow: section heads count as rows */
-  const planRows = $derived.by(() => {
-    if (!plan) return 3;
-    const files = shape === 'files' ? plan.items.length : plan.kinds.length + 1 + (filesOpen ? plan.items.length : 0);
-    const leftN = left.length ? left.length + (plan.items.length ? 1 : 0) : 0;
-    return Math.max(1, (plan.items.length ? files : 0) + leftN);
-  });
 </script>
 
 {#snippet headCard()}
@@ -174,7 +169,7 @@
 {/snippet}
 
 {#snippet fileRow(i: AiffPlan['items'][number], p: AiffPlan)}
-  <ListRow title={nameOf(i.track, i.name)} test="aiff-file" data-track={i.track} data-action={i.action} style="--row-cols: 28px minmax(0, 1fr)">
+  <ListRow wrap title={nameOf(i.track, i.name)} test="aiff-file" data-track={i.track} data-action={i.action} style="--row-cols: 28px minmax(0, 1fr)">
     {#snippet lead()}<Cover url={coverOf(i.track)} seed={i.track} size={28} />{/snippet}
     {#snippet name()}{nameOf(i.track, i.name)}{/snippet}
     {#snippet sub()}{kindLabel(p, i.kind)}{/snippet}
@@ -244,8 +239,7 @@
   {:else if plan}
     {@const p = plan}
     <Surface kind="list" label={p.items.length ? 'What happens' : LEFT_TITLE}
-      summary={String(p.items.length ? p.total : leftCount(left))} grow={{ rows: planRows, tall: true }}
-      data-test="aiff-batch-plan" data-shape={shape}>
+      summary={String(p.items.length ? p.total : leftCount(left))} data-test="aiff-batch-plan" data-shape={shape}>
       {#if p.items.length}
         {#if shape === 'files'}
           {#each p.items as i (i.track)}{@render fileRow(i, p)}{/each}
@@ -268,6 +262,7 @@
 {/snippet}
 
 {#snippet after()}
+  {#if lossy && plan?.items.length}<NoteCard tone="info" data-test="aiff-lossy">{lossy}</NoteCard>{/if}
   {#if plan && plan.items.length && (showsFormat(plan) || space.length || outcomes.length)}
     <!-- the same "AIFF" card as one file's (AiffCard): what every file becomes, the room it takes, what stays -->
     <Surface kind="card" label="AIFF" data-test="aiff-batch-card">
@@ -277,7 +272,7 @@
           <div class="rows">
             {#each space as r, n (r.drive)}
               <KeyValue keyWidth={76} k={n === 0 ? 'Space' : ''}>
-                <span class="space" class:short={!r.enough} data-test="aiff-space" data-enough={r.enough}>
+                <span class="space" data-test="aiff-space" data-enough={r.enough}>
                   <span>{r.needs}</span><span class="free">{r.free}</span>
                 </span>
               </KeyValue>
@@ -288,7 +283,6 @@
       </div>
     </Surface>
   {/if}
-  {#if lossy && plan?.items.length}<NoteCard tone="info" data-test="aiff-lossy">{lossy}</NoteCard>{/if}
 {/snippet}
 
 {#snippet foot()}
@@ -341,11 +335,10 @@
   .col { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
   .rows { display: flex; flex-direction: column; }
   .fmt { margin: 0; font-size: var(--fs-small); line-height: 1.45; color: var(--text); }
-  /* "Needs 1.4 GB on Example Drive" over "412.3 GB free", as KeyValue's quiet second line; a short drive in the
-     problem tone, both lines */
-  .space { display: flex; flex-direction: column; min-width: 0; }
+  /* "Needs 1.4 GB on Example Drive" over "412.3 GB free", as KeyValue's quiet second line, both lines wrapping. Neutral
+     whatever the drive: a shortage is said once, by the foot's Hint in the problem tone */
+  .space { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
   .free { margin-top: 2px; font-size: var(--fs-small); color: var(--text-muted); }
-  .short, .short .free { color: var(--q-weak); }
   /* mark · cover on a fixed grid, so the covers stay in one column whatever the mark (none, ✓, spinner) */
   .lead { display: grid; grid-template-columns: 16px 28px; column-gap: var(--s-2); align-items: center; }
   .mark { display: grid; place-items: center; width: 16px; height: 16px; }

@@ -20,8 +20,11 @@ const QUIT_STEP: Outcome = { tone: 'step', text: QUIT_REKORDBOX };
 /** Plan §3: the lossy note (info). */
 export const LOSSY_NOTE = 'An AIFF made from this sounds the same and takes 5–10 times the space.';
 /** `rename.BLOCKED_WHY`: the `{reason}` of design §8's "Refused, rename blocked". */
-const RENAME_WHY = { open: 'rekordbox is open', unreadable: "rekordbox's library can't be opened",
-  names: 'No free file name is left for it' } as const;
+const RENAME_WHY = { open: 'rekordbox is open', unreadable: "rekordbox's library can't be opened" } as const;
+/** The engine's own sentence for a file with no free name (`rbstep.NO_FREE_NAME_WORDS`, stage D review A6): it blames a
+ *  name clash, not rekordbox. Cut to its first sentence like the others: the button never tried, so "Nothing was
+ *  changed." is left out. */
+export const NO_FREE_NAME_HINT = 'Every name this file could take is in use, so it keeps its name for now.';
 /** Design §8's refusals as the reason under a button that is off. The button never tried, so "Nothing was changed." is
  *  left out, and each sentence is cut to what fits a Hint (the rule checker allows 90 characters outside a card):
  *  the reason, then that Discjockey can't point the rekordbox track at the new file or name. */
@@ -37,8 +40,9 @@ export function aiffShown(aiff: TrackAiff | null | undefined, decision: Decision
   return aiff.action !== null || (BLOCKING as readonly (string | null)[]).includes(aiff.why_not);
 }
 
-/** Whether the card's file is a clean AIFF whose name is left: what the button of a blocked card (no `action`) names. */
-const isRename = (a: TrackAiff): boolean => a.action === 'rename' || (a.action === null && a.from === AIFF_LINE);
+/** Whether the step is a Rename (a clean AIFF whose name is left). A blocked card (`why_not` set) carries the step it
+ *  would run, so it says it itself; a card with no step at all (`action` null) never shows a button. */
+const isRename = (a: TrackAiff): boolean => a.action === 'rename';
 /** What the button starts: a Rename for a clean AIFF whose name is left, else a Convert. */
 export const aiffAction = (a: TrackAiff): 'convert' | 'rename' => (isRename(a) ? 'rename' : 'convert');
 export const aiffLabel = (a: TrackAiff): string => (isRename(a) ? RENAME_LABEL : CONVERT_LABEL);
@@ -54,7 +58,7 @@ export function aiffBlocked(a: TrackAiff, rb: RekordboxStatus | null): string | 
   switch (a.why_not) {
     case 'rekordbox_unreadable': return UNREADABLE_WHY;
     case 'cloud': return CLOUD_WHY;
-    case 'rename_blocked': return renameWhy(RENAME_WHY.names);
+    case 'rename_blocked': return NO_FREE_NAME_HINT;
     default: break;
   }
   if (a.action === 'rename' && rb && rb.state !== 'none') {  // no rekordbox library on this Mac: nothing to point
@@ -67,9 +71,10 @@ export function aiffBlocked(a: TrackAiff, rb: RekordboxStatus | null): string | 
 export type AiffRow = { key: 'now' | 'becomes' | 'name' | 'space'; k: string; v: string | null;
   /** NAME: the name now, then the name it gets; they stand on two lines */
   from?: string; to?: string };
-/** The card's rows (plan §3): NOW, BECOMES, NAME and SPACE for a Convert, NAME alone for a Rename, NOW alone while it
- *  can't run (the file's format; nothing else is known). A name that doesn't change (an AIFF that stays where it was)
- *  is the name once. */
+/** The card's rows (plan §3): NOW, BECOMES, NAME and SPACE for a Convert, NAME alone for a Rename, the same for a
+ *  blocked step (it says what it would do, the Hint says why it waits), NOW alone for a file with no step (its
+ *  format; nothing else is known). A name that doesn't change (an AIFF that stays where it was), or a rename with no
+ *  free name, is the name once. */
 export function aiffRows(a: TrackAiff): AiffRow[] {
   if (a.action === null) return a.from ? [{ key: 'now', k: 'Now', v: a.from }] : [];
   const name: AiffRow = { key: 'name', k: 'Name', v: null, from: a.name_now, to: a.new_name && a.new_name !== a.name_now ? a.new_name : undefined };
@@ -80,19 +85,20 @@ export function aiffRows(a: TrackAiff): AiffRow[] {
 
 /** The one-track outcome rows of a Convert, only with a rekordbox Discjockey can open (design §8): the track keeps its
  *  cues, the file becomes an AIFF, and, only while rekordbox runs, the step to quit it. None for a Rename (its NAME row
- *  says it), for no rekordbox on this Mac, for one it can't open, and while its state isn't known. */
+ *  says it), for a blocked step (it doesn't run), for no rekordbox on this Mac, for one it can't open, and while its
+ *  state isn't known. */
 export function aiffOutcomes(a: TrackAiff, rb: RekordboxStatus | null): Outcome[] {
-  if (a.action !== 'convert' || rb?.state !== 'ready') return [];
+  if (a.action !== 'convert' || a.why_not || rb?.state !== 'ready') return [];
   return [KEPT_TRACK, BECOMES_AIFF, ...(rb.running ? [QUIT_STEP] : [])];
 }
 
 export type AiffNote = { key: 'cdj' | 'lossy'; tone: 'warn' | 'info'; text: string };
 /** The notes of the card: what the CDJs refuse in the file (warn, its own words, above the card) and, for a Convert of a
- *  lossy file, what the AIFF costs (info, under it). */
+ *  lossy file, what the AIFF costs (info, under it); a blocked step says neither, the foot's Hint says why it waits. */
 export function aiffNotes(a: TrackAiff): { above: AiffNote[]; below: AiffNote[] } {
   return {
     above: a.cdj ? [{ key: 'cdj', tone: 'warn', text: a.cdj.words }] : [],
-    below: a.action === 'convert' && a.lossy ? [{ key: 'lossy', tone: 'info', text: LOSSY_NOTE }] : [],
+    below: a.action === 'convert' && !a.why_not && a.lossy ? [{ key: 'lossy', tone: 'info', text: LOSSY_NOTE }] : [],
   };
 }
 
