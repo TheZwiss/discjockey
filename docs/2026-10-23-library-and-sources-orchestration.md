@@ -516,9 +516,10 @@ Results:
     file covered or generic with covered callers; every page's screen states; every A-D live-test step), the result
     told to the user first; (G2) any change to an announced plan is told to the user before it happens, never decided
     silently; (G3) no "covered by construction" to skip a check; (G4) every agent measured (`material:`) and its real
-    size logged; (G5) each step's output is checked against its brief before the next dispatch: structure by script (sections,
-    coverage lists vs input lists, no empty or "not checked"-only sections, plausible counts) + my spot-check of 2-3
-    entries against the code (~5-10k); never read whole outputs into my context; deep reading is the review agents' job.
+    size logged; (G5) each step's output is checked against its brief before the next dispatch by SCRIPT only (sections, coverage
+    lists vs input lists, no empty or "not checked"-only sections, plausible counts), scripts print only counts and
+    what's missing. The orchestrator reads only agent reports + script summaries, never outputs or code (user: keep
+    the orchestrator's context clean for the whole night); quality judgement is the review agents' job.
   - **NOW (2026-11-14 evening, user active):** STAGE D MERGED into main a72530d1 (issue 33 stages A–D all on main, none
     released). No agent running, no worktrees, nothing in the background. First after a compact: check CI on main once
     (`gh run list --branch main --limit 2`; the merge run was cancelled by the next push, the docs push run covers it).
