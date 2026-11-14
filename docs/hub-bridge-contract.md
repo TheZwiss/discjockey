@@ -553,9 +553,14 @@ last preview stays with `read_status.problem` set.
 Spotify request is still under way; that request's late answer is dropped (the last preview stays).
 
 `job_status()` — snapshot after a reload. `sign_in`: null or the browser sign-in's snapshot, same shape as `job` (see
-Settings). `job`: null or `{id, kind, track_id, started, running, stopping, last:
+Settings). `job`: null or `{id, kind, track_id, started, batch_kind, running, stopping, last:
 {<EventType>: <last event of that type>}, usage: [<AccountUsage>], results: [<ActionFinished events>], finished: <JobFinished>|null, actions:
-[{kind, track_id, title, artist, image_url}]}`. `usage`: the newest `AccountUsage` event of each service, in the order the
+[{kind, track_id, title, artist, image_url}]}`. `batch_kind`: for an AIFF batch job (kinds `upgrade_batch`,
+`aiff_batch`, `batch_resume`, and the one-after-the-other `upgrade_add_new` / `upgrade_discard`) the batch's kind, else
+`null`: `"upgrade"` for Same track (`upgrade`, `upgrade_all`, add as new, discard), `"convert"` for what Convert, Give it
+its clean name, Make all and the CDJ group's Convert all start, and, for `batch_resume`, the stopped batch's own kind
+(`upgrade` / `convert` / `mixed`), so a reloaded window can tell a resumed Convert batch from Same track's. The `JobStarted`
+event has no kind. `usage`: the newest `AccountUsage` event of each service, in the order the
 services first reported (`last` keeps only the newest one overall) — the "Qobuz 42 of 80 today" lines after a reload; `[]` until
 a download counted. `actions`: the run's planned actions in the order the run does them (copied from
 `RunStarted.actions`; `[]` until a run started, and for jobs without a run) — "Up next" and the time left after a
@@ -2086,7 +2091,8 @@ answer `no_library` without a music folder.
     eligibility key (`eligible.REASONS`: `named_already`, `downloaded`, `needs_convert`, `away`, …) with its words.
   - `waiting`: `[{reason, message, n}]`, the files that can't run now but may later, each file once and never an item, in
     every scope, in this order: `away`, `file_missing`, `no_name`, `rekordbox_unreadable`, `cloud`, `rename_blocked`,
-    `upgrade_waits`.
+    `upgrade_waits`. `rename_blocked` is only ever the no-free-name case here, and its words (in `waiting` and `skipped`) are
+    "Every name this file could take is in use, so it keeps its name for now. Nothing was changed.", not about rekordbox.
   - `kinds`: `[{kind, label, n}]` for the kinds with files, in the panel's order ("FLAC → AIFF", "WAV → AIFF", "ALAC → AIFF",
     "AIFF 24-bit or above 44.1 kHz → 16-bit", "New tags", "Clean name only", then "{format} → AIFF").
   - `lossy`: how many items have a lossy file now. `space`: `[{drive, needed, free, enough}]`, the room per drive
@@ -2096,10 +2102,17 @@ answer `no_library` without a music folder.
     facts (the import's facts fill hasn't reached them) are left out until it does.
 - **`track().aiff`** (`aiff_plan.file_answer`): `null` (no file, a download, a better version waiting: the upgrade decision
   stands) or `{action: "convert"\|"rename"\|null, why_not: reason\|null, kind, from, to, name_now, new_name, bytes, lossy,
-  cdj: {short, words}\|null}`. With an `action`: `kind`, `to` ("AIFF · 16-bit · 44.1 kHz" for a Convert, null for a rename),
-  `new_name` (equal to `name_now` for a Convert whose AIFF ends where the old file was), `bytes`. Without: `why_not` is
-  the reason (`named_already`, `away`, `rekordbox_unreadable`, …), `kind` / `to` / `new_name` null, `bytes` 0; `from`, `lossy`
-  and `cdj` still say what the file is. rekordbox is read from the cached state.
+  cdj: {short, words}\|null}`. `kind`, `to` ("AIFF · 16-bit · 44.1 kHz" for a Convert, null for a rename), `new_name`
+  (equal to `name_now` for a Convert whose AIFF ends where the old file was) and `bytes` say what the step would do.
+  **An action with a `why_not` is blocked**: `why_not` set is the reason it can't run now (`eligible.REASONS`), and for the
+  three reasons that wait on something else, `rekordbox_unreadable`, `cloud` and `rename_blocked`, the answer still
+  carries the `action` and its `kind` / `to` / `new_name` / `bytes`, judged as if rekordbox were not in the way (an
+  unreadable library as rekordbox `none`), so the card can show Becomes, Name and Space and say why it waits. No free file
+  name is a Rename with `new_name` null and `bytes` 0. For every other reason (`named_already`, `away`, `needs_convert`,
+  `no_name`, …) `action` is null, `kind` / `to` / `new_name` null and `bytes` 0. `from`, `lossy` and `cdj` always say what
+  the file is. rekordbox is read from the cached state. The same meaning holds for a plan's `skipped` (a reason is a
+  blocked or empty answer, never an item); views, api, the fake and the console's `convert --dry-run` read the one
+  `aiff_plan` and add nothing of their own.
 - **Write jobs** `convert(track_ids, origin = "library" \| "todo")`, `rename(track_ids)` and `make_aiff(scope)` (scope
   `lossless` or `cdj`; any other is `refused`) → `{job_id}`; job kind `aiff_batch`, progress `BatchProgress`, result
   `AiffBatchResult` (`{batch, state, stop_reason, total, done, skipped, failed, results: [{track, action, state, reason,
@@ -2126,7 +2139,8 @@ answer `no_library` without a music folder.
 - **`todo()`**: `TodoFilter` and the group list gain `cdj` after `upgrade_ready` (label "Won't play well on CDJs", hint "CDJs
   refuse or stutter on these files"; `chips.cdj`). An item is a row (`TodoItem`) with `group: "cdj"`, `detail` = its `cdj.short`,
   `free` false, `cdj: {reason: format\|bitrate\|bits\|rate_high\|rate_low, short, words}` and `aiff: reason\|null` (null:
-  Convert can run now). The group lists an own file with stored facts the rule flags (CDJ-3000 and CDJ-2000NXS2: MP3 / AAC up
+  Convert can run now; the reason is the one the head's `all.k` counts: a file the `cdj` plan holds back says its reason there, a
+  Cloud Library Sync file's `cloud` among them, so the group's not-hidden rows with `aiff` null are exactly `all.n`). The group lists an own file with stored facts the rule flags (CDJ-3000 and CDJ-2000NXS2: MP3 / AAC up
   to 320 kbps and 48 kHz, WAV / AIFF / FLAC / ALAC 16- or 24-bit at 44.1-96 kHz; anything else), no parked upgrade (that song
   is Upgrade ready's), hidden as any item; a song listed there is listed nowhere else. The group carries `all: {n, k}`
   (what Convert all can do now / what waits, from the `cdj` plan: `total` and the sum of `waiting[].n`; no `m`) and

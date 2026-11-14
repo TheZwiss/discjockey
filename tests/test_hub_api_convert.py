@@ -241,6 +241,17 @@ def test_the_cdj_group_counts_and_convert_all_runs_it(hub):
     assert (row.started_by, row.scope) == ("cdj_all", "todo:cdj") and f.result["done"] == 2
 
 
+def test_the_cdj_groups_rows_and_head_agree_on_what_can_run_now(hub):
+    lib, box, api, rec = hub(["mp3", "mp3_free", "clean"])
+    for i in (0, 1):
+        set_kbps(lib, i, 400)
+    (lib.paths.root / lib.olds[1]).unlink()                   # waits: its file is gone
+    group = cdj_group(api)
+    rows = {i["track_id"]: i["aiff"] for i in group["items"]}
+    assert rows == {lib.tracks[0]: None, lib.tracks[1]: "file_missing"}
+    assert group["all"] == {"n": sum(why is None for why in rows.values()), "k": sum(why is not None for why in rows.values())}
+
+
 def test_a_stopped_convert_all_is_the_cdj_groups_resume(hub):
     lib, box, api, rec = hub(["mp3", "mp3_free"], running=True)
     set_kbps(lib, 0, 400)
@@ -286,6 +297,20 @@ def test_a_stopped_convert_batch_offers_resume_where_it_started_and_nowhere_else
     assert (r["state"], r["done"]) == ("done", 1) and api.library()["aiff_stopped"] is None
     r = wait_job(api, rec, api.batch_resume(todo_batch)).result
     assert (r["state"], r["done"]) == ("done", 2)
+
+
+def test_a_job_snapshot_carries_its_batch_kind_so_a_reload_tells_whose_batch_runs(hub):
+    lib, box, api, rec = hub(["mp3", "mp3"], running=True)
+    snap = lambda: api.job_status()["job"]
+    f = wait_job(api, rec, api.convert([lib.tracks[0], lib.tracks[1]], "todo"))
+    assert f.problem == "rekordbox_open" and snap()["batch_kind"] == "convert"
+    box.running = False
+    f = wait_job(api, rec, api.batch_resume(f.result["batch"]))
+    assert f.ok and snap()["kind"] == "batch_resume" and snap()["batch_kind"] == "convert"   # not Same track's
+    assert wait_job(api, rec, api.make_aiff({"kind": "lossless", "view": "all"})).problem == "refused"
+    assert snap()["kind"] == "aiff_batch" and snap()["batch_kind"] == "convert"
+    assert wait_job(api, rec, api.rescan_library()).ok         # a job that is no batch has none
+    assert snap()["batch_kind"] is None
 
 
 def test_a_stopped_cdj_batch_is_the_groups_resume_and_not_upgrade_readys(tmp_path, monkeypatch):

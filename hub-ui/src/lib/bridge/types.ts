@@ -332,6 +332,10 @@ export type SyncPreview = {
 export type PlannedAction = { kind: string; track_id: string; title: string; artist: string; image_url?: string | null };
 export type JobSnap = {
   id: number; kind: string; track_id: string | null; started: string; running: boolean; stopping: boolean;
+  /** an AIFF batch job's (`upgrade_batch`, `aiff_batch`, `batch_resume`) batch kind, else null: after a reload it says
+   *  whose batch runs (a resumed Convert batch is `convert`, not Same track's). `convert` is also what Convert,
+   *  Give it its clean name and Make all start. Absent on the snapshot a live `JobStarted` builds (the event has no kind) */
+  batch_kind?: 'upgrade' | 'convert' | 'mixed' | null;
   // last event of each type (see events.ts); typed loosely here to avoid a cycle
   last: Partial<Record<string, any>>;
   // newest AccountUsage event of each service (`last` keeps only the newest one overall); absent in older bridges
@@ -444,11 +448,14 @@ export type TrackDetail = TrackRow & {
    *  or a parked upgrade (the upgrade decision stands) */
   aiff: TrackAiff | null;
 };
-/** `track().aiff`. With an `action`: `kind` (an `AiffKind`), `from` the file's format line ("FLAC · 24-bit · 96 kHz"),
- *  `to` what a Convert makes ("AIFF · 16-bit · 44.1 kHz"; null for a rename), `new_name` the file's name when done
- *  (equal to `name_now` for a Convert whose AIFF ends where the old file was), `bytes` the room the render needs.
- *  Without: `why_not` is the reason (an `EligibleReason` key such as `named_already`, `away`, `rekordbox_unreadable`),
- *  `from`, `lossy` and `cdj` still say what the file is, `kind` / `to` / `new_name` null, `bytes` 0. */
+/** `track().aiff`: `kind` (an `AiffKind`), `from` the file's format line ("FLAC · 24-bit · 96 kHz"), `to` what a Convert
+ *  makes ("AIFF · 16-bit · 44.1 kHz"; null for a rename), `new_name` the file's name when done (equal to `name_now` for a
+ *  Convert whose AIFF ends where the old file was), `bytes` the room the render needs. `why_not` set means the action is
+ *  blocked ("an action with a why_not is blocked"): for `rekordbox_unreadable`, `cloud` and `rename_blocked` the `action`
+ *  and its `kind` / `to` / `new_name` / `bytes` are still the step's own (judged as if rekordbox were not in the way; no
+ *  free name is a rename with `new_name` null), so the card shows Becomes, Name and Space and says why it waits. For any
+ *  other reason (an `EligibleReason` key such as `named_already`, `away`) `action` is null, `kind` / `to` / `new_name`
+ *  null, `bytes` 0. `from`, `lossy` and `cdj` always say what the file is. */
 export type TrackAiff = { action: 'convert' | 'rename' | null; why_not: string | null; kind: string | null;
   from: string | null; to: string | null; name_now: string; new_name: string | null; bytes: number; lossy: boolean;
   cdj: CdjWords | null };

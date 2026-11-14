@@ -13,7 +13,6 @@ export const NOTHING_TO_CHANGE = 'Nothing to change: these are clean AIFFs alrea
 export const BAD_SCOPE = "That isn't a set of files Discjockey can make AIFF.";
 export const NONE_CHANGEABLE = 'None of these can be changed right now.';
 const NO_TRACK_NOTE = "This file isn't in your rekordbox collection, so there was nothing to keep there.";
-const NO_FREE_NAME = 'no free file name is left for it';
 /** the room a drive has unless `FakeState.freeBytes` says otherwise */
 const DEFAULT_FREE = 400_000_000_000;
 
@@ -30,7 +29,7 @@ export const SKIP_WORDS: Record<string, string> = {
   file_missing: "Discjockey can't find the file where it expects it. Run a sync first, so it can find the file again. Nothing was changed.",
   rekordbox_unreadable: "Discjockey can't open this rekordbox version's library yet, so it can't point your rekordbox track at the file. Nothing was changed.",
   cloud: "This track is in rekordbox's Cloud Library Sync, which Discjockey doesn't change yet. Nothing was changed.",
-  rename_blocked: `Discjockey can only give this file its new name while it can point your rekordbox track at it, and it can't right now (${NO_FREE_NAME}). Nothing was changed.`,
+  rename_blocked: 'Every name this file could take is in use, so it keeps its name for now. Nothing was changed.',
   timing: "Discjockey couldn't line the new file up with your rekordbox track exactly, so nothing was changed. Analyse the track again in rekordbox and try again.",
   not_analysed: "rekordbox hasn't analysed this track yet, so Discjockey can't tell exactly where your cues sit. Nothing was changed. Analyse it in rekordbox, quit rekordbox, and try again.",
   changed: 'Your rekordbox track changed while Discjockey was working on it, so nothing was changed. Try again.',
@@ -155,8 +154,8 @@ function judge(s: FakeState, t: FakeTrack | undefined, taken: Set<string>, only:
   const a = storedAudio(t)!;
   if (!t.artist.trim() || !t.title.trim()) return skipOf('no_name');
   const state = s.rekordbox_state ?? 'ready';
-  if (state === 'unreadable') return skipOf('rekordbox_unreadable');
-  if (t.cloud && state === 'ready') return skipOf('cloud');
+  // what rekordbox's state says, asked after a clean AIFF's `named_already` and a Rename's `needs_convert` (the engine's order)
+  const blocked = (): Judged | null => state === 'unreadable' ? skipOf('rekordbox_unreadable') : t.cloud && state === 'ready' ? skipOf('cloud') : null;
   const ext = extOfTrack(t, a);
   const dir = dirOf(path);
   const clean = `${dir}/${nameOf(t)}.aiff`;
@@ -172,11 +171,15 @@ function judge(s: FakeState, t: FakeTrack | undefined, taken: Set<string>, only:
   if (isAiff1644(ext, a) && a.tagsClean === true) {
     // a clean AIFF: only its name is left
     if (fold(clean) === fold(path)) return skipOf('named_already');
+    const stopped = blocked();
+    if (stopped) return stopped;
     const free = !taken.has(fold(clean)) ? clean : !taken.has(fold(idName)) ? idName : null;
     if (free === null) return skipOf('rename_blocked');
     return make('rename', 'name', free, null);
   }
   if (only === 'rename') return skipOf('needs_convert');
+  const stopped = blocked();
+  if (stopped) return stopped;
   // the AIFF takes the clean name, or the ID name when another file holds it; an AIFF that already has the clean name
   // ends where the old file was
   const chain = fold(clean) === fold(path);
@@ -265,8 +268,26 @@ export function planOf(s: FakeState, scope: AiffScope, only?: 'rename'): { plan:
   return { plan };
 }
 
+/** The reasons whose answer still says what the step would do (aiff_plan.BLOCKED): rekordbox's library can't be read, a
+ *  Cloud Library Sync track, no free name. */
+const BLOCKED = ['rekordbox_unreadable', 'cloud', 'rename_blocked'];
+const NOTHING_WOULD = { action: null, kind: null, to: null, new_name: null, bytes: 0 };
+
+/** aiff_plan._would_do: the plan again as a what-if with rekordbox taken out (`none`), so a blocked file's action, kind,
+ *  new name and room are those of a step that could run; no free name is a Rename with no name to take. */
+function wouldDo(s: FakeState, t: FakeTrack, reason: string): Pick<TrackAiff, 'action' | 'kind' | 'to' | 'new_name' | 'bytes'> {
+  const rename = { action: 'rename' as const, kind: 'name', to: null, new_name: null, bytes: 0 };
+  if (reason === 'rename_blocked') return rename;
+  const again = planOf({ ...s, rekordbox_state: 'none' }, { kind: 'tracks', tracks: [t.track_id] });
+  if ('refused' in again) return NOTHING_WOULD;
+  const [i] = again.plan.items;
+  if (i) return { action: i.action, kind: i.kind, to: i.action === 'convert' ? AIFF_LINE : null, new_name: base(i.new_path), bytes: i.bytes };
+  return again.plan.skipped[0]?.reason === 'rename_blocked' ? rename : NOTHING_WOULD;
+}
+
 /** aiff_plan.file_answer: what Convert and Rename can do for one track's details; null when there is nothing to say (no
- *  file, a download, a better version waiting). */
+ *  file, a download, a better version waiting). `why_not` set means the action is blocked: for `BLOCKED` the action,
+ *  `kind`, `to`, `new_name` and `bytes` are still the step's own; any other reason has no action. */
 export function fileAnswer(s: FakeState, t: FakeTrack): TrackAiff | null {
   const r = planOf(s, { kind: 'tracks', tracks: [t.track_id] });
   if ('refused' in r) return null;
@@ -280,8 +301,8 @@ export function fileAnswer(s: FakeState, t: FakeTrack): TrackAiff | null {
   if (NO_ANSWER.includes(reason) || !path) return null;
   const a = storedAudio(t)!;
   const ext = extOfTrack(t, a);
-  return { action: null, why_not: reason, kind: null, from: formatLine(a, ext), to: null, name_now: base(path), new_name: null,
-    bytes: 0, lossy: !isLosslessCodec(a.codec), cdj: cdjWords(cdjProblem(a, ext)) };
+  return { ...(BLOCKED.includes(reason) ? wouldDo(s, t, reason) : NOTHING_WOULD), why_not: reason, from: formatLine(a, ext),
+    name_now: base(path), lossy: !isLosslessCodec(a.codec), cdj: cdjWords(cdjProblem(a, ext)) };
 }
 
 /** To-do's `aiff` of each CDJ item: the reason Convert can't run now (an eligibility key), null when it can. */

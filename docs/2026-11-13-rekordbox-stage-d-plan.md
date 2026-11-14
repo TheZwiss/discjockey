@@ -288,6 +288,7 @@ unchanged by check record.
 | `clean_aiff` | "This file is a clean AIFF already: Give it its clean name." (a Convert item whose file needs only its name; `aiff_action` turns it into Rename, so it shows only for an item whose answer changed meanwhile) |
 | `named_already` | "A clean AIFF with its clean name already." (nothing to do) |
 | `rekordbox_unreadable` (Convert, Rename) | "Discjockey can't open this rekordbox version's library yet, so it can't point your rekordbox track at the file. Nothing was changed." (`rbstep.OWN_FILE_REFUSED`: no New track, no upgrade; Rename says design §8's `rename_blocked` words with "rekordbox's library can't be opened") |
+| `rename_blocked` (no free name) | "Every name this file could take is in use, so it keeps its name for now. Nothing was changed." (`rbstep.NO_FREE_NAME_WORDS`; a name clash is not about rekordbox, so it does not say design §8's "can't right now ({reason})"; the reason key stays `rename_blocked`) |
 | Waiting (`waiting`) | each `message` with its `n`; the CDJ group's `all.k` is their sum |
 | Empty, view | "Every lossless file here is a clean AIFF already." |
 | Empty, CDJ group gone | (no group; To-do's own empty states) |

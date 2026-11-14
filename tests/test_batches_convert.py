@@ -444,6 +444,10 @@ def test_the_words_of_the_plan_for_the_reasons_a_file_item_meets():
     assert batches.words("needs_convert", "rename") == rbstep.CONVERT_REFUSED["needs_convert"]
     assert batches.words("rename_blocked", "rename", why=rename.BLOCKED_WHY["cloud"]) == \
         rbstep.REFUSED["rename_blocked"].format(reason="the track is in Cloud Library Sync")
+    # a name clash is not rekordbox's doing: its own sentence, for the skip and the wait alike
+    assert batches.words("rename_blocked", "rename", why=rename.NO_FREE_NAME) == rbstep.NO_FREE_NAME_WORDS == \
+        "Every name this file could take is in use, so it keeps its name for now. Nothing was changed."
+    assert "rekordbox" not in rbstep.NO_FREE_NAME_WORDS
     assert "can't open this rekordbox version's library" in batches.words("rekordbox_unreadable", "convert")
     # Same track's words are as they were
     assert batches.words("rekordbox_unreadable") == "Same track needs a rekordbox library Discjockey can open. " \

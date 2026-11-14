@@ -54,6 +54,8 @@ REFUSED = {
     "rename_blocked": "Discjockey can only give this file its new name while it can point your rekordbox track at "
                       "it, and it can't right now ({reason}). Nothing was changed.",
 }
+# `rename_blocked` for a name clash is not about rekordbox, so it has its own sentence (design §8's words for it)
+NO_FREE_NAME_WORDS = "Every name this file could take is in use, so it keeps its name for now. Nothing was changed."
 
 # What a step on the user's own file (Convert, Give it its clean name) says where Same track's words of `REFUSED` don't
 # fit: it has no New track and no better version (`skipped(..., own_file=True)`, `raise_refusal` for a step of source

@@ -563,6 +563,45 @@ def test_a_library_that_cannot_be_read_refuses_every_step_so_every_file_waits(li
         ("no_name", 1), ("rekordbox_unreadable", 7), ("upgrade_waits", 1)]
 
 
+def answer_of(paths, state, key, rb=READY):
+    return aiff_plan.file_answer(paths, state, key, rb=rb, tags=reader(state["tracks"]))
+
+
+def test_a_blocked_one_file_answer_still_says_what_the_step_would_do(lib, monkeypatch):
+    """`why_not` set means the action is blocked: for rekordbox's library that can't be read it is judged as if
+    rekordbox were not in the way, so the details can show Becomes, Name and Space and say why it waits."""
+    paths, state = lib
+    ok = answer_of(paths, state, "flac")
+    blocked = answer_of(paths, state, "flac", UNREADABLE)
+    assert (ok["action"], ok["why_not"]) == ("convert", None)
+    assert blocked["why_not"] == "rekordbox_unreadable"
+    assert {k: blocked[k] for k in ("action", "kind", "to", "new_name", "bytes")} == \
+        {k: ok[k] for k in ("action", "kind", "to", "new_name", "bytes")}
+    assert blocked["bytes"] > 0 and blocked["to"] == aiff_plan.AIFF_LINE and blocked["new_name"] == "Ann - Flac.aiff"
+    assert (blocked["from"], blocked["name_now"], blocked["lossy"]) == (ok["from"], ok["name_now"], ok["lossy"])
+    name = answer_of(paths, state, "name", UNREADABLE)           # a Rename: no room needed, no AIFF line
+    assert (name["action"], name["why_not"], name["kind"], name["to"], name["new_name"], name["bytes"]) == \
+        ("rename", "rekordbox_unreadable", "name", None, "Ann - Name.aiff", 0)
+    # no free name is a Rename that has no name to take
+    monkeypatch.setattr(aiff_plan.rename, "clean_path", lambda *a, **k: (_ for _ in ()).throw(FileExistsError("taken")))
+    none = answer_of(paths, state, "name")
+    assert (none["action"], none["why_not"], none["kind"], none["to"], none["new_name"], none["bytes"]) == \
+        ("rename", "rename_blocked", "name", None, None, 0)
+    assert none["name_now"] == "messy name.aiff" and none["from"].startswith("AIFF")
+    blocked = run(paths, state, picked("name"))                  # the plan's skip and wait say it without blaming rekordbox
+    assert [(s.reason, s.message) for s in blocked.skipped] == [("rename_blocked", rbstep.NO_FREE_NAME_WORDS)]
+    assert [(w["reason"], w["message"]) for w in blocked.waiting] == [("rename_blocked", rbstep.NO_FREE_NAME_WORDS)]
+
+
+def test_a_one_file_answer_blocked_for_any_other_reason_has_no_action(lib):
+    paths, state = lib
+    named = answer_of(paths, state, "clean", UNREADABLE)         # a clean AIFF at its clean name: nothing to do
+    assert (named["action"], named["why_not"], named["kind"], named["to"], named["new_name"], named["bytes"]) == \
+        (None, "named_already", None, None, None, 0)
+    (paths.root / state["tracks"]["flac"]["path"]).unlink()
+    assert answer_of(paths, state, "flac") is None               # no file: no answer at all
+
+
 def test_a_track_in_cloud_library_sync_is_skipped(lib):
     paths, state = lib
     plan = run(paths, state, picked("flac", "wav"), entries=lambda file: [row(cloud=True)] if file.name == "a.flac" else [])
@@ -648,6 +687,25 @@ def test_the_todo_group_counts_are_the_cdj_plans_and_its_items_are_the_plans_ite
     assert group["all"] == {"n": plan.total, "k": 2}
     assert {i["track_id"] for i in group["items"]} == set(cdj.group_members(state)) == {"wavpack", "aac", "hidden"}
     assert {i["track_id"] for i in group["items"] if i["aiff"] is None} == {i.track for i in plan.items} == {"hidden"}
+
+
+def test_a_row_of_the_cdj_group_says_what_the_head_counts_a_cloud_file_waits_in_both(lib):
+    """The plan keeps each waiting file's reason (`waits`, not in `to_dict`), and To-do's rows take it: a file in Cloud
+    Library Sync waits in the plan, so its row says `cloud` where the stored facts alone would say it can run."""
+    paths, state = lib
+    state["tracks"]["hidden"].update(hidden=False)
+    plan = run(paths, state, {"kind": "cdj"}, entries=lambda file: [row(cloud=True)] if file.name == "h.m4a" else [])
+    assert dict(plan.waits) == {"aac": "cloud"} and "waits" not in plan.to_dict()
+    assert views.cdj_counts(plan.to_dict()) == (plan.total, 1) == (2, 1)
+
+    def aiff_of(**kw):
+        out = views.todo(state, "all", False, {}, date(2026, 11, 13), cdj_all=views.cdj_counts(plan.to_dict()), **kw)
+        return {i["track_id"]: i["aiff"] for g in out["groups"] if g["key"] == "cdj" for i in g["items"]}
+
+    assert aiff_of() == {"wavpack": None, "aac": None, "hidden": None}              # no plan ran: the quick answer
+    rows = aiff_of(cdj_waits=plan.waits)
+    assert rows == {"wavpack": None, "aac": "cloud", "hidden": None}
+    assert sorted(k for k, why in rows.items() if why is None) == sorted(i.track for i in plan.items)   # n rows run
 
 
 # --- the room a file's AIFF needs comes from the file ---

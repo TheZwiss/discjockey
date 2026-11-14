@@ -81,6 +81,9 @@ from .upgrades import UpgradeProblem, fields_before
 # running the step (rekordbox running, the file in its library: the step itself raises `RekordboxOpened`)
 BLOCKED_WHY = {"open": "rekordbox is open", "unreadable": "rekordbox's library can't be opened",
                "cloud": "the track is in Cloud Library Sync"}
+# `batches.words`' `why` for `rename_blocked` when no free file name is left: not a rekordbox reason, so not a BLOCKED_WHY
+# text but a marker, and the words are `rbstep.NO_FREE_NAME_WORDS`
+NO_FREE_NAME = "no free file name"
 
 # Recovery (design §5.8, plan stage D §3): this step's words
 WAIT_REKORDBOX = "Quit rekordbox so Discjockey can finish an interrupted clean-name change for {name}."
