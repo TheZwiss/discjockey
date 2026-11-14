@@ -10,7 +10,7 @@ import {
 
 const view = (extra: Partial<RekordboxCheckView> = {}): RekordboxCheckView => ({ reason: 'repointed', since: '2026-11-08',
   match: 'exact', offset_ms: 0, moved: false, aligned: true, text: 'the engine text', old_path: 'Superseded/Hard_Bounce/A - x.mp3',
-  reload_tag: false, batch: { id: 7, size: 3 }, rekordbox: { entries: 1, kept: [] }, ...extra });
+  reload_tag: false, batch: { id: 7, size: 3 }, rekordbox: { entries: 1, kept: [] }, old_name: null, ...extra });
 const check = (id: string, c: Partial<RekordboxCheckView> = {}, extra: Partial<TodoItem> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
   quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false,
@@ -115,7 +115,7 @@ describe('the batch card', () => {
 
 describe('several checks selected, and their undo', () => {
   const batch: BatchCheckItem = { ...check('batch:7', {}, { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', kind: 'upgrade', tracks: [check('b1'), check('b2')] } };
   it('a batch stands for its tracks', () => {
     expect(checkTracks([batch, check('c1')]).map((t) => t.track_id)).toEqual(['b1', 'b2', 'c1']);
   });

@@ -452,6 +452,7 @@
           "type": "string",
           "enum": [
             "scan",
+            "facts",
             "tags",
             "sound",
             "link"
@@ -493,13 +494,20 @@
             "string",
             "null"
           ]
+        },
+        "batch_kind": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "type",
         "job_id",
         "kind",
-        "track_id"
+        "track_id",
+        "batch_kind"
       ],
       "additionalProperties": false
     },

@@ -4,6 +4,7 @@ import type { FakeState } from '$lib/bridge/fake/data';
 import { dateOnly, makeUpgrade, pathOf, qualityOf, type FakeMatch, type FakeTrack } from '$lib/bridge/fake/data';
 import { markRefused, markWaiting, seedUpgrades } from '$lib/bridge/fake/auto';
 import { sameAudio, sameSong } from '$lib/bridge/fake/folders';
+import { aiffSet, seedBatch } from '$lib/bridge/fake/aiffScenes';
 import type { Candidate } from '$lib/bridge/types';
 
 // Wrong song? search variants per fake state (scenarios run once per state; the override reads the mode back).
@@ -197,6 +198,30 @@ const fake: PageFake = {
       const t = s.tracks.find((x) => x.track_id === 't17');
       if (t) t.away = 'offline';
     },
+    // ---- Won't play well on CDJs and the checks of Convert and Rename (issue 33 stage D, plan §6.4 S2) ----
+    // The Music folder of aiffScenes.aiffSet: To-do's CDJ group holds own:13 FLAC 24-bit 192 kHz, own:14 WAV 32-bit float,
+    // own:15 Opus, own:16 FLAC 176.4 kHz (in Cloud Library Sync: it waits), own:17 AIFF 24-bit 192 kHz, own:18 Ogg Vorbis.
+    // The group (#/todo?filter=cdj): six rows with their short reasons, "Convert all · 5".
+    cdj(s) { aiffSet(s); },
+    // One item's panel (#/todo?filter=cdj&track=own%3A13): the warn note, the AIFF card, "Convert to AIFF".
+    'cdj-item'(s) { aiffSet(s); },
+    // Several rows picked (open the group, select own:13, own:14, own:15): the batch panel "3 files for CDJs", "Make 3 files AIFF".
+    'cdj-multi'(s) { aiffSet(s); },
+    // The whole group selected (click "Convert all · 5"): "6 files for CDJs", "Convert 5 to AIFF", one waits.
+    'cdj-all'(s) { aiffSet(s); },
+    // A Convert all that was stopped after own:13 and own:14: the group head says "Resume · 4 left".
+    'cdj-resume'(s) {
+      aiffSet(s);
+      seedBatch(s, 'todo:cdj', 'stopped', ['own:13', 'own:14'], ['own:15', 'own:17', 'own:18'], 'cdj_all');
+    },
+    // The check of a Convert (#/todo?filter=rekordbox_check&track=own%3A13): "Converted to AIFF", the USB step, Done and Undo.
+    'check-converted'(s) { aiffSet(s); seedBatch(s, 'todo:selection', 'done', ['own:13'], []); },
+    // ... for a file rekordbox has no track for (own:20 FLAC): the text's first sentence and the "not in your rekordbox collection" line.
+    'check-converted-no-rekordbox'(s) { aiffSet(s); seedBatch(s, 'todo:selection', 'done', ['own:20'], []); },
+    // The check of a clean name (#/todo?filter=rekordbox_check&track=own%3A7): the text, no steps.
+    'check-renamed'(s) { aiffSet(s); seedBatch(s, 'todo:selection', 'done', ['own:7'], []); },
+    // A Convert all of three files (#/todo?filter=rekordbox_check): "3 tracks", "{day} · Made AIFF", the card lists each with its new name.
+    'check-convert-batch'(s) { aiffSet(s); seedBatch(s, 'todo:cdj', 'done', ['own:13', 'own:14', 'own:17'], [], 'cdj_all'); },
     // Wrong song?: 12 candidates with long titles.
     'long-candidates'(s) { searchMode.set(s, 'long'); },
     // Wrong song?: the search takes 6 s.

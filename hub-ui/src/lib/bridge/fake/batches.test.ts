@@ -95,6 +95,7 @@ describe('the fake bridge: Same track batches', () => {
     expect(g!.stopped!.left).toBeGreaterThan(0);
     const resumed = await run(f.batch_resume(g!.stopped!.batch_id));
     expect(resumed).toMatchObject({ kind: 'batch_resume', ok: true });
+    expect(((await f.job_status()) as any).job).toMatchObject({ kind: 'batch_resume', batch_kind: 'upgrade' });
     expect((await group('upgrade_ready'))?.stopped ?? null).toBeNull();
   });
   it('Done on tracks with nothing to check starts a job that ends changed, as the engine does', async () => {

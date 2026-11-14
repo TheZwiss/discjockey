@@ -16,14 +16,14 @@ from pathlib import PurePosixPath
 from typing import Callable, NamedTuple
 from urllib.parse import quote_plus
 
-from .. import playlists_file as pf
+from .. import cdj as cdj_rule, playlists_file as pf
 from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_MIN_KBPS, SERVICES, SERVICE_NAMES,
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold
-from ..models import (OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, BatchResult, BatchRow, DupFile, DuplicateGroup,
-                      ImportCounts, MoveRow, PlannedMove, PlaylistRecord, Question, WatchedFolder, is_own, split_token,
-                      track_link as key_link)
+from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
+                      AiffBatchRow, BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
+                      PlaylistRecord, Question, WatchedFolder, is_own, split_token, track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
@@ -32,6 +32,7 @@ from ..settings import Settings
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
+from ..library import undo_chain
 from ..upgrades import can_undo, swap_possible, upgrade_name
 
 SECONDS_PER_DOWNLOAD = 70  # average per acquisition or upgrade check: pause, download, conversion, long breaks
@@ -593,12 +594,8 @@ def buy_links(artist: str, title: str) -> dict:
     return {"beatport": f"https://www.beatport.com/search?q={q}", "bandcamp": f"https://bandcamp.com/search?q={q}"}
 
 
-FORMAT_NAMES = {"opus": "Opus", "aac": "AAC", "mp3": "MP3", "flac": "FLAC", "vorbis": "Vorbis", "alac": "ALAC"}
-
-
-# the container a file's extension names; .m4a is AAC or ALAC by its codec (file_format_line)
-CONTAINER_NAMES = {".aiff": "AIFF", ".aif": "AIFF", ".wav": "WAV", ".flac": "FLAC", ".mp3": "MP3", ".ogg": "OGG",
-                   ".opus": "Opus"}
+# FORMAT_NAMES (a codec's name) and CONTAINER_NAMES (the container an extension names; .m4a is AAC or ALAC by its
+# codec, file_format_line) live in models: the CDJ rule's words use them too
 DOWNLOAD_BITS = 16  # audio.convert_to_aiff writes every download as pcm_s16be
 
 
@@ -736,7 +733,34 @@ def check_status(check: dict | None) -> str:
         return "relocate, analyse again" if c.get("match") in ("exact", "shifted") else "analyse, set the cues again"
     if reason == "wrong_song":
         return "now the right song: analyse again"
+    if reason == "converted":  # Convert to AIFF (issue 33 stage D): rekordbox follows the new file by itself
+        return "an AIFF now: nothing to redo" if c.get("rekordbox") else "an AIFF now, not in rekordbox"
+    if reason == "renamed":
+        return "clean name now"
     return "check it in rekordbox"
+
+
+UNDONE_UPGRADE = "Upgrade undone. Your old file is back."
+UNDONE_CONVERT = "Conversion undone. Your old file is back."
+UNDONE_RENAME = "Clean name undone. Your old name is back."
+UNDONE_FILES = "Undone. Your old files are back."
+UNDONE_NAMES = "Undone. Your old names are back."
+UNDONE_BOTH = "Undone. Your old files and names are back."
+
+
+def undone_words(reasons: Sequence[str | None]) -> str:
+    """What an undo says when it worked (plan stage D §3 adds Convert and Rename to the old "upgrade" words): `reasons`
+    are the `rekordbox_check` reasons the undone tracks had before the undo (a Convert→Rename chain has `converted`,
+    the undo record knows both steps). One track: "Upgrade undone", "Conversion undone" or "Clean name undone" with what
+    came back; several: "Undone. Your old files are back." ("names" when every one was a clean name, "files and
+    names" when both kinds are there). The engine's `UndoResult` carries no section: its `upgrade_undone` name stays
+    internal and never reaches a screen."""
+    names = sum(1 for r in reasons if r == "renamed")
+    if len(reasons) == 1:
+        return {"converted": UNDONE_CONVERT, "renamed": UNDONE_RENAME}.get(reasons[0] or "", UNDONE_UPGRADE)
+    if names == 0:
+        return UNDONE_FILES
+    return UNDONE_NAMES if names == len(reasons) else UNDONE_BOTH
 
 
 def check_view(check: dict | None, batch_size: int = 1) -> dict:
@@ -748,17 +772,28 @@ def check_view(check: dict | None, batch_size: int = 1) -> dict:
     without it still asks for Reload Tag: True), `batch` ({id, size}: the AIFF batch that left it and how many checks
     of that batch are open, null for a check of no batch) and `rekordbox` ({entries: how many rekordbox tracks were
     pointed at the new file or had their text written, kept: the fields left as the user edited them}, null when
-    nothing was written in rekordbox)."""
+    nothing was written in rekordbox).
+
+    Stage D (Convert, Give it its clean name): `old_path` is where the old file is now for a `converted` check too
+    (Superseded/): the Convert's own undo record, which a Convert→Rename chain keeps nested in the rename's
+    (`library.undo_chain`); a `renamed` check has no old file (the same file kept its audio, only its name changed), so
+    `old_path` is null and `old_name` says the name it had (the file's base name), null for every other check."""
     c = check or {}
     undo = c.get("undo") or {}
     rb = c.get("rekordbox")
+    converts = [u for u in undo_chain(undo) if u.get("kind") == "convert"]
+    if converts:
+        old_path = converts[-1].get("old")
+    else:
+        old_path = None if undo.get("kind") == "rename" else undo.get("old")
+    old_name = PurePosixPath(undo["old"]).name if c.get("reason") == "renamed" and undo.get("old") else None
     return {"reason": c.get("reason"), "since": c.get("since"), "match": c.get("match"),
             "offset_ms": c.get("offset_ms"), "moved": bool(c.get("moved")), "aligned": bool(c.get("aligned")),
             "reload_tag": c.get("reload_tag", True) is not False,
             "batch": {"id": c["batch"], "size": batch_size} if c.get("batch") else None,
             "rekordbox": {"entries": len(rb.get("entries") or []), "kept": list(rb.get("kept") or [])} if rb else None,
             "text": check_text(c),
-            "old_path": undo.get("old")}
+            "old_path": old_path, "old_name": old_name}
 
 
 # Auto-upgrade's marks on a parked upgrade (plan stage C §3, §4): To-do's row detail and the panel's facts
@@ -1022,6 +1057,24 @@ class _Listing(NamedTuple):
     gone: bool = False
 
 
+def _playlist_songs(record: PlaylistRecord | None, resolve: Callable[[str], str]) -> list[tuple[str, object]]:
+    """A playlist's read songs in order, each once, as (the song's key or the token no song has, its read track)."""
+    songs: list[tuple[str, object]] = []
+    held: set[str] = set()
+    for t in record.tracks if record else ():
+        k = resolve(t.token)
+        if k not in held:
+            held.add(k)
+            songs.append((k, t))
+    return songs
+
+
+def _also_keys(line: pf.Row, held: Collection[str], with_file: Mapping[str, dict], found: Sites) -> list[str]:
+    """The files in a playlist's own Library folder whose song the playlist doesn't hold (its view's `also`)."""
+    return [k for k, e in with_file.items()
+            if k not in held and fold(found.library_folder(e["path"]) or "") == fold(line.folder)]
+
+
 def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, with_file: Mapping[str, dict], found: Sites,
                    resolve: Callable[[str], str], holders: Mapping[str, list], row: Callable[..., dict],
                    link_of: Callable[[str, dict], dict | None], cover: Url | None) -> _Listing:
@@ -1032,12 +1085,9 @@ def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, wit
     label = f"{PLAYLIST_SERVICES[line.service]} playlist" if line.service else "playlist"
     subtitle = ((lambda n: [label, "not read yet"]) if record is None else
                 (lambda n: [label, n, *(["switched off"] if not line.enabled else []), f"Library › {line.folder}"]))
-    held: set[str] = set()
-    for t in record.tracks if record else ():
-        k = resolve(t.token)
-        if k in held:
-            continue
-        held.add(k)
+    songs_read = _playlist_songs(record, resolve)
+    held = {k for k, _ in songs_read}
+    for k, t in songs_read:
         e = state["tracks"].get(k)
         if e is not None and k in with_file:
             own = fold(found.library_folder(e["path"]) or "") == fold(line.folder)
@@ -1053,12 +1103,35 @@ def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, wit
                      "next_try": next_due(e) if e is not None and _group(e) == "not_found" else None,
                      "position": t.position, "place": None, "subfolder": None,
                      "playlists": holders.get(k, [line.folder]), "track_link": link_of(k, e or {})})
-    also = [row(k, e, place=None) for k, e in with_file.items()
-            if k not in held and fold(found.library_folder(e["path"]) or "") == fold(line.folder)]
+    also = [row(k, with_file[k], place=None) for k in _also_keys(line, held, with_file, found)]
     # the playlist's songs (D5: what the sidebar counts) and how many have a file
     songs = ({"listed": len(held), "with_file": sum(1 for r in rows if r["file_state"] != "no_file")}
              if record is not None else None)
     return _Listing(rows, subtitle, also, songs, read_at)
+
+
+class _FolderScope(NamedTuple):
+    """Which files a folder view holds: its normalised path, the watched folder it lies in (None: none), its kind
+    ("watched", "crate", "library" or None) and the (key, entry) pairs at or below it."""
+    nkey: str
+    root: str | None
+    kind: str | None
+    inside: list
+
+
+def _folder_title(nkey: str, kind: str | None, found: Sites) -> str:
+    """A folder view's title: a watched folder's name, a crate's label, else the folder's own name."""
+    return found.roots[nkey] if kind == "watched" else found.crates[nkey][1] if nkey in found.crates \
+        else PurePosixPath(nkey).name
+
+
+def _folder_scope(key: str, with_file: Mapping[str, dict], found: Sites) -> _FolderScope:
+    nkey = _nfc(key).rstrip("/")
+    root = max((r for r in found.roots if nkey == r or nkey.startswith(r + "/")), key=len, default=None)
+    kind = ("watched" if root == nkey else "crate" if root is not None
+            else "library" if nkey.startswith("Library/") else None)
+    inside = [(k, e) for k, e in with_file.items() if kind is not None and _nfc(e["path"]).startswith(nkey + "/")]
+    return _FolderScope(nkey, root, kind, inside)
 
 
 def _folder_rows(key: str, with_file: Mapping[str, dict], found: Sites, away: Mapping[str, str] | None,
@@ -1066,14 +1139,8 @@ def _folder_rows(key: str, with_file: Mapping[str, dict], found: Sites, away: Ma
     """A folder's view: the files at or below its path (a path nothing is known by still has its view; a vanished one
     is `gone`). Its kind is "watched" (an import folder), "crate", "library" or None (no such folder). A watched
     folder's rows say their crate as `subfolder`, a crate's the folders between."""
-    nkey = _nfc(key).rstrip("/")
-    root = max((r for r in found.roots if nkey == r or nkey.startswith(r + "/")), key=len, default=None)
-    folder_kind = ("watched" if root == nkey else "crate" if root is not None
-                   else "library" if nkey.startswith("Library/") else None)
-    inside = [(k, e) for k, e in with_file.items()
-              if folder_kind is not None and _nfc(e["path"]).startswith(nkey + "/")]
-    title = (found.roots[nkey] if folder_kind == "watched" else found.crates[nkey][1] if nkey in found.crates
-             else PurePosixPath(nkey).name)
+    nkey, root, folder_kind, inside = _folder_scope(key, with_file, found)
+    title = _folder_title(nkey, folder_kind, found)
     name = PurePosixPath(nkey).name
     gone = folder_kind is None or (folder_kind != "watched" and not inside)
     away_part = [AWAY_WORDS[s]] if (s := _folder_state(away, nkey)) != "here" else []
@@ -1101,10 +1168,66 @@ def _folder_rows(key: str, with_file: Mapping[str, dict], found: Sites, away: Ma
     return _Listing(rows, subtitle, title=title, folder_kind=folder_kind, gone=gone)
 
 
+def _unlisted(with_file: Mapping[str, dict]) -> list[str]:
+    """The keys of the files in no playlist (the "Not in a playlist" view)."""
+    return [k for k, e in with_file.items() if not e.get("in_playlists")]
+
+
+def files_with_file(state: dict) -> dict[str, dict]:
+    """The songs that have a file now, by key, in state order: every view's pool."""
+    return {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
+
+
+class LibraryFiles(NamedTuple):
+    """The files of a Library view: its title (as `library`'s) and their keys."""
+    title: str
+    keys: list[str]
+
+
+def library_files(state: dict, view: str, key: str | None, *, lines: Sequence[pf.Row],
+                  records: Mapping[str, PlaylistRecord] | None = None, watched: Iterable[WatchedFolder] = ()
+                  ) -> LibraryFiles:
+    """The title and the keys of the files `library(...)` lists for a view (all LIBRARY_VIEWS, `key` as there), each
+    once, in the view's order, with no filter, search or sort: the set "All" means to Make all lossless files AIFF (plan
+    stage D §0.6). A playlist's are its read songs that have a file in the playlist's order, then the files of its own
+    Library folder it doesn't hold (`also`); a view nothing is known by (an unknown playlist or folder) holds none. It
+    builds no rows and looks at no file."""
+    with_file = files_with_file(state)
+    if view == "all":
+        return LibraryFiles("All tracks", list(with_file))
+    if view == "unlisted":
+        return LibraryFiles("Not in a playlist", _unlisted(with_file))
+    found = sites(state, lines, watched)
+    if view == "playlist":
+        line = next((r for r in lines if fold(r.folder) == fold(key or "")), None)
+        if line is None:
+            return LibraryFiles(key or "", [])
+        songs = _playlist_songs((records or {}).get(line.ref), _resolver(state))
+        held = {k for k, _ in songs}
+        return LibraryFiles(line.folder, [*(k for k, _ in songs if k in with_file),
+                                          *_also_keys(line, held, with_file, found)])
+    scope = _folder_scope(key or "", with_file, found)
+    return LibraryFiles(_folder_title(scope.nkey, scope.kind, found), [k for k, _ in scope.inside])
+
+
+def view_known(state: dict, view: str, key: str | None, *, lines: Sequence[pf.Row],
+               watched: Iterable[WatchedFolder] = ()) -> bool:
+    """Whether a Library view is one something is known by: a playlist named on a playlists.txt line, a folder that is
+    a watched import folder, a crate, or a Library folder holding files. `library_files` of an unknown playlist or folder is
+    empty, as of one that is empty; this tells them apart (all and unlisted are always known). It looks at no file."""
+    if view == "playlist":
+        return any(fold(r.folder) == fold(key or "") for r in lines)
+    if view == "folder":
+        scope = _folder_scope(key or "", files_with_file(state), sites(state, lines, watched))
+        return scope.kind == "watched" or (scope.kind is not None and bool(scope.inside))
+    return True
+
+
 def library(state: dict, view: str, key: str | None, query: str, filt: str, sort: str | None, cover: Url | None = None,
             away: Mapping[str, str] | None = None, *, lines: Sequence[pf.Row],
             records: Mapping[str, PlaylistRecord] | None = None, watched: Sequence[WatchedFolder] = (),
-            fetched: list = (), planned: Mapping[str, Sequence[str]] | None = None) -> dict:
+            fetched: list = (), planned: Mapping[str, Sequence[str]] | None = None,
+            aiff_stopped: tuple[int, int] | None = None) -> dict:
     """One view of the library (plan library stage 5, I4, D9-D12). `view`: LIBRARY_VIEWS; `key`: the playlist's folder
     name (as playlists.txt spells it, any case) for "playlist", a folder's snapshot path (`Library/<name>`, or the
     absolute path in an import folder) for "folder", else ignored. filt: LIBRARY_FILTERS. sort: a SORTS key, "-" in
@@ -1123,9 +1246,13 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     file count in `summary` and `chips`; the search narrows the rows and `also`. `songs` (a read playlist, else
     None): `{"listed", "with_file"}`, its distinct songs and how many of them have a file, before any search or
     filter: the page words "13 of 18 downloaded" from it. `folder` keeps the old meaning
-    (None, NOT_IN_PLAYLIST, the playlist's or the folder's key)."""
+    (None, NOT_IN_PLAYLIST, the playlist's or the folder's key).
+
+    Stage D: `aiff_stopped` ({batch_id, left} in the answer, null for none): the newest stopped Convert batch that
+    started in the Library (`stopped_batch(rows, scope="library:")`), for the header's "Resume · {k} left". The rows
+    carry no AIFF answer."""
     records = records or {}
-    with_file = {k: e for k, e in state["tracks"].items() if e["status"] != "missing" and e.get("path")}
+    with_file = files_with_file(state)
     found = sites(state, lines, watched)
     resolve = _resolver(state)
     holders = _holders(lines, records, resolve)
@@ -1146,7 +1273,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     subtitle: Callable[[str], list[str]] = lambda n: [n, "every folder"]
     if view == "unlisted":
         title, folder = "Not in a playlist", NOT_IN_PLAYLIST
-        rows = [row(k, e) for k, e in with_file.items() if not e.get("in_playlists")]
+        rows = [row(k, with_file[k]) for k in _unlisted(with_file)]
         subtitle = lambda n: [n, "in no playlist"]
     elif view == "all":
         rows = [row(k, e) for k, e in with_file.items()]
@@ -1194,12 +1321,13 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
     return {"title": title, "folder": folder, "view": view, "key": shown_key, "folder_kind": folder_kind,
             "subtitle": [] if gone else subtitle(_plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
             "rows": rows, "also": also, "songs": songs, "read_at": read_at, "enabled": enabled, "service": service,
-            "empty": empty}
+            "empty": empty,
+            "aiff_stopped": {"batch_id": aiff_stopped[0], "left": aiff_stopped[1]} if aiff_stopped else None}
 
 
 def tracks_with_file(state: dict) -> list[dict]:
     """The entries that have a file: what "All tracks" counts."""
-    return [e for e in state["tracks"].values() if e["status"] != "missing" and e.get("path")]
+    return list(files_with_file(state).values())
 
 
 CRATE_LIMIT = 25  # more crates than this under one watched folder: the folder is one row, its crates hidden (D8)
@@ -1363,6 +1491,7 @@ TODO_GROUPS = [("rekordbox_check", "Check in rekordbox", "the file changed; reko
                ("same_song", "Is this the same song?", "a file of yours might be a playlist song"),
                ("duplicate", "Duplicates", "the same song more than once"),
                ("upgrade_ready", "Upgrade ready", "a better version is waiting for you"),
+               ("cdj", "Won't play well on CDJs", "CDJs refuse or stutter on these files"),
                ("not_found", "Not found", "nothing usable anywhere"),
                ("weak", "Weak (≤ 17 kHz)", "audibly lossy"),
                ("good_lossy", "Good lossy (~20 kHz)", "hard to hear"),
@@ -1473,11 +1602,41 @@ def _question_item(q: Question, state: dict, cover: Url | None, audio: Url | Non
             "file_state": row_file_state(own, away), "pair": pair}
 
 
+def _duplicate_online(g: DuplicateGroup, files: Sequence[DupFile], away: Mapping[str, str] | None
+                      ) -> dict[int, bool] | None:
+    """Each file's online-ness when every file of the group is there to act on (online now, not held), else None."""
+    online = {f.file_id: file_online({"path": f.path, "online": f.online}, away) for f in files}
+    if len(files) != len(g.file_ids) or len(files) < 2 or not all(online[f.file_id] and f.usable for f in files):
+        return None
+    return online
+
+
+def decided_songs(state: dict, questions: Sequence[Question], duplicates: Sequence[DuplicateGroup],
+                  dup_files: Mapping[str, Sequence[DupFile]], counted: Collection[str],
+                  away: Mapping[str, str] | None, owners: Mapping[int, str]) -> set[str]:
+    """The songs whose own file an open "Is this the same song?" question or a listed duplicate group asks about: that
+    decision comes first, so the CDJ group leaves them out (as a parked upgrade's song, `cdj.group_members`'s `held`;
+    A8). A question's own song counts while its item lists (`_question_item`); a group's files' songs while the group
+    lists or is `counted`. `owners`: file id -> song key (`db.file_songs`), for a counted group's files, whose
+    `dup_files` aren't read."""
+    held: set[str] = set()
+    for q in questions:
+        own = state["tracks"].get(q.own_key)
+        if own is not None and own.get("path"):
+            held.add(q.own_key)
+    for g in duplicates:
+        if g.id in counted:
+            held.update(owners[i] for i in g.file_ids if i in owners)
+        elif (files := dup_files.get(g.id, ())) and _duplicate_online(g, files, away) is not None:
+            held.update(f.song_key for f in files if f.song_key)
+    return held
+
+
 def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, cover: Url | None,
                     audio: Url | None, away: Mapping[str, str] | None = None) -> dict | None:
     """The To-do item of a duplicate group; None unless every file of it is there to act on (online now, not held)."""
-    online = {f.file_id: file_online({"path": f.path, "online": f.online}, away) for f in files}
-    if len(files) != len(g.file_ids) or len(files) < 2 or not all(online[f.file_id] and f.usable for f in files):
+    online = _duplicate_online(g, files, away)
+    if online is None:
         return None
     sides = []
     for f in sorted(files, key=lambda f: f.file_id):
@@ -1529,17 +1688,33 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
     return None, None
 
 
-def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None) -> dict:
+BATCH_MADE_AIFF = "Made AIFF"  # the sub of the To-do item of a Convert batch's checks (plan stage D §3)
+BATCH_CLEAN_NAME = "Clean name"  # a batch that only gave clean names
+
+
+def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> str:
+    """The words after the day on a batch item: "Upgraded during your sync" (Auto-upgrade), "Made AIFF" (a batch of
+    Convert or Rename items: `aiff_batches.kind` `convert` or `mixed`; "Clean name" when every check is a clean name),
+    else "Same track"."""
+    if started_by == "auto_upgrade":
+        return AUTO_BATCH_DETAIL
+    if kind in ("convert", "mixed"):
+        return BATCH_CLEAN_NAME if all(t["check"]["reason"] == "renamed" for t in tracks) else BATCH_MADE_AIFF
+    return "Same track"
+
+
+def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None, kind: str | None = None) -> dict:
     """The To-do item of an AIFF batch's open checks (two or more): it looks like its first track's row (a TrackRow,
     so the list can place it) under the key `batch:<id>`; `batch.tracks` are the checks as single items list them.
     `started_by`: who started the batch (`aiff_batches.started_by`; None when unknown): a batch of the sync's
-    Auto-upgrade says "Upgraded during your sync" in place of "Same track"."""
+    Auto-upgrade says "Upgraded during your sync" in place of "Same track". `kind`: the batch's own (`aiff_batches.kind`
+    `upgrade` | `convert` | `mixed`; None when unknown): a Convert batch says "Made AIFF" (`_batch_how`)."""
     started = min((t["check"]["since"] for t in tracks if t["check"]["since"]), default=None)
     key = f"batch:{batch_id}"
-    how = AUTO_BATCH_DETAIL if started_by == "auto_upgrade" else "Same track"
+    how = _batch_how(started_by, kind, tracks)
     return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
             "detail": f"{started or ''} · {how}".strip(" ·"),
-            "batch": {"id": batch_id, "size": len(tracks), "started": started, "started_by": started_by,
+            "batch": {"id": batch_id, "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
                       "tracks": tracks}}
 
 
@@ -1559,15 +1734,57 @@ def _upgrade_all(rows: list[dict], stopped: tuple[int, int] | None) -> dict:
             "stopped": {"batch_id": stopped[0], "left": stopped[1]} if stopped else None}
 
 
+def _cdj_item(k: str, e: dict, problem: cdj_rule.CdjProblem, cover: Url | None, away: Mapping[str, str] | None,
+              rb: RekordboxStatus | None, present: Mapping[str, str] | None,
+              waits: Mapping[str, str] | None = None) -> dict:
+    """An item of the CDJ group (see `todo`). `aiff` is why Convert can't run now, null when it can. When the caller ran
+    the group's plan (`waits`: song key -> the reason of every file that waits, `AiffPlan.waits`) a waiting file says
+    that reason, the very answer the head's `all.k` counts (a file in Cloud Library Sync waits there, which the stored
+    facts can't tell); else, and for a file the plan doesn't hold back, it is `eligible.aiff_action` with the stored
+    facts only (no tag read, no timing): none of these files is a clean AIFF, so the stored facts alone decide
+    Convert's answer."""
+    state_of = row_file_state(e, away)
+    _action, verdict = eligible.aiff_action(e, None, rb or UNKNOWN_REKORDBOX, None,
+                                            present=(present or {}).get(k) or present_of(state_of))  # type: ignore[arg-type]
+    aiff = (waits or {}).get(k) or (verdict.reason if isinstance(verdict, eligible.Skip) else None)
+    return {**track_row(k, e, cover), "group": "cdj", "detail": problem.short, "free": False, "file_state": state_of,
+            "cdj": {"reason": problem.reason, "short": problem.short, "words": problem.words}, "aiff": aiff}
+
+
+def cdj_counts(plan: Mapping) -> tuple[int, int]:
+    """The CDJ group's `all: {n, k}` from the `cdj` scope's `AiffPlan.to_dict()` (plan §1.5): n what Convert all can do
+    now (`total`), k what waits (the sum of `waiting[].n`: drive away, no name, rekordbox unreadable, ...)."""
+    return plan["total"], sum(w["n"] for w in plan["waiting"])
+
+
+def stopped_batch(rows: Sequence[AiffBatchRow], *, scope: str | None = None,
+                  kinds: Collection[str] | None = None) -> tuple[int, int] | None:
+    """(id, items left) of the newest stopped AIFF batch that still has items to do, else None: a group's or the Library
+    header's "Resume · k left". `rows`: `db.aiff_batches` (newest first). `scope`: only a batch whose scope starts with
+    it (`todo:` for the CDJ group, `library:` for the Library's header); `kinds`: only these `aiff_batches.kind`s
+    (`("upgrade",)` for Upgrade ready's)."""
+    for row in rows:
+        if row.state != "stopped" or not row.counts["planned"]:
+            continue
+        if scope is not None and not (row.scope or "").startswith(scope):
+            continue
+        if kinds is not None and row.kind not in kinds:
+            continue
+        return row.id, row.counts["planned"]
+    return None
+
+
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
          counted: Collection[str] = (), away: Mapping[str, str] | None = None,
          rb: RekordboxStatus | None = None, present: Mapping[str, str] | None = None,
          stopped: tuple[int, int] | None = None, auto_on: bool = True,
-         started_by: Mapping[int, str] | None = None) -> dict:
-    """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Not found, Weak,
-    Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
+         started_by: Mapping[int, str] | None = None, cdj_all: tuple[int, int] = (0, 0),
+         cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None,
+         cdj_waits: Mapping[str, str] | None = None, decided: Collection[str] = ()) -> dict:
+    """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
+    CDJs, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
     with a `rekordbox_check`, hidden or not, so a track can be in two groups; chips["all"] counts each track once.
 
@@ -1598,7 +1815,22 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     id -> `aiff_batches.started_by` (the api reads the batches the open checks belong to). An Upgrade ready row's
     `detail` says "Waits for rekordbox to be closed" while the switch is on and the sync met rekordbox open for it, or
     "{Short} · not upgraded at your sync" for a refusal the phase recorded (`upgrade_detail`); a batch item carries
-    `batch.started_by` and, for an Auto-upgrade batch, "Upgraded during your sync" as its detail."""
+    `batch.started_by` and, for an Auto-upgrade batch, "Upgraded during your sync" as its detail.
+
+    Stage D (plan §1.5, §3): the group `cdj` lists `cdj.group_members(state, include_hidden=True)`: the user's own
+    files whose stored facts CDJs play badly, with no parked upgrade, hidden as any item (the one place To-do lists an
+    own file outside Upgrade ready, a question and a duplicate; such a song is listed there only). An item is a row
+    with `detail` = its `short`, `cdj: {reason, short, words}` and `aiff` (null when Convert can run, else the reason
+    key: the reason the `cdj` plan holds the file back for (`cdj_waits`, `AiffPlan.waits`: the very files `all.k`
+    counts, a Cloud Library Sync file among them) when the api ran the plan, else, and for a file the plan doesn't
+    hold back, `eligible.aiff_action`'s answer from the stored facts and `rb`, rekordbox's state, no timing). The group
+    carries `all: {n, k}` (`cdj_all`: n what Convert all can do now, k what waits; the api takes both from the `cdj`
+    `aiff_plan`: `total` and the sum of `waiting[].n`) and `stopped: {batch_id, left} | null` (`cdj_stopped`: the newest
+    stopped `todo:*` batch, `stopped_batch`). `batch_kinds`: AIFF batch id -> `aiff_batches.kind` for the batch items
+    (a Convert batch says "Made AIFF"). `decided`: the songs an open question or duplicate group asks about
+    (`decided_songs`): the CDJ group leaves them out, their decision comes first, and so does the `cdj` plan the
+    counts come from."""
+    members = cdj_rule.group_members(state, include_hidden=True, held=decided)
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}
     for k, e in state["tracks"].items():
@@ -1640,11 +1872,19 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
                          "check": check_view(state["tracks"][t]["rekordbox_check"], len(batched[bid])),
                          "can_undo": can_undo(state["tracks"][t]),
                          "file_state": row_file_state(state["tracks"][t], away)} for t in batched[bid]],
-                        (started_by or {}).get(bid)))
+                        (started_by or {}).get(bid), (batch_kinds or {}).get(bid)))
                     listed.add(f"batch:{bid}")
             else:
                 items["rekordbox_check"].append(check_item)
                 listed.add(k)
+        if k in members:  # an own file CDJs play badly: this group only (hidden as any item)
+            if e.get("hidden"):
+                hidden += 1
+                if not show_hidden:
+                    continue
+            items["cdj"].append(_cdj_item(k, e, members[k], cover, away, rb, present, cdj_waits))
+            listed.add(k)
+            continue
         if not todo_listed(k, e, held, never):
             continue
         group = _group(e) or ("other" if k in others else None)
@@ -1666,7 +1906,9 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     for rows in items.values():
         rows.sort(key=lambda r: ("batch" not in r, fold(r["folder"]), fold(r["artist"]), fold(r["title"])))
     chips = {"all": len(listed), **{g: len(v) for g, v in items.items()}}
-    extra = {"upgrade_ready": _upgrade_all(items["upgrade_ready"], stopped)}
+    extra = {"upgrade_ready": _upgrade_all(items["upgrade_ready"], stopped),
+             "cdj": {"all": {"n": cdj_all[0], "k": cdj_all[1]},
+                     "stopped": {"batch_id": cdj_stopped[0], "left": cdj_stopped[1]} if cdj_stopped else None}}
     groups = [{"key": g, "label": label, "hint": hint, "items": items[g], **extra.get(g, {})}
               for g, label, hint in TODO_GROUPS if items[g] and (filt in (None, "all") or filt == g)]
     empty = None

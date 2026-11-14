@@ -11,6 +11,7 @@ import {
   checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
   sinceText, upgradeWays, findHeld, ghostOf, holdApplies, openCount, withHeldItem, type TodoHold,
   batchListStep, checksPanelShows, coalesce, keepPinned, upgradeAllKeys, wholeUpgradeGroup,
+  MULTI_GROUPS, cdjAllKeys, cdjGroup, multiCdj, wholeCdjGroup,
 } from './todoModel';
 import type { RekordboxCheckView } from '$lib/bridge/types';
 import { stepChoice } from '$lib/components/choiceModel';
@@ -23,7 +24,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
     cover_url: null, group, detail: '', free: false, file_state: 'here', ...extra };
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
-  const chips = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
+  const chips = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
   return { chips, check_tracks: 0, hidden_count: 0, show_hidden: false, empty: null,
     groups: groups.map(([key, ids]) => ({ key, label: key, hint: '', items: ids.map((id) => item(id, key)) })) };
 }
@@ -105,7 +106,7 @@ describe('selection helpers', () => {
 });
 
 describe('filter strip', () => {
-  const chips = { all: 9, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 2, not_found: 3, weak: 0, good_lossy: 4, fake: 0, other: 0 };
+  const chips = { all: 9, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 2, not_found: 3, weak: 0, good_lossy: 4, fake: 0, other: 0 };
   it('come in spec order with zero ones hidden (All always shown)', () => {
     expect(segOptions(chips, 'all').map((o) => o.key)).toEqual(['all', 'upgrade_ready', 'not_found', 'good_lossy']);
     expect(segOptions({ ...chips, all: 0, upgrade_ready: 0, not_found: 0, good_lossy: 0 }, 'all').map((o) => o.key))
@@ -218,7 +219,7 @@ describe('texts', () => {
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();
   });
   it('header line tells the tracks, the questions about the user\'s own files and the checks in rekordbox', () => {
-    const none = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, upgrade_ready: 0, not_found: 0, weak: 0,
+    const none = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
       good_lossy: 0, fake: 0, other: 0 };
     const sub = (chips: Partial<typeof none>, check_tracks = 0) => headerSub({ chips: { ...none, ...chips }, check_tracks });
     // not lossless yet: every group of tracks below lossless, summed (Upgrade ready included)
@@ -285,7 +286,7 @@ const flatOf = (...items: TodoItem[]) => items;
 describe('the import groups on the strip and in navigation', () => {
   it('come right after rekordbox, in the order the sections do', () => {
     expect(FILTER_ORDER.slice(0, 5)).toEqual(['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready']);
-    const chips = { all: 12, rekordbox_check: 1, same_song: 2, duplicate: 3, upgrade_ready: 1, not_found: 4, weak: 1,
+    const chips = { all: 12, rekordbox_check: 1, same_song: 2, duplicate: 3, cdj: 0, upgrade_ready: 1, not_found: 4, weak: 1,
       good_lossy: 0, fake: 0, other: 0 };
     const o = segOptions(chips, 'all');
     expect(o.map((x) => x.key)).toEqual(['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready',
@@ -441,6 +442,14 @@ describe('which rows are dimmed', () => {
     expect(rowOff({ ...question('q1', 101), in_playlists: false })).toBe(false);
     expect(rowOff({ ...dupe([201, 202]), in_playlists: false })).toBe(false);
   });
+  it('own files in the CDJ and rekordbox check groups are not "not in your playlists"; a CDJ file that waits is dimmed', () => {
+    expect(rowOff(item('t1', 'cdj', { in_playlists: false, aiff: null }))).toBe(false);
+    expect(rowOff(item('t1', 'rekordbox_check', { in_playlists: false }))).toBe(false);
+    expect(rowDim(item('t1', 'cdj', { in_playlists: false, aiff: null }))).toBe(false);
+    expect(rowDim(item('t1', 'cdj', { aiff: 'cloud' }))).toBe(true);
+    expect(rowDim(item('t1', 'cdj', { aiff: null, file_state: 'offline' }))).toBe(true);
+    expect(rowDim(item('t1', 'weak', { aiff: 'cloud' }))).toBe(false);
+  });
 });
 
 
@@ -490,7 +499,7 @@ describe('upgrade decision', () => {
 describe('rekordbox check after a replace', () => {
   const check = (extra: Partial<RekordboxCheckView>): RekordboxCheckView => ({ reason: 'swapped', since: '2026-10-31',
     match: 'exact', offset_ms: 0, moved: false, aligned: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff',
-    reload_tag: true, batch: null, rekordbox: null, ...extra });
+    reload_tag: true, batch: null, rekordbox: null, old_name: null, ...extra });
   const words = (c: RekordboxCheckView) => checkCard(c)!.steps.map((s) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : ''));
   it('a swap: Reload Tag, analyse; the hint about Auto Relocate', () => {
     const c = checkCard(check({}))!;
@@ -695,7 +704,7 @@ describe('the item just acted on (the hold)', () => {
   it('a ghost is the row as it was, without what only a to-do has', () => {
     const old = item('t2', 'rekordbox_check', { upgrade_ready: true, can_undo: true, detail: 'Reload Tag',
       check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, text: 't', old_path: null,
-        reload_tag: true, batch: null, rekordbox: null } });
+        reload_tag: true, batch: null, rekordbox: null, old_name: null } });
     const g = ghostOf(old);
     expect(itemKey(g)).toBe(itemKey(old));
     expect(g).toMatchObject({ upgrade_ready: false, can_undo: false, check: undefined, detail: '', title: old.title });
@@ -841,7 +850,7 @@ describe('multi-select of the rekordbox checks', () => {
   const check = (id: string, extra: Partial<TodoItem> = {}) => item(id, 'rekordbox_check', { can_undo: true, quality: 'lossless',
     quality_label: 'LOSSLESS', ...extra });
   const batch: BatchCheckItem = { ...check('batch:7', { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', kind: 'upgrade', tracks: [check('b1'), check('b2')] } };
   const list = [batch, check('c1'), check('c2'), check('c3'), item('u1', 'upgrade_ready'), item('w1', 'weak')];
   const order = list.map(itemKey);
   const scopeOf = multiScope(list);
@@ -1016,5 +1025,67 @@ describe('Upgrade all and the batch panel (issue 33 stage B)', () => {
     go();
     expect(runs).toBe(3);
     release();
+  });
+});
+
+describe('the CDJ group (issue 33 stage D §6.3)', () => {
+  const cdj = (id: string, extra: Partial<TodoItem> = {}) => item(id, 'cdj', { aiff: null, ...extra });
+  const group = { items: [cdj('a'), cdj('h', { hidden: true }), cdj('b'), cdj('c'), cdj('w', { aiff: 'cloud' })] };
+  it('its items select several at once, within the group only', () => {
+    expect(MULTI_GROUPS).toContain('cdj');
+    const a = item('a', 'cdj');
+    const b = item('b', 'cdj');
+    const u = item('u', 'upgrade_ready');
+    const scope = multiScope([a, b, u]);
+    expect([scope(itemKey(a)), scope(itemKey(b)), scope(itemKey(u))]).toEqual(['cdj', 'cdj', 'upgrade_ready']);
+    expect([multiCdj([a, b]), multiCdj([a]), multiCdj([a, u]), multiCdj([])]).toEqual([true, false, false, false]);
+  });
+  it('Convert all reaches the items with no reason to wait and no hidden one, also with Show hidden on: exactly the head\'s n', () => {
+    expect(cdjAllKeys(group)).toEqual(['cdj/a', 'cdj/b', 'cdj/c']);
+    expect(cdjAllKeys(null)).toEqual([]);
+  });
+  it('the whole group is every reachable item with no hidden one; else the selection goes as a list of tracks', () => {
+    const [a, h, b, c, w] = group.items;
+    expect(wholeCdjGroup(group, [a, b, c])).toBe(true);
+    expect(wholeCdjGroup(group, [a, h, b, c])).toBe(false);
+    expect(wholeCdjGroup(group, [a, b, c, w])).toBe(false);   // a file that waits is a choice of its own
+    expect(wholeCdjGroup(group, [a, b])).toBe(false);
+    expect(wholeCdjGroup(null, [a])).toBe(false);
+  });
+  it('the group is found in the answer by its key, null without one', () => {
+    const t = todo([['upgrade_ready', ['x']], ['cdj', ['a', 'b']]]);
+    expect(cdjGroup(t)?.items.map((i) => i.track_id)).toEqual(['a', 'b']);
+    expect(cdjGroup(todo([['upgrade_ready', ['x']]]))).toBeNull();
+    expect(cdjGroup(null)).toBeNull();
+  });
+  it('the head\'s two states: "Convert all · n" from two files, "Resume · k left" while a batch is stopped', async () => {
+    const { convertAllLabel, resumeLabel, upgradeAllShown } = await import('$lib/decisions/decisionModel');
+    expect([convertAllLabel(5), upgradeAllShown(5), upgradeAllShown(1)]).toEqual(['Convert all · 5', true, false]);
+    const f = createFakeBridge('todo:cdj-resume', { speed: 1000 });
+    const g = cdjGroup((await f.todo('cdj', true)) as unknown as Todo)!;
+    expect(g.stopped).toEqual({ batch_id: 1, left: 3 });
+    expect(resumeLabel(g.stopped!.left)).toBe('Resume · 3 left');
+    const fresh = cdjGroup((await createFakeBridge('todo:cdj', { speed: 1000 }).todo('cdj', true)) as unknown as Todo)!;
+    expect([fresh.all, fresh.stopped]).toEqual([{ n: 5, k: 1 }, null]);
+  });
+  it('the strip says CDJs, the section its whole name, and the page header counts the files', () => {
+    expect(segOptions({ all: 6, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 6, upgrade_ready: 0, not_found: 0, weak: 0,
+      good_lossy: 0, fake: 0, other: 0 }, 'all').find((o) => o.key === 'cdj')).toMatchObject({ label: 'CDJs', count: 6 });
+    const none = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
+      good_lossy: 0, fake: 0, other: 0 };
+    expect(headerSub({ chips: { ...none, cdj: 6 }, check_tracks: 0 })).toEqual(["6 files won't play well on CDJs"]);
+    expect(headerSub({ chips: { ...none, cdj: 1, weak: 2 }, check_tracks: 0 })).toEqual(['2 tracks are not lossless yet',
+      "1 file won't play well on CDJs"]);
+  });
+  it('a CDJ item can be hidden (a lossless file the user wants no to-do for)', () => {
+    expect(actionsFor(detail({ status: 'lossless' }), 'cdj')).toMatchObject({ hide: 'hide', main: null });
+    expect(actionsFor(detail({ status: 'lossless', hidden: true }), 'cdj').hide).toBe('unhide');
+    expect(actionsFor(detail({ status: 'lossless' }), null).hide).toBeNull();
+  });
+  it('a Convert batch is one row: "{n} tracks" over "{day} · Made AIFF"', async () => {
+    const { batchRowName, batchRowSub } = await import('$lib/decisions/decisionModel');
+    expect([batchRowName(3, 'convert'), batchRowName(3, 'upgrade'), batchRowName(3)]).toEqual(['3 tracks', '3 tracks upgraded', '3 tracks upgraded']);
+    expect([batchRowSub('2026-11-14', '2026-11-14', 'cdj_all', 'convert'), batchRowSub('2026-11-14', '2026-11-14', 'user', 'convert', true),
+      batchRowSub('2026-11-14', '2026-11-14', 'user', 'upgrade')]).toEqual(['today · Made AIFF', 'today · Clean name', 'today · Same track']);
   });
 });

@@ -3,7 +3,8 @@
   // panel while a batch item ("3 tracks upgraded") or two or more checks are selected. One Panel, read as the single
   // check card reads (CheckCards: "In rekordbox" first, then what changed) and laid out as the upgrade selection panel
   // (UpgradeSelection: the tracks as the one list of unknown length in `fill`, scrolling in place):
-  // - a batch: "In rekordbox" (yellow: it waits for the user) as numbered steps for the tracks rekordbox has (Reload
+  // - a batch: "In rekordbox" (yellow: it waits for the user), for a batch of Converts led by the plural words of what
+  //   became of the files, as numbered steps for the tracks rekordbox has (Reload
   //   Tag only for the tracks whose text Discjockey couldn't write, by name; analyse them again; the USB stick), then
   //   "Upgraded n today" with a row per track: its new file, what was kept as the user edited it, a file rekordbox
   //   doesn't have, and "Undo this one" while it can;
@@ -20,7 +21,7 @@
   import { Panel } from '$lib/frames';
   import BatchCheckFoot from './BatchCheckFoot.svelte';
   import {
-    batchCheckCard, checkRow, checksTitle, focusAfterRowGone, isAutoBatch, localDay, sinceText, tracksSummary, type CheckRow,
+    batchCheckCard, batchListTitle, checkRow, checksTitle, focusAfterRowGone, isAutoBatch, localDay, sinceText, tracksSummary, type CheckRow,
   } from './decisionModel';
   import { refocus } from './focus';
   import type { ChecksFlow } from './flows.svelte';
@@ -88,6 +89,8 @@
   {#if card}
     <Surface kind="card" tone="warn" label="In rekordbox" summary={card.summary} data-test="rekordbox-check"
       data-reason="batch">
+      <div class="col">
+      {#if card.lead}<p class="lead" data-test="check-lead">{card.lead}</p>{/if}
       <NumberedSteps tone="warn" test="rekordbox-steps">
         {#each card.steps as s, i (i)}
           <li><span class="step">{#each s.parts as p, j (j)}{#if p.strong}<b>{p.text}</b>{:else}{p.text}{/if}{/each}{#if s.note}{' '}<span
@@ -95,13 +98,14 @@
             class="name" title={n}>{n}</span>{/each}</span>{/if}</span></li>
         {/each}
       </NumberedSteps>
+      </div>
     </Surface>
   {/if}
 {/snippet}
 
 {#snippet list(grow: boolean)}
   <!-- the row grid: cover · name over its lines · the undo slot, kept on every row so the names end at one x -->
-  <Surface kind="list" label={batch ? 'Upgraded' : checksTitle(selected)} summary={batch ? String(tracks.length) : tracksSummary(tracks.length)}
+  <Surface kind="list" label={batch ? batchListTitle(tracks) : checksTitle(selected)} summary={batch ? String(tracks.length) : tracksSummary(tracks.length)}
     hint={batch && day ? (day === 'today' ? 'today' : `on ${day}`) : undefined}
     style="--row-cols: 28px minmax(0, 1fr) var(--h-ctl-sm)" grow={grow ? { rows: rows.length, tall: true } : undefined}
     data-test={batch ? 'batch-tracks' : 'check-selection-rows'}>
@@ -119,6 +123,9 @@
 
 <style>
   .checks { display: contents; }
+  .col { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
+  /* a Convert batch's own words: what became of the files, above the steps left (as CheckCards' lead) */
+  .lead { margin: 0; font-size: var(--fs-small); line-height: 1.45; color: var(--text); }
   .step { display: block; min-width: 0; font-size: var(--fs-small); line-height: 17px; color: var(--text); }
   .step b { font-weight: var(--fw-semi); }
   .note { color: var(--text-muted); }

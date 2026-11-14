@@ -438,3 +438,115 @@ def test_an_invalid_playlists_file_is_not_a_read_problem(paths, monkeypatch):
     monkeypatch.setattr(run, "prepare", invalid)
     assert importer.link_playlists(paths) == (
         "Your playlists couldn't be linked yet: Line 3 of playlists.txt isn't a playlist link.")
+
+
+# --- issue 33 stage D: the file's own audio facts (plan §0.3) ---
+
+def facts_columns(paths):
+    with db.connect(paths.db_file) as conn:
+        return conn.execute("SELECT file_codec, file_rate, file_bits, file_kbps FROM files "
+                            "WHERE source = 'manual' ORDER BY id").fetchall()
+
+
+def forget_facts(paths):
+    """What a library from before schema 8 looks like: own rows, no facts."""
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET file_codec = NULL, file_rate = NULL, file_bits = NULL, file_kbps = NULL")
+
+
+def test_pass_one_stores_what_the_file_is(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=2)
+    fakes = Fakes()
+    fakes.probe = lambda path: AudioInfo("flac", 96000, 61.0, 900, 24, 2, 880)
+    go(paths, fakes)
+    assert facts_columns(paths) == [("flac", 96000, 24, 880)] * 2  # the stream's bitrate, not the file's
+    e = next(iter(own_entries(paths).values()))
+    assert (e["file_codec"], e["file_rate"], e["file_bits"], e["file_kbps"]) == ("flac", 96000, 24, 880)
+
+
+def test_the_facts_pass_fills_own_rows_that_lack_them_and_reads_nothing_else(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=3)
+    fakes = Fakes()
+    go(paths, fakes)
+    forget_facts(paths)
+    assert importer.files_waiting(paths) == 3  # the window starts an import for them by itself
+    fakes = Fakes()
+    events = []
+    result = go(paths, fakes, events=events)
+    assert facts_columns(paths) == [("pcm_s16be", 44100, None, None)] * 3
+    assert len(fakes.probed) == 3 and fakes.inspected == []  # tags and sound are not read again
+    assert result == importer.ImportResult(0, 0, 0, 0, 0, False, None)
+    assert [(e.phase, e.done, e.total) for e in events if isinstance(e, ImportProgress)][1:3] == [
+        ("facts", 0, 3), ("facts", 3, 3)]
+    assert importer.files_waiting(paths) == 0
+    fakes = Fakes()
+    go(paths, fakes)
+    assert fakes.probed == []  # a filled row is done
+
+
+def test_a_stop_in_the_facts_pass_resumes_with_the_rows_not_filled_yet(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=5)
+    go(paths, Fakes())
+    forget_facts(paths)
+    fakes, token = Fakes(), CancelToken()
+    fakes.on_probe = lambda n: token.cancel() if n == 2 else None
+    with pytest.raises(importer.ImportStopped):
+        go(paths, fakes, token)
+    assert [row[0] for row in facts_columns(paths)].count(None) == 3
+    again = Fakes()
+    go(paths, again)
+    assert len(again.probed) == 3 and len(set(again.probed) & set(fakes.probed)) == 0
+    assert [row[0] for row in facts_columns(paths)].count(None) == 0
+
+
+def test_a_file_the_facts_pass_cannot_read_fails_nothing_and_is_marked_so_it_is_not_tried_at_every_start(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=2)
+    go(paths, Fakes())
+    forget_facts(paths)
+    fakes = Fakes()
+    fakes.probe_fails = {"Example Artist - Song 1.aiff"}
+    result = go(paths, fakes)
+    assert result.unreadable == 0 and result.files == 0
+    assert [row[0] for row in facts_columns(paths)].count(None) == 1
+    assert importer.files_waiting(paths) == 0  # marked: the window starts no import for it at the next start
+    again = Fakes()
+    again.probe_fails = {"Example Artist - Song 1.aiff"}
+    assert go(paths, again).files == 0
+    assert again.probed == []  # not tried again
+
+
+def test_a_marked_file_is_read_again_once_the_file_changes(paths, tmp_path):
+    folder = songs_folder(paths, tmp_path, n=2)
+    go(paths, Fakes())
+    forget_facts(paths)
+    name = "Example Artist - Song 1.aiff"
+    fakes = Fakes()
+    fakes.probe_fails = {name}
+    go(paths, fakes)
+    assert importer.files_waiting(paths) == 0
+    with (folder / name).open("ab") as f:  # another size and mtime
+        f.write(b"\0" * 64)
+    assert importer.files_waiting(paths) == 0  # until a scan has seen it
+    again = Fakes()
+    go(paths, again)
+    assert name in again.probed  # read again: the fill found the file changed
+    assert [row[0] for row in facts_columns(paths)].count(None) == 0
+
+
+def test_a_probe_that_could_not_run_marks_nothing(paths, tmp_path):
+    songs_folder(paths, tmp_path, n=2)
+    go(paths, Fakes())
+    forget_facts(paths)
+
+    class NoFfprobe(Fakes):
+        def probe(self, path):
+            self.probed.append(path.name)
+            raise FileNotFoundError(2, "No such file or directory", "ffprobe")
+
+    go(paths, NoFfprobe())
+    assert importer.files_waiting(paths) == 2  # ffprobe missing is no verdict on the files
+    with db.connect(paths.db_file) as conn:
+        assert conn.execute("SELECT count(facts_failed) FROM files").fetchone()[0] == 0
+    fixed = Fakes()
+    go(paths, fixed)
+    assert len(fixed.probed) == 2 and [row[0] for row in facts_columns(paths)].count(None) == 0

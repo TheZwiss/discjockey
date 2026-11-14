@@ -173,14 +173,15 @@ class BatchProgress:
     name: str | None
 
 
-ImportPhase = Literal["scan", "tags", "sound", "link"]
-IMPORT_PHASES: tuple[ImportPhase, ...] = ("scan", "tags", "sound", "link")
+ImportPhase = Literal["scan", "facts", "tags", "sound", "link"]
+IMPORT_PHASES: tuple[ImportPhase, ...] = ("scan", "facts", "tags", "sound", "link")
 
 
 @dataclass(frozen=True)
 class ImportProgress:
     """How far the import is (importer.run_import, plan library stage 4 I8): `phase` one of IMPORT_PHASES (looking
-    for music files, reading tags, checking the sound, linking to the playlists); `done` of `total` files of that
+    for music files, reading what the files are (the audio facts), reading tags, checking the sound, linking to the
+    playlists); `done` of `total` files of that
     phase (0 of 0 for scan and link); `unreadable`: the files this import couldn't read so far."""
     phase: ImportPhase
     done: int

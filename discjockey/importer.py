@@ -6,8 +6,11 @@ files of import folders, recording each file's progress on its own row (`files.i
 resumes by construction:
 
   scan   finish interrupted steps, empty .tmp/, scan the watched folders (new files become `new` rows);
+  facts  own files whose own audio facts aren't stored yet (rows from before schema 8, a row whose audio the scan
+         found replaced) are probed and filled (plan rekordbox stage D §0.3); a filled row is done, so a stop resumes;
   tags   pass 1, every waiting file: its tags, its name (identify.own_name), its codec and length (probe), then a
-         song of its own with the quality the codec gives for now (lossless codec → lossless, else not_lossless);
+         song of its own with the quality the codec gives for now (lossless codec → lossless, else not_lossless) and
+         the file's own audio facts (codec, rate, bit depth, bitrate);
   sound  pass 2, every file read so far: the sound check (inspect → quality.verdict);
   link   the playlists planned again on the records as they are now and only the songs' links saved (run.link_only),
          so a playlist song the user already has is linked rather than downloaded.
@@ -119,12 +122,14 @@ def read_tags(path: Path) -> dict[str, str | None]:
 
 
 def files_waiting(paths: Paths) -> int:
-    """The files an import would work through now (db.import_left): the window's start condition (D14). An offline
-    drive's files are left out: they wait until it is back, so they never start an import."""
+    """The files an import would work through now (db.import_left) plus the own files whose facts it would fill
+    (db.facts_missing): the window's start condition (D14), so the facts of files from before schema 8 are filled by
+    the import the window starts by itself. An offline drive's files are left out: they wait until it is back, so
+    they never start an import."""
     if not paths.db_file.exists():
         return 0
     with db.connect(paths.db_file) as conn:
-        return db.import_left(conn)
+        return db.import_left(conn) + db.facts_missing(conn)
 
 
 def link_playlists(paths: Paths, prep: Prepared | None = None, *, emit: Emit = no_emit, token: CancelToken | None = None) -> str | None:
@@ -179,10 +184,41 @@ def _reason(e: BaseException, path: Path) -> str:
     return NO_SOUND
 
 
-def _gone(row: ImportRow) -> bool:
+def _gone(row: ImportRow | Path) -> bool:
     """The file isn't at its path (removed, moved or its drive unplugged since the scan): the row is left for the
     next scan, which knows what happened to it, and never marked unreadable."""
-    return not os.path.lexists(row.path)
+    return not os.path.lexists(row if isinstance(row, Path) else row.path)
+
+
+def fill_facts(paths: Paths, *, emit: Emit = no_emit, token: CancelToken | None = None,
+               probe: Callable[[Path], quality.AudioInfo] = quality.probe, unreadable: int = 0) -> int:
+    """The facts pass: probe every own file that has no audio facts stored and store them (plan rekordbox stage D
+    §0.3; the import's first pass, and what `discjockey convert` / `rename` run first for a library whose files are from
+    before schema 8). A file ffprobe can't read is no import failure: its row is marked (`db.set_facts_failed`,
+    keyed on its size and mtime) and left out of later fills until the file changes; when ffprobe itself is missing
+    or can't run, nothing is marked and the next fill tries again. Progress goes out as the "facts" phase; `unreadable` is the import's count so far. The caller
+    holds the library lock. Returns the rows filled."""
+    token = token or CancelToken()
+    filled = 0
+    with db.connect(paths.db_file) as conn:
+        rows = db.files_without_facts(conn)
+        if not rows:
+            return 0
+        pacer = _Pacer(emit, "facts", len(rows), unreadable)
+        for done, (file_id, path) in enumerate(rows, 1):
+            token.check()
+            try:
+                audio = quality.file_audio(probe(path))
+            except Exception as e:  # noqa: BLE001 - gone, unreadable or no sound: the tags pass and the scan say so
+                # ffprobe ran and found nothing in the file: marked, so the next fill skips it until the file changes.
+                # An OSError is ffprobe missing or not runnable (or the file unreachable): nothing to hold against it
+                if not isinstance(e, OSError) and not _gone(path):
+                    db.set_facts_failed(conn, file_id)
+            else:
+                db.set_file_facts(conn, file_id, audio)
+                filled += 1
+            pacer.step(done, unreadable)
+    return filled
 
 
 class _Run:
@@ -207,6 +243,9 @@ class _Run:
         self.read.add(row.file_id)
         self.failed.add(row.file_id)
 
+    def facts(self) -> None:
+        fill_facts(self.paths, emit=self.emit, token=self.token, probe=self.probe, unreadable=len(self.failed))
+
     def tags(self) -> None:
         with db.connect(self.paths.db_file) as conn:
             # a file the sound check couldn't read has its own song already: only the sound check is tried again
@@ -222,7 +261,8 @@ class _Run:
                         info = self.probe(row.path)
                         status = "lossless" if quality.is_lossless_codec(info.codec) else "not_lossless"
                         facts = OwnFacts(artist, title, tags.get("album"), tags.get("isrc"),
-                                         round(info.duration_s * 1000) if info.duration_s else None, info.codec, status)
+                                         round(info.duration_s * 1000) if info.duration_s else None, info.codec, status,
+                                         quality.file_audio(info))
                     except Exception as e:  # an unreadable file is listed, never the end of the import
                         self.unreadable(conn, row, e)
                     else:  # import_waiting's rows have no song yet (judged_later's have): a new own song
@@ -272,6 +312,7 @@ def run_import(paths: Paths, *, emit: Emit = no_emit, token: CancelToken, link: 
     library.scan_library(paths, emit, analyze=inspect, shown=[m for m, _ in recovered])
     try:
         token.check()
+        run.facts()
         run.tags()
         run.sound()
         token.check()

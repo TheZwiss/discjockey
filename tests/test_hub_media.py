@@ -2,7 +2,7 @@ import http.client
 import urllib.parse
 
 import pytest
-from audio_helpers import needs_ffmpeg, write_aiff
+from audio_helpers import TINY_JPEG, needs_ffmpeg, write_aiff
 
 from discjockey import audio
 from discjockey.hub import media
@@ -107,7 +107,7 @@ def test_only_local(server):
 
 # --- covers from the file's own tags, cached in the support folder's cache/covers/ ---
 
-JPEG = b"\xff\xd8\xff\xe0" + b"jpeg data" * 10
+JPEG = TINY_JPEG  # a baseline JPEG within the CDJ limits is written as it is
 
 
 @needs_ffmpeg

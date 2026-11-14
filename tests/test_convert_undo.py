@@ -11,8 +11,8 @@ import pytest
 from mutagen.aiff import AIFF
 
 from audio_helpers import needs_ffmpeg
-from convert_helpers import NEW, PARKED, TID, make_env, run, session
-from discjockey import convert, library, upgrades
+from convert_helpers import NEW, PARKED, TID, PowerOff, make_env, next_start, power_off_undo, run, session
+from discjockey import convert, library, rbstep, upgrades
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, backup, master
 from discjockey.rekordbox import write as rbwrite
@@ -23,10 +23,6 @@ pytestmark = needs_ffmpeg
 NAME = "Artist - Song"
 STAMPS = {"rb_local_usn", "updated_at"}
 LOOKUPS = {"djmdArtist", "djmdAlbum", "djmdLabel"}
-
-
-class PowerOff(BaseException):
-    """The Mac went off: nothing after it runs."""
 
 
 def snapshot(env):
@@ -207,45 +203,11 @@ def test_rekordbox_opening_at_the_commit_rolls_the_undo_back(tmp_path, monkeypat
 
 # --- a crash at every step ---
 
-MARKS = {"restored": 1, "outcome": 2, "committed_unmarked": 3, "committed": 3}
-
-
-def power_off(monkeypatch, at):
-    def die(*a, **k):
-        raise PowerOff
-
-    if at == "journaled":
-        monkeypatch.setattr(convert, "move_path", die)
-        monkeypatch.setattr(convert, "end_op", die)
-        return
-    if at == "ended":
-        monkeypatch.setattr(convert, "_end_undo", die)
-        return
-    real, calls = convert.mark_op, {"n": 0}
-
-    def mark(paths, state, op):
-        calls["n"] += 1
-        if calls["n"] == MARKS[at]:
-            if at != "committed_unmarked":
-                real(paths, state, op)
-            raise PowerOff
-        real(paths, state, op)
-    monkeypatch.setattr(convert, "mark_op", mark)
-
-
 def crash(env, monkeypatch, at):
     with monkeypatch.context() as m:
-        power_off(m, at)
+        power_off_undo(m, at)
         with pytest.raises(PowerOff):
             undo(env)
-
-
-def next_start(env):
-    state = load_state(env.paths)
-    library.clear_tmp(env.paths, state)
-    messages = library.recover_pending(env.paths, state)
-    library.clear_tmp(env.paths, state)
-    return messages, state
 
 
 @pytest.mark.parametrize("at", ["journaled", "restored", "outcome"])
@@ -282,7 +244,7 @@ def test_analysis_files_a_cut_off_undo_wrote_get_the_new_path_again(tmp_path, mo
     assert env.anlz_files() != after[2]
     monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: True)
     messages, state = next_start(env)
-    assert messages == [(convert.UNDO_WAIT_REKORDBOX.format(name=NAME), False)]
+    assert messages == [(rbstep.UNDO_WAIT_REKORDBOX.format(name=NAME), False)]
     assert len(load_state(env.paths)["pending"]) == 1
     monkeypatch.setattr("discjockey.rekordbox.process.running", lambda: False)
     messages, state = next_start(env)
@@ -306,7 +268,7 @@ def test_a_cut_off_undo_removes_a_leftover_and_waits_while_another_window_writes
     fcntl.flock(fd, fcntl.LOCK_EX)
     try:
         messages, _state = next_start(env)
-        assert messages == [(convert.WAIT_BUSY.format(what="undo", name=NAME), False)]
+        assert messages == [(rbstep.WAIT_BUSY.format(what="undo", name=NAME), False)]
         assert len(load_state(env.paths)["pending"]) == 1
     finally:
         os.close(fd)

@@ -4,7 +4,7 @@ import type {
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
-  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus,
+  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, AiffPlan, AiffScope,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
 import { waitForJob } from '../stores/jobs';
@@ -41,6 +41,9 @@ export interface Bridge {
   setup_status(): Promise<Res<SetupStatus>>;      select(track_id: string | null): Promise<Res<{}>>;
   /** rekordbox on this Mac now; works without a music folder. The Sync page reads it when it opens and on window focus */
   rekordbox_status(): Promise<Res<RekordboxStatus>>;
+  /** What Make all lossless files AIFF, a selection's Convert or the CDJ group's Convert all would do now (issue 33
+   *  stage D): a read of the files' stored facts, no decoding. `refused` for a scope that is none of the three */
+  aiff_plan(scope: AiffScope): Promise<Res<{ plan: AiffPlan }>>;
   // read with network (refused with sync_running during any sync)
   search_candidates(track_id: string): Promise<Res<Candidates>>;
   preview(track_id: string, candidate: Candidate): Promise<Res<{ url: string }>>;
@@ -70,6 +73,15 @@ export interface Bridge {
   upgrade(track_ids: string[], mode: 'swap' | 'add_new' | 'discard'): Promise<JobStart>;
   /** Upgrade all: Same track for every parked upgrade the list counts as possible (job `upgrade_batch`) */
   upgrade_all(): Promise<JobStart>;
+  /** Convert to AIFF for songs, or only the name for a clean AIFF (each file's own answer decides): one batch, job
+   *  `aiff_batch`, progress BatchProgress, result `AiffBatchResult`; `origin` is the page that asked (the batch's scope
+   *  says so). The songs the plan leaves out come back as `skipped` results. One id is a batch of one */
+  convert(track_ids: string[], origin?: 'library' | 'todo'): Promise<JobStart>;
+  /** Give it its clean name for songs (a file that needs a Convert is left as it is): as `convert`, from the Library */
+  rename(track_ids: string[]): Promise<JobStart>;
+  /** Make all lossless files AIFF (`lossless`) or the CDJ group's Convert all (`cdj`): plans again, one batch (job
+   *  `aiff_batch`); nothing to change ends it `refused` */
+  make_aiff(scope: Extract<AiffScope, { kind: 'lossless' | 'cdj' }>): Promise<JobStart>;
   /** carries on a stopped batch (job `batch_resume`) */
   batch_resume(batch_id: number): Promise<JobStart>;
   /** "Undo all": every track a batch did, newest first (job `batch_undo`) */

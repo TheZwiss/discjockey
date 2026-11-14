@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from audio_helpers import music, needs_ffmpeg, write_aiff
+from audio_helpers import TINY_JPEG, music, needs_ffmpeg, write_aiff
 from rekordbox_helpers import (
     make_anlz, make_master, own_entry as entry, pqtz_tag, pwv3_from, pwv3_tag, save_library as library, snapshot,
 )
@@ -61,7 +61,7 @@ def test_file_facts_read_the_format_the_tags_and_the_cover(tmp_path):
         ".aiff", "pcm_s16be", 44100, 16, False)
     assert plain.tags == dict.fromkeys(audio.TEXT_FIELDS, "")
     audio.write_tags(f, title="Song", artists=("A", "B"), album="Album", isrc="ISRC1", label="Label",
-                     cover=b"\xff\xd8\xff\xe0jpeg", comment="the line")
+                     cover=TINY_JPEG, comment="the line")
     tagged = audio.file_facts(f)
     assert tagged.tags == {"title": "Song", "artist": "A, B", "album": "Album", "label": "Label", "isrc": "ISRC1",
                            "comment": "the line"}
@@ -175,7 +175,8 @@ def test_a_non_aiff_upgrade_becomes_a_new_aiff_in_the_files_folder(paths):
     put(paths, up, data=b"parked")
     library(paths, {OWN: entry(upgrade=parked(up))})
     got = preview(paths, track=OWN)
-    assert got["eligible"]["same_track"] is None and got["eligible"]["convert"] is None
+    assert got["eligible"]["same_track"] is None
+    assert got["eligible"]["convert"] == "upgrade_waits"  # the parked upgrade wins (plan stage D §0.2)
     assert got["new_file"] == str(paths.root / "Library/Mine/Artist - Song.aiff")  # a lossless one leaves not_lossless/
     assert got["superseded"] == str(paths.root / "Superseded/Mine/old name.mp3")
 

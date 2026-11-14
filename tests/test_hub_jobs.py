@@ -62,6 +62,17 @@ def test_a_job_holds_the_lock_and_keeps_the_mac_awake(env):
         pass
 
 
+def test_the_started_event_carries_the_batch_kind_the_snapshot_does(env):
+    paths, js, rec, _ = env
+    job = js.start("aiff_batch", lambda ctx: {}, batch_kind="convert")
+    assert job.done.wait(5)
+    other = js.start("hide", lambda ctx: None, track_id="t1")
+    assert other.done.wait(5)
+    assert rec.of(jobs.JobStarted) == [jobs.JobStarted(job.id, "aiff_batch", None, "convert"),
+                                       jobs.JobStarted(other.id, "hide", "t1", None)]
+    assert job.snapshot()["batch_kind"] == "convert"
+
+
 def test_only_one_write_job_at_a_time(env):
     paths, js, rec, _ = env
     release = threading.Event()

@@ -320,7 +320,7 @@ export const fakeLink = (t: FakeTrack): TrackLink =>
   t.link ?? { url: `https://open.spotify.com/track/${t.track_id}`, label: 'Open in Spotify', service: 'spotify' };
 
 export function libraryOf(s: FakeState, view: string, key: string | null, query: string, filter: string,
-  sort: LibrarySort | null): Library | LibraryFail {
+  sort: LibrarySort | null): Omit<Library, 'aiff_stopped'> | LibraryFail {
   if (!(LIBRARY_VIEWS as readonly string[]).includes(view)) return { refused: `view must be one of ${LIBRARY_VIEWS.join(', ')}` };
   if ((view === 'playlist' || view === 'folder') && !key) return { refused: `a ${view} view needs its key` };
   if (!(LIBRARY_FILTERS as readonly string[]).includes(filter)) return { refused: `filter must be one of ${LIBRARY_FILTERS.join(', ')}` };

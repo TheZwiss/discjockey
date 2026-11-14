@@ -13,6 +13,12 @@
   // badge, the menu's Show details); the rules are `detailsAfter` in stores/chrome.ts. A right-click selects without
   // opening (the menu is what it asks for). A double-click or Enter plays. Below 1240 px the open inspector steps the
   // browser column back behind the rail (the chrome's job, stores/chrome.ts).
+  // Several rows can be selected (issue 33 stage D, plan §6.0.1, §6.2; the table's keys in LibraryTable): one row shows
+  // its details, two or more the AIFF batch panel for them (`AiffBatchPanel`, scope `tracks`), and the header's
+  // "Make AIFF…" the plan for every lossless file of the view (scope `lossless`; the selection clears, a pick of a row
+  // goes back to the details, Cancel to the selection it came from). The route's `?track=` is the anchor; a batch
+  // subject is told to the chrome (`batchSubject`), so the inspector never stands empty without a track in the route.
+  // While the batch runs the table follows it, a fresh answer per file done; the selection stays on the same tracks.
   // The views (plan library stage 5, B6): a playlist lists its songs in its order (`#`), a song without a file too
   // (Waiting / NOT FOUND, its details from the row itself), then the other files of its folder in an `Also in this
   // folder` section; a folder view has its own columns (Subfolder, Playlist). Each view kind remembers its own sort.
@@ -23,7 +29,8 @@
   import {
     Button, EmptyState, PageHeader, ProblemCard, SearchField, Segmented, Skeleton, Spectrum, SummaryStrip, Surface,
   } from '$lib/components';
-  import { decisionFor } from '$lib/decisions';
+  import { AiffBatchPanel, aiffBatch, decisionFor } from '$lib/decisions';
+  import { NONE, escape as escapeSelection, only, single, type Selection } from '$lib/components/selectionModel';
   import { ListPanelFrame } from '$lib/frames';
   import { api } from '$lib/bridge/client';
   import type {
@@ -31,8 +38,10 @@
   } from '$lib/bridge/types';
   import { filesVersion, hub, hubNow } from '$lib/stores/hub';
   import {
-    detailsHidden, detailsShown, detailsSubject, pickTrack, showDetails, toggleInspector, trackOffTable,
+    batchSubject, detailsHidden, detailsShown, detailsSubject, pickTrack, showDetails, toggleInspector, trackOffTable,
   } from '$lib/stores/chrome';
+  import { artistTitle } from '$lib/format';
+  import { batchListStep } from '../todo/todoModel';
   import { player } from '$lib/stores/player';
   import { listen } from '$lib/listen';
   import { toasts } from '$lib/stores/toasts';
@@ -43,7 +52,7 @@
   import LibraryTable from './LibraryTable.svelte';
   import TrackDetails from './TrackDetails.svelte';
   import {
-    LEGACY_SORT_KEY, LIBRARY_FILTERS, allRows, alsoHint, filterKey, hasSubfolders, heldRow, holdApplies, libraryCalls,
+    LEGACY_SORT_KEY, LIBRARY_FILTERS, aiffHeader, allRows, inspectorSubject, isBatchSubject, keepTableSelection, alsoHint, filterKey, hasSubfolders, heldRow, holdApplies, libraryCalls,
     nextSort, offTable, withHeld, type Hold,
     pageEmpty, playQueue, playlistColumnFor, artistColumnFor, shownSort, rowOf, segOptions, sortKey, subtitleParts, tableKind, targetTitle, todoHref, tooManyFor,
     viewSort, type LibraryCall,
@@ -68,7 +77,13 @@
   let libFor = $state<string | null>(null);
   let libError: { kind: ProblemKind; message: string } | null = $state(null);
   let loading = $state(true);
-  let selected = $state<string | null>(untrack(() => query.get('track')));
+  // the selection: its keys (track ids) and the anchor, which `?track=` in the route names; `selected` is the one track
+  // whose details show (a selection of several shows the batch panel instead)
+  let sel = $state<Selection>(single(untrack(() => query.get('track'))));
+  const selected = $derived(only(sel));
+  // the header's "Make AIFF…" plan stands in the inspector (the selection it came from, for Cancel and Done)
+  let viewOpen = $state(false);
+  let viewFrom: Selection = NONE;
   // the track just acted on in the details stays on the table and selected (libraryModel Hold, keepHeld)
   let hold = $state<Hold | null>(null);
   $effect(() => {
@@ -101,6 +116,8 @@
       filter = ((LIBRARY_FILTERS as string[]).includes(saved) ? saved : 'all') as LibraryFilter;
       search = '';
       q = '';
+      // a selection of several rows is the old folder's: this one starts from the route's track
+      if (sel.keys.length > 1 || viewOpen) { viewOpen = false; sel = single(query.get('track')); }
     });
   });
   // ?q= from the browser column's hand-off ("Search tracks for “…”", plan library stage 5 A5, notes N3): the text goes
@@ -126,7 +143,7 @@
   // ?track= from outside (sidebar, other pages)
   $effect(() => {
     const t = query.get('track');
-    if (t !== untrack(() => selected)) selected = t;
+    if (t !== untrack(() => sel.anchor)) { sel = single(t); if (t) viewOpen = false; }
   });
   // 200 ms debounce for the search
   $effect(() => {
@@ -286,12 +303,20 @@
     sorts = { ...sorts, [view]: next };
     setPref(sortKey(view), next);
   }
-  // `pick`: the user chose this track in the table (a click, ↑ ↓), which opens the details unless hidden by hand
-  function select(id: string, pick = true) {
-    if (pick) pickTrack();
-    selected = id;
-    void go(`${libraryHref(target)}?track=${encodeURIComponent(id)}`, { replace: true });
+  // `pick`: the user chose these rows in the table (a click, ↑ ↓), which opens the inspector unless hidden by hand. A
+  // pick puts the view's plan away and an ended batch's panel with it (a running one goes on: the header opens it again)
+  function choose(next: Selection, pick = true) {
+    if (pick && next.keys.length) pickTrack();
+    viewOpen = false;
+    aiffBatch.clear();
+    setSelection(next);
   }
+  function setSelection(next: Selection) {
+    sel = next;
+    const at = next.anchor === null ? '' : `?track=${encodeURIComponent(next.anchor)}`;
+    void go(`${libraryHref(target)}${at}`, { replace: true });
+  }
+  const select = (id: string, pick = true) => choose(single(id), pick);
   // ▶ starts the folder as shown (filter, search and sort applied) as the queue, from this track: a playlist's songs,
   // then the other files of its folder, as the table lists them. The rows come sorted from the engine
   // (`api.library(…, sort)`), and the table shows them in that order.
@@ -350,6 +375,67 @@
   const selectedOff = $derived(offTable(lib, libFor, folder, selected));
   $effect(() => { trackOffTable.set(selectedOff); });
   $effect(() => () => trackOffTable.set(false));
+  // ---- several rows and the AIFF batch (issue 33 stage D) ----
+  const subject = $derived(inspectorSubject(sel, viewOpen));
+  $effect(() => { batchSubject.set(isBatchSubject(subject)); });
+  $effect(() => () => batchSubject.set(false));
+  // a new answer of the table: a selection of several keeps the rows still listed (a done file changes its row's format
+  // and name, the track stays), the anchor going to the nearest one left
+  let walked: string[] = [];
+  $effect(() => {
+    const after = lib ? allRows(lib).map((r) => r.track_id) : [];
+    untrack(() => {
+      const before = walked;
+      walked = after;
+      const next = keepTableSelection(sel, before, after);
+      if (next !== sel) setSelection(next);
+    });
+  });
+  const names = $derived(new Map((lib ? allRows(lib) : []).map((r) => [r.track_id,
+    { name: artistTitle(r.artist, r.title), cover_url: r.cover_url }])));
+  // the batch the hub runs that this window didn't start (it was reloaded): its panel opens for the view
+  $effect(() => {
+    const j = $hub.job;
+    untrack(() => {
+      const had = !!aiffBatch.view;
+      aiffBatch.adopt(j);
+      if (!had && aiffBatch.view) openView();
+    });
+  });
+  // the table follows a running batch: a fresh answer per file done, so the rows' format and name move as the engine's do
+  let seenDone = -1;
+  $effect(() => {
+    const v = aiffBatch.view;
+    const step = batchListStep(untrack(() => seenDone), v ? { phase: v.phase, done: v.done } : null);
+    untrack(() => { seenDone = step.seen; if (step.reload) retry++; });
+  });
+  const running = $derived(aiffBatch.view?.phase === 'running');
+  // the header's button keeps the label it had when the batch started
+  let frozen = $state<string | null>(null);
+  $effect(() => {
+    const on = running;
+    untrack(() => { frozen = on ? aiffHeader(lib?.aiff_stopped ?? null, false).label : null; });
+  });
+  const header = $derived(aiffHeader(lib?.aiff_stopped ?? null, running, frozen));
+  /** The view's plan stands in the inspector; the selection clears and comes back with Cancel or Done. */
+  function openView() {
+    if (!viewOpen) { viewFrom = sel; viewOpen = true; sel = NONE; void go(libraryHref(target), { replace: true }); }
+    showDetails();
+  }
+  function aiffHeaderClick() {
+    if (header.kind === 'resume' && header.batch_id !== null && !running) {
+      openView();
+      void aiffBatch.resume(header.batch_id);
+    } else openView();
+  }
+  /** Cancel and Done of the view's plan: back to the selection it came from. */
+  function leaveView() {
+    if (viewOpen) choose(viewFrom, false);
+  }
+  /** Cancel and Done of a selection's panel: back to its anchor's details. */
+  function leaveSelection() {
+    choose(escapeSelection(sel), false);
+  }
   const detailsOpen = $derived($detailsShown);
   const handHidden = $derived($detailsHidden);
   // nothing to show: the toggle keeps its place and its words (hidden by hand: "Show details"), disabled, and says why
@@ -375,7 +461,9 @@
     readStatus={neverRead}>
     {#snippet actions()}{#if tooMany}<Button variant="link" size="sm" href={settingsFolderHref(tooMany.path)}
         tip={`${tooMany.crate_count} folders with music, too many for the sidebar: choose which to show in Settings`}
-        data-test="library-show-some">Show some in the sidebar…</Button>{/if}{#if !viewGone}<SearchField bind:value={search}
+        data-test="library-show-some">Show some in the sidebar…</Button>{/if}{#if hasFiles && !viewGone && !emptyLibrary}<Button variant="secondary" size="sm" tip={header.tip}
+        onclick={aiffHeaderClick} data-test="library-make-aiff" data-kind={header.kind}
+        data-running={running || undefined}>{header.label}</Button>{/if}{#if !viewGone}<SearchField bind:value={search}
       bind:input={searchInput} placeholder="Search title, artist…" shortcut="cmd+f"
       test="library-search" />{/if}{#if !emptyLibrary && !viewGone}<Button variant="icon"
         icon={handHidden ? detailsHiddenIcon : detailsIcon} pressed={detailsOpen} disabled={!$detailsSubject}
@@ -407,18 +495,26 @@
       </Surface>
     {:else}
       <LibraryTable rows={lib.rows} also={lib.also} alsoHint={alsoHint(lib.title, neverRead)} emptyLine={empty.line} {loading} {kind}
-        {subfolders} {playlistColumn} {artistColumn} off={lib.enabled === false} sort={shown} {selected} {playing} {onsort} onselect={select} onplay={playOrPause}
+        {subfolders} {playlistColumn} {artistColumn} off={lib.enabled === false} sort={shown} {sel} {playing} {onsort} onselect={choose} onplay={playOrPause}
         onfinder={(id) => void finder(id)} ontodo={todo} ondetails={showDetails} />
     {/if}
   {/if}
 {/snippet}
 
 {#snippet panel()}
+  {#if subject?.kind === 'tracks' || subject?.kind === 'view'}
+    <AiffBatchPanel scope={subject.kind === 'tracks' ? { kind: 'tracks', tracks: subject.ids }
+      : { kind: 'lossless', view: lib?.view ?? view, key: lib?.key ?? null }}
+      origin="library" label={subject.kind === 'view' ? lib?.title ?? null : null} known={(id) => names.get(id) ?? null}
+      oncancel={subject.kind === 'view' ? leaveView : leaveSelection}
+      ondone={subject.kind === 'view' ? leaveView : leaveSelection} />
+  {:else}
   <TrackDetails {detail} {decision} {playSource} {pending} loading={detailLoading} {gone} error={detailError} {spectrum}
     {spectrumLoading} {spectrumError} {upgradeSpectrum} onretry={() => { trackRetry++; }}
     onfinder={() => detail && void finder(detail.track_id)} ontodo={() => { const id = pending?.row.track_id ?? detail?.track_id; if (id) todo(id); }}
     onlisten={() => detail && play(detail.track_id)} onacted={acted} />
+  {/if}
 {/snippet}
 
-<ListPanelFrame {main} panel={selected ? panel : null} emptyPanel="Select a track to see its details." wide
+<ListPanelFrame {main} panel={subject ? panel : null} emptyPanel="Select a track to see its details." wide
   panelMode="inspector" open={detailsOpen} panelLabel="Track details" />

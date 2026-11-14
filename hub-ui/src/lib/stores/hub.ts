@@ -96,7 +96,7 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
       }
       {
         const snap: JobSnap = { id: e.job_id, kind: e.kind, track_id: e.track_id, started: new Date().toISOString(),
-          running: true, stopping: false, last: {}, results: [], finished: null, actions: [] };
+          batch_kind: e.batch_kind ?? null, running: true, stopping: false, last: {}, results: [], finished: null, actions: [] };
         if (e.kind === SIGN_IN_KIND) return { ...s, sign_in: snap };
         if (e.kind === SCAN_KIND) return s;   // the quiet background check is no activity: it never takes the job slot
         return { ...s, read_progress: e.kind === 'sync' ? null : s.read_progress, job: snap };

@@ -48,7 +48,7 @@ const data = (over: Partial<WatchedFolders> = {}): WatchedFolders => ({ folders:
   stopped: false, ...over });
 const job = (over: Partial<JobSnap> = {}): JobSnap => ({ id: 7, kind: 'import', track_id: null, started: '', running: true,
   stopping: false, last: {}, results: [], finished: null, actions: [], ...over });
-const progress = (phase: 'scan' | 'tags' | 'sound' | 'link', done = 0, total = 0) =>
+const progress = (phase: 'scan' | 'facts' | 'tags' | 'sound' | 'link', done = 0, total = 0) =>
   ({ type: 'ImportProgress' as const, phase, done, total, unreadable: 0 });
 
 describe('a folder row (W3)', () => {
@@ -95,10 +95,12 @@ describe('a folder row (W3)', () => {
 describe('the import (W6)', () => {
   it('says each phase, with counts where it counts', () => {
     expect(phaseLine(progress('scan'))).toBe('Looking for music files');
+    expect(phaseLine(progress('facts', 12, 40))).toBe('Reading what your files are · 12 of 40');
     expect(phaseLine(progress('tags', 340, 1500))).toBe('Reading tags · 340 of 1,500');
     expect(phaseLine(progress('sound', 1, 2))).toBe('Checking the sound · 1 of 2');
     expect(phaseLine(progress('link'))).toBe('Linking to your playlists');
     expect(phaseShare(progress('tags', 375, 1500))).toBe(0.25);
+    expect(phaseShare(progress('facts', 10, 40))).toBe(0.25);
     expect(phaseShare(progress('scan'))).toBeNull();
     expect(phaseShare(progress('link'))).toBeNull();
   });

@@ -43,6 +43,12 @@ export function megabytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return NONE;
   return (bytes / 1e6).toFixed(1);
 }
+/** A size for the user's eyes, as the engine says it (convert.py `size_words`): 1_240_000_000 → "1.2 GB", 35_400_000 →
+ *  "35 MB"; under a megabyte "1 MB". */
+export function sizeWords(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return NONE;
+  return bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
+}
 /** 0.7412 → "74 %"; null → "—". */
 export function percent(share: number | null | undefined): string {
   if (share === null || share === undefined || !Number.isFinite(share)) return NONE;
@@ -246,6 +252,13 @@ const FILE_FORMATS: Record<string, string> = { flac: 'FLAC', wav: 'WAV', wave: '
 export function fileFormat(path: string | null | undefined): string | null {
   const m = /\.([A-Za-z0-9]+)$/.exec(path ?? '');
   return (m && FILE_FORMATS[m[1].toLowerCase()]) || null;
+}
+
+/** A format's words for display with no line break inside "16-bit": the hyphen after a bit depth becomes a no-break
+ *  hyphen (U+2011). Used wherever the UI prints a format or kind line ("FLAC · 24-bit · 96 kHz", "24-bit AIFF → 16-bit
+ *  AIFF"); the engine's strings and every comparison stay plain. */
+export function formatWords(text: string): string {
+  return text.replace(/(\d)-(?=bit\b)/gi, '$1\u2011');
 }
 
 /** The current file's cutoff as a number for its StatCard (where the highs end, over the spectrum; To-do and

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileState } from './bridge/types';
-import { OFFLINE_WORDS, fileAway, fileAwayWords, ago, artistTitle, clock, count, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural,
+import { OFFLINE_WORDS, fileAway, fileAwayWords, ago, artistTitle, clock, count, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, formatWords, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural, sizeWords,
   qualityWords, runIdFromReport, runWhen, upgradeLabel } from './format';
 
 describe('format', () => {
@@ -32,6 +32,12 @@ describe('format', () => {
     expect(count(0)).toBe('0');
     expect(count(472)).toBe('472');
     expect(count(5318)).toBe('5,318');
+  });
+  it('sizeWords: the engine\'s size words, GB from a billion bytes, else whole MB (at least 1)', () => {
+    expect(sizeWords(1_240_000_000)).toBe('1.2 GB');
+    expect(sizeWords(35_400_000)).toBe('35 MB');
+    expect(sizeWords(200_000)).toBe('1 MB');
+    expect(sizeWords(null)).toBe('—');
   });
   it('megabytes, percent, khz', () => {
     expect(megabytes(19_800_000)).toBe('19.8');
@@ -178,5 +184,15 @@ describe('fitMiddle', () => {
       const two = 'Rekordbox Library › Hardtechno';
       expect(fitMiddle(two, upTo(20), '›')).toBe(fitMiddle(two, upTo(20)));
     });
+  });
+});
+
+describe('formatWords', () => {
+  it('a bit depth keeps its hyphen on one line (U+2011); nothing else changes', () => {
+    expect(formatWords('FLAC · 24-bit · 96 kHz')).toBe('FLAC · 24\u2011bit · 96 kHz');
+    expect(formatWords('a 16-bit/44.1 kHz AIFF')).toBe('a 16\u2011bit/44.1 kHz AIFF');
+    expect(formatWords('AIFF 24-bit or above 44.1 kHz → 16-bit')).toBe('AIFF 24\u2011bit or above 44.1 kHz → 16\u2011bit');
+    expect(formatWords('Artist - Title [bit-crushed]')).toBe('Artist - Title [bit-crushed]');
+    expect(formatWords('Clean name only')).toBe('Clean name only');
   });
 });

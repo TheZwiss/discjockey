@@ -11,7 +11,7 @@ from audio_helpers import needs_ffmpeg, pcm
 from convert_helpers import (
     NEW, PARKED, TID, batch_row, exact, file_rows, make_env, never, run, session, start_batch,
 )
-from discjockey import convert, library
+from discjockey import convert, library, rbstep
 from discjockey.align import Alignment
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, backup, master
@@ -152,7 +152,7 @@ def test_without_a_rekordbox_track_no_database_is_touched(tmp_path, monkeypatch,
     analysis = env.anlz_files()
     r, state = run(env)
     assert r.path == NEW and (env.paths.root / env.superseded).is_file()
-    assert r.note.endswith(convert.NO_TRACK_NOTE)
+    assert r.note.endswith(rbstep.NO_TRACK_NOTE)
     check = state["tracks"][TID]["rekordbox_check"]
     assert check["rekordbox"] is None and check["undo"]["repoint"] is None
     assert env.anlz_files() == analysis and backup.backups(env.paths) == []
@@ -206,7 +206,7 @@ def test_refusals_change_nothing(tmp_path, monkeypatch, case, reason):
     if case == "unreadable":
         monkeypatch.setattr("discjockey.rekordbox.master.KEYS", ("00" * 32,))
     music, master, analysis = env.music(), dump(env.place.db), env.anlz_files()
-    with pytest.raises(convert.Skipped) as e:
+    with pytest.raises(rbstep.Skipped) as e:
         run(env, compare=different if case == "different_edit" else unknown if case == "unknown_edit" else exact)
     assert e.value.reason == reason
     if case == "unknown_edit":  # design §8: the files could not be compared; never "isn't the same edit"
@@ -216,8 +216,8 @@ def test_refusals_change_nothing(tmp_path, monkeypatch, case, reason):
         assert "isn't the same edit" in str(e.value)
     if case == "space":
         assert e.value.detail["free"] == 1_000_000 and "needed, 1 MB free" in str(e.value)
-    elif reason in convert.REFUSED and case not in ("different_edit", "unknown_edit"):
-        assert str(e.value) == convert.REFUSED[reason]
+    elif reason in rbstep.REFUSED and case not in ("different_edit", "unknown_edit"):
+        assert str(e.value) == rbstep.REFUSED[reason]
     if case == "unclean":
         env.place.db.with_name("master.db-wal").unlink()
     assert_nothing_changed(env, music, master, analysis)
@@ -251,9 +251,9 @@ def test_a_track_changed_meanwhile_is_refused_and_rolled_back(tmp_path, monkeypa
         self.con.execute("UPDATE djmdContent SET FolderPath = '/Users/dj/Music/Elsewhere.mp3' WHERE ID = '1'")
         return real(self, changes, splices, **kw)
     monkeypatch.setattr(rbwrite.Writer, "repoint", moved_meanwhile)
-    with pytest.raises(convert.Skipped) as e:
+    with pytest.raises(rbstep.Skipped) as e:
         run(env)
-    assert e.value.reason == "changed" and str(e.value) == convert.REFUSED["changed"]
+    assert e.value.reason == "changed" and str(e.value) == rbstep.REFUSED["changed"]
     assert env.music() == music and env.anlz_files() == analysis
 
 

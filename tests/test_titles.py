@@ -128,3 +128,13 @@ def test_full_width_text_is_normalised():
 ])
 def test_clean_uploader(name, cleaned):
     assert clean_uploader(name) == cleaned
+
+
+def test_strip_tag_brackets_removes_only_whole_pure_tags():
+    from discjockey.titles import strip_tag_brackets
+    assert strip_tag_brackets("Song [FREE DL]") == "Song"
+    assert strip_tag_brackets("Song (Official Video) (Live)") == "Song (Live)"
+    assert strip_tag_brackets("[Premiere] Song") == "Song"
+    assert strip_tag_brackets("Song (Extended Mix) [Free Download Edit]") == "Song (Extended Mix) [Free Download Edit]"
+    assert strip_tag_brackets("Same  text") == "Same  text"  # nothing to drop: exactly as it came
+    assert strip_tag_brackets("[FREE DL]") == "[FREE DL]"  # never empty

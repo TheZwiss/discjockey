@@ -17,6 +17,9 @@ is open and removes both on a clean close (checked on a copy 2026-11-08), so gua
   renamed over) and their `contentFile` rows (`Hash` = MD5 of the new bytes, `Size`). Refused with nothing written
   when a track's `FolderPath`/`FileNameL` no longer hold the planned before values or an analysis file changed
   (`changed`), or a track is cloud-synced (`cloud`, guard 5).
+- `rename_change` (the plan for Give it its clean name, written by `repoint` too): `FolderPath`, `FileNameL` (and
+  `OrgFolderPath` / `rb_LocalFolderPath` where they equalled the old path), `PPTH`, `contentFile` and the row's stamp;
+  no facts, no text.
 - `write_text`: the in-place AIFF swap's write, text columns and `FileSize` only.
 - `undo_repoint`: identity back only while it holds exactly what we wrote (else `relocated`, nothing changed), file
   facts back whatever they hold, each text column back only where it still holds what we wrote, `PPTH` back only where
@@ -195,6 +198,15 @@ def row_change(entry: Entry, new_path: str, *, file_size: int, channels: int, fr
          "FileSize": file_size, "BitDepth": 16, "SampleRate": 44100, "BitRate": bit_rate(channels),
          "Length": frames // 44100},
         plan_text(entry, old_tags, clean))
+
+
+def rename_change(entry: Entry, new_path: str) -> RowChange:
+    """The repoint of `entry` to the same audio under a new name at `new_path` (Give it its clean name, plan stage D
+    §0.10, design §7.1): the identity columns only. No file facts (the file is the same bytes), no text (its tags are
+    the clean ones already); `repoint` still splices `PPTH`, updates `contentFile` and stamps the row."""
+    new_path = nfc(new_path)
+    return RowChange(entry.id, {"FolderPath": entry.folder_path, "FileNameL": entry.file_name},
+                     {"FolderPath": new_path, "FileNameL": new_path.rsplit("/", 1)[-1]})
 
 
 def text_change(entry: Entry, *, file_size: int, old_tags: dict[str, str], clean: dict[str, str]) -> RowChange:
