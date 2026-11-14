@@ -23,6 +23,7 @@
     StatCard, StatusMark, Surface, WriteButton,
   } from '$lib/components';
   import { untrack } from 'svelte';
+  import { formatWords } from '$lib/format';
   import { Panel } from '$lib/frames';
   import { filesVersion, writeBlockedReason } from '$lib/stores/hub';
   import {
@@ -246,7 +247,7 @@
         {:else}
           {#each p.kinds as k (k.kind)}
             <ListRow wrapName title={k.label} test="aiff-kind" data-kind={k.kind} style="--row-cols: minmax(0, 1fr) auto">
-              {#snippet name()}{k.label}{/snippet}
+              {#snippet name()}{formatWords(k.label)}{/snippet}
               {#snippet trailing()}<span class="count">{k.n}</span>{/snippet}
             </ListRow>
           {/each}
@@ -267,7 +268,7 @@
     <!-- the same "AIFF" card as one file's (AiffCard): what every file becomes, the room it takes, what stays -->
     <Surface kind="card" label="AIFF" data-test="aiff-batch-card">
       <div class="col">
-        {#if showsFormat(plan)}<p class="fmt" data-test="aiff-format">{FORMAT_SENTENCE}</p>{/if}
+        {#if showsFormat(plan)}<p class="fmt" data-test="aiff-format">{formatWords(FORMAT_SENTENCE)}</p>{/if}
         {#if space.length}
           <div class="rows">
             {#each space as r, n (r.drive)}

@@ -254,6 +254,13 @@ export function fileFormat(path: string | null | undefined): string | null {
   return (m && FILE_FORMATS[m[1].toLowerCase()]) || null;
 }
 
+/** A format's words for display with no line break inside "16-bit": the hyphen after a bit depth becomes a no-break
+ *  hyphen (U+2011). Used wherever the UI prints a format or kind line ("FLAC · 24-bit · 96 kHz", "24-bit AIFF → 16-bit
+ *  AIFF"); the engine's strings and every comparison stay plain. */
+export function formatWords(text: string): string {
+  return text.replace(/(\d)-(?=bit\b)/gi, '$1\u2011');
+}
+
 /** The current file's cutoff as a number for its StatCard (where the highs end, over the spectrum; To-do and
  *  Library): null for a lossless file or none (nothing to show), "—" (value null) when the analysis found no edge.
  *  A fake lossless file names the format it really is ("a lossy file inside the WAV"), else says "a lossless file". */

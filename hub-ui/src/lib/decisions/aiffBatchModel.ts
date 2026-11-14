@@ -4,7 +4,7 @@
 // its end reuse stage B's helpers (decisionModel: progressRows, endRows, batchEnd); the words here are the AIFF ones.
 import type { AiffPlan, AiffScope } from '$lib/bridge/types';
 import type { Outcome } from '$lib/components/choiceModel';
-import { sizeWords } from '$lib/format';
+import { formatWords, sizeWords } from '$lib/format';
 import { endNote, type BatchEnd } from './decisionModel';
 
 /** Where the panel was opened: the convert job's origin (its batch scope) and To-do's words ("files for CDJs"). */
@@ -124,9 +124,10 @@ export function lossyNote(n: number): string | null {
     : `${n} of these are lossy: an AIFF made from them sounds the same and takes 5–10 times the space.`;
 }
 
-/** What a file's row says under its name: its kind's label ("FLAC → AIFF", "Clean name only"). */
+/** What a file's row says under its name: its kind's label ("FLAC → AIFF", "Clean name only"), with no line break
+ *  inside a bit depth (`formatWords`). */
 export function kindLabel(plan: Pick<AiffPlan, 'kinds'>, kind: string): string {
-  return plan.kinds.find((k) => k.kind === kind)?.label ?? kind;
+  return formatWords(plan.kinds.find((k) => k.kind === kind)?.label ?? kind);
 }
 
 /** "Left as they are": a selection's files the plan leaves out, each with its reason; a view's or the CDJ group's

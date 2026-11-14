@@ -28,13 +28,14 @@ nothing. A file ffprobe can't read is marked once (`db.set_facts_failed`) and no
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
 import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from . import aiff_plan, batch_cmd, batches, convert, db, importer, library, rekordbox
+from . import aiff_plan, batch_cmd, batches, convert, db, importer, library, rekordbox, scanner
 from .batch_cmd import BUSY, FAILED, LOCK_HELD, NO_LIBRARY, OK, STOPPED
 from .events import BatchProgress, Cancelled, CancelToken, ImportProgress
 from .hub import views
@@ -179,10 +180,27 @@ def _check_view(paths: Paths, state: dict, job: Job) -> None:
         raise BadArgs(NO_PLAYLIST.format(name=key) if view == "playlist" else NO_FOLDER.format(path=key))
 
 
+def _held(paths: Paths, state: dict, job: Job) -> set[str]:
+    """The songs the CDJ group leaves out because To-do shows their decision first: a duplicate group listed now
+    (`views.decided_songs`, which the hub's `HubApi._decided_now` asks too, so console and hub name the same files).
+    Only the `cdj` scope has any. An open "Is this the same song?" question isn't one of them here: those come from the
+    import's last plan, which lives in a running window and is on no disk, so a console run can't see them (its files
+    stay in the group; Convert all there is still the user's own command)."""
+    if job.scope.get("kind") != "cdj" or not paths.db_file.exists():
+        return set()
+    with db.connect(paths.db_file) as conn:
+        groups = db.duplicate_groups(conn)
+        files = {g.id: db.group_files(conn, g.id) for g in groups}
+        folders = db.watched_folders(conn)
+    away = {str(f.path): why for f in folders
+            if f.kind == "import" and (why := scanner.away_reason(f.path, os.path.ismount)) is not None}
+    return views.decided_songs(state, (), groups, files, (), away, {})
+
+
 def _plan(paths: Paths, state: dict, job: Job) -> aiff_plan.AiffPlan:
     """`aiff_plan.read_plan` for the job: one read open of rekordbox's library for the lookup of its tracks."""
     return aiff_plan.read_plan(paths, state, job.scope, place=rekordbox.locate(), running=process.running(),
-                               only=job.only)
+                               only=job.only, held=_held(paths, state, job))
 
 
 # --- output ---

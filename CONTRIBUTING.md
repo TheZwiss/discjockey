@@ -203,7 +203,8 @@ too. `batch list` shows `kind` `convert` (Convert and Rename items only), `upgra
 in the file's own folder. A song key says what its file needs and does that: Convert, or only the name when the file is
 a clean AIFF with the wrong name (the result's `action` says which; `eligible.aiff_action` decides). `--all lossless`
 is Make all lossless files AIFF over the whole library, or over `--in`'s view (`started_by` `make_aiff`); `--all cdj`
-is the To-do group "Won't play well on CDJs" (`cdj_all`; `--in` is refused there). Song keys: `user`. Lossy files join
+is the To-do group "Won't play well on CDJs" (`cdj_all`; `--in` is refused there; a song in a duplicate group To-do lists
+is left out until that group is answered, as in the hub). Song keys: `user`. Lossy files join
 only by being named, or by being in the CDJ group.
 
 **`discjockey rename (<track>… | --all) [--in …] [--dry-run] [--json]`** gives a clean AIFF its clean name only (`--all`:

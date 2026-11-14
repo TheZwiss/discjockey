@@ -442,6 +442,14 @@ describe('which rows are dimmed', () => {
     expect(rowOff({ ...question('q1', 101), in_playlists: false })).toBe(false);
     expect(rowOff({ ...dupe([201, 202]), in_playlists: false })).toBe(false);
   });
+  it('own files in the CDJ and rekordbox check groups are not "not in your playlists"; a CDJ file that waits is dimmed', () => {
+    expect(rowOff(item('t1', 'cdj', { in_playlists: false, aiff: null }))).toBe(false);
+    expect(rowOff(item('t1', 'rekordbox_check', { in_playlists: false }))).toBe(false);
+    expect(rowDim(item('t1', 'cdj', { in_playlists: false, aiff: null }))).toBe(false);
+    expect(rowDim(item('t1', 'cdj', { aiff: 'cloud' }))).toBe(true);
+    expect(rowDim(item('t1', 'cdj', { aiff: null, file_state: 'offline' }))).toBe(true);
+    expect(rowDim(item('t1', 'weak', { aiff: 'cloud' }))).toBe(false);
+  });
 });
 
 
@@ -1021,7 +1029,8 @@ describe('Upgrade all and the batch panel (issue 33 stage B)', () => {
 });
 
 describe('the CDJ group (issue 33 stage D §6.3)', () => {
-  const group = { items: [item('a', 'cdj'), item('h', 'cdj', { hidden: true }), item('b', 'cdj'), item('c', 'cdj')] };
+  const cdj = (id: string, extra: Partial<TodoItem> = {}) => item(id, 'cdj', { aiff: null, ...extra });
+  const group = { items: [cdj('a'), cdj('h', { hidden: true }), cdj('b'), cdj('c'), cdj('w', { aiff: 'cloud' })] };
   it('its items select several at once, within the group only', () => {
     expect(MULTI_GROUPS).toContain('cdj');
     const a = item('a', 'cdj');
@@ -1031,14 +1040,15 @@ describe('the CDJ group (issue 33 stage D §6.3)', () => {
     expect([scope(itemKey(a)), scope(itemKey(b)), scope(itemKey(u))]).toEqual(['cdj', 'cdj', 'upgrade_ready']);
     expect([multiCdj([a, b]), multiCdj([a]), multiCdj([a, u]), multiCdj([])]).toEqual([true, false, false, false]);
   });
-  it('Convert all reaches every item but a hidden one, also with Show hidden on', () => {
+  it('Convert all reaches the items with no reason to wait and no hidden one, also with Show hidden on: exactly the head\'s n', () => {
     expect(cdjAllKeys(group)).toEqual(['cdj/a', 'cdj/b', 'cdj/c']);
     expect(cdjAllKeys(null)).toEqual([]);
   });
   it('the whole group is every reachable item with no hidden one; else the selection goes as a list of tracks', () => {
-    const [a, h, b, c] = group.items;
+    const [a, h, b, c, w] = group.items;
     expect(wholeCdjGroup(group, [a, b, c])).toBe(true);
     expect(wholeCdjGroup(group, [a, h, b, c])).toBe(false);
+    expect(wholeCdjGroup(group, [a, b, c, w])).toBe(false);   // a file that waits is a choice of its own
     expect(wholeCdjGroup(group, [a, b])).toBe(false);
     expect(wholeCdjGroup(null, [a])).toBe(false);
   });

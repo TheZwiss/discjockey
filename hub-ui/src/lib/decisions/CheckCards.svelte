@@ -48,7 +48,7 @@
           </div>
         {/each}
       </div>
-      {#if item.can_undo}<Hint text={replaced.undo} />{/if}
+      {#if item.can_undo}<Hint text={replaced.undo} wrap data-test="replaced-undo" />{/if}
     </div>
   </Surface>
 {/if}

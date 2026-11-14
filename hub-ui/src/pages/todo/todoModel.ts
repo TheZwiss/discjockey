@@ -181,10 +181,21 @@ export function wholeUpgradeGroup(group: { items: TodoItem[] } | null, selected:
   const picked = new Set(selected.map(itemKey));
   return keys.length > 0 && keys.every((k) => picked.has(k)) && selected.every((i) => !i.hidden);
 }
-/** "Convert all · n": the CDJ group's items Convert all can reach, as `upgradeAllKeys` (`make_aiff` leaves a hidden one
- *  out); and whether the selection is the whole group (the panel then runs `{kind: "cdj"}`, else the list of tracks). */
-export const cdjAllKeys = upgradeAllKeys;
-export const wholeCdjGroup = wholeUpgradeGroup;
+/** A CDJ item Convert all can reach: not hidden (`make_aiff` leaves a hidden one out) and with no `aiff` reason (a file
+ *  that waits, such as one in the cloud or with rekordbox unreadable, is counted by no head and run by no Convert all). */
+const cdjReachable = (i: TodoItem): boolean => !i.hidden && i.aiff === null;
+/** "Convert all · n": the CDJ group's items Convert all can reach (`cdjReachable`), exactly the rows the head's n counts,
+ *  so the click washes n rows. */
+export function cdjAllKeys(group: { items: TodoItem[] } | null): string[] {
+  return group ? group.items.filter(cdjReachable).map(itemKey) : [];
+}
+/** Whether the selection is the whole group as Convert all means it: every reachable item and nothing else (a hidden
+ *  or waiting file in it is a choice of its own). The panel then runs `{kind: "cdj"}`, else the list of tracks. */
+export function wholeCdjGroup(group: { items: TodoItem[] } | null, selected: TodoItem[]): boolean {
+  const keys = cdjAllKeys(group);
+  const picked = new Set(selected.map(itemKey));
+  return keys.length > 0 && keys.every((k) => picked.has(k)) && selected.every(cdjReachable);
+}
 /** A batch's panel stays until the next pick of the user's own: while it is pinned, a re-fetch keeps only the rows
  *  still in the list selected (the batch's tracks leave it one by one) and never moves the pick to a neighbour, which
  *  could be the new check row of the batch just done. */
@@ -292,12 +303,16 @@ export function selectAfterHide(items: TodoItem[], key: string): string | null {
 }
 
 /** Whether a row is dimmed ("not in your playlists", for the older kinds). A same-song question and a duplicate
- *  group are never dimmed: they are about the user's own files, which no playlist holds. */
-export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists;
-/** The row's lead is dimmed: a track no playlist holds (`rowOff`) or a file that is away (`rowAway`: offline, its
- *  folder not found), as in Library's table. The trailing column tells the two apart: the quality badge, or the
- *  `AwayTag` in its place, which says why the file can't play. */
-export const rowDim = (i: TodoItem): boolean => !isBatch(i) && (rowOff(i) || rowAway(i) !== null);
+ *  group are never dimmed: they are about the user's own files, which no playlist holds. Neither are the files of the
+ *  `cdj` and `rekordbox_check` groups: they are asked about because of the file or rekordbox's library, whichever
+ *  playlists hold the track. */
+export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists && i.group !== 'cdj' && i.group !== 'rekordbox_check';
+/** A CDJ row whose Convert can't run now (its `aiff` says why: its panel does): dimmed like a row that is away. */
+export const rowWaits = (i: TodoItem): boolean => i.group === 'cdj' && !!i.aiff;
+/** The row's lead is dimmed: a track no playlist holds (`rowOff`), a file that is away (`rowAway`: offline, its
+ *  folder not found), as in Library's table, or a CDJ file that waits (`rowWaits`). The trailing column tells the
+ *  first two apart: the quality badge, or the `AwayTag` in its place, which says why the file can't play. */
+export const rowDim = (i: TodoItem): boolean => !isBatch(i) && (rowOff(i) || rowAway(i) !== null || rowWaits(i));
 
 /** The rows ▶ in a track's details plays through as the to-do queue. The import's items are left out: a question's
  *  song has no file yet and a duplicate group is several files, so neither is a track the queue could ask for. */
