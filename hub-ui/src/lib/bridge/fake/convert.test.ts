@@ -85,8 +85,19 @@ describe('the fake bridge: the CDJ rule and the plan', () => {
     expect((await detail('d7-named')).aiff).toMatchObject({ action: null, why_not: 'named_already', new_name: null,
       from: 'AIFF · 16-bit · 44.1 kHz', name_now: 'Mira Nacht - Song named.aiff' });
     s.rekordbox_state = 'unreadable';
-    expect((await detail('d7-mp3')).aiff).toMatchObject({ action: null, why_not: 'rekordbox_unreadable', from: 'MP3 · 44.1 kHz · 400 kbps' });
+    // blocked, but still the step's own answer (judged as if rekordbox were not in the way): Becomes, Name and Space show
+    const blocked = (await detail('d7-mp3')).aiff!;
+    has(blocked, 'track_aiff');
+    expect(blocked).toMatchObject({ action: 'convert', why_not: 'rekordbox_unreadable', kind: 'mp3', to: 'AIFF · 16-bit · 44.1 kHz',
+      from: 'MP3 · 44.1 kHz · 400 kbps', name_now: 'Mira Nacht - Song mp3.mp3', new_name: 'Mira Nacht - Song mp3.aiff', lossy: true });
+    expect(blocked.bytes).toBe(mp3.bytes);
+    expect((await detail('d7-name')).aiff).toMatchObject({ action: 'rename', why_not: 'rekordbox_unreadable', kind: 'name', to: null,
+      bytes: 0, new_name: 'Mira Nacht - Song name.aiff' });
+    expect((await detail('d7-named')).aiff).toMatchObject({ action: null, why_not: 'named_already', new_name: null });   // no action to show
     s.rekordbox_state = undefined;
+    s.tracks.find((t) => t.track_id === 'd7-mp3')!.cloud = true;           // Cloud Library Sync: blocked the same way
+    expect((await detail('d7-mp3')).aiff).toMatchObject({ action: 'convert', why_not: 'cloud', kind: 'mp3', new_name: 'Mira Nacht - Song mp3.aiff' });
+    s.tracks.find((t) => t.track_id === 'd7-mp3')!.cloud = false;
     const download = s.tracks.find((t) => t.source === 'qobuz' && t.status === 'lossless')!;
     expect((await detail(download.track_id)).aiff).toBeNull();
     const up = s.tracks.find((t) => t.upgrade)!;
@@ -207,6 +218,8 @@ describe('the fake bridge: the CDJ group in To-do', () => {
     s.rekordbox_running = false;
     const resumed = await run(f.batch_resume(r.batch!));
     expect(resumed).toMatchObject({ kind: 'batch_resume', ok: true });
+    const snap = async () => ((await f.job_status()) as { job: { kind: string; batch_kind: string | null } }).job;
+    expect(await snap()).toMatchObject({ kind: 'batch_resume', batch_kind: 'convert' });   // a reload tells whose batch it was
     expect((await group('cdj'))).toBeUndefined();
     expect((await plan({ kind: 'cdj' })).total).toBe(0);
   });

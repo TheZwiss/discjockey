@@ -306,6 +306,7 @@ class Job:
     track_id: str | None
     token: CancelToken
     started: str
+    batch_kind: str | None = None  # an AIFF batch job's kind ("upgrade" | "convert" | "mixed"), else None: a reload tells whose batch runs
     done: threading.Event = field(default_factory=threading.Event)
     last: dict = field(default_factory=dict)  # event type -> the newest event of that type (as JSON data)
     usage: dict = field(default_factory=dict)  # service -> its newest AccountUsage event, in first-seen order
@@ -323,7 +324,7 @@ class Job:
 
     def snapshot(self) -> dict:
         return {"id": self.id, "kind": self.kind, "track_id": self.track_id, "started": self.started,
-                "running": not self.done.is_set(), "stopping": self.token.cancelled and not self.done.is_set(),
+                "batch_kind": self.batch_kind, "running": not self.done.is_set(), "stopping": self.token.cancelled and not self.done.is_set(),
                 "last": dict(self.last), "usage": list(self.usage.values()), "results": list(self.results), "finished": self.finished,
                 "actions": list(self.last.get("RunStarted", {}).get("actions", []))}
 
@@ -419,18 +420,20 @@ class Jobs:
         with self._mutex:
             self._scanning = self._brief = False
 
-    def _new(self, kind: str, track_id: str | None) -> Job:
-        return Job(next(self._ids), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"))
+    def _new(self, kind: str, track_id: str | None, batch_kind: str | None = None) -> Job:
+        return Job(next(self._ids), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"), batch_kind)
 
-    def start(self, kind: str, work: Callable[[JobContext], dict | None], track_id: str | None = None) -> Job:
+    def start(self, kind: str, work: Callable[[JobContext], dict | None], track_id: str | None = None,
+              batch_kind: str | None = None) -> Job:
         """A write job: `work(ctx)` runs in a worker thread while holding the engine lock and keeping the Mac awake.
-        Raises Busy at once if another write job runs or the console holds the lock."""
+        `batch_kind`: for an AIFF batch job ("upgrade_batch", "aiff_batch", "batch_resume") the batch's kind, so the
+        snapshot of a reloaded window says whose batch runs. Raises Busy at once if another write job runs or the console holds the lock."""
         with self._mutex:
             if (busy := self._busy()) is not None:
                 raise busy
             if self.console_running():
                 raise Busy(CONSOLE_TEXT, "console")
-            job = self.current = self._new(kind, track_id)
+            job = self.current = self._new(kind, track_id, batch_kind)
             threading.Thread(target=self._run, args=(job, work, True), name=f"hub-job-{job.id}", daemon=True).start()
         return job
 

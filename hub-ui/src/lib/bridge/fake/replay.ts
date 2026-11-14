@@ -49,7 +49,8 @@ export class JobRecord {
   finished: any | null = null;
   running = true;
   stopping = false;
-  constructor(public id: number, public kind: string, public track_id: string | null, public started: string) {}
+  constructor(public id: number, public kind: string, public track_id: string | null, public started: string,
+    public batch_kind: JobSnap['batch_kind'] = null) {}
   record(e: HubEvent): void {
     this.last[e.type] = e;
     if (e.type === 'AccountUsage') this.usage[e.service] = e;
@@ -57,7 +58,7 @@ export class JobRecord {
     if (e.type === 'JobFinished') { this.finished = e; this.running = false; this.stopping = false; }
   }
   snapshot(): JobSnap {
-    return { id: this.id, kind: this.kind, track_id: this.track_id, started: this.started, running: this.running,
+    return { id: this.id, kind: this.kind, track_id: this.track_id, started: this.started, batch_kind: this.batch_kind, running: this.running,
       stopping: this.stopping, last: { ...this.last }, usage: Object.values(this.usage), results: [...this.results], finished: this.finished,
       actions: [...(this.last.RunStarted?.actions ?? [])] };
   }

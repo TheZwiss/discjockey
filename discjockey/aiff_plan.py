@@ -410,6 +410,32 @@ def read_plan(paths: Paths, state: dict, scope: Mapping, *, place: Place | None,
                 only=only)
 
 
+# the reasons whose one-file answer still says what the step would do, once the block is gone (rekordbox's library
+# can't be read, a Cloud Library Sync track, no free name): the card shows Becomes / Name / Space and why it waits
+BLOCKED = ("rekordbox_unreadable", "cloud", "rename_blocked")
+
+
+def _would_do(paths: Paths, state: dict, key: str, rb: Status, tags: Callable[[Path], audio.FileFacts],
+              reason: str, stored: FileAudio | None, ext: str) -> dict:
+    """What the step would do for a file `BLOCKED` stops: the plan again as a what-if with rekordbox taken out
+    (`none`, no lookup), so the action, kind, new name and room are those of a Convert or Rename that could run. No free
+    name is a Rename that has no name to take (`new_name` None). The same keys as an item's answer; all empty when the
+    what-if gives nothing either."""
+    answer = {"action": None, "kind": None, "to": None, "new_name": None, "bytes": 0}
+    if reason != "rename_blocked":
+        none = Status("none", rb.running, None, None, None, None, None)
+        again = plan(paths, state, {"kind": "tracks", "tracks": [key]}, rb=none, entries=None, tags=tags)
+        if again.items:
+            i = again.items[0]
+            return {"action": i.action, "kind": i.kind, "to": AIFF_LINE if i.action == "convert" else None,
+                    "new_name": PurePosixPath(i.new_path).name, "bytes": i.bytes}
+        if not again.skipped or again.skipped[0].reason != "rename_blocked":
+            return answer
+    if stored is not None:
+        answer.update(action="rename", kind=kind_of("rename", stored, ext))
+    return answer
+
+
 def file_answer(paths: Paths, state: dict, key: str, *, rb: Status,
                 tags: Callable[[Path], audio.FileFacts] = audio.file_facts) -> dict | None:
     """What Convert and Rename can do for one track, for its details (plan §4 `track().aiff`): the plan of `{"kind":
@@ -417,8 +443,12 @@ def file_answer(paths: Paths, state: dict, key: str, *, rb: Status,
     rekordbox's cached state `rb` (no read open of its library: a Cloud Library Sync track is found by the run).
     `{action: "convert" | "rename" | null, why_not: reason | null, kind, from, to, name_now, new_name, bytes, lossy,
     cdj}`: with an action, `kind` / `to` (`AIFF_LINE` for a Convert, null for a Rename) / `new_name` / `bytes` say what
-    it would do; without, `why_not` is the reason (`eligible.REASONS`), `from` / `lossy` / `cdj` still say what the
-    file is. None when there is nothing to say: no file there, a download or a better version waiting (`NO_ANSWER`)."""
+    it would do. `why_not` is set when the action is blocked: for `BLOCKED` (rekordbox's library can't be read, a
+    Cloud Library Sync track, no free name) the action and its `kind` / `to` / `new_name` / `bytes` are still the
+    step's own, judged as if rekordbox were not in the way (no free name: a Rename with `new_name` null); for any other
+    reason (`eligible.REASONS`) there is no action and `kind` / `to` / `new_name` are null, `bytes` 0. `from` / `lossy` /
+    `cdj` always say what the file is. None when there is nothing to say: no file there, a download or a better
+    version waiting (`NO_ANSWER`)."""
     found = plan(paths, state, {"kind": "tracks", "tracks": [key]}, rb=rb, entries=None, tags=tags)
     e = state["tracks"].get(key)
     if e is None:
@@ -434,7 +464,9 @@ def file_answer(paths: Paths, state: dict, key: str, *, rb: Status,
         return None
     stored = entry_audio(e)
     ext = PurePosixPath(e["path"]).suffix.lower()
-    return {"action": None, "why_not": reason, "kind": None,
-            "from": format_line(stored, ext) if stored else None, "to": None, "name_now": name_now,
-            "new_name": None, "bytes": 0, "lossy": not quality.is_lossless_codec(stored.codec) if stored else False,
+    would = _would_do(paths, state, key, rb, tags, reason, stored, ext) if reason in BLOCKED else \
+        {"action": None, "kind": None, "to": None, "new_name": None, "bytes": 0}
+    return {**would, "why_not": reason,
+            "from": format_line(stored, ext) if stored else None, "name_now": name_now,
+            "lossy": not quality.is_lossless_codec(stored.codec) if stored else False,
             "cdj": _cdj_dict(cdj.cdj_problem(stored, ext)) if stored else None}

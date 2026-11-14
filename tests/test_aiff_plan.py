@@ -563,6 +563,42 @@ def test_a_library_that_cannot_be_read_refuses_every_step_so_every_file_waits(li
         ("no_name", 1), ("rekordbox_unreadable", 7), ("upgrade_waits", 1)]
 
 
+def answer_of(paths, state, key, rb=READY):
+    return aiff_plan.file_answer(paths, state, key, rb=rb, tags=reader(state["tracks"]))
+
+
+def test_a_blocked_one_file_answer_still_says_what_the_step_would_do(lib, monkeypatch):
+    """`why_not` set means the action is blocked: for rekordbox's library that can't be read it is judged as if
+    rekordbox were not in the way, so the details can show Becomes, Name and Space and say why it waits."""
+    paths, state = lib
+    ok = answer_of(paths, state, "flac")
+    blocked = answer_of(paths, state, "flac", UNREADABLE)
+    assert (ok["action"], ok["why_not"]) == ("convert", None)
+    assert blocked["why_not"] == "rekordbox_unreadable"
+    assert {k: blocked[k] for k in ("action", "kind", "to", "new_name", "bytes")} == \
+        {k: ok[k] for k in ("action", "kind", "to", "new_name", "bytes")}
+    assert blocked["bytes"] > 0 and blocked["to"] == aiff_plan.AIFF_LINE and blocked["new_name"] == "Ann - Flac.aiff"
+    assert (blocked["from"], blocked["name_now"], blocked["lossy"]) == (ok["from"], ok["name_now"], ok["lossy"])
+    name = answer_of(paths, state, "name", UNREADABLE)           # a Rename: no room needed, no AIFF line
+    assert (name["action"], name["why_not"], name["kind"], name["to"], name["new_name"], name["bytes"]) == \
+        ("rename", "rekordbox_unreadable", "name", None, "Ann - Name.aiff", 0)
+    # no free name is a Rename that has no name to take
+    monkeypatch.setattr(aiff_plan.rename, "clean_path", lambda *a, **k: (_ for _ in ()).throw(FileExistsError("taken")))
+    none = answer_of(paths, state, "name")
+    assert (none["action"], none["why_not"], none["kind"], none["to"], none["new_name"], none["bytes"]) == \
+        ("rename", "rename_blocked", "name", None, None, 0)
+    assert none["name_now"] == "messy name.aiff" and none["from"].startswith("AIFF")
+
+
+def test_a_one_file_answer_blocked_for_any_other_reason_has_no_action(lib):
+    paths, state = lib
+    named = answer_of(paths, state, "clean", UNREADABLE)         # a clean AIFF at its clean name: nothing to do
+    assert (named["action"], named["why_not"], named["kind"], named["to"], named["new_name"], named["bytes"]) == \
+        (None, "named_already", None, None, None, 0)
+    (paths.root / state["tracks"]["flac"]["path"]).unlink()
+    assert answer_of(paths, state, "flac") is None               # no file: no answer at all
+
+
 def test_a_track_in_cloud_library_sync_is_skipped(lib):
     paths, state = lib
     plan = run(paths, state, picked("flac", "wav"), entries=lambda file: [row(cloud=True)] if file.name == "a.flac" else [])

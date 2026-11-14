@@ -2081,8 +2081,9 @@ class HubApi:
             work = self._batch_work(lambda: batches.start(
                 self._paths, [(t, "same_track") for t in ids], started_by="user", now=self._svc.now), None,
                 alone=len(ids) == 1)
-            return {"job_id": self._jobs.start("upgrade_batch", work, track_id=track).id}
-        return {"job_id": self._jobs.start(f"upgrade_{mode}", self._each_work(ids, mode), track_id=track).id}
+            return {"job_id": self._jobs.start("upgrade_batch", work, track_id=track, batch_kind="upgrade").id}
+        return {"job_id": self._jobs.start(f"upgrade_{mode}", self._each_work(ids, mode), track_id=track,
+                                           batch_kind="upgrade").id}
 
     @bridge
     def upgrade_all(self) -> dict:
@@ -2096,7 +2097,7 @@ class HubApi:
         work = self._batch_work(lambda: batches.start(
             self._paths, [(t, "same_track") for t in ids], started_by="upgrade_all", now=self._svc.now), None,
             alone=False)
-        return {"job_id": self._jobs.start("upgrade_batch", work).id}
+        return {"job_id": self._jobs.start("upgrade_batch", work, batch_kind="upgrade").id}
 
     def _selection_job(self, kind_only: str | None, track_ids: list[str], origin: str):
         """Convert and Give it its clean name on songs: one AIFF batch (job kind "aiff_batch", result a BatchResult;
@@ -2107,7 +2108,8 @@ class HubApi:
         scope = self._aiff_scope({"kind": "tracks", "tracks": track_ids})
         work = self._aiff_work(scope, only=kind_only, started_by="user", batch_scope=f"{origin}:selection")
         return {"job_id": self._jobs.start("aiff_batch", work,
-                                           track_id=scope["tracks"][0] if len(scope["tracks"]) == 1 else None).id}
+                                           track_id=scope["tracks"][0] if len(scope["tracks"]) == 1 else None,
+                                           batch_kind="convert").id}
 
     @bridge
     def convert(self, track_ids: list[str], origin: str = "library") -> dict:
@@ -2135,7 +2137,7 @@ class HubApi:
         else:
             where = ":".join(p for p in (found["view"], found["key"]) if p)
             work = self._aiff_work(found, only=None, started_by="make_aiff", batch_scope=f"library:{where}")
-        return {"job_id": self._jobs.start("aiff_batch", work).id}
+        return {"job_id": self._jobs.start("aiff_batch", work, batch_kind="convert").id}
 
     def _stopped_aiff(self, batch_id: object):
         if isinstance(batch_id, bool) or not isinstance(batch_id, int):
@@ -2149,10 +2151,12 @@ class HubApi:
     @bridge
     def batch_resume(self, batch_id: int) -> dict:
         """Carries on a stopped Same track batch (its planned tracks, their eligibility asked again): a write job (kind
-        "batch_resume"); the result is a BatchResult."""
-        if self._stopped_aiff(batch_id).state != "stopped":
+        "batch_resume"); the result is a BatchResult. The job snapshot's `batch_kind` is the stopped batch's own kind."""
+        row = self._stopped_aiff(batch_id)
+        if row.state != "stopped":
             raise ValueError(NOT_STOPPED)
-        return {"job_id": self._jobs.start("batch_resume", self._batch_work(None, batch_id, alone=False)).id}
+        return {"job_id": self._jobs.start("batch_resume", self._batch_work(None, batch_id, alone=False),
+                                           batch_kind=row.kind).id}
 
     @bridge
     def batch_undo(self, batch_id: int) -> dict:

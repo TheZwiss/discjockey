@@ -2,7 +2,7 @@
 import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
-  BatchResult, Candidate, ChangePreview, Fail, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
+  BatchResult, Candidate, ChangePreview, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
   AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
@@ -68,7 +68,7 @@ export type FakeContext = {
   speed: number;
   emit(e: HubEvent): void;
   /** starts a write job; `body` calls `finish` when done */
-  startJob(kind: string, track_id: string | null, body: (finish: Finish) => void): JobStart;
+  startJob(kind: string, track_id: string | null, body: (finish: Finish) => void, batch_kind?: JobSnap['batch_kind']): JobStart;
   /** refusal for network reads (sync running, offline), else null */
   networkBlock(): Fail | null;
   fail(kind: ProblemKind, message: string, service?: PlaylistService): Fail;
@@ -192,11 +192,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     return { path: full, ...known, message: known.message ?? (known.problem ? FOLDER_PROBLEMS[known.problem] : null) };
   }
 
-  function startJob(kind: string, track_id: string | null, body: (finish: Finish) => void): JobStart {
+  function startJob(kind: string, track_id: string | null, body: (finish: Finish) => void, batch_kind: JobSnap['batch_kind'] = null): JobStart {
     if (s.console_running) return fail('console', MSG.console);
     if (job?.running) return fail('busy', job.kind === 'import' ? IMPORTING_BUSY : MSG.busy);
     const id = nextId++;
-    job = new JobRecord(id, kind, track_id, isoLocal(new Date()));
+    job = new JobRecord(id, kind, track_id, isoLocal(new Date()), batch_kind);
     const me = job;
     let finished = false;
     const finish: Finish = (good, res = null, problem = null, message = '', service = null) => {
@@ -450,7 +450,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         }, (s.batchStep ?? 700) / speed);
       };
       setTimeout(next, 200 / speed);
-    });
+    }, resuming ? b.kind : plan ? 'convert' : 'upgrade');   // as the engine's snapshot: a resumed batch keeps its own kind
   }
   /** `convert`, `rename` and `make_aiff` after the plan: a batch of its items, or a refusal that still carries the songs
    *  it left out (a job that ends `refused` with `batch` null). `only` "rename": Rename's answer alone. */
@@ -467,7 +467,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     if (!plan.items.length) {
       const words = nothing ?? (left.length === 1 ? left[0].message! : NONE_CHANGEABLE);
       return startJob('aiff_batch', track_id, (finish) => setTimeout(() => finish(false, batchBody(null, 'done', null, [], left),
-        'refused', words), 200 / speed));
+        'refused', words), 200 / speed), 'convert');
     }
     return runAiff(started_by, [], null, { actions: plan.items.map((i) => [i.track, i.action]), scope: batchScope, left,
       quick: alone, track_id });
@@ -1303,7 +1303,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           setTimeout(next, 500 / speed);
         };
         setTimeout(next, 300 / speed);
-      });
+      }, 'upgrade');
     },
     async upgrade_all() {
       const ids = s.tracks.filter((t) => t.in_playlists && !t.hidden && t.upgrade && sameTrackReason(t) === null).map((t) => t.track_id);

@@ -288,6 +288,20 @@ def test_a_stopped_convert_batch_offers_resume_where_it_started_and_nowhere_else
     assert (r["state"], r["done"]) == ("done", 2)
 
 
+def test_a_job_snapshot_carries_its_batch_kind_so_a_reload_tells_whose_batch_runs(hub):
+    lib, box, api, rec = hub(["mp3", "mp3"], running=True)
+    snap = lambda: api.job_status()["job"]
+    f = wait_job(api, rec, api.convert([lib.tracks[0], lib.tracks[1]], "todo"))
+    assert f.problem == "rekordbox_open" and snap()["batch_kind"] == "convert"
+    box.running = False
+    f = wait_job(api, rec, api.batch_resume(f.result["batch"]))
+    assert f.ok and snap()["kind"] == "batch_resume" and snap()["batch_kind"] == "convert"   # not Same track's
+    assert wait_job(api, rec, api.make_aiff({"kind": "lossless", "view": "all"})).problem == "refused"
+    assert snap()["kind"] == "aiff_batch" and snap()["batch_kind"] == "convert"
+    assert wait_job(api, rec, api.rescan_library()).ok         # a job that is no batch has none
+    assert snap()["batch_kind"] is None
+
+
 def test_a_stopped_cdj_batch_is_the_groups_resume_and_not_upgrade_readys(tmp_path, monkeypatch):
     lib = make_lib(tmp_path, monkeypatch, ["mp3", "mp3"])      # downloads with a parked upgrade: Upgrade ready
     box = Box(lib, True)
