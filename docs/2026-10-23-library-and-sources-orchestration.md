@@ -474,6 +474,21 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
+  - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
+    A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
+    not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
+    `cli-inventory/`, script `cli_inventory.py`: 95 bridge methods, 98 client calls, 447 screen states); 1 audit, 3
+    Sonnet agents IN PARALLEL (user's one-off allowance for read-only audits; brief `brief-39-audit.md`) → files
+    `docs/2026-11-14-cli-audit-{library,todo,app}.md` (uncommitted until all three are done; then check coverage of all
+    95 methods by script, check_public, commit); 2 CLI design from first principles (Opus ~250k: agent needs, `gh`/
+    `kubectl`/git plumbing patterns, keep/change/drop every existing convention with a reason, app-open behaviour,
+    sandbox flag, jobs for long runs, `status`/`commands`/`where`, one exit-code table, parity + pinning tests); 3
+    adversarial design review (fresh Opus ~150k, walks the A–D live tests on paper with only the design + draft agent
+    docs); 4 design fixes (Sonnet if stated, Opus if new decisions); 5 build plan (Opus ~200k, groups <250k, existing
+    commands moved onto the new design); 6+ build (Sonnet), reviews (write groups own review + rehearsal on a copy,
+    Opus stage review), fresh-agent test with only AGENTS.md on a copy library, V, merge. No release. Est. ~5M total.
+    Morning summary for the user: the CLI for an agent, what changed vs today's commands and why, what review found.
+    Technical choices are mine (don't ask the user to review the design).
   - **NOW (2026-11-14 evening, user active):** STAGE D MERGED into main a72530d1 (issue 33 stages A–D all on main, none
     released). No agent running, no worktrees, nothing in the background. First after a compact: check CI on main once
     (`gh run list --branch main --limit 2`; the merge run was cancelled by the next push, the docs push run covers it).
