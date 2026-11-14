@@ -486,7 +486,7 @@ Results:
     Important/Minor + stated fix where possible; walks the A-D live tests and the goal questions on paper). Step 4:
     fixes (Sonnet if all fixes stated, Opus if new decisions). Step 5: Opus build plan `docs/2026-11-15-agent-cli-
     plan.md` (Sonnet groups, material-measured, <250k each, write-side groups get own review + rehearsal on a copy).
-    Hourly heartbeat (session cron, :17): `wc -l` of the running step's file only; stalled → message the agent.
+    No heartbeat (user: "no hourly check"): agents' completion notices drive the chain.
     Morning summary for the user (short): the CLI for an agent, what changed vs today and why, review findings, plan
     size. Gates G1-G5 below apply.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
