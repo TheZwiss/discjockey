@@ -20,7 +20,7 @@
   import { Panel } from '$lib/frames';
   import BatchCheckFoot from './BatchCheckFoot.svelte';
   import {
-    batchCheckCard, checkRow, checksTitle, focusAfterRowGone, isAutoBatch, localDay, sinceText, tracksSummary, type CheckRow,
+    batchCheckCard, batchListTitle, checkRow, checksTitle, focusAfterRowGone, isAutoBatch, localDay, sinceText, tracksSummary, type CheckRow,
   } from './decisionModel';
   import { refocus } from './focus';
   import type { ChecksFlow } from './flows.svelte';
@@ -101,7 +101,7 @@
 
 {#snippet list(grow: boolean)}
   <!-- the row grid: cover · name over its lines · the undo slot, kept on every row so the names end at one x -->
-  <Surface kind="list" label={batch ? 'Upgraded' : checksTitle(selected)} summary={batch ? String(tracks.length) : tracksSummary(tracks.length)}
+  <Surface kind="list" label={batch ? batchListTitle(tracks) : checksTitle(selected)} summary={batch ? String(tracks.length) : tracksSummary(tracks.length)}
     hint={batch && day ? (day === 'today' ? 'today' : `on ${day}`) : undefined}
     style="--row-cols: 28px minmax(0, 1fr) var(--h-ctl-sm)" grow={grow ? { rows: rows.length, tall: true } : undefined}
     data-test={batch ? 'batch-tracks' : 'check-selection-rows'}>

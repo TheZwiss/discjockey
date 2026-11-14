@@ -20,6 +20,7 @@ export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'same_song'
 /** Short, so the strip holds five and More on one line at 1100 (the section heads carry the full names). */
 const FILTER_LABEL: Record<TodoFilter, string> = {
   all: 'All', rekordbox_check: 'rekordbox', same_song: 'Same song?', duplicate: 'Duplicates', upgrade_ready: 'Upgrades',
+  // the strip's short form of "Won't play well on CDJs" (plan §3): short as its neighbours, and the acronym is how a DJ says it
   cdj: 'CDJs', not_found: 'Not found', weak: 'Weak', good_lossy: 'Good lossy', fake: 'Fake lossless', other: 'Other',
 };
 const FILTER_DOT: Partial<Record<TodoFilter, Quality>> = {
@@ -53,16 +54,19 @@ export function filterFrom(query: string | null, saved: string): TodoFilter {
  *  - the questions (Same song, Duplicates) are about the user's own files, often lossless ones.
  *  - the checks are tracks just upgraded and lossless: `check_tracks`, because `chips.rekordbox_check` counts items
  *    and a batch of checks is one item there.
+ *  - the CDJ group's files (`chips.cdj`) are named last: they can be lossless, so they are no part of "not lossless yet".
  *  Nothing left in any of them: "Nothing to do". */
 export function headerSub(t: { chips: Record<TodoFilter, number>; check_tracks: number }): string[] {
   const { chips } = t;
   const questions = chips.same_song + chips.duplicate;
   const tracks = chips.upgrade_ready + chips.not_found + chips.weak + chips.good_lossy + chips.fake + chips.other;
   const checks = t.check_tracks;
+  const cdj = chips.cdj ?? 0;
   const parts = [
     tracks ? (tracks === 1 ? '1 track is not lossless yet' : `${tracks} tracks are not lossless yet`) : null,
     questions ? `${questions} ${questions === 1 ? 'question' : 'questions'} about your files` : null,
     checks ? `${checks} ${checks === 1 ? 'track' : 'tracks'} to check in rekordbox` : null,
+    cdj ? `${cdj} ${cdj === 1 ? 'file' : 'files'} won't play well on CDJs` : null,
   ].filter((p): p is string => p !== null);
   return parts.length ? parts : ['Nothing to do'];
 }
@@ -118,10 +122,14 @@ export function keepSelection(key: string | null, before: TodoItem[], after: Tod
 }
 
 // ---------- multi-select (issue 33 stage B §6.1) ----------
-/** The groups whose items can be selected several at once (their actions run on a selection): Upgrade ready and
- *  Check in rekordbox (a batch item among single checks: Done and Undo for all their tracks, stage B §6.4); the
- *  other groups' actions are one track's. */
-export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready', 'rekordbox_check'];
+/** The groups whose items can be selected several at once (their actions run on a selection): Upgrade ready,
+ *  Check in rekordbox (a batch item among single checks: Done and Undo for all their tracks, stage B §6.4) and the CDJ
+ *  group (Convert for several, stage D §6.3); the other groups' actions are one track's. */
+export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready', 'rekordbox_check', 'cdj'];
+/** Two or more items selected, all of the CDJ group: the AIFF batch panel for them. */
+export function multiCdj(selected: TodoItem[]): boolean {
+  return selected.length > 1 && selected.every((i) => i.group === 'cdj');
+}
 /** Two or more items selected, all checks: the checks' selection panel (BatchCheckCards). */
 export function multiChecks(selected: TodoItem[]): boolean {
   return selected.length > 1 && selected.every((i) => i.group === 'rekordbox_check');
@@ -156,6 +164,11 @@ export function upgradeGroup(t: Todo | null): Todo['groups'][number] | null {
   return t?.groups.find((g) => g.key === 'upgrade_ready') ?? null;
 }
 
+/** The CDJ group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
+export function cdjGroup(t: Todo | null): Todo['groups'][number] | null {
+  return t?.groups.find((g) => g.key === 'cdj') ?? null;
+}
+
 /** "Upgrade all · n": the group's items that Upgrade all can reach. A hidden item is left out (the hub's `upgrade_all`
  *  leaves it out, and the head's n doesn't count it), also with Show hidden on. */
 export function upgradeAllKeys(group: { items: TodoItem[] } | null): string[] {
@@ -168,6 +181,10 @@ export function wholeUpgradeGroup(group: { items: TodoItem[] } | null, selected:
   const picked = new Set(selected.map(itemKey));
   return keys.length > 0 && keys.every((k) => picked.has(k)) && selected.every((i) => !i.hidden);
 }
+/** "Convert all · n": the CDJ group's items Convert all can reach, as `upgradeAllKeys` (`make_aiff` leaves a hidden one
+ *  out); and whether the selection is the whole group (the panel then runs `{kind: "cdj"}`, else the list of tracks). */
+export const cdjAllKeys = upgradeAllKeys;
+export const wholeCdjGroup = wholeUpgradeGroup;
 /** A batch's panel stays until the next pick of the user's own: while it is pinned, a re-fetch keeps only the rows
  *  still in the list selected (the batch's tracks leave it one by one) and never moves the pick to a neighbour, which
  *  could be the new check row of the batch just done. */
@@ -386,7 +403,7 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
     noneOfThese: !missing,
     buy: getBetter,
     dropZone: getBetter,
-    hide: track.hidden ? 'unhide' : check ? null : improvable || group === 'other' ? 'hide' : null,
+    hide: track.hidden ? 'unhide' : check ? null : improvable || group === 'other' || group === 'cdj' ? 'hide' : null,
     upgrade,
     showInFinder: finder,
     rekordboxDone: check,

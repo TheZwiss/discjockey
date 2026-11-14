@@ -13,9 +13,10 @@ import { aiffProblem } from './aiffModel';
 import { scopeKey } from './aiffBatchModel';
 import { confirm } from '$lib/components/confirm';
 import { toasts } from '$lib/stores/toasts';
-import { problemCopy } from '$lib/copy';
+import { problemCopy, successCopy } from '$lib/copy';
 import {
-  batchEnd, canTryAgain, discardConfirm, endRows, groupIdOf, progressRows, runRow, undoManyConfirm, undoProblem, undoneToast, type BatchEnd,
+  batchEnd, canTryAgain, discardConfirm, endRows, groupIdOf, isOwnCheck, progressRows, runRow, undoAsk, undoManyConfirm, undoProblem, undoneToast,
+  type BatchEnd,
   type BatchMode, type DuplicatePick, type RunRow, type UndoProblem, type UpgradeWays, type Way,
 } from './decisionModel';
 
@@ -69,17 +70,14 @@ export class UpgradeFlow {
   /** "Undo the replace": asks first; a refusal (a file changed since, the step already done) shows as runJob's toast
    *  and stays under the button. */
   async undo(track_id: string, check: RekordboxCheckView | undefined): Promise<void> {
-    const swapped = check?.reason === 'swapped';
-    if (!(await confirm({ title: 'Undo the replace?',
-      body: swapped ? 'Your old audio goes back in the file. The new version waits in Upgrades ready again.'
-        : 'Your old file goes back where it was. The new version waits in Upgrades ready again.',
-      confirmLabel: 'Undo the replace' }))) return;
+    if (!(await confirm(undoAsk([check])))) return;
     this.busy = 'undo';
     this.undoProblem = null;
     this.#onact?.();
-    const r = await runJob(api.undo_upgrade([track_id]));
+    const r = await runJob<UndoResult>(api.undo_upgrade([track_id]), { success: false });
     this.busy = null;
     if (!r.ok) this.undoProblem = r.message;
+    else toasts.show({ tone: 'success', title: r.result?.words || successCopy('undo_upgrade') || 'Undone.' });
   }
 }
 
@@ -219,10 +217,11 @@ export class ChecksFlow {
     await runJob(api.rekordbox_checked(track_ids));
     this.busy = null;
   }
-  /** "Undo all {n}" / "Undo {n}" (asks first), or a row's "Undo this one" (`one`: asks the single card's question). */
-  async undo(track_ids: string[], one?: RekordboxCheckView): Promise<void> {
+  /** "Undo all {n}" / "Undo {n}" (asks first), or a row's "Undo this one" (`one`: asks the single card's question).
+   *  `checks`: the tracks' checks, so a Convert or a clean name asks in its own words. The toast is the engine's `words`. */
+  async undo(track_ids: string[], one?: RekordboxCheckView, checks?: (RekordboxCheckView | undefined)[]): Promise<void> {
     if (!track_ids.length || this.busy) return;
-    const ask = one ? undoOneConfirm(one) : undoManyConfirm(track_ids.length);
+    const ask = one ? undoAsk([one]) : checks?.some(isOwnCheck) ? undoAsk(checks) : undoManyConfirm(track_ids.length);
     if (!(await confirm(ask))) return;
     this.busy = one ? `undo:${track_ids[0]}` : 'undo';
     this.problem = null;
@@ -231,16 +230,9 @@ export class ChecksFlow {
     this.busy = null;
     this.problem = undoProblem(out);
     const n = out.result?.undone ?? 0;
-    if (n) toasts.show({ tone: 'success', title: undoneToast(n) });
+    if (n) toasts.show({ tone: 'success', title: out.result?.words || undoneToast(n) });
   }
 }
-/** The single card's undo question for one row of a batch card (UpgradeFlow.undo asks the same). */
-function undoOneConfirm(c: RekordboxCheckView) {
-  return { title: 'Undo the replace?', confirmLabel: 'Undo the replace',
-    body: c.reason === 'swapped' ? 'Your old audio goes back in the file. The new version waits in Upgrades ready again.'
-      : 'Your old file goes back where it was. The new version waits in Upgrades ready again.' };
-}
-
 /** The jobs the window's AIFF batch flow runs (its `batch_resume` too, a kind it shares with Same track), so the
  *  upgrade batch flow never takes one of them for its own when a page asks it to follow the hub's job. */
 const aiffJobs = new Set<number>();

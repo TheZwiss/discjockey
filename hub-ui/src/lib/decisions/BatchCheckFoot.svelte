@@ -25,7 +25,7 @@
 {#if undo.ids.length}
   <WriteButton wide busy={flow.busy === 'undo' || !!flow.busy?.startsWith('undo:')} busyLabel={flow.busy?.startsWith('undo:') ? 'Undoing' : undefined}
     disabled={!!flow.busy && !flow.busy.startsWith('undo')}
-    onclick={() => flow.undo(undo.ids)} title="Puts your old files back; the new versions wait again"
+    onclick={() => flow.undo(undo.ids, undefined, tracks.filter((t) => undo.ids.includes(t.track_id)).map((t) => t.check))} title="Puts your old files back; the new versions wait again"
     data-test="checks-undo">
     <svg class="undo" viewBox="0 0 14 14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5"
       stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 3L2 5.5 4.5 8" /><path d="M2.3 5.5h6.2a3.2 3.2 0 010 6.4H6" /></svg>
