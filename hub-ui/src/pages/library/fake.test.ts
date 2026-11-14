@@ -50,7 +50,7 @@ describe('the Library fake scenarios', () => {
   });
 
   it('blocked: rekordbox unreadable gives why_not rekordbox_unreadable; rekordbox open keeps the plan and says it runs', async () => {
-    expect((await detail(bridge('aiff-blocked'), 'own:1')).aiff).toMatchObject({ action: null, why_not: 'rekordbox_unreadable' });
+    expect((await detail(bridge('aiff-blocked'), 'own:1')).aiff).toMatchObject({ action: 'convert', why_not: 'rekordbox_unreadable', to: 'AIFF · 16-bit · 44.1 kHz' });   // blocked, still the step's own answer
     const open = bridge('aiff-rename-blocked');
     expect((await detail(open, 'own:7')).aiff).toMatchObject({ action: 'rename' });
     expect((await plan(open)).rekordbox).toMatchObject({ state: 'ready', running: true, needs_closed: true });
