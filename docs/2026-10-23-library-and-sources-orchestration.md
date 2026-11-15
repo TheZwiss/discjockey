@@ -517,6 +517,14 @@ Results:
     (21-31M; 8 phases, 62 groups; phase 1 = 15 groups 5.3M, 5.6M with the A-D live tests); cost notes C-1..C-7 (~5.5M
     of possible cuts). Issue 39 design work ~3.79M. **NIGHT RUN DONE, STOPPED: waiting for the user's go** on the
     budget/phase 1 and the cost notes; also tell: Qobuz pause from a sync now also holds for "Use this" (4a).
+    2026-11-15 morning: user questioned 24M ("isn't the engine already GUI-independent?"). Found: no rule ever kept
+    logic out of the window (CLAUDE.md:177 allows UI logic in *Model.ts), so ~115 facts/decisions/state drifted
+    into it; phase 6 restores "engine = single source of truth" and stays. My "3M lean plan" was an unmeasured guess
+    that broke that goal (user angry; memory feedback_cuts_checked_against_goals). User go: second plan v2 that
+    keeps every goal and cuts only overhead (self-contained brief per group, generic `call` over headless HubApi,
+    merged groups) + an extras table with prices the user ticks. Opus, brief-39-plan2.md → docs/2026-11-15-agent-cli-
+    plan-v2.md. NEXT after a compact: dispatch it (measure material first: design 37k + plan parts ~12k + CLAUDE ~3k +
+    greps ~25k), then show the user v2 vs v1. Nothing built.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
