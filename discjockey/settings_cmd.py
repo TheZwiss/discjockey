@@ -3,9 +3,9 @@ stage C §2). Today only `auto-upgrade [on|off]`: without a value it prints the 
 it takes the library lock as every settings write does, saves and prints the new value.
 
 Exit codes: 0 done (or read), 1 the settings file can't be read (the message names the problem), 2 no music folder
-chosen yet or its drive isn't there, 3 busy (another run holds the library lock; nothing was changed). `--json` prints
-one object: `{"ok": true, "auto_upgrade": bool}`, or `{"ok": false, "kind", "message"}` for a problem. The settings are
-the same file the window writes (`settings.json` in the support folder), so the window shows the value at once.
+chosen yet or its drive isn't there, 3 busy (another run holds the library lock, or another process is saving its
+own settings for over 2 seconds; nothing was changed). `--json` prints one object: `{"ok": true, "auto_upgrade":
+bool}`, or `{"ok": false, "kind", "message"}` for a problem. The settings are the same file the window writes (`settings.json` in the support folder), so the window shows the value at once.
 """
 from __future__ import annotations
 
@@ -59,6 +59,8 @@ def run_auto_upgrade(args: argparse.Namespace) -> int:
         return failed(args, str(e), "refused", "no_library", code=NO_LIBRARY)
     except LockHeld:
         return failed(args, LOCK_HELD, "busy", code=BUSY)
+    except library.SupportBusy as e:  # another process is saving its own settings for over 2 seconds
+        return failed(args, str(e), "busy", "support_lock", code=BUSY)
 
 
 def run(args: argparse.Namespace) -> int:

@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -15,10 +16,11 @@ import pytest
 
 from batch_helpers import make_lib, needs_ffmpeg
 from hub_helpers import make_api, make_unbound_api, services, wait_job
-from discjockey import library, rekordbox, tool_updates
+from discjockey import aiff_plan, library, rekordbox, tool_updates
 from discjockey.hub import catalog, registry
 from discjockey.rekordbox import lock as rb_lock
 from discjockey.settings import Settings, load_settings, save_settings, update_settings
+from tools_helpers import FakePyPI, write_site
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -168,16 +170,138 @@ def test_every_write_site_of_the_support_folder_holds_the_support_lock(support, 
     assert tool_updates.library is library  # update / rollback take it through the same function
 
 
-# --- tools: a support-only job ---
+def test_spotify_sign_out_holds_the_support_lock(support, monkeypatch):
+    taken = []
+    real = library.support_lock
+    monkeypatch.setattr(library, "support_lock", lambda folder: taken.append(Path(folder)) or real(folder))
+    api, rec = make_unbound_api(support)
+    (support / ".spotify_token.json").write_text("{}")
+    (support / ".spotify_app.json").write_text(json.dumps({"client_id": "0" * 32, "user": "me"}))
+    assert wait_job(api, rec, api.spotify_sign_out()).ok
+    assert taken == [support] * 2  # the token's removal and the login's name in .spotify_app.json
+    assert not (support / ".spotify_token.json").exists()
+    assert json.loads((support / ".spotify_app.json").read_text()) == {"client_id": "0" * 32}
 
-def test_tools_update_takes_the_support_lock_for_its_whole_run(procs, support, monkeypatch):
+
+# Every line that writes a file with save_file / save_settings / os.replace / write_json_atomic, counted per source
+# file. A new write site fails here and names its file: give it the support lock (or say why it needs none) and add it.
+WRITE_SITES = {
+    "app_update.py": (1, "app_update.json: one owner, one whole-file atomic write"),
+    "candidates.py": (2, "the cache folder's own files: one owner, whole-file atomic writes"),
+    "db.py": (4, "library.db's own files and backups: the library lock, not the support folder"),
+    "hub/api.py": (1, "_save_spotify_app: inside support_lock"),
+    "hub/media.py": (1, "the media cache: one owner, whole-file atomic write"),
+    "hub/registry.py": (6, "the job registry's files: one owner per job, whole-file atomic writes"),
+    "hub/window_port.py": (1, "window.json: one owner (the window), whole-file atomic write"),
+    "library.py": (4, "write_json_atomic itself, the library's state file (library lock), write_music_folder "
+                      "(takes the support lock inside)"),
+    "pending_signs.py": (1, "the music folder's sign file: library lock"),
+    "playlists_file.py": (1, "a playlist file in the music folder: library lock"),
+    "qobuz.py": (3, "config.toml: _write_config and _save_login run inside support_lock, _save_secrets takes it"),
+    "rekordbox/backup.py": (1, "a backup copy of master.db: under rekordbox's writer lock"),
+    "rekordbox/write.py": (1, "master.db's own write: under rekordbox's writer lock"),
+    "settings.py": (3, "save_settings itself, and update_settings: the support lock around read-change-write"),
+    "setup_cmd.py": (1, ".spotify_app.json: inside support_lock"),
+    "sources/spotify.py": (1, "the Spotify token: _save_token takes the support lock"),
+    "tool_updates.py": (1, "_point_current: only called from update / rollback, under the support lock"),
+}
+
+
+def test_every_file_write_in_the_source_is_a_listed_site():
+    import re
+    pattern = re.compile(r"save_file\(|save_settings\(|os\.replace\(|write_json_atomic\(")
+    root = REPO / "discjockey"
+    found = {}
+    for path in sorted(root.rglob("*.py")):
+        count = sum(1 for line in path.read_text(encoding="utf-8").splitlines() if pattern.search(line))
+        if count:
+            found[path.relative_to(root).as_posix()] = count
+    unlisted = {f: n for f, n in found.items() if f not in WRITE_SITES}
+    changed = {f: (n, WRITE_SITES[f][0]) for f, n in found.items() if f in WRITE_SITES and WRITE_SITES[f][0] != n}
+    gone = [f for f in WRITE_SITES if f not in found]
+    assert not unlisted, f"a file write not in WRITE_SITES (does it hold the support lock?): {unlisted}"
+    assert not changed, f"a file's number of writes changed (found, listed): {changed}"
+    assert not gone, f"listed but has no write any more: {gone}"
+
+
+def test_a_qobuz_login_takes_the_support_lock_and_keeps_what_another_process_saved(procs, support, monkeypatch):
+    from discjockey import qobuz
+    paths = library.SupportPaths(support=support)
+    cfg_path = qobuz.write_config(paths)
+
+    class Client:
+        def __init__(self, cfg):
+            self.config = cfg
+
+        async def login(self):  # the seconds of the network: another process saves a new login meanwhile
+            other = qobuz._load_config(cfg_path)
+            other.file.qobuz.email_or_userid = "new@example.com"
+            other.file.set_modified()
+            other.save_file()
+            self.config.file.qobuz.app_id = "12345"
+            self.config.file.qobuz.secrets = ["s1"]
+
+    monkeypatch.setattr(qobuz, "QobuzClient", Client)
+    source = qobuz.QobuzSource.open(paths)
+    source.runner.close()
+    fresh = qobuz._load_config(cfg_path).file.qobuz
+    assert fresh.email_or_userid == "new@example.com"  # not overwritten by the old cfg
+    assert (fresh.app_id, list(fresh.secrets)) == ("12345", ["s1"])  # what the login fetched is saved
+
     monkeypatch.setattr(library, "SUPPORT_WAIT_S", 0.3)
     holder = procs.holder(support, "support")
-    for call in (lambda: tool_updates.update(support, fetch=lambda url: b"", run=lambda *a, **k: None),
-                 lambda: tool_updates.rollback(support)):
-        with pytest.raises(library.SupportBusy):
-            call()
+    with pytest.raises(library.SupportBusy):
+        qobuz.QobuzSource.open(paths)
     procs.release(holder)
+
+
+# --- tools: a support-only job ---
+
+def _tools_env(tmp_path, support):
+    site = write_site(tmp_path / "site", yt="2026.10.21")
+    return (site / "yt_dlp").resolve()
+
+
+def test_tools_update_and_rollback_wait_for_the_support_lock_where_tools_changes(procs, tmp_path, support, monkeypatch):
+    monkeypatch.setattr(library, "SUPPORT_WAIT_S", 0.3)
+    builtin = _tools_env(tmp_path, support)
+    holder = procs.holder(support, "support")
+    pypi = FakePyPI("2026.10.28", "0.8.1")
+    with pytest.raises(library.SupportBusy):  # the download is done, then the change of tools/ meets the lock
+        tool_updates.update(support, fetch=pypi, run=lambda *a, **k: None, running=builtin, builtin=builtin)
+    assert any(url.endswith(".whl") for url in pypi.requested)
+    assert not (support / "tools").exists() or not any((support / "tools").iterdir())  # nothing was changed
+    with pytest.raises(library.SupportBusy):
+        tool_updates.rollback(support, running=builtin, builtin=builtin)
+    procs.release(holder)
+
+
+def test_a_settings_save_succeeds_while_a_tools_update_is_downloading(tmp_path, support):
+    builtin = _tools_env(tmp_path, support)
+    pypi = FakePyPI("2026.10.28", "0.8.1")
+    downloading, go = threading.Event(), threading.Event()
+
+    def slow(url):
+        if url.endswith(".whl"):
+            downloading.set()
+            assert go.wait(10)  # the download takes as long as the test wants
+        return pypi(url)
+
+    from tools_helpers import CheckRun
+    done = []
+    t = threading.Thread(target=lambda: done.append(tool_updates.update(support, fetch=slow, run=CheckRun(),
+                                                                         running=builtin, builtin=builtin)))
+    t.start()
+    try:
+        assert downloading.wait(10)
+        started = time.monotonic()
+        update_settings(support / "settings.json", lambda s: replace(s, daily_qobuz_limit=7))  # no SupportBusy
+        assert time.monotonic() - started < 1.5
+        assert load_settings(support / "settings.json").daily_qobuz_limit == 7
+    finally:
+        go.set()
+        t.join(30)
+    assert done and done[0][1] == {"yt-dlp": "2026.10.28"}
 
 
 def _running_job(support: Path, method: str, status: str = "running") -> registry.JobFiles:
@@ -210,7 +334,6 @@ def test_tools_update_is_busy_while_a_registry_write_job_runs_and_takes_no_libra
     finished = wait_job(api, rec, answer)
     assert finished.problem == "failed"  # no network in tests: it got as far as asking
     assert taken == []  # a support-only job never takes the library lock
-    assert (support / ".support.lock").exists()
 
 
 def test_a_running_job_that_holds_no_library_lock_does_not_stop_tools_update(support, tmp_path):
@@ -316,6 +439,39 @@ def test_todo_and_track_never_open_master_db_while_a_writer_holds_rekordbox_lock
     assert api.todo()["ok"] and api.track(lib.tracks[0])["track"]["upgrade"] is not None
     assert api.rekordbox_status()["writing"] is True and opened == []
     procs.release(holder)
+
+
+@needs_ffmpeg
+def test_a_writer_can_start_while_a_plan_read_is_past_its_lookups(tmp_path, monkeypatch):
+    """The shared hold lasts while master.db is open (the lookups), not through the plan's tag reads."""
+    from discjockey.library import load_state
+    lib = make_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
+    api, _ = make_api(lib.paths, rekordbox_running=lambda: False, rekordbox_place=lambda: lib.place)
+    state = load_state(lib.paths)
+    real, in_plan, go, seen = aiff_plan.plan, threading.Event(), threading.Event(), {}
+
+    def slow_plan(*args, **kw):
+        seen["entries"] = kw["entries"]
+        in_plan.set()  # master.db is closed by now
+        assert go.wait(10)
+        return real(*args, **kw)
+
+    monkeypatch.setattr(aiff_plan, "plan", slow_plan)
+    out = []
+    t = threading.Thread(target=lambda: out.append(api._planned_read(state, {"kind": "tracks", "tracks": lib.tracks})))
+    t.start()
+    try:
+        assert in_plan.wait(30)
+        started = time.monotonic()
+        with rb_lock.writer_lock(lib.paths.support):  # no Busy: the plan holds nothing any more
+            pass
+        assert time.monotonic() - started < 1.0
+    finally:
+        go.set()
+        t.join(30)
+    plan, blind = out[0]
+    assert blind is False and len(plan.items) + len(plan.skipped) == 2
+    assert all(seen["entries"](lib.paths.root / p) for p in lib.olds)  # the lookups were made before the release
 
 
 # --- the catalogue's `locks` column ---

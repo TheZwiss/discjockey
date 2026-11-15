@@ -272,7 +272,8 @@ def fake_open(tmp_path, monkeypatch, *login_errors):
     monkeypatch.setattr(qobuz, "config_file", lambda paths: path)
     monkeypatch.setattr(qobuz, "_load_config", lambda p: cfg)
     monkeypatch.setattr(qobuz, "QobuzClient", LoginClient)
-    monkeypatch.setattr(qobuz, "_clear_app_secrets", lambda c: cleared.append(c))
+    monkeypatch.setattr(qobuz, "_clear_app_secrets", lambda paths, c: cleared.append(c))
+    monkeypatch.setattr(qobuz, "_save_secrets", lambda paths, c, credentials=False: c.save_file())
     return cfg, clients, cleared
 
 

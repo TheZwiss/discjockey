@@ -396,26 +396,46 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
 def read_plan(paths: Paths, state: dict, scope: Mapping, *, place: Place | None, running: bool,
               only: str | None = None, tags: Callable[[Path], audio.FileFacts] = audio.file_facts,
               lines: Sequence[pf.Row] | None = None, records: Mapping | None = None,
-              watched: Sequence[WatchedFolder] | None = None, held: Collection[str] = ()) -> AiffPlan:
+              watched: Sequence[WatchedFolder] | None = None, held: Collection[str] = (),
+              released: Callable[[], None] | None = None) -> AiffPlan:
     """`plan` with one read-only open of rekordbox's library at `place` (None: there is none) for the lookup of its
     tracks and its state: what the commands' `--dry-run` and run, and the window's panel and jobs, all ask. `running`:
     whether rekordbox runs now. A library that can't be opened is `unreadable` (`busy`: another window holds it, taken
-    as `ready` with no lookup)."""
+    as `ready` with no lookup). The open lasts only as long as the lookups: the tracks that hold each file the scope
+    names are read into a dict first, the library is closed, `released` (if given) is called, and only then the plan
+    runs, with its tag reads of every file. A caller that holds `rekordbox.lock` shared passes its release as
+    `released`, so that hold lasts as long as master.db is open and a writer's 2 seconds are not spent on tag reads."""
     if place is None or not place.db.is_file():
         rb = master.Status("none", running, None, None, None, None, None)
+        _released(released)
         return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records,
                     watched=watched, only=only, held=held)
     try:
         with master.open_read(place, running) as m:
             index = m.index()
-            return plan(paths, state, scope, rb=master.status_of(m, running), tags=tags, lines=lines,
-                        records=records, watched=watched, only=only, held=held,
-                        entries=lambda file: m.entries_for(file, index))
+            rb = master.status_of(m, running)
+            found = {file: list(m.entries_for(file, index)) for file in _files_of(paths, state, scope, lines, records,
+                                                                                    watched, held)}
     except master.Unreadable as e:
         rb = master.Status("ready" if e.problem == "busy" else "unreadable", running, place.app_version,
                            str(place.db), e.problem, e.db_version, e.dbid)
-    return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records, watched=watched,
-                only=only, held=held)
+        _released(released)
+        return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records,
+                    watched=watched, only=only, held=held)
+    _released(released)
+    return plan(paths, state, scope, rb=rb, tags=tags, lines=lines, records=records, watched=watched, only=only,
+                held=held, entries=lambda file: found.get(file, ()))
+
+
+def _released(released: Callable[[], None] | None) -> None:
+    if released is not None:
+        released()
+
+
+def _files_of(paths: Paths, state: dict, scope: Mapping, lines, records, watched, held) -> list[Path]:
+    """The files of the scope's tracks that `_judge` can look up in rekordbox's library (the ones with a record)."""
+    _, keys, _ = _pick(paths, state, scope, lines, records, watched, held)
+    return [paths.root / state["tracks"][k]["path"] for k in keys if k in state["tracks"]]
 
 
 # the reasons whose one-file answer still says what the step would do, once the block is gone (rekordbox's library

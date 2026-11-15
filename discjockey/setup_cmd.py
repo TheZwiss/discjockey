@@ -107,6 +107,8 @@ def run_setup(paths: Paths) -> int:
 
     try:
         _qobuz_login(paths)
+    except library.SupportBusy:
+        raise  # not a Qobuz problem: the terminal answers it as busy
     except Exception as e:
         print(f"Qobuz login failed: {qobuz.login_problem(e)}")
         return 2

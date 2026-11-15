@@ -785,11 +785,12 @@ class HubApi:
             return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
                                    running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags,
                                    held=held), False
-        with rb_lock.reader_lock(self._support.support) as free:
-            if free:
+        with contextlib.ExitStack() as hold:
+            if hold.enter_context(rb_lock.reader_lock(self._support.support)):
+                # the shared hold ends once master.db is closed (the lookups are done), not after the tag reads
                 return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
                                        running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags,
-                                       held=held), False
+                                       held=held, released=hold.close), False
         return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(), entries=None, tags=self._tags,
                           only=only, held=held), True
 

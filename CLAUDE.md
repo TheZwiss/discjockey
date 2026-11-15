@@ -133,11 +133,16 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 - **Tests are offline and never touch the user's data.** Use `tmp_path` libraries and the fixtures; no real Spotify,
   Qobuz or yt-dlp calls.
 - **One writer at a time:** the library lock (`.lock`) is shared by console runs and hub jobs; hub write methods
-  answer `busy`/`console` instead of waiting. The exception is the brief saves `setup_skip_import`, `set_favourites`,
-  `set_crate_shown` and `set_crates_shown`: they take no library lock, wait up to 1.5 s on `library.db`, then answer `busy`; that is safe
-  because no job writes those records.
+  answer `busy`/`console` instead of waiting. The exceptions are brief saves that answer at once and start no job.
+  `set_favourites`, `set_crate_shown` and `set_crates_shown` take no library lock: they wait up to 1.5 s on
+  `library.db`, then answer `busy`; that is safe because no job writes those records. `setup_skip_import` and every
+  other settings save outside a job take the library lock only for the moment of the save (`lock_briefly`: `busy` while
+  a job writes, `console` while a terminal run does). Every read-change-write of a support-folder file (settings,
+  config, the login files, `tools/`) holds the support lock (`.support.lock`) for the change: it waits 2 s, then
+  answers `busy` with the reason `support_lock`. rekordbox readers take `rekordbox.lock` shared and without waiting,
+  and never open master.db while a writer holds it (they answer `writing`); a writer retries for 2 s.
 - **Bridge methods never reject:** `{"ok": true, …}` or `{"ok": false, "kind", "message"}`; write methods return a
-  `job_id` and finish with a `JobFinished` event, except the same three brief saves, which answer their result at once
+  `job_id` and finish with a `JobFinished` event, except the brief saves above, which answer their result at once
   and start no job.
 - User-facing text is plain English for a non-technical DJ — no jargon, no stack traces (see README's tone).
 

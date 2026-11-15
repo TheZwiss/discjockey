@@ -190,7 +190,9 @@ export const api = Object.fromEntries(
 /** rekordbox on this Mac now, or null when the bridge could not say (the Sync page's before-start Hint then stays out). */
 export async function rekordboxStatus(): Promise<RekordboxStatus | null> {
   const r = await api.rekordbox_status();
-  return r.ok ? { state: r.state, running: r.running } : null;
+  return r.ok
+    ? { state: r.state, running: r.running, ...(r.writing ? { writing: true, as_of: r.as_of ?? null } : {}) }
+    : null;
 }
 
 /** Fake mode: installs an object as window.pywebview.api and fires 'pywebviewready' (as pywebview does). */

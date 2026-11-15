@@ -72,13 +72,32 @@ def login_problem(e: BaseException) -> str:
             "if it keeps happening, run: discjockey update, then discjockey setup")
 
 
-def _clear_app_secrets(cfg: Config) -> None:
+def _clear_app_secrets(paths: SupportPaths, cfg: Config) -> None:
     """streamrip only fetches new app secrets from the Qobuz web player when the cached ones are empty."""
     for data in (cfg.file, cfg.session):
         data.qobuz.app_id = ""
         data.qobuz.secrets = []
-    cfg.file.set_modified()
-    cfg.save_file()
+    _save_secrets(paths, cfg)
+
+
+def _save_secrets(paths: SupportPaths, cfg: Config, credentials: bool = False) -> None:
+    """Saves what a login changed in cfg (the app id and secrets; the e-mail and password too when `credentials`)
+    into the config.toml as it is NOW, under the support lock. A login takes seconds, and cfg was read before it:
+    writing the whole old cfg back would undo anything another process saved meanwhile."""
+    with library.support_lock(paths.support):
+        path = config_file(paths)
+        if not path.exists():
+            return
+        fresh = _load_config(path)
+        old, new = cfg.file.qobuz, fresh.file.qobuz
+        new.app_id = old.app_id
+        new.secrets = old.secrets
+        if credentials:
+            new.use_auth_token = old.use_auth_token
+            new.email_or_userid = old.email_or_userid
+            new.password_or_token = old.password_or_token
+        fresh.file.set_modified()
+        fresh.save_file()
 
 
 def config_file(paths: SupportPaths) -> Path:
@@ -185,13 +204,20 @@ class QobuzSource:
             try:
                 runner.run(client.login())
             except (InvalidAppIdError, InvalidAppSecretError):
-                _clear_app_secrets(cfg)
+                _clear_app_secrets(paths, cfg)
                 client = QobuzClient(cfg)
                 runner.run(client.login())
+        except library.SupportBusy:
+            runner.close()
+            raise  # not a login problem: the busy words say what is going on
         except Exception as e:
             runner.close()
             raise _login_error(e) from None
-        cfg.save_file()  # streamrip may have fetched new app secrets
+        try:
+            _save_secrets(paths, cfg)  # streamrip may have fetched new app secrets
+        except BaseException:
+            runner.close()
+            raise
         return cls(client, runner)
 
     def search(self, query: str, limit: int = 10) -> list[Candidate]:
@@ -263,9 +289,8 @@ def interactive_login(paths: SupportPaths) -> None:
         try:
             prompter = get_prompter(client, cfg)
             runner.run(prompter.prompt_and_login())
-            with library.support_lock(paths.support):
-                prompter.save()
-                cfg.save_file()
+            prompter.save()
+            _save_secrets(paths, cfg, credentials=True)
             _test_search(client, runner)
         finally:
             _close(client, runner)
@@ -285,19 +310,22 @@ def _save_login(paths: SupportPaths, email: str, secret: str) -> None:
             data.qobuz.password_or_token = secret
         cfg.file.set_modified()
         cfg.save_file()
+        written = path.read_bytes()
     client = QobuzClient(cfg)
     with asyncio.Runner() as runner:
         try:
             runner.run(client.login())
-            with library.support_lock(paths.support):
-                cfg.save_file()  # streamrip fetched new app secrets
+            _save_secrets(paths, cfg)  # streamrip fetched new app secrets
             _test_search(client, runner)
+        except library.SupportBusy:
+            raise  # the login worked; only saving the app secrets had to wait, the busy words say it
         except Exception as e:
-            with library.support_lock(paths.support):  # the login that worked comes back
-                if before is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    path.write_bytes(before)
+            with library.support_lock(paths.support):  # the login that worked comes back, unless someone saved since
+                if path.exists() and path.read_bytes() == written:
+                    if before is None:
+                        path.unlink(missing_ok=True)
+                    else:
+                        path.write_bytes(before)
             raise _login_error(e) from None
         finally:
             _close(client, runner)
