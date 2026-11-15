@@ -131,8 +131,9 @@ def test_undoing_a_batch_nobody_recorded_is_refused_before_a_job_starts(root):
     assert answer["kind"] == "refused" and answer["message"] == "Discjockey has no record of these moves."
     place_t2_elsewhere(root)
     row = api.tidy_preview()["rows"][0]
-    assert wait_job(api, rec, api.tidy_up(moves(row))).ok  # now there is a batch 1, and no batch 99
-    assert api.undo_moves(99)["kind"] == "refused" and api._jobs.current.id == 1  # no second job started
+    started = api.tidy_up(moves(row))
+    assert wait_job(api, rec, started).ok  # now there is a batch 1, and no batch 99
+    assert api.undo_moves(99)["kind"] == "refused" and api._jobs.current.id == started["job_id"]  # no second job started
     with run_lock(root.lock):
         assert api.undo_moves(1)["kind"] == "console"
 

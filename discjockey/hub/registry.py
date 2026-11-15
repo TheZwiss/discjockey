@@ -24,6 +24,7 @@ import ctypes
 import ctypes.util
 import fcntl
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -41,6 +42,8 @@ from .. import events as ev
 from ..library import write_json_atomic
 from ..problem import Problem
 from . import ids
+
+log = logging.getLogger(__name__)
 
 KEEP_JOBS, KEEP_DAYS = 100, 30  # the newest 100 jobs stay, and every job of the last 30 days
 HEAD_EVENTS, TAIL_EVENTS = 2000, 10000  # events.jsonl keeps the first 2 000; events.tail.jsonl the last 10 000
@@ -175,14 +178,20 @@ class EventsWriter:
                     self._queue.clear()
                     closing = self._closing and not batch
                 for event in batch:
-                    self._take(event)
+                    try:
+                        self._take(event)
+                    except Exception:  # noqa: BLE001  one event that can't be written must not stop the others
+                        log.warning("a job event could not be written", exc_info=True)
                 self._flush_due(final=closing)
                 self._sync_files()
                 if closing:
                     break
         except Exception:  # noqa: BLE001  a full disk must never stop the engine
-            pass
+            log.warning("the job's events file stopped", exc_info=True)
         finally:
+            with self._cond:
+                self._closing = True  # whatever is emitted from now on is dropped, never queued without end
+                self._queue.clear()
             self._finish()
 
     def _take(self, event: object) -> None:
