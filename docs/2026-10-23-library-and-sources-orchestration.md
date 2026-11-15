@@ -498,6 +498,11 @@ Results:
     3a done: Sonnet **377k** (est. 230k; 33 calls, 1162 items: 983 answered, 168 by construction w/ reason, 9 findings
     C1-C9: 4 Important, 5 Minor, 0 Critical). Lesson: a per-item review of 127k material lands ~3x material. Issue 39 ~2.78M.
     3b Opus adversarial (brief-39-rev-adversarial.md, material ~80k measured, est. ~250k) next.
+    3b done: Opus **244k** (est. 250k; 63 calls): 48 findings (3 Critical: Qobuz pacing per process, sandbox logins
+    miss the real limit, `sandbox remove` can delete the real library; 25 Important, 20 Minor; 3 need a decision R44/
+    R46/R48). Verdict: ready after fixes, redesign 4 parts (cross-process Qobuz/account protection, §6 jobs, §9.2,
+    §10.3 sandbox) + R15 headless HubApi vs surface/. Issue 39 ~3.02M. Step 4 split by kind: 4a Opus redesign parts +
+    decisions (writes a Fix status table into the review), then 4b Sonnet all remaining stated fixes (R + C).
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
