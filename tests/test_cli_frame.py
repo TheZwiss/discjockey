@@ -60,8 +60,8 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
         parsed = parser.parse(shlex.split(entry.example))
         assert parsed.command == entry.command and entry.method in {e.method for e in parsed.entries}
     assert leaf_commands(parser.build()) == {e.command for e in built} | set(parser.HOUSEKEEPING)
-    # the command line's own words are the catalogue's housekeeping list, less `job wait` (the job client's, 1.4)
-    assert set(parser.HOUSEKEEPING) == set(catalog.HOUSEKEEPING) - {("job", "wait")}
+    # the command line's own words are the catalogue's housekeeping list (the `job` words are the job client's, 1.6)
+    assert set(parser.HOUSEKEEPING) == set(catalog.HOUSEKEEPING)
 
 
 @pytest.mark.parametrize("argv,where", [
@@ -309,12 +309,6 @@ def test_call_and_noun_verb_refuse_without_yes(monkeypatch):
 def test_a_dry_run_on_a_command_without_one_is_bad_args(capsys):
     code, env = run_json(["call", "rekordbox_status", "--dry-run", "--json"], capsys)
     assert code == 2 and "no --dry-run" in env["message"]
-
-
-def test_a_read_job_entry_is_not_built_yet_until_the_job_client_lands():
-    entry = replace(catalog.by_method("aiff_plan")[0], planned=None)  # RJ: group 1.6 (J, a write job, is 1.5's)
-    env = call.run(entry, {}, parser.Flags())
-    assert env["outcome"] == "bad_args" and "not built yet" in env["message"]
 
 
 def test_a_dry_run_runs_the_entrys_dry_run_method(tmp_path, monkeypatch):

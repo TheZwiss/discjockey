@@ -39,8 +39,8 @@ def notices(env: dict) -> list[str]:
 
 def emit(env: dict, flags: Flags) -> int:
     """Prints the answer (one JSON object with `--json`, else the page and the notices) and returns the exit code."""
-    if flags.json:
-        print(json.dumps(env, ensure_ascii=False))
+    if flags.json or flags.jsonl:  # `--jsonl`: the events came before, the envelope is the last line
+        print(json.dumps(env, ensure_ascii=False), flush=True)
         return envelope.exit_code(env)
     if env["outcome"] == "ok" or env["data"]:
         text = render_text(env, flags, color=layout.use_color(sys.stdout, no_color=flags.no_color))

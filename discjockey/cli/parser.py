@@ -26,9 +26,16 @@ GLOBAL_VALUE = {"--wait": "wait", "--wait-busy": "wait_busy"}
 DEFAULT_LIMIT = 200
 CALL = ("call",)
 HELP, WHERE, APP_OPEN = ("help",), ("where",), ("app", "open")
-# The command line's own words (`catalog.HOUSEKEEPING`) that are built: they run no catalogue entry (`housekeeping.py`).
-# `job wait` joins with the job client.
-HOUSEKEEPING = (HELP, WHERE, APP_OPEN, CALL)
+# The command line's own words (`catalog.HOUSEKEEPING`): they run no catalogue entry (`housekeeping.py`; the `job`
+# words are the job client's, `follow.py`).
+JOB_LIST, JOB_SHOW, JOB_FOLLOW, JOB_WAIT, JOB_STOP = (("job", w) for w in ("list", "show", "follow", "wait", "stop"))
+JOB_WORDS = (JOB_LIST, JOB_SHOW, JOB_FOLLOW, JOB_WAIT, JOB_STOP)
+HOUSEKEEPING = (HELP, WHERE, APP_OPEN, CALL, *JOB_WORDS)
+# what the `job` words take, by the name it gets in `Parsed.args`: a positional job id (flag None: `job:…` or `current`)
+# and their own switches
+JOB_ARGS = {JOB_LIST: {"all": "--all"}, JOB_SHOW: {"job": None, "log": "--log"},
+            JOB_FOLLOW: {"job": None, "from_end": "--from-end"}, JOB_WAIT: {"job": None},
+            JOB_STOP: {"job": None, "now": "--now"}}
 
 
 class UsageError(Exception):
@@ -215,6 +222,12 @@ def build() -> _Parser:
             _add_arguments(leaf, entries)
         elif cmd == HELP:
             leaf.add_argument("topic", nargs="*", metavar="WORD", default=argparse.SUPPRESS)
+        elif cmd in JOB_ARGS:
+            for name, flag in JOB_ARGS[cmd].items():
+                if flag is None:
+                    leaf.add_argument(name, metavar=name.upper(), default=argparse.SUPPRESS)
+                else:
+                    leaf.add_argument(flag, dest=name, action="store_true", default=argparse.SUPPRESS)
         leaf.set_defaults(_command=cmd)
     call = nouns.add_parser(CALL[0], add_help=False, allow_abbrev=False)
     call.add_argument("method")

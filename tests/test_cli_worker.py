@@ -64,7 +64,7 @@ import sys, time
 from discjockey.cli import call, parser
 from discjockey.hub import catalog
 entry = catalog.by_method("rescan_library")[0]
-env = call.start_job(entry, {}, "library scan", parser.Flags(), argv=lambda i: [sys.executable, "-c", sys.argv[1], i, "gate", sys.argv[2]])
+env = call.start_job(entry, {}, "library scan", parser.Flags(detach=True), argv=lambda i: [sys.executable, "-c", sys.argv[1], i, "gate", sys.argv[2]])
 print(env["job"], flush=True)
 time.sleep(60)
 """

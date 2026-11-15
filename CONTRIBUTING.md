@@ -48,8 +48,15 @@ absolute path of the program.
   playlists last read, from the stored records; both `null` without a music folder), `sandbox`.
 - **Exit codes** are the outcome's: 0 `ok`, 1 `failed`, 2 `bad_args`, 3 `busy`, 4 `needs_person`, 5 `stopped`,
   6 `partial`, 7 `refused`, 8 `running`. `reason` is one word of the closed list in `discjockey/hub/outcomes.py`.
-- **Jobs** (commands that change the library) come with `--wait`, `--detach` and `job wait`; their rules are added
-  here as those commands land.
+- **Jobs** (commands that change the library, and reads that can take minutes) run in a worker process that outlives
+  the command; the first stderr line is `Job job:… started (follow: <path> job follow job:…)`, so a killed call still
+  has the id. A command that starts a job waits as follows: `--detach` answers `ok` (exit 0, `job` set) once the job
+  runs; `--wait S` answers the job's own envelope, or `running` (exit 8, with the progress and any `person_steps`) after
+  S seconds while the job goes on; with no flag a terminal follows to the end and anything else waits 90 s. `job list
+  [--all]`, `job show <job|current> [--log]`, `job follow <job|current> [--jsonl] [--from-end]`, `job wait <job|current>
+  [--wait S]` and `job stop <job|current> [--now]` work on any job from any process (`current` is the one running write
+  job of this music folder); Ctrl-C in the command that started a job stops it safely, a second press a second later
+  stops it at once. A `--jsonl` answer is one event per line, then the envelope.
 - **Scratch folders:** a command run by hand always sets `DISCJOCKEY_SUPPORT=<scratch folder>` and
   `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real
   library and the real rekordbox library. `where` prints what a process resolved.
