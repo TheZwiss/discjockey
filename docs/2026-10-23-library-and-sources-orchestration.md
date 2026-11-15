@@ -590,6 +590,14 @@ Results:
     "Logic goes in a pure *Model.ts" contradicted the rule) and fix-round.md carry the rule; dispatch-checklist line 6
     makes every review ask it. Open: can the ratchet move before phase 5 → decide in the phase 2+ detailing run.
     Issue 39 ~5.17M.
+    V1.4 done e2fdf889 + 93203bc1: Sonnet **195k** (est. 195k; 75 calls); its final full pytest 4995 passed, 4 skipped;
+    vitest 1589; static unchanged. Merged + main → 781356fa, pushed. Decisions: truncated marker has `type` and
+    `event`, only when skipped>0; retention keeps a job if newest-100 OR 30 days; `jobs_running` counts queued/
+    running/stopping of this music folder + folder-less; `registry.process_started(pid)` (proc_pidinfo) for V1.6
+    `--now`. Handed to V1.5: call `prune` at each job start, reduce events into state.json progress, log.txt writer
+    (stderr), `Jobs(inline=…)`, and the queued→lost race (any reader marks a `queued` job `lost` while no one holds
+    `alive`: create→worker lock needs a handoff; a test pins today's behaviour). Worktrees lack node_modules (agent
+    symlinked main's, then removed). Issue 39 ~5.37M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
