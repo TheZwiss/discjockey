@@ -55,11 +55,12 @@ def writer_lock(support: Path) -> Iterator[None]:
 def reader_lock(support: Path) -> Iterator[bool]:
     """A shared, non-blocking hold on `rekordbox.lock` for the block of a reader of rekordbox's library. Yields True
     while held (no writer can start meanwhile), False when a writer holds it: the reader then never opens master.db and
-    answers its rekordbox part as `writing`. Never raises `Busy`. A support folder that is not there has no writer, and
-    one whose lock file cannot be opened (a read-only disk) cannot tell: both yield True, as before the lock."""
+    answers its rekordbox part as `writing`. Never raises `Busy`. A reader never makes the file (a read, and a dry run
+    that is one, writes nothing but its plan): a support folder or a lock file that is not there has had no writer, and
+    a file that cannot be opened (a read-only disk) cannot tell: all yield True, as before the lock."""
     try:
-        fd = os.open(support / LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o644) if support.is_dir() else None
-    except OSError:
+        fd = os.open(support / LOCK_NAME, os.O_RDWR) if support.is_dir() else None
+    except OSError:  # no file: no writer has held it yet; or one that cannot be opened
         fd = None
     if fd is None:
         yield True

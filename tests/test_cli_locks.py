@@ -101,6 +101,8 @@ DRIVERS = {
     "track": lambda api, rec: api.track("t2"),
     "todo": lambda api, rec: api.todo(),
     "find_tracks": lambda api, rec: api.find_tracks("naughty"),
+    "select_listing": lambda api, rec: api.select_listing({"group": "all"}),  # a library listing takes no lock at all
+    "upgrade_preview": lambda api, rec: api.upgrade_preview(["t2"]),
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 

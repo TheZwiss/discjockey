@@ -161,7 +161,7 @@ def _needs_fill(paths: Paths) -> bool:
     if not paths.db_file.exists():
         return paths.state_file.exists()
     try:
-        with db.connect(paths.db_file) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             return db.facts_missing(conn) > 0
     except sqlite3.OperationalError:  # no such column: a writer's open upgrades the schema
         return True

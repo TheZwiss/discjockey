@@ -61,6 +61,12 @@ class Flags:
     yes: bool = False
     limit: int = DEFAULT_LIMIT
     offset: int = 0
+    all: bool = False  # the selection forms of a bulk write (design §7.3): --all, --rows with --in / --todo / --search / --quality
+    rows: bool = False
+    where: str | None = None
+    todo: str | None = None
+    search: str | None = None
+    quality: str | None = None
 
 
 @dataclass
@@ -167,11 +173,32 @@ def _option_type(arg: catalog.Arg):
     return {"int": int, "float": float}.get(arg.type, str)
 
 
+SELECTION_FLAGS = {"--rows": ("rows", True), "--in": ("where", False), "--todo": ("todo", False),
+                   "--search": ("search", False), "--quality": ("quality", False)}  # flag -> (Flags field, switch?)
+
+
+def selects(entry: Entry) -> bool:
+    """Whether a command takes the selection forms (design §7.3): a write whose method works on a list of songs
+    (`track_ids`). They stand beside its own words, so `<ids>`, `-`, `--all` and `--rows` are the four ways to say
+    which songs."""
+    return entry.kind != "R" and "track_ids" in parameters_of(entry.method)
+
+
+def _selection_flags(entries: list[Entry], taken: Collection[str]) -> list[str]:
+    """The selection flags of a command: `--rows` and its narrowing words always, `--all` only where the catalogue names
+    the verb's own "all" (`catalog.ALL_OF`) and the method has no `--all` of its own."""
+    if not any(selects(e) for e in entries):
+        return []
+    command = " ".join(entries[0].command)
+    flags = [f for f in SELECTION_FLAGS if f not in taken]
+    return (["--all"] if command in catalog.ALL_OF and "--all" not in taken else []) + flags
+
+
 def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
-    """The flags a command has beside its method's own: `--dry-run` when an entry answers it, `--yes` when an entry
-    needs it, `--limit` and `--offset` on a read (unless the method's own flags took the word). The parser and
-    `help --json` both read this."""
-    flags = []
+    """The flags a command has beside its method's own: the selection words of a bulk write, `--dry-run` when an entry
+    answers it, `--yes` when an entry needs it, `--limit` and `--offset` on a read (unless the method's own flags took
+    the word). The parser and `help --json` both read this."""
+    flags = _selection_flags(entries, taken)
     if any(e.dry_run for e in entries):
         flags.append("--dry-run")
     if any(e.needs_yes for e in entries):
@@ -198,7 +225,13 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
                 leaf.add_argument(arg.flag, dest=name, type=_option_type(arg), default=argparse.SUPPRESS,
                                   action="append" if arg.many else "store")
     for flag in extra_flags(entries, taken):
-        if flag in ("--dry-run", "--yes"):
+        if flag == "--all":
+            leaf.add_argument(flag, dest="_sel_all", action="store_true", default=argparse.SUPPRESS)
+        elif flag in SELECTION_FLAGS:
+            field_name, switch = SELECTION_FLAGS[flag]
+            leaf.add_argument(flag, dest=f"_sel_{field_name}", action="store_true" if switch else "store",
+                              default=argparse.SUPPRESS)
+        elif flag in ("--dry-run", "--yes"):
             leaf.add_argument(flag, dest=f"_{flag[2:].replace('-', '_')}", action="store_true", default=argparse.SUPPRESS)
         else:
             leaf.add_argument(flag, dest=f"_{flag[2:]}", type=int, default=argparse.SUPPRESS)
@@ -264,6 +297,12 @@ def parse(argv: list[str]) -> Parsed:
     for key, attr in (("_dry_run", "dry_run"), ("_yes", "yes")):
         if ns.pop(key, False):
             setattr(flags, attr, True)
+    selected = False
+    for key, attr in (("_sel_all", "all"), ("_sel_rows", "rows"), ("_sel_where", "where"), ("_sel_todo", "todo"),
+                      ("_sel_search", "search"), ("_sel_quality", "quality")):
+        if (value := ns.pop(key, None)):
+            setattr(flags, attr, value)
+            selected = True
     for key in ("limit", "offset"):
         if (value := ns.pop(f"_{key}", None)) is not None:
             if value < 0:
@@ -278,6 +317,7 @@ def parse(argv: list[str]) -> Parsed:
         if arg.positional and arg.many:
             if name in ns and not ns[name]:
                 del ns[name]
-        if arg.positional and name not in ns and signature.parameters[name].default is inspect.Parameter.empty:
+        if (arg.positional and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
+                and not (selected and name == "track_ids")):  # --all / --rows say which songs instead
             raise UsageError(f"{name.replace('_', ' ')} is missing.")
     return Parsed(command, entries, ns, flags, words)

@@ -86,11 +86,13 @@ def lock_held():
 
 def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, emit: Emit = no_emit,
             token: CancelToken | None = None, want_info: bool = False,
-            lock: Callable[[], AbstractContextManager[bool]] = lock_held) -> Prepared:
+            lock: Callable[[], AbstractContextManager[bool]] = lock_held, scan: bool | None = None) -> Prepared:
     """`token`: Stop while reading the playlists (also while waiting out a rate limit) raises events.Cancelled.
     Before the playlists are read, the library's records are opened for writing (migrated if needed), interrupted steps
-    are finished (not in a dry run) and Library/ is scanned (also in a dry run, spec library-and-sources §6.4), so
-    the plan works on the files as they are. `lock()` yields whether the library lock is held for that: a reader
+    are finished (not in a dry run) and Library/ is scanned, so the plan works on the files as they are. `scan`: None
+    is "not in a dry run"; a dry run scans (spec library-and-sources §6.4) only when its caller asks for it: the
+    window's refresh does, the command line's dry runs do not (issue 39 design §7.1: they store no scan, plan on the
+    last one and say how old it is). `lock()` yields whether the library lock is held for that: a reader
     (the window's preview) that can't get it (a terminal run, a hub job) plans on the records as the last scan
     left them and writes nothing. `want_info`: the hub's read also takes the playlists' names, owners and covers from
     what reading the tracks told (FetchedPlaylist.info), so it needs no second login to ask."""
@@ -100,7 +102,8 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         lines = config.load_playlists(paths.playlists_file)
         settings = load_settings(paths.settings_file)
         with lock() as held:
-            state = _open(paths, log, emit, dry_run=dry_run) if held else library.load_state(paths)
+            state = (_open(paths, log, emit, dry_run=dry_run, scan=scan if scan is not None else not dry_run)
+                     if held else library.load_state(paths))
             if held:  # signs a read outside a run met while the lock was not ours are recorded first (they pause)
                 state = record_pending(paths, state, lock_held, dry_run)
         import_waiting = library.import_left(paths)
@@ -186,7 +189,7 @@ def recorded_members(paths: Paths, unread: list[PlaylistLine], state: dict | Non
     records: dict = {}
     if paths.db_file.exists():
         try:
-            with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
+            with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS, read_only=True) as conn:
                 db.check(conn)
                 records = db.playlist_records(conn)
         except Exception:
@@ -218,12 +221,15 @@ def first_check_room(state: dict, settings: Settings) -> int:
     return min(FIRST_CHECKS_PER_RUN, Budget(state, lambda: None, settings).remaining() // 2)
 
 
-def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool) -> dict:
+def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool, scan: bool) -> dict:
     """The writer's part of prepare (the lock is held): open (and migrate), recover (not in a dry run), scan, then
     the snapshot the plan works on. A dry run needs no snapshot before the scan (scan_library opens the records
     itself, and leaves a pending step's files alone). A dry run changes no music file: a library not yet moved into
     library.db whose state.json has steps pending is neither migrated (that finishes them) nor scanned; it plans
-    from state.json as it is."""
+    from state.json as it is. A dry run without `scan` (the command line's: issue 39 design §7.1) stores no scan and
+    migrates nothing: it plans on the records as the last scan left them (`load_state`, read-only)."""
+    if dry_run and not scan:
+        return library.load_state(paths)
     recovered: list[tuple[str, bool]] = []
     if not dry_run:
         migrated: list[tuple[str, bool]] = []  # steps finished while state.json moved into library.db (said already)
@@ -283,7 +289,7 @@ def folder_names(prep: Prepared) -> Callable[[str], str] | None:
     if not prep.paths.db_file.exists():
         return None
     try:
-        with db.connect(prep.paths.db_file) as conn:
+        with db.connect(prep.paths.db_file, read_only=True) as conn:
             watched = db.watched_folders(conn)
     except (OSError, sqlite3.Error):
         return None

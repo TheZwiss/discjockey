@@ -698,7 +698,7 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
     def work(ctx: JobContext) -> dict:
         try:
             prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock,
-                               want_info=infos is not None)
+                               want_info=infos is not None, scan=True)
         except run.SetupProblem as e:
             store.failed(e.kind, hub_message(e.kind, str(e), e.service), e.service, ctx.token)
             raise

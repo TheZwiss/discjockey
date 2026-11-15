@@ -47,7 +47,7 @@ from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatc
                       PlaylistLine,
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold, search_fold
-from ..words import preview_words, rekordbox_words
+from ..words import SCAN_OLDER, preview_words, rekordbox_words
 from ..ops import OpProblem, snapshot
 from .. import pending_signs
 from ..pacing import Budget
@@ -55,7 +55,7 @@ from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, 
 from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, media as media_mod, registry, spectrum as spec, views
+from . import catalog, media as media_mod, plan_store, registry, select, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from .outcomes import problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Job, Jobs, PreviewStore, SignInPhase,
@@ -187,6 +187,11 @@ def _answering(fn):
         except BadId as e:
             return {"ok": False, "kind": "bad_args", "message": e.message, "outcome": "bad_args", "reason": e.reason,
                     "next": [], "person_steps": [], "data": None}
+        except plan_store.UnknownPlan as e:  # `--plan` with an id no dry run made (or one pruned long ago)
+            return {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": "unknown_id",
+                    "next": [], "person_steps": [], "data": None}
+        except plan_store.PlanExpired as e:  # older than 24 hours, or made for another music folder
+            return {"ok": False, "kind": "refused", "message": str(e), **problem_fields("refused", e)}
         except TypeError as e:  # the page called with wrong arguments
             traceback.print_exc()
             return {"ok": False, "kind": "crashed", "message": UNEXPECTED, **problem_fields("crashed")}
@@ -243,7 +248,7 @@ def _import_folders(paths: Paths | None) -> int:
     if paths is None or not paths.db_file.exists():
         return 0
     try:
-        with db.connect(paths.db_file) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             return sum(1 for f in db.watched_folders(conn) if f.kind == "import")
     except (sqlite3.Error, StateError, OSError):
         return 0
@@ -436,6 +441,18 @@ class HubApi:
     def _state(self) -> dict:
         return library.load_state(self._paths)
 
+    def _plan_root(self) -> str | None:
+        return str(self._bound.root) if self._bound is not None else None
+
+    def _bind_plan(self, plan_id: str, now: Mapping[str, object]) -> tuple[plan_store.Plan, plan_store.Binding]:
+        """The plan `plan_id` loaded for this music folder and held against the items a run finds now (`now`: item key
+        -> the answer the engine gives today): which still stand, which changed (the run answers them `skipped`,
+        `changed`) and which are new since the plan (`data.new_since_plan`, left out). Raises `UnknownPlan` or
+        `PlanExpired`, which `_answering` turns into `bad_args` / `refused` for whoever called. What every write method
+        that takes a `plan_id` starts with, under its lock."""
+        plan = plan_store.load(self._support.support, plan_id, self._plan_root())
+        return plan, plan_store.bind(plan, now)
+
     def _settings(self) -> Settings:
         try:
             return load_settings(self._support.settings_file)
@@ -578,7 +595,7 @@ class HubApi:
         folder, and only if the path, links resolved, stays inside that folder (a link leading out is refused)."""
         if not self._paths.db_file.exists():
             return None
-        with db.connect(self._paths.db_file) as conn:
+        with db.connect(self._paths.db_file, read_only=True) as conn:
             where = db.online_file(conn, file_id)
         return media_mod.file_inside(*where) if where is not None else None
 
@@ -946,24 +963,29 @@ class HubApi:
         """One view of the library (views.library): view "all" | "unlisted" | "playlist" | "folder"; key the playlist's
         folder name or the folder's path for the last two; sort None = the view's own order. An unknown playlist or
         folder is not an error: the answer says `empty: "gone"`."""
+        state = self._state()
+        out = self._library_view(state, view, key, query, filter, sort)
+        # a row without a file (a playlist song that waits) is no track the page can act on
+        self._remember(state, select.library_ids(out))
+        return out
+
+    def _library_view(self, state: dict, view: str, key: str | None, query: str, filter: str, sort: str | None) -> dict:
+        """`library`'s answer for `state` (the arguments are checked here): what the window shows and `select_listing`
+        reads its ids from."""
         if view not in views.LIBRARY_VIEWS:
             raise ValueError(f"view must be one of {', '.join(views.LIBRARY_VIEWS)}")
         if view in ("playlist", "folder") and not key:
             raise ValueError(f"a {view} view needs its key")
         if filter not in views.LIBRARY_FILTERS:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
-        state = self._state()
         records, folders = self._records_and_folders()
         prep = self._store.prep
-        out = views.library(state, view, key, query, filter, sort, self._cover(self._images()),
-                            self._away_by_root(folders), lines=pf.load(self._paths.playlists_file).rows,
-                            records=records, watched=folders, fetched=prep.fetched if prep else [],
-                            planned={k: t["aliases"] for k, t in (prep.state["tracks"] if prep else {}).items()
-                                     if t.get("aliases")},
-                            aiff_stopped=views.stopped_batch(self._aiff_batches(), scope="library:"))
-        # a row without a file (a playlist song that waits) is no track the page can act on
-        self._remember(state, [r["track_id"] for r in (*out["rows"], *(out["also"] or ())) if r["file_state"] != "no_file"])
-        return out
+        return views.library(state, view, key, query, filter, sort, self._cover(self._images()),
+                             self._away_by_root(folders), lines=pf.load(self._paths.playlists_file).rows,
+                             records=records, watched=folders, fetched=prep.fetched if prep else [],
+                             planned={k: t["aliases"] for k, t in (prep.state["tracks"] if prep else {}).items()
+                                      if t.get("aliases")},
+                             aiff_stopped=views.stopped_batch(self._aiff_batches(), scope="library:"))
 
     @bridge
     def track(self, track_id: str) -> dict:
@@ -1636,7 +1658,7 @@ class HubApi:
             yield None
             return
         try:
-            with db.connect(self._paths.db_file) as conn:
+            with db.connect(self._paths.db_file, read_only=True) as conn:
                 db.check(conn)
                 yield conn
         except sqlite3.Error as e:
@@ -2206,13 +2228,16 @@ class HubApi:
         return {"job_id": self._jobs.start(f"upgrade_{mode}", self._each_work(ids, mode), track_id=track,
                                            batch_kind="upgrade").id}
 
+    def _upgrade_all_ids(self, state: dict) -> list[str]:
+        """What Upgrade all runs: the songs of To-do's Upgrade ready group whose Same track can run (`select`, the one
+        answer the window's button, `upgrade_preview` and `select_listing` share)."""
+        return select.upgrade_all_ids(self._todo(state, "upgrade_ready", False))
+
     @bridge
     def upgrade_all(self) -> dict:
         """Upgrade all: Same track for every parked upgrade the To-do list shows as possible (the group's `all.n`), as
         one batch started by `upgrade_all` (job kind "upgrade_batch")."""
-        groups = self._todo(self._state(), "upgrade_ready", False)["groups"]
-        ids = [i["track_id"] for g in groups if g["key"] == "upgrade_ready" for i in g["items"]
-               if i["same_track"] is None]
+        ids = self._upgrade_all_ids(self._state())
         if not ids:
             raise OpProblem(NO_UPGRADES, "refused")
         work = self._batch_work(lambda: batches.start(
@@ -2866,6 +2891,43 @@ class CliApi(HubApi):
 
     RESOLVERS = {"track": "_resolve_track"}  # kind -> the method that makes it (grows per group)
 
+    # --- plans (design §7.1): the command line's call path saves a dry run's plan (`save_plan`) and says when its scan
+    # was (`scan_next`); a write method that takes `plan_id` binds it (`HubApi._bind_plan`). Plain methods, not bridge
+    # methods: the window's HubApi has none of the public ones
+
+    def save_plan(self, kind: str, answer: Mapping, command: str) -> str | None:
+        """Stores the plan of a dry run's `answer` (`plan_store.save`; its `items`, each with a `key`, are the plan's
+        items, its `plan_extra` what else the run needs) and returns the id; None when the answer lists no items (a
+        what-if or a question is not a plan). `command` is the command line of the dry run, which an expired plan
+        says to repeat."""
+        items = plan_store.items_of(answer)
+        if items is None:
+            return None
+        extra = {**(answer.get("plan_extra") or {}), "command": command}
+        return plan_store.save(self._support.support, kind, self._plan_root(), items, extra)
+
+    def scan_next(self) -> list[dict]:
+        """The `next` of a dry run that planned on the last scan: `library scan` when Library/ or a watched folder was
+        changed after that scan (or was never scanned), else nothing. Read only (the folders' modified times against the
+        stored scan times); a library that cannot be read says nothing."""
+        bound = self._bound
+        if bound is None:
+            return []
+        try:
+            with self._move_log() as conn:
+                scans = db.scan_times(conn) if conn is not None else [(bound.library, None)]
+        except (sqlite3.Error, StateError):
+            return []
+        for folder, scanned in scans:
+            try:
+                changed = datetime.fromtimestamp(Path(folder).stat().st_mtime)
+                stale = scanned is None or changed > datetime.fromisoformat(scanned)
+            except (OSError, ValueError):
+                continue  # a drive that is away, or a time that cannot be read: nothing to say
+            if stale:
+                return [{"run": "library scan", "why": SCAN_OLDER}]
+        return []
+
     @cli_first
     def resolve(self, kind: str, values: list[str]) -> dict:
         """The one place that turns what a person typed into the argument a method takes (the command line never looks
@@ -2981,6 +3043,62 @@ class CliApi(HubApi):
         if writing:
             answer["rekordbox"]["writing"] = True
         return preview_words(answer)
+
+    @cli_first
+    def select_listing(self, listing: dict) -> dict:
+        """Which songs a listing selects (design §7.3: `--rows` and `--all` of a bulk write): `{ids}`, every song the
+        screen of that listing shows, each once, in the order shown (`hub/select.py` says the words of a listing: the
+        Library's `in` / `search` / `quality`, To-do's `group` / `hidden`, or a verb's own "all"). Read only, on the last
+        scan; the answer is what `library list` / `todo list` with the same words print, a playlist's `also` rows
+        included and the rows without a file left out. (`select` is the window's own call, which tells the hub where a
+        dropped file goes.)"""
+        want = select.parse(listing)
+        state = self._state()
+        if want.verb_all == select.UPGRADE_ALL:
+            return {"ids": self._upgrade_all_ids(state)}
+        if want.verb_all == select.CHECK_DONE:
+            return {"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))}
+        if want.source == "todo":
+            return {"ids": select.todo_ids(self._todo(state, want.group, want.hidden))}
+        view, key = want.view, want.key
+        if view == "folder":
+            key = self._folder_key(key or "")
+        return {"ids": select.library_ids(self._library_view(state, view, key, want.search, want.quality, None))}
+
+    def _folder_key(self, typed: str) -> str:
+        """The key the Library's folder view takes for a folder typed as `folder:<path>`: a path inside the music folder
+        is `Library/<name>` as the sidebar writes it (the typed path may be absolute or relative to the music folder),
+        any other path stays as it is (a watched import folder, a crate)."""
+        path = Path(os.path.expanduser(typed))
+        if path.is_absolute():
+            try:
+                return path.relative_to(self._paths.root).as_posix()
+            except ValueError:
+                return str(path)
+        return PurePosixPath(os.path.normpath(typed)).as_posix()
+
+    @cli_first
+    def upgrade_preview(self, track_ids: list[str] | None = None, mode: str = "swap", all: bool = False) -> dict:
+        """What an upgrade would do, answered before it runs (design §7.1: the dry run of `upgrade apply`, and what Upgrade
+        all would start): `{mode, total, planned, skipped, items, space, rekordbox}` (`batches.upgrade_preview`). One
+        item per song, `{key, action, state: planned | skipped, reason, file, new_file, superseded}`; `space` is what the
+        new files need per drive; `rekordbox.needs_rekordbox_closed` says a Same track must wait for rekordbox to be
+        quit. `mode` `swap` (Same track) or `add_new` (New track); `all` the songs Upgrade all would run (Same track
+        only), instead of `track_ids`. Reads only: no file is decoded, nothing is stored."""
+        if mode not in batches.PREVIEW_MODES:
+            raise BadId("usage", f"mode must be one of {', '.join(batches.PREVIEW_MODES)}.")
+        if all and track_ids:
+            raise BadId("conflicting_flags", "Name the songs, or ask for all of them: not both.")
+        if all and mode != "swap":
+            raise BadId("conflicting_flags", "All of them is Same track only; name the songs to add them as new tracks.")
+        state = self._state()
+        if all:
+            ids = self._upgrade_all_ids(state)
+        elif track_ids is None:
+            raise BadId("usage", "Name the songs, or ask for all of them.")  # `[]` is a list that picked none
+        else:
+            ids = self._track_list(track_ids) if track_ids else []  # no songs (a selection that found none): total 0
+        return batches.upgrade_preview(self._paths, state, ids, mode, self._rekordbox_status())
 
     @cli_first
     def batches(self, kind: str | None = None, limit: int = 20) -> dict:

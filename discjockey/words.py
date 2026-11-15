@@ -23,6 +23,9 @@ REKORDBOX_PROBLEM = {
     "schema": "rekordbox's library is laid out differently than Discjockey expects",
 }
 
+# a dry run plans on the last scan; this is what it says when a folder has changed since (design §7.1)
+SCAN_OLDER = "Library/ or a watched folder changed after the last scan, so this plan is on the files as that scan saw them."
+
 SWAP_REASONS = ("swapped", "repointed", "converted")  # the old rekordbox track keeps its file: Reload Tag
 ADDED_REASON = "added_as_new"                          # a new file: the old rekordbox track is pointed at it by hand
 

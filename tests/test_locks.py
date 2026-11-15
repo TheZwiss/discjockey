@@ -191,6 +191,7 @@ WRITE_SITES = {
     "db.py": (4, "library.db's own files and backups: the library lock, not the support folder"),
     "hub/api.py": (1, "_save_spotify_app: inside support_lock"),
     "hub/media.py": (1, "the media cache: one owner, whole-file atomic write"),
+    "hub/plan_store.py": (1, "<support>/plans/: one owner per plan file, whole-file atomic write (a dry run's one write)"),
     "hub/registry.py": (6, "the job registry's files: one owner per job, whole-file atomic writes"),
     "hub/window_port.py": (1, "window.json: one owner (the window), whole-file atomic write"),
     "library.py": (4, "write_json_atomic itself, the library's state file (library lock), write_music_folder "
@@ -363,6 +364,7 @@ def test_a_reader_never_makes_a_writer_busy_and_a_writer_makes_the_reader_say_so
 
 def test_the_writer_retries_while_a_reader_holds_and_goes_on_when_it_lets_go(support):
     import threading
+    (support / rb_lock.LOCK_NAME).touch()  # a reader holds the file a writer has made once; it never makes it itself
     release = threading.Event()
     held = threading.Event()
 

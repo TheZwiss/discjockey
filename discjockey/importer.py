@@ -128,7 +128,7 @@ def files_waiting(paths: Paths) -> int:
     they never start an import."""
     if not paths.db_file.exists():
         return 0
-    with db.connect(paths.db_file) as conn:
+    with db.connect(paths.db_file, read_only=True) as conn:
         return db.import_left(conn) + db.facts_missing(conn)
 
 

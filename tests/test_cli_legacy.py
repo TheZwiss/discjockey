@@ -59,7 +59,7 @@ def test_dry_run_changes_no_music_file_and_writes_no_report(root, monkeypatch, c
     assert after == before  # no music file moved, written or added (no Superseded/, no Upgrades ready/ either)
     assert not (root / ".discjockey" / "reports").exists()
     state = library.load_state(Paths(root, support=root / ".support"))
-    assert state["tracks"] == {} and state["files"] == ["Library/Mine/Someone - Else.aiff"]  # only indexed
+    assert state["tracks"] == {} and state["files"] == []  # a dry run stores no scan: nothing was indexed
 
 
 def test_up_to_date(root, monkeypatch, capsys):
