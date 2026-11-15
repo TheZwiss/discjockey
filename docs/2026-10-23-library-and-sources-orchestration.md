@@ -495,6 +495,9 @@ Results:
     Step 3 split (material design 23k + audits 104k + code greps > 150k, G2: said to the user in chat): 3a Sonnet
     coverage review (every audit item → answered / by construction with reason / gap; `-review-coverage.md`, est.
     ~230k), then 3b Opus adversarial review (soundness, invariants, A-D walk, goals; `-review.md`). Issue 39 ~2.40M.
+    3a done: Sonnet **377k** (est. 230k; 33 calls, 1162 items: 983 answered, 168 by construction w/ reason, 9 findings
+    C1-C9: 4 Important, 5 Minor, 0 Critical). Lesson: a per-item review of 127k material lands ~3x material. Issue 39 ~2.78M.
+    3b Opus adversarial (brief-39-rev-adversarial.md, material ~80k measured, est. ~250k) next.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
