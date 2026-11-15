@@ -52,6 +52,9 @@ throwaway scripts of its own rather than through Discjockey.
   Auto-upgrade block; `--json` without `--yes` or `--dry-run` is refused) and `settings auto-upgrade [on|off] [--json]`,
   the first of a `settings` group the other settings join; also in `CONTRIBUTING.md`, and in the agent docs once
   they exist.
+- **Flaky test (found in V1.7, not caused by it):** `tests/test_cli_job.py::test_a_follower_reads_the_head_then_the_rolling_tail_through_a_compaction`
+  times out ("timed out waiting") on most runs, also at f341c4f5; it passed once in a full run. Look at `follow.EventReader`
+  against `registry.EventsWriter`'s compaction (V1.5 code).
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stage E open (issue 40)
 
