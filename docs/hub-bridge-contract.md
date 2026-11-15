@@ -65,6 +65,15 @@ Beside `ok`, `kind`, `message` (and `service`, `setting`) every ok:false answer 
 kind's), `next` (`[{run, why}]`: commands that move on), `person_steps` (`[{id, say, then}]`: what only a person can do;
 `rekordbox_open` carries `step:quit_rekordbox`) and `data` (object or null). An ok:true answer is unchanged.
 
+The command line also calls methods the window does not have (the catalogue's `cli_first` entries, marked
+`@cli_first` and kept on `CliApi(HubApi)`, because pywebview hands the page every public name of its object: the same
+answers, but not in `contract.ts`, `types.ts` or the fake). `resolve(kind, values)` (group 1.2)
+turns what a person typed into the method's argument: `{"kind", "resolved": [..]}`, one resolved argument per value in
+the same order; kind `track` takes a song key (kept as it is) or the path of a library file (absolute, or relative to
+the music folder) and answers the song key. A text no id can be made of answers `{ok: false, kind: "bad_args",
+outcome: "bad_args", reason: "unknown_id" | "bad_id_kind"}`; a kind nobody resolves yet is `failed`. A `HubApi(…,
+remember=False)` (the command line's) acts on a write's record as it is, with no check against how a page last showed it.
+
 ## Shared shapes
 
 **TrackRow** (library rows, to-do items, change moves; to-do items add `group`, `detail`; moves add `from`, `to`, `to_not_lossless`;

@@ -6,12 +6,12 @@ import typing
 import pytest
 
 from discjockey.hub import catalog
-from discjockey.hub.api import HubApi
+from discjockey.hub.api import CliApi, HubApi
 from discjockey.hub.catalog import Arg, Entry
 
 # The phase 1 ceiling: how many entries may still be `planned` (their command not built). Every group that builds a
-# command lowers the number; nothing may raise it. 1.1 plans them all.
-PHASE_1_CEILING = 123
+# command lowers the number; nothing may raise it. 1.1 plans them all; 1.2 builds `rekordbox status` and `resolve`.
+PHASE_1_CEILING = 121
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select",
              "upgrade_preview", "fill_facts", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
@@ -37,11 +37,23 @@ def test_an_entry_names_no_method_the_bridge_lacks():
         assert e.method in BRIDGE, e
     for e in catalog.ENTRIES:
         if e.cli_first:
-            assert e.planned, e  # a method that does not exist yet is planned until its group builds it
+            # a method that does not exist yet is planned until its group builds it
+            assert e.planned or hasattr(CliApi, e.method), e
 
 
 def test_the_cli_first_methods_are_the_listed_ones():
     assert {e.method for e in catalog.ENTRIES if e.cli_first} == CLI_FIRST
+
+
+def test_a_cli_first_method_exists_exactly_when_its_entry_is_built():
+    # the window's HubApi has none of them: pywebview would hand them to the page
+    assert not any(getattr(getattr(HubApi, n, None), "is_cli_first", False) for n in dir(HubApi))
+    for e in catalog.ENTRIES:
+        if e.cli_first and not hasattr(getattr(CliApi, e.method, None), "is_bridge"):  # `select` is the window's too
+            method = getattr(CliApi, e.method, None)
+            assert (method is not None) == (e.planned is None), e
+            if method is not None:
+                assert getattr(method, "is_cli_first", False) and not getattr(method, "is_bridge", False), e
 
 
 def test_window_only_and_dropped():

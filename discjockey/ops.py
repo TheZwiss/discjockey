@@ -83,14 +83,15 @@ def log_operation(paths: Paths, now: datetime, track_id: str, entry: dict | None
 
 
 def run_single(paths: Paths, operation: str, track_id: str, expect: dict | None,
-               do: Callable[[dict], Result], now: Callable[[], datetime] = datetime.now) -> Done:
-    """Runs `do(state)` as described in the module docstring. The caller holds library.run_lock."""
+               do: Callable[[dict], Result], now: Callable[[], datetime] = datetime.now, check: bool = True) -> Done:
+    """Runs `do(state)` as described in the module docstring. The caller holds library.run_lock. `check=False` (the
+    command line: no page showed the entry) acts on the entry as it is, still refusing one that is gone."""
     state = library.open_state(paths)
     recovered = library.recover_pending(paths, state)
     library.clear_tmp(paths, state)
     entry = state["tracks"].get(track_id)
     try:
-        if entry is None or snapshot(entry) != expect:
+        if entry is None or (check and snapshot(entry) != expect):
             raise OpProblem(CHANGED, "changed")
         result = do(state)
     except OpProblem as p:

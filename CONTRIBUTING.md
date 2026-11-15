@@ -59,11 +59,13 @@ Terminal, `/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox back
 `CLI_COMMANDS` to `cli.main`, and anything else opens the window.
 
 **`discjockey rekordbox status [--json]`** says whether rekordbox's library can be read. Read only: it takes no
-library lock and needs no music folder. JSON: `{"ok", "state", "running", "version", "library", "problem",
-"db_version"}`. `state` is `ready`, `none` (no rekordbox library on this Mac) or `unreadable` (Discjockey can't open
-this rekordbox version's library yet). `problem` is `null`, `unclean` (rekordbox didn't close normally: it left
-`-wal` or `-shm` files behind; reading still works), `busy` (rekordbox is open and holds its library), `key`,
-`db_version` or `schema` (why it is unreadable). Exit 0 whenever it answered, 1 on an unexpected error.
+library lock and needs no music folder. With `--json` stdout holds the envelope `{"v": 1, "command", "outcome",
+"reason", "message", "data", "next", "person_steps", "recovered", "job", "as_of", "sandbox"}` (the same for every new
+command, a usage error and a crash too; the exit code follows `outcome`: `ok` 0, `failed` 1, `bad_args` 2, `busy` 3,
+`needs_person` 4, `stopped` 5, `partial` 6, `refused` 7, `running` 8). `data` is `{"state", "running"}`: `state` is
+`ready`, `none` (no rekordbox library on this Mac) or `unreadable` (Discjockey can't open this rekordbox version's
+library yet). `discjockey call <method> [--args <json|->]` sends a bridge method's exact payload through the same
+command; global flags (`--json`, `--verbose`, `--no-color`, ...) stand anywhere on the line.
 
 **`discjockey rekordbox preview (<track> | --path <file>) [--json]`** says what Same track, Convert to AIFF and Give
 it its clean name would do for one file, and why not. Read only, no lock, nothing written, but it decodes the file

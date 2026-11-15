@@ -4,11 +4,11 @@ import signal
 
 import pytest
 
-import discjockey.cli as cli
+import discjockey.cli.legacy as cli
 from audio_helpers import music, needs_ffmpeg, write_aiff
 from hub_helpers import choose_music
 
-from discjockey import REPO, config, library, rekordbox, run
+from discjockey import REPO, config, library, run
 from discjockey.sources import spotify
 from discjockey.sources.base import LoginState
 from discjockey.acquire import AcquireResult, Ready
@@ -456,11 +456,17 @@ def test_setup_with_a_broken_settings_file_says_so(root, monkeypatch, capsys):
     assert "settings.json" in capsys.readouterr().out
 
 
-# --- discjockey rekordbox status / preview (read only, no lock) ---
+# --- discjockey rekordbox preview (read only, no lock); `rekordbox status` is tests/test_cli_frame.py's ---
 
 def run_json(argv, capsys):
     code = cli.main(argv)
     return code, json.loads(capsys.readouterr().out)
+
+
+def test_the_legacy_words_still_parse():
+    for argv in (["setup"], ["upgrade", "list"], ["batch", "list"], ["convert", "--all", "lossless"],
+                 ["rekordbox", "preview", "x"], ["settings", "auto-upgrade"], ["hub"]):
+        assert cli.parse_args(argv).command == argv[0]
 
 
 def test_the_sync_flags_work_before_and_after_a_command():
@@ -479,63 +485,6 @@ def test_rekordbox_commands_need_their_arguments(capsys):
             cli.parse_args(argv)
         assert e.value.code == 2, argv
     capsys.readouterr()
-
-
-def test_status_without_rekordbox(capsys):
-    assert cli.main(["rekordbox", "status"]) == 0  # conftest: an empty rekordbox folder; no music folder either
-    assert capsys.readouterr().out.strip() == "No rekordbox library on this Mac."
-    code, data = run_json(["rekordbox", "status", "--json"], capsys)
-    assert code == 0 and data == {"ok": True, "state": "none", "running": False, "version": None, "library": None,
-                                  "problem": None, "db_version": None}
-
-
-def test_status_of_a_library_in_every_state(tmp_path, monkeypatch, capsys):
-    from discjockey.rekordbox import process
-    from rekordbox_helpers import make_master, writer
-    folder = tmp_path / "rb"
-    make_master(folder, [])
-    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(folder))
-    from rekordbox_helpers import snapshot
-    before = snapshot(folder)
-    assert cli.main(["rekordbox", "status"]) == 0
-    assert snapshot(folder) == before  # reading leaves no -wal or -shm and touches nothing
-    assert capsys.readouterr().out.splitlines() == [f"rekordbox library found: {folder / 'master.db'}",
-                                                    "rekordbox is closed."]
-    code, data = run_json(["rekordbox", "status", "--json"], capsys)
-    assert (code, data["state"], data["running"], data["problem"], data["db_version"]) == (0, "ready", False, None, "6000")
-    assert data["library"] == str(folder / "master.db")
-    # rekordbox closed but it left its -wal and -shm behind
-    con = writer(folder / "master.db")
-    con.execute("CREATE TABLE IF NOT EXISTS scratch (a)")
-    con.execute("INSERT INTO scratch VALUES (1)")
-    con.commit()
-    try:
-        assert cli.main(["rekordbox", "status"]) == 0
-        out = capsys.readouterr().out
-        assert "rekordbox didn't close normally last time. Open rekordbox and quit it" in out
-        code, data = run_json(["rekordbox", "status", "--json"], capsys)
-        assert (data["state"], data["problem"]) == ("ready", "unclean")
-        # open: the library is shared, no problem
-        monkeypatch.setattr(process, "running", lambda: True)
-        assert cli.main(["rekordbox", "status"]) == 0
-        assert "rekordbox is open." in capsys.readouterr().out
-    finally:
-        con.close()
-    monkeypatch.setattr(process, "running", lambda: False)
-    make_master(tmp_path / "rb2", [], key="ab" * 32)
-    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(tmp_path / "rb2"))
-    assert cli.main(["rekordbox", "status"]) == 0
-    assert capsys.readouterr().out.strip() == "Discjockey can't open this rekordbox version's library yet."
-    code, data = run_json(["rekordbox", "status", "--json"], capsys)
-    assert (code, data["state"], data["problem"]) == (0, "unreadable", "key")
-
-
-def test_status_fails_with_1_on_an_unexpected_error(monkeypatch, capsys):
-    def boom(*a, **k):
-        raise PermissionError("no access")
-    monkeypatch.setattr(rekordbox, "status", boom)
-    code, data = run_json(["rekordbox", "status", "--json"], capsys)
-    assert code == 1 and data["ok"] is False and data["kind"] == "failed" and "no access" in data["message"]
 
 
 def own_library(root):

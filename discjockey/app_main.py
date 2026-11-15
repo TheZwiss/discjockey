@@ -16,7 +16,7 @@ import sys
 from . import tools
 
 SELF_TEST_FLAG = "--self-test"
-# cli.py's sub-commands. Kept here because cli.py imports yt-dlp and may only be imported after tools.activate();
+# the cli package's legacy sub-commands. Kept here because cli imports yt-dlp and may only be imported after tools.activate();
 # a test pins this list against cli.parse_args.
 CLI_COMMANDS = ("setup", "update", "upgrades", "upgrade", "batch", "convert", "rename", "hub", "rekordbox",
                "settings")
