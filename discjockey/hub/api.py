@@ -2807,6 +2807,19 @@ class CliApi(HubApi):
             raise OpProblem(f"Discjockey cannot turn {kind} words into an id yet.", "failed")
         return {"kind": kind, "resolved": [getattr(self, resolver)(text) for text in values]}
 
+    @cli_first
+    def freshness(self) -> dict:
+        """How fresh the answers are, for the command line's `as_of`: `{scanned_at, read_at}`, each an ISO time or None.
+        `scanned_at` is when the index was last scanned (a watched folder's last scan), `read_at` when the playlists
+        were last read; both come from the stored records, never from a scan or a fetch. None for both while there is no
+        music folder, no library.db yet, or nothing was scanned or read."""
+        bound = self._bound
+        if bound is None:
+            return {"scanned_at": None, "read_at": None}
+        with self._move_log() as conn:
+            scanned, read = db.freshness(conn) if conn is not None else (None, None)
+        return {"scanned_at": scanned, "read_at": read}
+
     def _resolve_track(self, text: str) -> str:
         found = parse_id(text, ("track",))
         if found.kind == "track" and found.value != "-":

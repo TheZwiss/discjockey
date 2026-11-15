@@ -10,8 +10,8 @@ from discjockey.hub.api import CliApi, HubApi
 from discjockey.hub.catalog import Arg, Entry
 
 # The phase 1 ceiling: how many entries may still be `planned` (their command not built). Every group that builds a
-# command lowers the number; nothing may raise it. 1.1 plans them all; 1.2 builds `rekordbox status` and `resolve`.
-PHASE_1_CEILING = 121
+# command lowers the number; nothing may raise it. 1.1 plans them all; 1.2 builds `rekordbox status` and `resolve`; 1.3 builds `freshness`.
+PHASE_1_CEILING = 120
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select",
              "upgrade_preview", "fill_facts", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
@@ -163,7 +163,7 @@ def test_the_entries_are_well_formed():
         assert key not in seen, e
         seen.add(key)
         assert e.planned is None or e.planned.startswith("phase "), e
-    assert ("help",) in catalog.HOUSEKEEPING
+    assert {("help",), ("where",), ("app", "open"), ("call",)} <= set(catalog.HOUSEKEEPING)
 
 
 def test_the_planned_count_only_shrinks():

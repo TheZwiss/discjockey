@@ -15,316 +15,60 @@ uv sync
 cd hub-ui && npm ci
 ```
 
-`bin/discjockey` is the launcher: it runs `uv sync`, then the engine (`python -m discjockey`). `bin/discjockey hub`
-opens the window; `DISCJOCKEY_HUB_DEBUG=1 bin/discjockey hub` keeps its log in the terminal.
+`bin/discjockey` is the launcher: it runs `uv sync`, then the engine (`python -m discjockey`). `bin/discjockey app open`
+opens the window; `DISCJOCKEY_HUB_DEBUG=1 bin/discjockey app open` keeps its log in the terminal.
 
 Your own library and logins live in the support folder `~/Library/Application Support/Discjockey/`. To try things
-without touching them, point Discjockey at a scratch folder: `DISCJOCKEY_SUPPORT=/tmp/dj bin/discjockey hub` (Setup
+without touching them, point Discjockey at a scratch folder: `DISCJOCKEY_SUPPORT=/tmp/dj bin/discjockey app open` (Setup
 then asks for a music folder). Without the app, ffmpeg, ffprobe and deno come from your `PATH`
 (`brew install ffmpeg deno`).
 
-## The Terminal version
+## Terminal version
 
-The engine also runs in Terminal. `bin/discjockey setup` asks Setup's questions there, the music folder first (it
-needs a real Terminal window), and at the end prints a line that lets you type just `discjockey`:
-
-```
-discjockey --dry-run      shows what would happen, changes nothing
-discjockey                shows the plan, asks "Proceed?", then does it
-discjockey --limit 10     only the first 10 downloads
-discjockey --extra 20     allows 20 more Qobuz downloads today only
-discjockey upgrades       goes through the waiting lossless versions
-discjockey update         gets the newest yt-dlp
-discjockey --yes --json   runs a sync without a question and prints one JSON object (below)
-discjockey settings auto-upgrade off    turns Auto-upgrade off (below)
-discjockey convert --all lossless --dry-run    shows what Make all lossless files AIFF would do (below)
-```
-
-- The Mac stays awake while a run goes (`caffeinate`). Ctrl-C once stops safely after the current track; Ctrl-C
-  again stops at once. Both are safe, and the next run continues where this one stopped.
-- `discjockey upgrades` offers the To-do page's choices as letters: **s** swap, **a** add as a new file, **d**
-  discard, **f** show in Finder, **l** later (or Enter), **q** quit. A swap that has started is finished first, even
-  on Ctrl-C. It writes a report of what you decided.
-- While a Terminal run is busy, the window's buttons that change something are switched off.
+The window's engine has a command line with the same abilities (issue 39). One program, two homes: `bin/discjockey` in
+a checkout, `/Applications/Discjockey.app/Contents/MacOS/Discjockey` in the installed app. Both run `cli.main`. In
+the app, any argument but `--check-tools`, `--self-test`, `app open` and a Finder start goes to the command line, and
+no argument from a shell prints the short help (a window never opens on a probe). `discjockey where` prints the
+absolute path of the program.
 
 ### Commands for scripts and agents
 
-Every command runs without prompts and ends with an exit code. Where it has `--json`, it prints one JSON object:
-`{"ok": true, …}`, or `{"ok": false, "kind": "refused" | "failed", "message": "…"}` (a refusal also has a `reason`).
-Issue 39 gathers these into the agent docs; the entries below are the ones issue 33's stages A, B, C and D added.
+- **Start with** `discjockey help --json`: the index of every command (below). `discjockey help <noun> [<verb>]`
+  describes one noun or one command, `discjockey where --json` says which folders this process works on. Every command
+  and flag is listed there; this file holds no hand-written command shapes.
+- **Grammar:** `discjockey <noun> <verb> [ids] [flags]`. `--json`, `--jsonl`, `--verbose`, `--no-color`, `--wait`,
+  `--detach` and `--wait-busy` stand anywhere on the line; a flag a command does not take is a usage error, never
+  ignored. `--dry-run` shows what a command that changes things would do; `--yes` is what such a command needs to run
+  (a command never prompts). `discjockey call <method> [--args <json|->]` sends a bridge method the window's own
+  payload, through the same refusals as the noun-verb command. `discjockey app open` opens the window.
+- **The answer:** with `--json`, stdout holds exactly one object, for a usage error and a crash too; without it the
+  answer is a text page, and notices and problems go to stderr. The keys, in this order: `v` (1), `command`,
+  `outcome`, `reason`, `message`, `data`, `next` (commands to run next), `person_steps` (what only the person can do),
+  `recovered` (always a list), `job`, `as_of` (`{scanned_at, read_at}`: when the index was last scanned and the
+  playlists last read, from the stored records; both `null` without a music folder), `sandbox`.
+- **Exit codes** are the outcome's: 0 `ok`, 1 `failed`, 2 `bad_args`, 3 `busy`, 4 `needs_person`, 5 `stopped`,
+  6 `partial`, 7 `refused`, 8 `running`. `reason` is one word of the closed list in `discjockey/hub/outcomes.py`.
+- **Jobs** (commands that change the library) come with `--wait`, `--detach` and `job wait`; their rules are added
+  here as those commands land.
+- **Scratch folders:** a command run by hand always sets `DISCJOCKEY_SUPPORT=<scratch folder>` and
+  `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real
+  library and the real rekordbox library. `where` prints what a process resolved.
+- **Not rebuilt yet:** the sync (no command), `setup`, `update`, `upgrades`, `upgrade`, `batch`, `convert`,
+  `rename`, `settings` and `rekordbox preview | checked | backups | restore` still run the old command line
+  (`cli/legacy.py`; `discjockey <word> --help` prints their flags and exit codes). The sync takes `--dry-run` (changes
+  nothing), `--yes` (no question), `--limit N` (at most N downloads), `--extra N` (N more Qobuz downloads today),
+  `--verbose` and `--json` (needs `--yes` or `--dry-run`; one object `{"ok", "exit_code", "dry_run", "report",
+  "counts", "auto_upgrade"}`, every human line on stderr); exit 0 done, 1 errors in the run, 2 setup problem or no
+  music folder, 3 another run holds the library, 130 stopped (Ctrl-C once stops after the current step, twice stops at
+  once). `rekordbox preview`, `batch`, `upgrade`, `convert`, `rename` and `settings` take `--json` (and `--dry-run` where a plan can be shown) too.
+  Each word leaves with the group that builds its replacement.
 
-Someone who installed the app has no `discjockey` command, but the app's program takes the same ones: in the
-Terminal, `/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups` (any of the commands, in place of
-`discjockey`; the README's restore advice uses it). `app_main.py` hands an argument list that starts with one of
-`CLI_COMMANDS` to `cli.main`, and anything else opens the window.
-
-**`discjockey rekordbox status [--json]`** says whether rekordbox's library can be read. Read only: it takes no
-library lock and needs no music folder. With `--json` stdout holds the envelope `{"v": 1, "command", "outcome",
-"reason", "message", "data", "next", "person_steps", "recovered", "job", "as_of", "sandbox"}` (the same for every new
-command, a usage error and a crash too; the exit code follows `outcome`: `ok` 0, `failed` 1, `bad_args` 2, `busy` 3,
-`needs_person` 4, `stopped` 5, `partial` 6, `refused` 7, `running` 8). `data` is `{"state", "running"}`: `state` is
-`ready`, `none` (no rekordbox library on this Mac) or `unreadable` (Discjockey can't open this rekordbox version's
-library yet). `discjockey call <method> [--args <json|->]` sends a bridge method's exact payload through the same
-command; global flags (`--json`, `--verbose`, `--no-color`, ...) stand anywhere on the line.
-
-**`discjockey rekordbox preview (<track> | --path <file>) [--json]`** says what Same track, Convert to AIFF and Give
-it its clean name would do for one file, and why not. Read only, no lock, nothing written, but it decodes the file
-(1 to 3 seconds). `<track>` is the song's key; `--path` takes any file (a file the library doesn't know still gets the
-rekordbox part, and every action says `not_in_library`). JSON:
-
-```
-{"ok": true, "track": "<key>" | null, "file": "<path>", "codec", "sample_rate", "bits",
- "new_file": "<path>" | null, "superseded": "<path>" | null,
- "rekordbox": {"state", "running", "problem"},
- "timing": {"result", "offset_samples": int | null},
- "entries": [{"id", "cues", "grid", "pwv3", "offset_ms", "expected_ms", "score", "cloud", "fields_kept": []}],
- "eligible": {"same_track": null | "<reason>", "convert": null | "<reason>", "rename": null | "<reason>"}}
-```
-
-`eligible` is `null` for an action that can run, else the reason key (`no_upgrade`, `needs_choice`, `file_missing`,
-`away`, `rekordbox_unreadable`, `timing`, `not_analysed`, `cloud`, `downloaded`, `clean_aiff`, `named_already`,
-`needs_convert`, `no_name`, `not_in_library`, `auto_refused`; the list is `rekordbox/eligible.py`'s `REASONS`).
-`timing.result` is how rekordbox's timeline for the file was found: `no_rekordbox`, `not_in_rekordbox`, `format`,
-`no_cues`, `measured` (then `offset_samples` is the exact shift, in 44.1 kHz samples), `not_analysed`, `timing` or
-`unreadable` (the last three: unknown). `new_file` and `superseded` are the paths the first action that can run would
-use (nothing is reserved); `fields_kept` names the text fields of the rekordbox track the user edited, which a later
-repoint would leave alone. Exit 0 when it answered; 1 when it refused (`reason`: `unknown_track`, `file_missing`,
-`away` for a file on a drive that isn't connected) or failed (a file ffmpeg can't read); 2 when a song key was given
-and there is no music folder (`reason: "no_library"`). A usage error (a missing or conflicting argument) also exits 2,
-but prints argparse's usage as text on stderr, not JSON: only a JSON answer with `reason: "no_library"` means the
-music folder is missing.
-
-When you run these two commands by hand on a Mac that has a real rekordbox, always set both overrides first:
-`DISCJOCKEY_SUPPORT=<scratch folder> DISCJOCKEY_REKORDBOX=<a fixture folder or an empty folder> bin/discjockey rekordbox
-status|preview …`. Without them they read the real rekordbox library and your real music folder. An empty
-`DISCJOCKEY_REKORDBOX=` also means "no rekordbox library".
-
-### Upgrade, batch and rekordbox commands (issue 33, stage B)
-
-These change files, Discjockey's records and, for Same track, rekordbox's library, so each one that changes anything
-takes the library lock the hub takes (and finishes interrupted steps first), and **an agent's command counts as the
-user starting it**: never delete a file (replaced files move to `Superseded/`), Same track writes rekordbox only while
-rekordbox is closed, takes a backup first and can be undone. Read commands take no lock. All of them find the music
-folder like the hub and are meant to be run by hand only with both overrides set (above). Progress lines ("2 of 5:
-Artist - Title") go to stderr; with `--json` stdout holds exactly one JSON object.
-
-| Exit | Meaning |
-|---|---|
-| 0 | done for every track, or a dry run, or a read |
-| 1 | refused or failed, or some tracks were skipped or failed (each result says why) |
-| 2 | no music folder or no setup (`reason: "no_library"`); a usage error also exits 2 with argparse's text on stderr |
-| 3 | busy: the library lock or `rekordbox.lock` is held by another window or Terminal |
-| 4 | rekordbox is open: nothing was done, or the batch stopped there (quit rekordbox, then `batch resume <id>`) |
-| 5 | stopped by Ctrl-C between tracks (`batch resume <id>`); the sync's own 130 stays for the sync |
-
-Every command that changes something, when it finished an interrupted step first (`library.recover_pending`), also
-prints `"recovered": [[message, ok], …]` (the messages in words); without such a step the key is absent.
-
-**`ok` and the exit code.** `{"ok": true, …}` means the command ran to its end: a batch that finished with some tracks
-skipped or failed is still `ok: true` (each track's `state` and `reason` are in `results`), and its exit code is 1.
-`{"ok": false, "kind": "refused" | "failed" | "busy" | "rekordbox_open" | "stopped", "reason"?, "message", …}` is for a
-problem: nothing could start, or the job did not end. A problem of a batch carries the batch's own fields too
-(`batch`, `state`, `stop_reason`, `total`, `done`, `skipped`, `failed`, `results`, `backup`), so the id to resume is
-always there. One result per track: `{"track", "action", "state": "planned" | "done" | "skipped" | "failed",
-"reason", "message", "path", "rekordbox": null | {"entries": [rekordbox track ids], "kept": [fields the DJ edited]}}`;
-`reason` is an `eligible.REASONS` key for a skip.
-
-**Ctrl-C.** Once: stop between tracks (the track in work finishes or rolls back; exit 5). A second press, a second
-later: stop at once; what is finished stays saved.
-
-**`discjockey upgrade list [--json]`** lists the parked better versions as To-do shows them (a song in a playlist or
-the user's own file, its sound judged, not hidden). Read only. JSON: `{"ok", "count", "upgrades": [{"track",
-"artist", "title", "folder", "file", "parked", "now", "new", "alignment", "same_track": null | "<reason>",
-"auto_refused": null | {"reason", "message", "at"}, "auto_waits": bool}]}`. `same_track` is `null` when Same track can
-run for it (the quick answer: the run asks again and may still skip it), else the reason. `auto_refused` is the
-refusal the sync's Auto-upgrade recorded on the track (`timing`, `not_analysed`, `cloud`, `space`, `needs_choice`),
-`auto_waits` is `true` when the last sync met rekordbox open for it, Auto-upgrade is on and `same_track` is `null` (the hub's To-do shows the mark under the same condition). Song keys for the
-commands below come from here.
-
-**`discjockey upgrade apply (<track>… | --all) --way same-track|new-track [--dry-run] [--json]`**. `same-track` is
-one AIFF batch (`aiff_batches` in `library.db`): a file that isn't an AIFF becomes a new AIFF and rekordbox's track
-is pointed at it; an AIFF is swapped in place. `--all` is "Upgrade all" (every track Same track can run for;
-`started_by` `upgrade_all`, else `user`). `new-track` runs the named tracks one after the other (no batch, no backup,
-`batch: null` in the result). `--all` with `new-track` exits 1 (`kind: "refused"`, `reason: "all_needs_same_track"`).
-JSON: `{"ok", "batch": <id> | null, "state": "done", "stop_reason", "total", "done", "skipped", "failed", "results",
-"backup": <backup id> | null}`. When nothing could run the answer is a refusal (`ok: false`, `kind: "refused"`, the
-one track's `reason`, or none for several). Exit 4 (rekordbox open) and exit 5 (Ctrl-C) leave the batch `stopped`
-(`stop_reason` `rekordbox_open` / `stop`), and exit 3 with `rekordbox.lock` held by another window or Terminal leaves
-it `stopped` (`busy`); those are resumable with `batch resume`. Exit 3 for the library lock records no batch at all.
-A batch of one named track (not `--all`) that meets rekordbox open or `rekordbox.lock` busy before anything ran is
-closed instead (its song is skipped with that reason and stays in Upgrade ready; there is nothing to resume), as the
-window's single Replace does. Starting a batch for songs an earlier stopped batch still has `planned` closes those
-items there (`skipped`, reason `later_batch`), so each song waits in one batch only.
-`--dry-run` takes no lock, writes nothing and decodes nothing: per track `{"track", "action", "state": "planned" |
-"skipped", "reason", "file", "new_file", "superseded"}`, plus `{"ok", "dry_run": true, "way", "total", "planned",
-"skipped", "space": [{"drive", "needed", "free", "enough"}], "rekordbox": {"state", "running",
-"needs_rekordbox_closed"}}`. It says the run checks each track again.
-
-**`discjockey upgrade discard <track>… [--json]`** throws the better versions away (the current files stay).
-**`discjockey upgrade undo <track>… [--json]`** puts each track's replace back (files, records and, for Same track,
-rekordbox's text and path), one job. Both print the batch shape with `batch: null` (discard) or `{"ok", "batch":
-null, "total", "undone", "refused", "failed", "results": [{"track", "state": "undone" | "refused" | "failed" |
-"waiting", "reason", "message"}]}` (undo). Undo with rekordbox open and a rekordbox change to take back exits 4 and
-undoes nothing (`waiting`). An undo that undid nothing at all ends `{"ok": false, "kind": "refused", "message", …}`
-with the same fields (the one track's own message, else "None of these could be undone.") and exit 1, as the window's
-job fails `refused`.
-
-**`discjockey batch list [--json]`** (the newest batches: `{"ok", "count", "batches": [{"batch", "kind",
-"started_by", "state": "running" | "stopped" | "done", "stop_reason", "started", "ended", "total", "done", "skipped",
-"failed", "planned", "undone", "backup"}]}`), **`batch show <id> [--json]`** (that row plus `results`),
-**`batch resume <id> [--json]`** (runs the `planned` tracks of a stopped batch again, each asked again; a batch that
-isn't stopped exits 1 with `reason: "not_stopped"`) and **`batch undo <id> [--json]`** (undoes the batch's done
-tracks, newest first; a track that can't be undone stays listed with its reason and the exit is 1). An unknown id
-exits 1 (`reason: "unknown_batch"`).
-
-**`discjockey rekordbox checked (<track>… | --batch <id>) [--json]`** is "Done, checked in rekordbox": the reminder
-goes away and with it the undo. JSON: `{"ok", "checked": [keys], "not_checked": [keys]}`; a key with nothing to check
-exits 1, a batch's tracks checked earlier are not an error.
-
-**`discjockey rekordbox backups [--json]`** lists the copies of rekordbox's library Discjockey made before a batch
-(`.discjockey/rekordbox/backups/`): `{"ok", "backups": [{"id", "created", "batches", "tracks", "size"}]}`.
-**`discjockey rekordbox restore <backup> --yes [--json]`** puts rekordbox's whole library back as the backup holds it
-and drops every change made in rekordbox since; without `--yes` it changes nothing and exits 1 (`reason:
-"needs_yes"`). It refuses while rekordbox is open (exit 4), for an unknown, damaged or foreign backup, and with
-`-wal`/`-shm` files beside the library (exit 1, `reason`: `not_found`, `damaged`, `other_library`, `unclean`,
-`no_rekordbox`). It saves the current library first: `{"ok", "restored", "saved_current", "missing_after": [{"id",
-"path", "was"}]}`. `missing_after` lists the rekordbox tracks that now point at files Discjockey has since moved to
-`Superseded/`; undo those batches first (`batch undo`) or Relocate them in rekordbox.
-
-### Convert and rename (issue 33, stage D)
-
-Both are AIFF batches like `upgrade apply --way same-track`: they take the library lock, finish interrupted steps
-first, change rekordbox only while it is closed (a file no rekordbox track holds is just moved), take one backup, move
-the old file to `Superseded/` and can be undone. The exit codes, `--json` shapes, progress on stderr, Ctrl-C and
-`batch list | show | resume | undo` are those of the section above; `rekordbox checked --batch <id>` works for them
-too. `batch list` shows `kind` `convert` (Convert and Rename items only), `upgrade` or `mixed`, and `started_by`
-`user`, `make_aiff` or `cdj_all`.
-
-**`discjockey convert (<track>… | --all lossless | --all cdj) [--in playlist:<name> | folder:<path> | unlisted]
-[--dry-run] [--json]`** makes each file a clean AIFF: 16-bit/44.1 kHz, the song record's tags, `Artist - Title.aiff`,
-in the file's own folder. A song key says what its file needs and does that: Convert, or only the name when the file is
-a clean AIFF with the wrong name (the result's `action` says which; `eligible.aiff_action` decides). `--all lossless`
-is Make all lossless files AIFF over the whole library, or over `--in`'s view (`started_by` `make_aiff`); `--all cdj`
-is the To-do group "Won't play well on CDJs" (`cdj_all`; `--in` is refused there; a song in a duplicate group To-do lists
-is left out until that group is answered, as in the hub). Song keys: `user`. Lossy files join
-only by being named, or by being in the CDJ group.
-
-**`discjockey rename (<track>… | --all) [--in …] [--dry-run] [--json]`** gives a clean AIFF its clean name only (`--all`:
-every own clean AIFF whose name isn't clean, `--in` as above; `started_by` `user`). A file that needs a Convert is not
-renamed: it is `needs_convert`.
-
-Exactly one of the song keys and `--all` is required (argparse's usage error, exit 2, otherwise).
-
-**Dry run.** `--dry-run` writes nothing and starts nothing. JSON: `{"ok": true, "dry_run": true, "plan": <plan>}`. A
-library with own files whose facts aren't stored yet (from before schema 8, or a changed file) has them read first,
-which takes the library lock (exit 3 when it is held); otherwise it takes no lock. The human form is one line per item
-("FLAC → AIFF  Artist - Title  →  Artist - Title.aiff"), the files left as they are, the files that wait, the kinds, the
-room per drive and the rekordbox note. The plan is `aiff_plan.AiffPlan.to_dict()`, the same object the window's panel
-shows:
-
-```
-{"scope": {"kind": "tracks" | "lossless" | "cdj", "tracks": [key…], "view": "all" | "unlisted" | "playlist" | "folder",
-           "key": …, "label": "<words>"},
- "items": [{"track": "<key>", "name": "Artist - Title", "action": "convert" | "rename", "kind": "<kind>",
-            "from": "FLAC · 24-bit · 96 kHz", "path": "<relative>", "new_path": "<relative>",
-            "superseded": "<relative>" | null, "bytes": int, "cdj": null | {"short", "words"}}],
- "skipped": [{"track", "name", "reason", "message"}],
- "waiting": [{"reason", "message", "n"}],
- "kinds": [{"kind", "label", "n"}], "lossy": int, "total": int,
- "space": [{"drive", "needed", "free", "enough"}], "superseded_bytes": int,
- "rekordbox": {"state", "running", "needs_closed": bool}}
-```
-
-`items` are the files a run would change now (`total` is their number); `kind` is `flac`, `wav`, `alac`, `aiff_hires`
-(an AIFF above 16-bit/44.1 kHz), `tags`, `name` (clean name only), or a codec's own name for a format with no kind of its
-own (`wavpack`, `ape`, `tta`, `mp3`, `aac`, `opus`, `vorbis`…). `skipped` is filled for a song-key scope only (what the
-user named and the plan leaves as it is, with the reason's words). `waiting` counts the files that can't run now but may
-later, each file once and never in `items`, in every scope (`reason`: `away`, `file_missing`, `no_name`,
-`rekordbox_unreadable`, `cloud`, `rename_blocked`, `upgrade_waits`). `lossy` is how many items are lossy files (an AIFF
-made from them takes 5–10 times the space). `space` is per drive, as the run needs it. `needs_closed` is whether some
-item's file has a rekordbox track, so the run needs rekordbox closed.
-
-**A run.** One AIFF batch (`scope` `console`; the batch is planned again at its start: the dry run is a preview, and
-each file is asked again as it runs; a file whose answer changed meanwhile is skipped with the new reason, never
-switched to the other action). Progress on stderr: "Converting 3 of 52: Artist - Title" / "Renaming …", and "Reading
-what your files are: n of m" while the facts are filled. JSON and exit codes are `upgrade apply`'s: `{"ok", "batch",
-"state", "stop_reason", "total", "done", "skipped", "failed", "results": [{"track", "action": "convert" | "rename",
-"state", "reason", "message", "path", "rekordbox"}], "backup"}`; a song key the plan left out is a `skipped` result
-with its reason, and any skipped or failed file makes the exit code 1. A named single song is a batch of one: it
-meets rekordbox open or `rekordbox.lock` busy before anything ran by closing the batch (no Resume). The summary line says
-"Made 2 files AIFF, gave 1 file its clean name." and "n left as they are."
-
-Refusals, all `{"ok": false, "kind": "refused", …}` with exit 1 and no batch (`batch: null`):
-
-| `reason` | When |
-|---|---|
-| `nothing_to_do` | the plan has no item: "Nothing to change: these are clean AIFFs already." (a single named song: that song's own words); the answer also holds `results: []` and the `plan`, whose `waiting` and `skipped` say what is left |
-| `bad_args` | `--in` with song keys, `--in` with `--all cdj`, a malformed `--in`, a playlist or folder that doesn't exist ("No playlist called “X”." / "No folder at X."; an existing empty one is "Nothing to change") |
-| `no_library` | exit 2: no music folder |
-
-**Undo.** `batch undo <id>` puts each file back (newest first), as for any batch. A file Convert made and then renamed
-(an AIFF whose old file held the clean name) takes two undo steps, which `batch undo` does in one. A file that can't be
-undone is listed with its reason, and the exit is 1. For one file the hub's buttons have their commands too: `upgrade
-undo <track>` is a file's **Undo the conversion** (after a Convert) or **Undo the clean name** (after Give it its clean
-name), and `rekordbox checked <track>` is its **Done, checked in rekordbox** (no undo after it).
-
-**Reading the two lists agents ask for.** The CDJ group's state is `convert --all cdj --dry-run --json`: `plan.items`
-are the files Convert all would run (each with its `cdj` `short` and `words`; a To-do row's `cdj` also has the `reason`), `plan.total` is the group's
-"Convert all" number, and the sum of `plan.waiting[].n` is how many more are in the group but can't run now. A view's
-Make-all state is `convert --all lossless --in playlist:<name> --dry-run --json` (leave `--in` out for the whole
-library; `unlisted` is "Not in a playlist"), and one selection's is `convert <track>… --dry-run --json`, whose `items`,
-`skipped` and `kinds` are what the window's panel shows for the same rows.
-
-### The sync's `--json` and `settings auto-upgrade` (issue 33, stage C)
-
-**`discjockey [--yes | --dry-run] --json`** is the sync with one JSON object on stdout at the end; every human line
-goes to stderr. A command never prompts, so `--json` without `--yes` and without `--dry-run` exits 1 and changes
-nothing (`{"ok": false, "kind": "needs_yes", "message"}`). JSON:
-
-```
-{"ok": true, "exit_code": 0 | 1 | 130, "dry_run": bool, "report": "<path of the .md>" | null,
- "counts": {"<section>": n}, "auto_upgrade": <block> | null}
-```
-
-`ok` is `true` when the sync ran to its end: `exit_code` 1 is a run with errors (they are in the report's `errors`
-section), 130 a run stopped with Ctrl-C (the first press stops after the current step, a second one, a second later,
-at once; what is finished stays saved). `counts` are the report's sections with their number of results
-(`report.SECTIONS` keys, such as `new_lossless`, `upgraded`, `upgrade_waits`, `errors`); a dry run has `report: null` and
-counts the plan's actions (`acquire:new`, `acquire:retry`, `acquire:redownload`, `adopt_bought`, `upgrade`). Problems
-are `{"ok": false, "kind", "message"}`: exit 2 for a setup problem (`kind` is the setup problem's own: `not_set_up`,
-`login_expired`, `offline`, `playlist_unreadable`, `config_invalid`, `qobuz_login_failed`) or no music folder
-(`kind: "refused"`, `reason: "no_library"`), exit 3 `busy` (another run holds the library lock), exit 1 `crashed` (the
-sync stopped on an unexpected error; `report` names the crash note) or `failed`, 130 `stopped` (Ctrl-C before the run
-started). The exit code 4 of the batch commands is not used: rekordbox being open is a normal end of a sync, and the
-block says so.
-
-`auto_upgrade` is the run's Auto-upgrade block, the same object the report's `.json` holds under `"auto_upgrade"`;
-`null` when the switch is off (the sync then moves no file and looks at nothing of rekordbox):
-
-```
-{"batch": <id> | null, "backup": "<backup id>" | null, "done": n, "waiting": n, "refused": n, "failed": n,
- "stopped": bool, "dry_run": bool,
- "results": [{"track": "<key>", "name": "Artist – Title", "state": "done" | "would" | "waiting" | "refused" | "failed",
-              "reason": null | "<key>", "message": "…" | null, "how": "in_place" | "new_aiff"}]}
-```
-
-`waiting` counts the tracks that wait for rekordbox to be closed (`reason: "rekordbox_open"`) or for the next sync
-(`not_reached` after Stop, `busy`, and any skip nothing is recorded for, such as `changed` or `unclean`: its row keeps
-that reason and its specific `message`); `refused` only the ones To-do says why about (`reason` one of `timing`,
-`not_analysed`, `cloud`, `space`, `needs_choice`, its `message` the words To-do shows; a refusal still held from an
-earlier sync is listed again, not tried, also while rekordbox is open); failures
-are also in the report's `errors`. A dry run has `batch: null`, `done: 0` and `would` rows, and writes nothing.
-`how` is `in_place` for an AIFF swapped in place and `new_aiff` for a new AIFF that rekordbox's track is pointed at.
-
-**`discjockey settings auto-upgrade [on|off] [--json]`** is Settings › Upgrades from the Terminal ("Upgrade
-automatically when I sync", on by default; a settings file without the key reads as on). Without a value it prints
-the current one and takes no lock; with one it takes the library lock, saves, and prints "Upgrade automatically when
-I sync: on|off". JSON `{"ok": true, "auto_upgrade": bool}`. Exit 0; 1 when the settings file can't be read
-(`reason: "settings_invalid"`, nothing is written over it); 2 no music folder; 3 busy (the library lock is held;
-nothing changed). `settings` is a group so the other settings can join it (issue 39).
-
-Never start a real sync, upgrade swap or Qobuz download while working on the code unless you mean to: it changes
-your library and counts against your Qobuz daily limit. `--dry-run` changes nothing.
+`help --json` layout: `data` is `{command, version, global_flags: [{flag, says}], commands: [...]}`. Each command:
+`command` (`rekordbox status`), `kind` (`R` read, `RJ` read that may run as a job, `J` write job, `J-control`
+stops a job, `B` brief save, `words` for `help`, `where`, `app open` and `call`), `writes`, `job` (runs as a job),
+`args` (`{name, word, positional, many, required, type}`: what the person types), `flags` (the ones beside the
+arguments: `--dry-run`, `--yes`, `--limit`, `--offset`), `needs_yes`, `dry_run`, `locks`, `reasons` (the `reason`s the
+command may answer with), `example` and `usage`. A command that is not built yet is not listed.
 
 ## Tests
 

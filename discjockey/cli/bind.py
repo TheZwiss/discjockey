@@ -21,3 +21,9 @@ def headless(resolved: library.Resolved) -> CliApi:
 def default() -> CliApi:
     """The `HubApi` of the support folder this process works in (`DISCJOCKEY_SUPPORT`, else the real one)."""
     return headless(library.resolve_paths())
+
+
+def resolved() -> library.Resolved:
+    """Where this process finds its folders (`library.resolve_paths`: `DISCJOCKEY_SUPPORT`, else the real support
+    folder; `config.json` names the music folder). `where` prints it, so an agent can check it before any write."""
+    return library.resolve_paths()

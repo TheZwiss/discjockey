@@ -820,6 +820,15 @@ def watched_folders(conn: sqlite3.Connection) -> list[WatchedFolder]:
         "SELECT id, path, kind FROM watched_folders ORDER BY id")]
 
 
+def freshness(conn: sqlite3.Connection) -> tuple[str | None, str | None]:
+    """How fresh the records are, read from what is stored (nothing is scanned or fetched): when a watched folder was
+    last scanned (the newest `last_scan`) and when a playlist was last read (the newest `read_at`); None for each
+    that never happened. Both are ISO strings of one format, so the newest is the largest."""
+    scanned = conn.execute("SELECT MAX(last_scan) FROM watched_folders").fetchone()[0]
+    read = conn.execute("SELECT MAX(read_at) FROM playlist_reads").fetchone()[0]
+    return scanned, read
+
+
 def watched_root(conn: sqlite3.Connection, path: str) -> str | None:
     """The import folder a snapshot path is in, as its absolute path (the innermost one), for mirroring the file's
     place in Superseded/ and Upgrades ready/ (planner.mirror_dir's `watched`); None for a Library/ path or one in no

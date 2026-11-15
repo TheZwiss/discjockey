@@ -66,7 +66,15 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     kwargs.update(entry.fixed)
     if method != entry.method:
         kwargs = {k: v for k, v in kwargs.items() if k in parameters_of(method)}
-    return envelope.from_answer(command, getattr(api, method)(**kwargs))
+    answer = getattr(api, method)(**kwargs)
+    return envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None)
+
+
+def _as_of(api) -> dict | None:
+    """How fresh the index and the playlist read are (`HubApi.freshness`, from the stored records), for the envelope of
+    a read. A freshness that cannot be had (a damaged library.db) leaves both null: it never fails the answer."""
+    fresh = api.freshness()
+    return {key: fresh[key] for key in ("scanned_at", "read_at")} if fresh.get("ok") else None
 
 
 def choose(entries: list[Entry], flags: Flags) -> Entry:

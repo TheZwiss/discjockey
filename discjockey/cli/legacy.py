@@ -1,6 +1,6 @@
 """The old command line, moved here unchanged by issue 39 group 1.2: the sync (no command) and the words whose
 replacement is not built yet (`setup`, `update`, `upgrades`, `upgrade`, `batch`, `convert`, `rename`, `settings`,
-`hub`, `rekordbox preview | checked | backups | restore`). `discjockey/cli/__init__.py` routes those words here
+`rekordbox preview | checked | backups | restore`). `discjockey/cli/__init__.py` routes those words here
 unchanged; each leaves with the group that lands its replacement. Started by `python -m discjockey`
 (discjockey/__main__.py), which prepares the tools first.
 
@@ -8,7 +8,7 @@ The sync (no command) prints its plan, with Auto-upgrade's part (how many upgrad
 run), runs, and ends with the report's summary and Auto-upgrade's summary line. With `--json` (needs `--yes` or
 `--dry-run`: a command never prompts) stdout holds exactly one object, `{"ok", "exit_code", "dry_run", "report",
 "counts", "auto_upgrade"}` or `{"ok": false, "kind", "message"}` for a problem, and every human line goes to stderr
-(CONTRIBUTING.md > "Commands for scripts and agents"). Exit codes: 0 done (also when upgrades wait for rekordbox), 1
+(CONTRIBUTING.md > "Commands for scripts and agents" > "Not rebuilt yet"). Exit codes: 0 done (also when upgrades wait for rekordbox), 1
 errors in the run, a crash or `needs_yes`, 2 setup problem or no music folder, 3 another run holds the library lock,
 130 stopped. The other commands live in `batch_cmd.py` (`upgrade`, `batch`, `rekordbox checked | backups | restore`),
 `convert_cmd.py` (`convert`, `rename`),
@@ -69,11 +69,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                     "batch: look at, resume or undo an AIFF batch; "
                     "convert: make files clean AIFFs; rename: give files their clean names; "
                     "settings: change a setting without the window (auto-upgrade); "
-                    "hub: open the Discjockey window; rekordbox: rekordbox's library (look at it, check tracks, "
+                    "rekordbox: rekordbox's library (look at it, check tracks, "
                     "backups)")
     for name, help_text in (("setup", "One-time logins."), ("update", "Get the newest yt-dlp."),
-                            ("upgrades", "Go through the better versions found for your lossy tracks."),
-                            ("hub", "Open the Discjockey window.")):
+                            ("upgrades", "Go through the better versions found for your lossy tracks.")):
         _sync_flags(commands.add_parser(name, description=help_text), repeated=True)
     box = commands.add_parser("rekordbox", description="rekordbox's library: status and preview only read; checked, "
                                                        "backups and restore belong to Same track batches.")
@@ -94,7 +93,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     args = p.parse_args(argv)
     batch_cmd.check_args(args, batch_parsers)
     convert_cmd.check_args(args, convert_parsers)
-    if args.json and args.command in ("setup", "update", "upgrades", "hub"):
+    if args.json and args.command in ("setup", "update", "upgrades"):
         p.error(f"--json belongs to the sync, not to `{args.command}`")
     if args.command == "rekordbox" and args.rekordbox_command == "preview" and bool(args.track) == bool(args.path):
         preview.error("give either the song's key or --path FILE")
@@ -314,9 +313,6 @@ def _main(args: argparse.Namespace) -> tuple[int, dict | None]:
     """Everything of `main` that needs a music folder. Returns the exit code and, for the sync, the object `--json`
     prints (None for the other commands, and for endings that print their own text)."""
     resolved = library.resolve_paths()
-    if args.command == "hub":  # opens without a music folder too: Setup (or the missing-folder screen) takes over
-        from ..hub import app
-        return app.main(resolved), None  # the hub takes the lock for each change it makes, not for as long as it is open
     if resolved.problem == "missing":
         print(missing_text(resolved.music_folder))
         return 2, _problem("refused", missing_text(resolved.music_folder), reason="no_library")
