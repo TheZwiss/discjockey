@@ -606,6 +606,14 @@ Results:
     message}; state.json += `method`, `wait_busy`; prune at each job start (client); stderr → log.txt. For V1.6: a
     lock race lost under `--wait-busy` writes `JobFinished(console)` before the retry → the follower ends on
     result.json, not that event. Issue 39 ~5.61M.
+    V1.6 done fc906cb5: Sonnet **215k** (est. 195k; 50 calls); its final full pytest 5054 passed, 4 skipped, nothing
+    changed after (it started a sleep-loop watcher, stopped it itself; I checked: none left). Merged + main →
+    1502ccca, pushed. `cli/follow.py`: follower ends on status + result.json (pinned). Decisions: `job list|show|
+    follow|stop` are housekeeping words; window entries job_status/stop/stop_refresh/stop_sign_in keep T1 coverage, no
+    command (`call stop` → "use `job stop`"); `current` = running write-entry or window job; show/wait on `current`
+    fall back to newest, `job stop current` → not_running; Ctrl-C leaves the job running; `--jsonl` brackets events
+    with Job started/ended. Phase review: a read job (RJ) can be stopped only with `--now` (its method never reads the
+    stop file); the worker writes `status: running` itself for RJ. Issue 39 ~5.83M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
