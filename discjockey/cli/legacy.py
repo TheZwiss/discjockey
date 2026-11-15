@@ -1,4 +1,7 @@
-"""Discjockey command line: the console front end around discjockey.run. Started by `python -m discjockey`
+"""The old command line, moved here unchanged by issue 39 group 1.2: the sync (no command) and the words whose
+replacement is not built yet (`setup`, `update`, `upgrades`, `upgrade`, `batch`, `convert`, `rename`, `settings`,
+`hub`, `rekordbox preview | checked | backups | restore`). `discjockey/cli/__init__.py` routes those words here
+unchanged; each leaves with the group that lands its replacement. Started by `python -m discjockey`
 (discjockey/__main__.py), which prepares the tools first.
 
 The sync (no command) prints its plan, with Auto-upgrade's part (how many upgrades go in at the end, the list in a dry
@@ -9,7 +12,7 @@ run), runs, and ends with the report's summary and Auto-upgrade's summary line. 
 errors in the run, a crash or `needs_yes`, 2 setup problem or no music folder, 3 another run holds the library lock,
 130 stopped. The other commands live in `batch_cmd.py` (`upgrade`, `batch`, `rekordbox checked | backups | restore`),
 `convert_cmd.py` (`convert`, `rename`),
-`rekordbox_cmd.py` (`rekordbox status | preview`), `settings_cmd.py` (`settings`) and `setup_cmd.py`/`upgrades_cmd.py`."""
+`rekordbox_cmd.py` (`rekordbox preview`), `settings_cmd.py` (`settings`) and `setup_cmd.py`/`upgrades_cmd.py`."""
 from __future__ import annotations
 
 import argparse
@@ -19,12 +22,12 @@ import signal
 import sys
 import time
 
-from . import auto_upgrade, library, planner, report as rep, run
-from .console import ConsolePrinter, upgrade_lines, waiting_lines
-from .events import CancelToken
-from .library import LockHeld, NoLibrary
-from .rekordbox import process
-from .rekordbox.locate import locate
+from .. import auto_upgrade, library, planner, report as rep, run
+from ..console import ConsolePrinter, upgrade_lines, waiting_lines
+from ..events import CancelToken
+from ..library import LockHeld, NoLibrary
+from ..rekordbox import process
+from ..rekordbox.locate import locate
 
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
 CTRL_C_REPEAT_S = 1.0  # uv and caffeinate forward one Ctrl-C a second time; ignore repeats this close together
@@ -75,22 +78,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     box = commands.add_parser("rekordbox", description="rekordbox's library: status and preview only read; checked, "
                                                        "backups and restore belong to Same track batches.")
     box_commands = box.add_subparsers(dest="rekordbox_command", metavar="command", required=True)
-    status = box_commands.add_parser("status", help="whether Discjockey can read rekordbox's library",
-                                     description="Whether rekordbox's library is on this Mac, can be opened, and "
-                                                 "whether rekordbox is open. Needs no music folder.")
     preview = box_commands.add_parser(
         "preview", help="what Same track, Convert and Rename would do for one file",
         description="Read only: what each action would do for a song of your library (its key) or for any file "
                     "(--path), and why not when it can't. Decodes the file, which takes a few seconds.")
     preview.add_argument("track", nargs="?", help="the song's key, as the library's JSON prints it")
     preview.add_argument("--path", metavar="FILE", help="a file, instead of a song key")
-    for sub in (status, preview):
-        sub.add_argument("--json", action="store_true", help="print one JSON object")
-    from . import batch_cmd
+    preview.add_argument("--json", action="store_true", help="print one JSON object")
+    from .. import batch_cmd
     batch_parsers = batch_cmd.add_commands(commands, box_commands)
-    from . import convert_cmd
+    from .. import convert_cmd
     convert_parsers = convert_cmd.add_commands(commands)
-    from . import settings_cmd
+    from .. import settings_cmd
     settings_cmd.add_commands(commands)
     args = p.parse_args(argv)
     batch_cmd.check_args(args, batch_parsers)
@@ -281,17 +280,17 @@ def _print_json(data: dict, out) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    if args.command == "rekordbox" and args.rekordbox_command in ("status", "preview"):
-        from . import rekordbox_cmd  # read only: no lock, and `status` needs no music folder
+    if args.command == "rekordbox" and args.rekordbox_command == "preview":
+        from .. import rekordbox_cmd  # read only: no lock
         return rekordbox_cmd.run(args)
     if args.command in ("upgrade", "batch", "rekordbox"):  # each takes the library lock itself where it writes
-        from . import batch_cmd
+        from .. import batch_cmd
         return batch_cmd.run(args)
     if args.command in ("convert", "rename"):  # take the lock themselves (a dry run only when facts are missing)
-        from . import convert_cmd
+        from .. import convert_cmd
         return convert_cmd.run(args)
     if args.command == "settings":  # takes the lock itself where it writes
-        from . import settings_cmd
+        from .. import settings_cmd
         return settings_cmd.run(args)
     # `--json` is the sync's: one object on stdout at the end, every human line on stderr
     as_json = args.command is None and args.json
@@ -316,7 +315,7 @@ def _main(args: argparse.Namespace) -> tuple[int, dict | None]:
     prints (None for the other commands, and for endings that print their own text)."""
     resolved = library.resolve_paths()
     if args.command == "hub":  # opens without a music folder too: Setup (or the missing-folder screen) takes over
-        from .hub import app
+        from ..hub import app
         return app.main(resolved), None  # the hub takes the lock for each change it makes, not for as long as it is open
     if resolved.problem == "missing":
         print(missing_text(resolved.music_folder))
@@ -327,18 +326,18 @@ def _main(args: argparse.Namespace) -> tuple[int, dict | None]:
             if args.command != "setup":
                 print(NOT_CHOSEN_TEXT)
                 return 2, _problem("refused", NOT_CHOSEN_TEXT, reason="no_library")
-            from . import setup_cmd
+            from .. import setup_cmd
             paths = setup_cmd.ask_music_folder(resolved.support)
         # setup, update and upgrades take the same lock: nothing may change under a running sync
         with library.run_lock(paths.lock):
             if args.command == "setup":
-                from . import setup_cmd
+                from .. import setup_cmd
                 return setup_cmd.run_setup(paths), None
             if args.command == "update":
-                from . import setup_cmd
+                from .. import setup_cmd
                 return setup_cmd.run_update(paths.support), None
             if args.command == "upgrades":
-                from . import upgrades_cmd
+                from .. import upgrades_cmd
                 return upgrades_cmd.run_upgrades(paths), None
             return sync(paths, args)
     except NoLibrary as e:

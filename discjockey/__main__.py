@@ -1,5 +1,5 @@
 """`python -m discjockey`: the programs and the download tools first (tools.activate), then the command line
-(cli.py). `--check-tools <folder>` instead tests an update folder in this fresh process (spec public-release §6.4)."""
+(discjockey/cli/). `--check-tools <folder>` instead tests an update folder in this fresh process (spec public-release §6.4)."""
 from __future__ import annotations
 
 import sys

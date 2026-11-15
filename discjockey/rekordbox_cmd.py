@@ -1,18 +1,17 @@
-"""`discjockey rekordbox status` and `discjockey rekordbox preview`: what rekordbox's library is like and what
-Same track, Convert and Rename would do for one file (plan rekordbox stage A §2; design rekordbox-repoint §10).
+"""`discjockey rekordbox preview`: what Same track, Convert and Rename would do for one file (plan rekordbox
+stage A §2; design rekordbox-repoint §10). `rekordbox status` is the new command line's (`discjockey/cli/`, issue 39).
 
-Both are read-only and take no library lock (they don't change Discjockey's records either). `status` needs no music
-folder. Exit codes: 0 the command answered (a library that isn't there, or can't be opened, is an answer), 1 it
-refused or failed (an unknown track, a missing file, a file ffmpeg can't read), 2 there is no music folder to look a
-track up in. `--json` prints one object: `{"ok": true, …}`, or `{"ok": false, "kind", "message"}` with a `reason` for
-a refusal.
+Read-only and takes no library lock (it doesn't change Discjockey's records either). Exit codes: 0 the command
+answered, 1 it refused or failed (an unknown track, a missing file, a file ffmpeg can't read), 2 there is no music
+folder to look a track up in. `--json` prints one object: `{"ok": true, …}`, or `{"ok": false, "kind", "message"}`
+with a `reason` for a refusal.
 """
 from __future__ import annotations
 
 import argparse
 import json
 
-from . import library, rekordbox
+from . import library
 from .library import StateError
 from .rekordbox import preview as previewing
 from .rekordbox.eligible import ACTIONS
@@ -57,36 +56,6 @@ def no_library(args: argparse.Namespace, resolved: library.Resolved) -> int:
                "Discjockey doesn't know your music folder yet. Open the Discjockey window and follow Setup, "
                "or run: discjockey setup")
     return failed(args, message, "refused", "no_library", code=2)
-
-
-# --- status ---
-
-def status_lines(st: rekordbox.Status) -> list[str]:
-    if st.state == "none":
-        return ["No rekordbox library on this Mac."]
-    if st.state == "unreadable":
-        return ["Discjockey can't open this rekordbox version's library yet."]
-    lines = [f"rekordbox library found: {st.library}"]
-    lines.append(f"rekordbox {st.version} is open." if st.running and st.version else
-                 "rekordbox is open." if st.running else "rekordbox is closed.")
-    if st.problem == "unclean":
-        lines.append("rekordbox didn't close normally last time. Open rekordbox and quit it before Discjockey "
-                     "changes anything there.")
-    elif st.problem == "busy":
-        lines.append("rekordbox is holding its library right now, so Discjockey can't read it until rekordbox is "
-                     "closed.")
-    return lines
-
-
-def run_status(args: argparse.Namespace) -> int:
-    try:
-        st = rekordbox.status(rekordbox.locate())
-    except Exception as e:  # an unexpected failure is the one thing that is not an answer
-        return failed(args, f"Discjockey couldn't look at rekordbox ({type(e).__name__}: {e}).")
-    data = {"ok": True, "state": st.state, "running": st.running, "version": st.version, "library": st.library,
-            "problem": st.problem, "db_version": st.db_version}
-    say(args, data, status_lines(st))
-    return 0
 
 
 # --- preview ---
@@ -146,4 +115,4 @@ def run_preview(args: argparse.Namespace) -> int:
 
 
 def run(args: argparse.Namespace) -> int:
-    return run_status(args) if args.rekordbox_command == "status" else run_preview(args)
+    return run_preview(args)

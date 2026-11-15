@@ -72,10 +72,11 @@ PHASE = "phase 1"
 
 def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapping[str, Arg] | None = None,
        fixed: Mapping[str, object] | None = None, needs_yes: bool = False, dry_run: str | None = None,
-       cli_first: bool = False) -> Entry:
+       cli_first: bool = False, built: bool = False) -> Entry:
+    """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command."""
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
                  params=params or {}, fixed=fixed or {}, cli_first=cli_first,
-                 planned=None if kind in ("W", "dropped") else PHASE, example=example)
+                 planned=None if built or kind in ("W", "dropped") else PHASE, example=example)
 
 
 def _positional(resolve: str | None = None, *, many: bool = False, type: str = "str") -> Arg:
@@ -141,7 +142,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("move_batches", "batch list", "R", "batch list --kind moves"),
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
        params={"batch_id": _positional("moves", type="int")}),
-    _e("rekordbox_status", "rekordbox status", "R", "rekordbox status"),
+    _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True),
     _e("job_status", "job list", "R", "job list"),
     _e("job_status", "job show", "R", "job show current"),
     _e("spectrum", "track spectrum", "R", "track spectrum local:1 --which current", params={"track_id": TRACK}),
@@ -247,7 +248,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("reject_current", "version reject", "J", params={"track_id": TRACK}, needs_yes=True),
     # --- methods the command line needs and the window has not (their shapes belong to the group that builds them)
     _e("freshness", "", "R", cli_first=True),
-    _e("resolve", "", "R", cli_first=True),
+    _e("resolve", "", "R", cli_first=True, built=True),
     _e("find_tracks", "", "R", cli_first=True),
     _e("rekordbox_preview", "rekordbox preview", "R", cli_first=True),
     _e("batches", "", "R", cli_first=True),

@@ -55,6 +55,7 @@ from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
+from .ids import BadId, parse as parse_id
 from .outcomes import problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Jobs, PreviewStore, SignInPhase,
                    import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
@@ -165,12 +166,13 @@ LIKED_NEEDS_LOGIN = "Sign in to YouTube first: Discjockey reads your Liked music
 LIKED_LISTED = "Liked music is in your playlists already."
 
 
-def bridge(fn):
-    """{"ok": true, **result} or {"ok": false, "kind", "message", "outcome", "reason", "next", "person_steps",
-    "data"}; never raises into pywebview. The window reads `kind` and `message`; the command line reads the rest
-    (`outcomes.problem_fields`: the outcome row of the kind, the reason, the commands that move on, the steps only a
-    person can do). A problem with a playlist service (a SourceError) also carries "service", a setting_off one
-    "setting"."""
+def _answering(fn):
+    """The answer wrapper of `bridge` and `cli_first`: {"ok": true, **result} or {"ok": false, "kind", "message",
+    "outcome", "reason", "next", "person_steps", "data"}; never raises. The window reads `kind` and `message`; the
+    command line reads the rest (`outcomes.problem_fields`: the outcome row of the kind, the reason, the commands that
+    move on, the steps only a person can do). A problem with a playlist service (a SourceError) also carries
+    "service", a setting_off one "setting". A `BadId` (a typed id the command line cannot use) answers `bad_args`:
+    only the command line's methods raise it."""
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
         try:
@@ -181,6 +183,9 @@ def bridge(fn):
             return {"ok": False, "kind": e.kind, "message": str(e), **problem_fields(e.kind, e)}
         except StateError as e:
             return {"ok": False, "kind": "config_invalid", "message": str(e), **problem_fields("config_invalid", e)}
+        except BadId as e:
+            return {"ok": False, "kind": "bad_args", "message": e.message, "outcome": "bad_args", "reason": e.reason,
+                    "next": [], "person_steps": [], "data": None}
         except TypeError as e:  # the page called with wrong arguments
             traceback.print_exc()
             return {"ok": False, "kind": "crashed", "message": UNEXPECTED, **problem_fields("crashed")}
@@ -194,7 +199,22 @@ def bridge(fn):
                     **({"setting": setting} if setting else {}), **problem_fields(kind, e)}
 
     call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it
-    call.is_bridge = True  # the catalogue and its test find the bridge methods by this
+    return call
+
+
+def bridge(fn):
+    """A method the window calls (pywebview reads its name and parameters). The catalogue and its test find the
+    bridge methods by `is_bridge`; contract.ts, types.ts and the fake bridge list exactly these."""
+    call = _answering(fn)
+    call.is_bridge = True
+    return call
+
+
+def cli_first(fn):
+    """A method the command line needs and the window does not have (the catalogue's `cli_first` entries): the same
+    answers as a bridge method, but not part of the window's contract (no `is_bridge`, nothing in contract.ts)."""
+    call = _answering(fn)
+    call.is_cli_first = True
     return call
 
 
@@ -295,9 +315,12 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
 
 
 class HubApi:
-    def __init__(self, support: Path, events=None, services: Services | None = None, media=None):
+    def __init__(self, support: Path, events=None, services: Services | None = None, media=None,
+                 remember: bool = True):
         """Built from the support folder alone; a library is bound later with _bind (app.main at start when the
-        music folder is there, or set_music_folder / retry_music_folder when it is chosen or comes back)."""
+        music folder is there, or set_music_folder / retry_music_folder when it is chosen or comes back).
+        `remember=False` (the command line): a write acts on the record as it is now, with no check against how a page
+        last showed it (`_shown`)."""
         self._support = SupportPaths(support=support)
         self._bound: Paths | None = None
         self._missing: Path | None = None  # config.json names this folder, but it isn't there
@@ -314,6 +337,7 @@ class HubApi:
         self._infos: dict = {}  # playlist ref -> models.PlaylistInfo
         self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
         self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
+        self._check_shown = remember  # False: no page showed anything, so a write checks nothing against `_shown`
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
         # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
         # away) -> the plan, so each To-do read doesn't open rekordbox's library again (A7)
@@ -1360,7 +1384,7 @@ class HubApi:
 
         def work(ctx) -> dict:
             done = ops.run_single(self._paths, kind, track_id, expect, lambda state: do(state, ctx),
-                                  now=self._svc.now)
+                                  now=self._svc.now, check=self._check_shown)
             return {"track_id": track_id, "result": asdict(done.result),
                     "recovered": [[message, ok] for message, ok in done.recovered]}
 
@@ -2027,7 +2051,7 @@ class HubApi:
 
         def work(ctx) -> dict:
             state, recovered = self._begin()
-            if one and ((e := state["tracks"].get(ids[0])) is None or snapshot(e) != expect):
+            if one and ((e := state["tracks"].get(ids[0])) is None or (self._check_shown and snapshot(e) != expect)):
                 raise OpProblem(ops.CHANGED, "changed")
             results: list[batches.ItemResult] = []
             stopped = False
@@ -2762,3 +2786,37 @@ def to_candidate(d: dict) -> Candidate:
                      float(duration) if duration is not None else None, d.get("url"), d.get("isrc"), d.get("album"),
                      d.get("label"), d.get("image_url"))
 
+
+class CliApi(HubApi):
+    """What the command line calls: every `HubApi` method plus the `cli_first` ones. A separate class, because
+    pywebview exposes every public name of the object it is given, and the window sees exactly the contract
+    (tests/test_hub_api.py): the window's `HubApi` has none of these."""
+
+    RESOLVERS = {"track": "_resolve_track"}  # kind -> the method that makes it (grows per group)
+
+    @cli_first
+    def resolve(self, kind: str, values: list[str]) -> dict:
+        """The one place that turns what a person typed into the argument a method takes (the command line never looks
+        anything up itself; issue 39 design §3). `kind` is an `Arg.resolve` name of the catalogue, `values` the texts
+        in the order typed. Answers `{"kind": kind, "resolved": [...]}`: one resolved argument per value, same order,
+        every kind in this one shape. A text no id can be made of is `bad_args` (`unknown_id` / `bad_id_kind`); a kind
+        nobody resolves yet is a failure. Kinds so far: `track` (a song key as it is, or the path of a file of the
+        library, absolute or relative to the music folder, to its song key)."""
+        resolver = self.RESOLVERS.get(kind)
+        if resolver is None:
+            raise OpProblem(f"Discjockey cannot turn {kind} words into an id yet.", "failed")
+        return {"kind": kind, "resolved": [getattr(self, resolver)(text) for text in values]}
+
+    def _resolve_track(self, text: str) -> str:
+        found = parse_id(text, ("track",))
+        if found.kind == "track" and found.value != "-":
+            return str(found.value)
+        if found.kind != "path":
+            raise BadId("unknown_id", "A song key is missing: say a key or the path of a file of your library.")
+        root = self._paths.root
+        typed = Path(os.path.expanduser(text))
+        wanted = os.path.normpath(typed if typed.is_absolute() else root / typed)
+        for key, e in self._state()["tracks"].items():
+            if e.get("path") and os.path.normpath(root / e["path"]) == wanted:
+                return key
+        raise BadId("unknown_id", f"Your library has no track with the file {text}.")
