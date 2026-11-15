@@ -509,6 +509,10 @@ Results:
     shared pacer, jobs alive by flock, sandbox roots-guarded w/o accounts, §8.4 derive/flows/rendered checks. Build est.
     37 groups ~17M (14-20M) incl. reviews: TELL THE USER in the morning (budget). 4b Sonnet (brief-39-fix-b.md,
     25 stated fixes, material ~66k, est. ~180k) next. Issue 39 ~3.30M.
+    4b done c63cdb8c: Sonnet **178k** (est. 180k; 25 fixes, 0 conflicts, 0 `for 4b` left; design 1426 lines). Issue 39
+    ~3.48M. Step 5 scoped (G2, told the user in chat): phase 1 (CLI slice + A-D live tests) planned in full, later phases
+    as a costed outline only, because the ~17M budget is the user's call and a 37-group full plan is over the planner
+    record (227k/288k). Detail of later phases = a later run after the user's go. Opus planner, brief-39-plan.md.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
