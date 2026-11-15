@@ -65,7 +65,9 @@ WINDOW_ONLY_REASONS = frozenset(("native_dialog", "closes_window"))
 DROPPED = frozenset(("media_url", "select", "setup_check_account"))
 
 # Commands that run no engine method of their own: the command line's own words.
-HOUSEKEEPING = (("help",), ("where",), ("app", "open"), ("call",), ("job", "wait"))
+# The `job` words read the registry directly (`cli/follow.py`); the window's job methods below have no command of their own.
+HOUSEKEEPING = (("help",), ("where",), ("app", "open"), ("call",), ("job", "list"), ("job", "show"), ("job", "follow"),
+                ("job", "wait"), ("job", "stop"))
 
 PHASE = "phase 1"
 
@@ -143,8 +145,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
        params={"batch_id": _positional("moves", type="int")}),
     _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True),
-    _e("job_status", "job list", "R", "job list"),
-    _e("job_status", "job show", "R", "job show current"),
+    _e("job_status", "", "R", built=True),  # the window's own job; `job list` / `job show` read the registry
     _e("spectrum", "track spectrum", "R", "track spectrum local:1 --which current", params={"track_id": TRACK}),
     _e("media_url", "", "dropped"),
     _e("dashboard", "status", "R", "status"),
@@ -154,10 +155,10 @@ ENTRIES: tuple[Entry, ...] = (
     _e("sync_preview", "sync plan", "R", "sync plan"),
     # --- sync and jobs
     _e("refresh", "sync read", "J"),
-    _e("stop_refresh", "job stop", "J-control"),
+    _e("stop_refresh", "", "J-control", built=True),  # `job stop` writes the job's stop file (cli/follow.py)
     _e("start_sync", "sync run", "J", params={"selected": _derived("selection", "list")}, dry_run="sync_preview"),
-    _e("stop", "job stop", "J-control"),
-    _e("stop_sign_in", "job stop", "J-control"),
+    _e("stop", "", "J-control", built=True),
+    _e("stop_sign_in", "", "J-control", built=True),
     _e("never_download", "track never", "J", params={"track_id": TRACKS}, fixed={"never": True}),
     _e("never_download", "track download", "J", params={"track_id": TRACKS}, fixed={"never": False}),
     _e("hide", "track hide", "J", params={"track_id": TRACKS}, fixed={"hidden": True}),

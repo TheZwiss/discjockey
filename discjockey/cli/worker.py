@@ -225,7 +225,10 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
     roots = record.get("roots") or {}
     deadline = time.monotonic() + float(record.get("wait_busy") or 0)
     token = bind.job_token(api)
+    entries = catalog.by_method(method)
     try:
+        if entries and entries[0].kind == "RJ":  # a read that takes long: no library lock, no `Jobs` job
+            return _stopped_reason(_read_job(files, command, method, args, api), signals)
         while True:
             sink.finished = None
             answer = _call(api, method, args)
@@ -243,6 +246,17 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
         return _stopped_reason(_finished_envelope(command, files, job), signals)
     except (ev.Cancelled, KeyboardInterrupt):
         return _stopped_reason(envelope.problem(command, "stopped", "stop", job=files.id), signals)
+
+
+def _read_job(files: registry.JobFiles, command: str, method: str, args: dict, api) -> dict:
+    """An RJ entry (design §5.2): the method answers when it is done, and `status: running` is written by hand (no
+    `Jobs` job does it). Stop at once (`--now`) reaches it as SIGINT on this thread; the stop file only ends it where
+    the method itself looks at its token."""
+    files.update(status="running")
+    answer = _call(api, method, args)
+    fresh = api.freshness()
+    as_of = {key: fresh[key] for key in ("scanned_at", "read_at")} if fresh.get("ok") else None
+    return envelope.from_answer(command, answer, job=files.id, as_of=as_of if answer.get("ok") else None)
 
 
 def _run(files: registry.JobFiles) -> int:

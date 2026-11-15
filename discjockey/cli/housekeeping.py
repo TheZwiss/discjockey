@@ -24,8 +24,8 @@ from ..hub.api import LIBRARY_METHODS
 from ..hub.catalog import Entry
 from ..hub.outcomes import REASONS
 from ..rekordbox.locate import locate
-from . import bind, call, envelope, parser
-from .parser import APP_OPEN, CALL, HELP, WHERE, Flags, Parsed
+from . import bind, call, envelope, follow, parser
+from .parser import APP_OPEN, CALL, HELP, JOB_WORDS, WHERE, Flags, Parsed
 
 FIRST_LINE = "AI agents: run `{path} help --json` first."
 GLOBAL_FLAGS = [
@@ -50,6 +50,25 @@ OWN_WORDS = {
             {"name": "password", "word": "--password-stdin", "positional": False, "many": False, "required": False,
              "type": "bool"}]),
 }
+_JOB = {"name": "job", "word": "JOB", "positional": True, "many": False, "required": True, "type": "str"}
+
+
+def _switch(name: str) -> dict:
+    return {"name": name, "word": "--" + name.replace("_", "-"), "positional": False, "many": False, "required": False,
+            "type": "bool"}
+
+
+OWN_WORDS.update({
+    parser.JOB_LIST: ("List the jobs of this music folder: running first, then the newest.", "job list", [_switch("all")]),
+    parser.JOB_SHOW: ("Show one job: its state, its last events, its result when it ended (`job:<id>` or `current`).",
+                      "job show current", [_JOB, _switch("log")]),
+    parser.JOB_FOLLOW: ("Follow a job's events to its end, then print its answer.", "job follow current",
+                        [_JOB, _switch("from_end")]),
+    parser.JOB_WAIT: ("Wait for a job to end (at most --wait seconds) and print its own answer; running (exit 8) if "
+                      "it goes on.", "job wait current --wait 90", [_JOB]),
+    parser.JOB_STOP: ("Ask a job to stop safely after its current step; --now stops it at once (terminal jobs).",
+                      "job stop current", [_JOB, _switch("now")]),
+})
 WRITES = ("J", "J-control", "B")
 JOBS = ("J", "J-control", "RJ")
 
@@ -128,7 +147,7 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
 def own_entry(command: tuple[str, ...]) -> dict:
     says, example, args = OWN_WORDS[command]
     flags = [] if command != CALL else ["--dry-run", "--yes"]
-    return {"command": " ".join(command), "kind": "words", "writes": command == CALL, "job": False, "args": args,
+    return {"command": " ".join(command), "kind": "words", "writes": command in (CALL, parser.JOB_STOP), "job": False, "args": args,
             "flags": flags, "needs_yes": False, "dry_run": False, "locks": [],
             "reasons": ["usage", "crashed"], "example": example, "usage": usage_of(command, args, flags),
             "says": says}
@@ -221,4 +240,6 @@ def run_call(parsed: Parsed) -> dict:
 
 def run(parsed: Parsed) -> dict:
     """The answer of `help`, `where` or `call` (`app open` is `open_app`)."""
+    if parsed.command in JOB_WORDS:
+        return follow.run(parsed)
     return {HELP: run_help, WHERE: run_where, CALL: run_call}[parsed.command](parsed)

@@ -1,7 +1,7 @@
 """The one runner (issue 39, plan v2 §3.1): `run(entry, args, flags)` runs a catalogue entry and answers its envelope.
-Kinds R (read) and B (brief save) call the `HubApi` method directly; J (a write job) creates a registry job and starts
-its worker process (`start_job`, group 1.5; the client that follows it to its end is group 1.6's, so the answer is the
-job's envelope once the worker is running or has ended); RJ comes with 1.6 and answers "not built yet" until then. Nothing here computes a fact: it resolves what the person typed
+Kinds R (read) and B (brief save) call the `HubApi` method directly; J (a write job) and RJ (a read that can take
+minutes: no locks) create a registry job and start its worker process (`start_job`), and the client that follows it
+(`follow.attach`: `--detach`, `--wait`, the default wait) answers. Nothing here computes a fact: it resolves what the person typed
 through `HubApi.resolve`, calls the method the entry names and wraps the answer. `run_method` is `call <method>`: it
 picks the entry the method's arguments name and runs it through `run`, so `call` is never a way around an entry's
 refusals (`needs_yes`, `--dry-run`, the locks)."""
@@ -18,7 +18,7 @@ from .. import tools
 from ..hub import catalog, registry
 from ..hub.catalog import Entry
 from ..rekordbox.locate import locate
-from . import bind, envelope, worker
+from . import bind, envelope, follow, worker
 from .parser import Flags, parameters_of, signature_of
 
 NOT_BUILT = "{command} is not built yet."
@@ -57,12 +57,15 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
         return envelope.usage(command, f"{entry.method} is not a command of the command line.")
     if entry.planned:
         return envelope.usage(command, NOT_BUILT.format(command=command))
+    if entry.kind == "J-control":
+        return envelope.usage(command, f"{entry.method} only reaches a job of the process that runs it: "
+                                       "use `job stop <job>`.")
     if flags.dry_run and not entry.dry_run:
         return envelope.usage(command, f"{command} has no --dry-run: it does not change anything or it cannot be tried first.")
     if entry.needs_yes and not flags.yes and not flags.dry_run:
         return envelope.problem(command, "refused", "needs_yes")
     method = entry.dry_run if flags.dry_run else entry.method
-    if method == entry.method and entry.kind not in ("R", "B", "J"):
+    if method == entry.method and entry.kind not in ("R", "B", "J", "RJ"):
         return envelope.usage(command, NOT_BUILT.format(command=command))
     api = api or bind.default()
     kwargs = dict(args)
@@ -76,7 +79,7 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     kwargs.update(entry.fixed)
     if method != entry.method:
         kwargs = {k: v for k, v in kwargs.items() if k in parameters_of(method)}
-    if method == entry.method and entry.kind == "J":
+    if method == entry.method and entry.kind in ("J", "RJ"):
         return start_job(entry, kwargs, command, flags)
     answer = getattr(api, method)(**kwargs)
     return envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None)
@@ -108,11 +111,21 @@ def spawn_worker(files: registry.JobFiles, argv: list[str] | None = None) -> sub
     return process
 
 
+def _reap(process: subprocess.Popen, reader: registry.JobFiles) -> None:
+    """A worker whose job has ended is just exiting: wait for it, so nothing of it is left behind. One that still runs
+    is left alone."""
+    if reader.state().get("status") in ("done", "lost"):
+        try:
+            process.wait(10)
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def start_job(entry: Entry, kwargs: Mapping, command: str, flags: Flags, *,
               argv: Callable[[str], list[str]] | None = None) -> dict:
     """A write job from the terminal (design §6.3): the roots as this process sees them, the job in the registry
     (`queued`, claimed), the worker started and handed the claim, then the first answer: the job's own envelope when
-    it has ended, else `running` (exit 8) with its id. Killing this process afterwards never touches the worker."""
+    it has ended, else `running` (exit 8) with its id (or, with --detach, `ok`). The first stderr line names the job. Killing this process afterwards never touches the worker."""
     here = bind.resolved()
     place = locate()
     roots = {"music": str(here.paths.root) if here.paths is not None else str(here.music_folder) if here.music_folder else None,
@@ -123,6 +136,7 @@ def start_job(entry: Entry, kwargs: Mapping, command: str, flags: Flags, *,
     files = reg.create(entry.method, command, dict(kwargs), "terminal", roots)
     files.update(method=entry.method, wait_busy=flags.wait_busy)
     files.flush()
+    print(follow.first_line(files.id), file=sys.stderr, flush=True)  # before anything else: a killed call keeps the id
     try:
         process = spawn_worker(files, argv(files.id) if argv else None)
     except OSError as e:
@@ -133,27 +147,10 @@ def start_job(entry: Entry, kwargs: Mapping, command: str, flags: Flags, *,
         return files.result()
     finally:
         files.release_claim()
-    return _first_answer(reg.get(files.id), process, command, flags.wait_busy or 0)
-
-
-def _first_answer(reader: registry.JobFiles, process: subprocess.Popen, command: str, wait_busy: float) -> dict:
-    """The envelope of a job's first moments: waits (bounded) until the worker has left `queued` or ended."""
-    end = time.monotonic() + START_WAIT_S + wait_busy
-    state = reader.state()
-    while state.get("status") == "queued" and process.poll() is None and time.monotonic() < end:
-        time.sleep(FOLLOW_POLL_S)
-        state = reader.state()
-    state = reader.state()  # a worker that ended before it ever wrote (a crash at start) reads `lost` now, not `queued`
-    if state.get("status") == "done" and (result := reader.result()) is not None:
-        try:
-            process.wait(10)  # the worker is just ending: nothing of it is left behind
-        except subprocess.TimeoutExpired:
-            pass
-        return result
-    if state.get("status") == "lost":
-        return envelope.problem(command, "failed", "worker_lost", job=reader.id, data={"log": str(reader.dir / "log.txt")})
-    return envelope.problem(command, "running", "still_running", job=reader.id,
-                            data={"job": reader.id, "status": state.get("status")})
+    reader = reg.get(files.id)
+    answer = follow.attach(reader, command, flags)
+    _reap(process, reader)
+    return answer
 
 
 def _as_of(api) -> dict | None:
