@@ -614,6 +614,14 @@ Results:
     fall back to newest, `job stop current` → not_running; Ctrl-C leaves the job running; `--jsonl` brackets events
     with Job started/ended. Phase review: a read job (RJ) can be stopped only with `--now` (its method never reads the
     stop file); the worker writes `status: running` itself for RJ. Issue 39 ~5.83M.
+    V1.7 done f341c4f5: Sonnet **272k** (est. 185k; 131 calls); its full pytest 5089 passed. Support lock around
+    settings.json (`settings.update_settings`), config.json, the login files (Spotify app/token, streamrip config),
+    tools/ update+rollback (`Jobs.start(hold_library=False)`); `reader_lock(support)`; `library.SupportBusy` → busy;
+    rekordbox_status adds `writing`/`as_of` while a writer holds the lock; `_planned` skips master.db then. Open:
+    CLAUDE.md says setup_skip_import takes no library lock, code takes it briefly (T10 pins {library, support}).
+    Rehearsal folder (made-up default settings.json, no logins, nothing of the user's) at .claude/issue39/
+    rehearsal-v1.7/support. V1.7 review (Sonnet, est. 130-200k, material 50k) → .claude/issue39/phase1/
+    review-V1.7.md; rehearsal in the review if no findings, else in the fix agent. Issue 39 ~6.10M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
