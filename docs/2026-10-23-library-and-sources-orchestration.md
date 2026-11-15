@@ -675,6 +675,14 @@ Results:
     holds reader_lock only while open, `rekordbox.writing` under a writer; `unknown_track` → reason `refused`.
     FOR PHASE REVIEW: preview golden/T4/locks driver fail (not skip) without ffmpeg. Merged + main → b88aa52d,
     pushed. Issue 39 ~7.16M.
+    V1.10 split in two (record put it ~290-350k > 250k; split costs ~40-60k extra). Part a b3d2d921: Sonnet **244k**
+    (est. 160-230k; 82 calls; full 5222 passed; one earlier full run failed test_rekordbox_timing 6 s assert, load
+    flake). Plan store (24 h valid, files kept 7 d → plan_expired not unknown_id), `--plan` via `_bind_plan`,
+    `needs_yes` with `catalog.CONFIRM` (empty, each group adds rows), dry runs store no scan (`jobs.refresh_work`
+    passes scan=True). READ-ONLY CAME OUT DIFFERENTLY: `mode=ro` on WAL without -wal/-shm creates them, so
+    `db.connect(read_only=True)` tidies with a RW open+close (removed only as last connection), `immutable=1` when the
+    folder is unwritable. FOR PHASE REVIEW: that RW tidy open on the real library.db while the window runs; `prepare`
+    dry run still writes record_reads/signs/pending_signs/extra settings (part b's T9). Issue 39 ~7.40M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
