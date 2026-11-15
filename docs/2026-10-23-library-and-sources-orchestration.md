@@ -572,6 +572,14 @@ Results:
     methods share one command (`setup status`, `job stop`, `status`). For V1.8/V3.1: `open url|folder|file|...`
     would launch apps for real: tests must stub the opener. V1.1's brief wrongly said envelope.py/select.py were on
     the branch (made by V1.2/V1.10). Issue 39 ~4.69M.
+    V1.2 done e47078ac: Sonnet **265k** (est. 230k; 97 calls; material 130k); its final full pytest 4928 passed, 4
+    skipped (after fixing 2). Merged + main → 2f1c7b1b, pushed. Decisions: `CliApi(HubApi)` with a `cli_first`
+    decorator holds `resolve` and other cli_first methods (the contract tests forbid extra public HubApi methods);
+    `bind.headless` builds a CliApi; `call` in `cli/call_method.py` (housekeeping.py is V1.3's); resolve answers
+    `{kind, resolved:[...]}`, bad ids → bad_args unknown_id/bad_id_kind; `remember=False` via `ops.run_single(check=)`;
+    old rekordbox status handler gone, `data` = {state, running} until V1.9. Phase review: `call select` refused
+    (select in DROPPED and cli_first); `app_main.CLI_COMMANDS` lacks `call` and the new nouns (V1.3's "any argument is
+    a command"); `--json upgrade list` still drops --json (legacy, pinned; V1.11). Issue 39 ~4.96M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
