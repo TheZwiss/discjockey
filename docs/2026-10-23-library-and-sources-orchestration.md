@@ -630,6 +630,13 @@ Results:
     terminal `update` must go through `_support_job`'s registry check (whoever builds `tools update`). Fix round
     (fix-round agent, est. 150-240k) fixes 1-8 + runs the rehearsal (a-d) on the made-up settings folder.
     Issue 39 ~6.26M.
+    V1.7 fix round done e31d2ce6/8d6ad8e4/0abad292/c1813547: fix-round **173k** (est. 150-240k); full pytest 5095
+    passed; all 1-8 fixed (tools update locks all local steps after the download, not only the four: a second
+    updater could delete the first's partial folder). REHEARSAL PASSED (a) 20 rounds two-process saves, no loss;
+    (b) 7 s holder → busy support_lock exit 3, no traceback; (c) writing:true, master.db untouched; (d) writer starts
+    mid-plan. Merged + main → b8271dd9, pushed. BUG found: test_cli_job follower-through-compaction fails 4/6 alone
+    (events out of order: m3.. then m1, m2), also on V1.7's base → V1.6/V1.4 bug; fix-round on feat/cli-1-6fix
+    (root cause + deterministic test + window reader check). Issue 39 ~6.43M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
