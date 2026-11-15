@@ -108,9 +108,12 @@ def test_a_brief_settings_save_outside_a_job_takes_the_library_briefly_and_the_s
 
 
 def test_a_support_only_job_takes_the_support_lock_and_no_library_lock(box):
+    from tools_helpers import CheckRun, FakePyPI
+
     def update(api, rec):
-        finished = wait_job(api, rec, api.update_tools())
-        assert finished.problem == "failed"  # offline in tests: it got as far as asking for the newest version
+        # a stubbed download of a newer yt-dlp: the lock is taken once it is in memory, to change tools/
+        api._svc.fetch, api._svc.run = FakePyPI("2099.01.01", "0.8.1"), CheckRun()
+        assert wait_job(api, rec, api.update_tools()).ok
 
     assert taken_by(box, update) == {"support"}
     assert taken_by(box, lambda api, rec: wait_job(api, rec, api.rollback_tools())) == {"support"}
