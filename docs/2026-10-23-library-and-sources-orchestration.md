@@ -525,6 +525,14 @@ Results:
     merged groups) + an extras table with prices the user ticks. Opus, brief-39-plan2.md → docs/2026-11-15-agent-cli-
     plan-v2.md. NEXT after a compact: dispatch it (measure material first: design 37k + plan parts ~12k + CLAUDE ~3k +
     greps ~25k), then show the user v2 vs v1. Nothing built.
+    Plan v2 done acca0628 (+9f2b7272): Opus **302k** (est. 260-310k, material measured 76k; 37 calls; 699 lines).
+    Script check: all sections, 8 extras, C-1..C-7, goals 1-5 present; 50/50 v1 group ids mapped (64 rows, 53 to
+    groups, 11 to extras, 0 dropped); 51/51 design §9.2/§9.3 rows placed; no group >250k. v2 = ~20.1M (17.2-25.5M,
+    52 groups) vs 24.4M; real savings ~2.6M (briefs 1.17M, generic `call` 0.49M, rehearsals in the last agent 0.54M,
+    phase 6 Opus review 0.44M), 2.6M moved into extras (all ticked = ~24.4M); "~100k shared docs" premise measured
+    false (~3k). Phase 1 = 5.1M + live tests 300k. Drift guard: rule text V1.3, `derive`/`flows`/ratchet in phase 5
+    (V5.2); gap: agent defs (ui-build, fix-round) and the review checklist question are not in the plan (I add them
+    after the go). Issue 39 ~4.09M. STOPPED for the user's go.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
