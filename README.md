@@ -804,7 +804,7 @@ time: open rekordbox once and quit it normally).
   copies Discjockey made and put rekordbox's whole library back as one of them holds it (the commands are below).
   This drops every change you made in rekordbox since that backup, and Discjockey saves your current library first
   (its name is printed). Tracks Discjockey replaced after the backup point at their old files, which are in
-  `Superseded/`: undo those replaces first (`batch list` shows the numbers), or Relocate them in rekordbox.
+  `Superseded/`: undo those replaces first (`batch list` shows them: `aiff:12` is batch 12), or Relocate them in rekordbox.
 
 ```
 /Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups

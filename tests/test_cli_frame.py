@@ -68,8 +68,9 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
     ([], "legacy"), (["--dry-run"], "legacy"), (["--json"], "legacy"), (["--limit", "3"], "legacy"),
     (["setup"], "legacy"), (["upgrade", "list", "--json"], "new"), (["--json", "upgrade", "list"], "new"),
     (["upgrade", "apply", "--all"], "legacy"),
-    (["batch", "list"], "legacy"), (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
-    (["rekordbox", "preview", "x"], "legacy"), (["settings", "auto-upgrade"], "legacy"),
+    (["batch", "list"], "new"), (["batch", "show", "aiff:1"], "new"), (["batch", "resume", "1"], "legacy"),
+    (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
+    (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "legacy"), (["settings", "auto-upgrade"], "legacy"),
     (["rekordbox", "status"], "new"), (["--json", "rekordbox", "status"], "new"), (["call", "quit"], "new"),
     (["nonsense"], "new"), (["--wait", "5", "setup"], "legacy"), (["help"], "new"), (["help", "setup"], "new"),
     (["where", "--json"], "new"), (["app", "open"], "new"),
@@ -88,7 +89,7 @@ def test_t3_a_cli_module_calls_only_what_its_entries_name():
     assert (CLI_DIR / "housekeeping.py").is_file()  # the command line's own words are checked like every module
     checked = 0
     for path in sorted(CLI_DIR.rglob("*.py")):
-        if path.name == "legacy.py":
+        if path.name in ("legacy.py", "legacy_out.py"):
             continue  # today's code, moved unchanged, until its routes are gone
         tree = ast.parse(path.read_text())
         checked += 1
@@ -166,9 +167,13 @@ def test_rekordbox_status_equals_the_bridge_inside_data(tmp_path, monkeypatch, c
 def test_rekordbox_status_needs_no_music_folder_and_prints_a_page(capsys):
     code, out, err = run(["rekordbox", "status"], capsys)  # conftest: an empty rekordbox folder, no music folder
     assert code == 0 and err == ""
-    assert out.splitlines() == ["State    none", "Running  no"]
+    assert out.splitlines() == ["no rekordbox library on this Mac", "", "Running      no", "Problem      none",
+                                "Version      none", "Library      none", "Db version   none", "Modified at  none",
+                                "Size         none"]
     code, env = run_json(["rekordbox", "status", "--json"], capsys)
-    assert (code, env["data"]) == (0, {"state": "none", "running": False})
+    assert (code, env["data"]) == (0, {
+        "state": "none", "running": False, "state_text": "no rekordbox library on this Mac", "problem": None,
+        "problem_text": None, "version": None, "library": None, "db_version": None, "modified_at": None, "size": None})
 
 
 def test_a_failure_in_the_bridge_answers_failed_with_exit_1(monkeypatch, capsys):
@@ -250,7 +255,7 @@ def test_call_equals_the_noun_verb_form(capsys):
     code, called = run_json(["call", "rekordbox_status", "--args", "{}", "--json"], capsys)
     assert called == direct
     code, out, err = run(["call", "rekordbox_status"], capsys)
-    assert code == 0 and out.splitlines() == ["State    none", "Running  no"]
+    assert code == 0 and out.splitlines()[0] == "no rekordbox library on this Mac"
 
 
 def test_call_reads_its_arguments_from_stdin(monkeypatch, capsys):
@@ -332,10 +337,10 @@ def test_the_bare_sync_goes_to_the_old_parser_unchanged(capsys):
 def test_the_old_commands_still_answer_with_their_old_shapes(tmp_path, monkeypatch, capsys):
     choose_music(tmp_path, monkeypatch)
     make_root(tmp_path)
-    code, out, err = run(["batch", "list", "--json"], capsys)
+    code, out, err = run(["rekordbox", "backups", "--json"], capsys)
     data = json.loads(out)
     assert code == 0 and data["ok"] is True and "outcome" not in data
-    code, out, err = run(["--json", "batch", "list"], capsys)  # as today: the old parser drops this --json
+    code, out, err = run(["--json", "rekordbox", "backups"], capsys)  # as today: the old parser drops this --json
     assert code == 0 and not out.lstrip().startswith("{")
     code, out, err = run(["convert", "--all", "lossless", "--dry-run", "--json"], capsys)
     data = json.loads(out)

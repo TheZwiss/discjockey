@@ -1,0 +1,29 @@
+Run
+Run id          2026-11-10_110000
+Started         2026-11-10T11:00:00
+Finished        2026-11-10T11:05:00
+Duration s      300
+Exit code       0
+Stopped after   none
+Auto upgrade    none
+Needs you       none
+Upgrades ready  0
+Report md       reports/2026-11-10_110000.md
+Queued          0
+Folder order    Hard_Bounce, Powertrance
+
+Run › Counts
+Lossless  2
+Lossy     0
+Problems  0
+Moved     0
+
+Run › Sections › New lossless
+Section       Status    Track id  Artist  Title    Path                                  Cover url
+new_lossless  lossless  t1        A       Song t1  Library/Hard_Bounce/A - Song t1.aiff  none
+new_lossless  lossless  t2        A       Song t2  Library/Hard_Bounce/A - Song t2.aiff  none
+2 of 2 shown
+
+Run › For rekordbox
+New files  2
+Folders    Library/Hard_Bounce

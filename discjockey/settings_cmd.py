@@ -14,7 +14,7 @@ from dataclasses import replace
 
 from . import library
 from .library import LockHeld, NoLibrary
-from .rekordbox_cmd import failed, no_library, say
+from .cli.legacy_out import failed, no_library, say
 from .settings import SettingsError, load_settings, update_settings
 
 OK, FAILED, NO_LIBRARY, BUSY = 0, 1, 2, 3

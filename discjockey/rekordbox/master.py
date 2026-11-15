@@ -31,7 +31,7 @@ import re
 import unicodedata
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -80,6 +80,16 @@ class Status:
 
 
 @dataclass(frozen=True)
+class ContentFile:
+    """One `contentFile` row of a track: an analysis file rekordbox keeps for it (`Path` relative to its share folder,
+    the `Hash` and `Size` it noted when it was made)."""
+    path: str
+    hash: str | None
+    size: int | None
+    updated_at: str | None
+
+
+@dataclass(frozen=True)
 class Entry:
     id: str
     folder_path: str
@@ -101,6 +111,8 @@ class Entry:
     local_folder_path: str | None  # rb_LocalFolderPath
     file_size: int | None
     uuid: str | None
+    updated_at: str | None = None  # the track row's `updated_at` (rekordbox stamps it on every change)
+    content_files: tuple[ContentFile, ...] = ()  # its analysis files' rows, in id order
 
 
 @dataclass(frozen=True)
@@ -221,12 +233,12 @@ class Master:
                     "SELECT c.ID, c.FolderPath, c.FileNameL, c.FileType, c.AnalysisDataPath, c.Title, a.Name, "
                     "al.Name, l.Name, c.ISRC, c.Commnt, "
                     "(c.usn IS NOT NULL OR IFNULL(c.rb_local_synced, 0) <> 0), c.created_at, "
-                    "c.ArtistID, c.AlbumID, c.LabelID, c.OrgFolderPath, c.rb_LocalFolderPath, c.FileSize, c.UUID "
+                    "c.ArtistID, c.AlbumID, c.LabelID, c.OrgFolderPath, c.rb_LocalFolderPath, c.FileSize, c.UUID, c.updated_at "
                     "FROM djmdContent c LEFT JOIN djmdArtist a ON a.ID = c.ArtistID "
                     "LEFT JOIN djmdAlbum al ON al.ID = c.AlbumID LEFT JOIN djmdLabel l ON l.ID = c.LabelID "
                     f"WHERE c.ID IN ({marks})", chunk):
                 (row_id, folder_path, file_name, file_type, analysis, title, artist, album, label, isrc, comment,
-                 cloud, created_at, artist_id, album_id, label_id, org_path, local_path, file_size, uuid) = row
+                 cloud, created_at, artist_id, album_id, label_id, org_path, local_path, file_size, uuid, updated_at) = row
                 found[row_id] = Entry(
                     id=_text(row_id), folder_path=_text(folder_path), file_name=_text(file_name),
                     file_type=int(file_type or 0), analysis_path=analysis or None, title=_text(title),
@@ -235,8 +247,23 @@ class Master:
                     created_at=None if created_at is None else str(created_at),
                     artist_id=_id(artist_id), album_id=_id(album_id), label_id=_id(label_id),
                     org_folder_path=_text(org_path), local_folder_path=None if local_path is None else str(local_path),
-                    file_size=None if file_size is None else int(file_size), uuid=_id(uuid))
-        return [found[i] for i in ids if i in found]
+                    file_size=None if file_size is None else int(file_size), uuid=_id(uuid),
+                    updated_at=None if updated_at is None else str(updated_at))
+        files = self._content_files(list(found))
+        return [replace(found[i], content_files=files.get(i, ())) for i in ids if i in found]
+
+    def _content_files(self, ids: list[str]) -> dict[str, tuple[ContentFile, ...]]:
+        """The `contentFile` rows of these tracks, per track, in id order."""
+        out: dict[str, list[ContentFile]] = {}
+        for chunk in _chunks(ids):
+            marks = ",".join("?" * len(chunk))
+            for content_id, path, digest, size, updated_at in self.con.execute(
+                    "SELECT ContentID, Path, Hash, Size, updated_at FROM contentFile "
+                    f"WHERE ContentID IN ({marks}) ORDER BY ID", chunk):
+                out.setdefault(content_id, []).append(ContentFile(
+                    _text(path), _id(digest), None if size is None else int(size),
+                    None if updated_at is None else str(updated_at)))
+        return {k: tuple(v) for k, v in out.items()}
 
     def cue_counts(self, ids: list[str]) -> dict[str, int]:
         """How many cues (memory and hot, not deleted) each track has; 0 for one without."""

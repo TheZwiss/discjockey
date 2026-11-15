@@ -1288,7 +1288,7 @@ Qobuz `days_to_load` is null.
 }
 ```
 
-`runs()` → `{"runs": [RunSummary, newest first]}`. `run(run_id)` → the end screen:
+`runs()` → `{"runs": [RunSummary, newest first]}`. `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → the end screen:
 ```json
 {
  "ok": true,
@@ -2045,7 +2045,11 @@ action.
 - **`set_auto_upgrade(on)`** (write job `set_auto_upgrade`, result `{}`): see Settings. **`setup_status().auto_upgrade`**
   is the switch. `SettingKey` is unchanged (no read needs the switch).
 - **`rekordbox_status()`** (read, any time; works without a music folder, not a `LIBRARY_METHODS` member) →
-  `{state: "ready" | "none" | "unreadable", running: bool}`, plus `writing: true` and `as_of` (ISO time the value was
+  `{state: "ready" | "none" | "unreadable", running: bool, state_text, problem: "unclean" | "busy" | "key" | "db_version" |
+  "schema" | null, problem_text, version, library, db_version, modified_at, size}` (issue 39: the command line's richer
+  answer; the window reads `state` and `running` only; `version` is rekordbox's own, `library` the path of master.db,
+  `modified_at` its local modified time to the second and `size` its size, so "master.db untouched meanwhile" can be
+  checked; each is null where unknown), plus `writing: true` and `as_of` (ISO time the value was
   read, or null) only while a writer holds `rekordbox.lock`. `state` is the cached `_rekordbox_status()` (one read open
   per change of master.db; with a writer holding the lock it answers its last value), `running` is asked on every
   call. The Sync page reads it when it opens and when the window gets focus again (no timer); `none`: no rekordbox

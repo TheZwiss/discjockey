@@ -1,6 +1,6 @@
 """The old command line, moved here unchanged by issue 39 group 1.2: the sync (no command) and the words whose
 replacement is not built yet (`setup`, `update`, `upgrades`, `upgrade`, `batch`, `convert`, `rename`, `settings`,
-`rekordbox preview | checked | backups | restore`). `discjockey/cli/__init__.py` routes those words here
+`rekordbox checked | backups | restore`). `discjockey/cli/__init__.py` routes those words here
 unchanged; each leaves with the group that lands its replacement. Started by `python -m discjockey`
 (discjockey/__main__.py), which prepares the tools first.
 
@@ -10,9 +10,8 @@ run), runs, and ends with the report's summary and Auto-upgrade's summary line. 
 "counts", "auto_upgrade"}` or `{"ok": false, "kind", "message"}` for a problem, and every human line goes to stderr
 (CONTRIBUTING.md > "Commands for scripts and agents" > "Not rebuilt yet"). Exit codes: 0 done (also when upgrades wait for rekordbox), 1
 errors in the run, a crash or `needs_yes`, 2 setup problem or no music folder, 3 another run holds the library lock,
-130 stopped. The other commands live in `batch_cmd.py` (`upgrade`, `batch`, `rekordbox checked | backups | restore`),
-`convert_cmd.py` (`convert`, `rename`),
-`rekordbox_cmd.py` (`rekordbox preview`), `settings_cmd.py` (`settings`) and `setup_cmd.py`/`upgrades_cmd.py`."""
+130 stopped. The other commands live in `batch_cmd.py` (`upgrade`, `batch resume | undo`, `rekordbox checked | backups | restore`),
+`convert_cmd.py` (`convert`, `rename`), `settings_cmd.py` (`settings`) and `setup_cmd.py`/`upgrades_cmd.py`."""
 from __future__ import annotations
 
 import argparse
@@ -73,16 +72,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     for name, help_text in (("setup", "One-time logins."), ("update", "Get the newest yt-dlp."),
                             ("upgrades", "Go through the better versions found for your lossy tracks.")):
         _sync_flags(commands.add_parser(name, description=help_text), repeated=True)
-    box = commands.add_parser("rekordbox", description="rekordbox's library: status and preview only read; checked, "
-                                                       "backups and restore belong to Same track batches.")
+    box = commands.add_parser("rekordbox", description="rekordbox's library: checked, backups and restore belong to "
+                                                       "Same track batches (`status` and `preview` are the new "
+                                                       "command line's).")
     box_commands = box.add_subparsers(dest="rekordbox_command", metavar="command", required=True)
-    preview = box_commands.add_parser(
-        "preview", help="what Same track, Convert and Rename would do for one file",
-        description="Read only: what each action would do for a song of your library (its key) or for any file "
-                    "(--path), and why not when it can't. Decodes the file, which takes a few seconds.")
-    preview.add_argument("track", nargs="?", help="the song's key, as the library's JSON prints it")
-    preview.add_argument("--path", metavar="FILE", help="a file, instead of a song key")
-    preview.add_argument("--json", action="store_true", help="print one JSON object")
     from .. import batch_cmd
     batch_parsers = batch_cmd.add_commands(commands, box_commands)
     from .. import convert_cmd
@@ -94,8 +87,6 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     convert_cmd.check_args(args, convert_parsers)
     if args.json and args.command in ("setup", "update", "upgrades"):
         p.error(f"--json belongs to the sync, not to `{args.command}`")
-    if args.command == "rekordbox" and args.rekordbox_command == "preview" and bool(args.track) == bool(args.path):
-        preview.error("give either the song's key or --path FILE")
     return args
 
 
@@ -278,9 +269,6 @@ def _print_json(data: dict, out) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    if args.command == "rekordbox" and args.rekordbox_command == "preview":
-        from .. import rekordbox_cmd  # read only: no lock
-        return rekordbox_cmd.run(args)
     if args.command in ("upgrade", "batch", "rekordbox"):  # each takes the library lock itself where it writes
         from .. import batch_cmd
         return batch_cmd.run(args)

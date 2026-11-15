@@ -456,7 +456,8 @@ def test_setup_with_a_broken_settings_file_says_so(root, monkeypatch, capsys):
     assert "settings.json" in capsys.readouterr().out
 
 
-# --- discjockey rekordbox preview (read only, no lock); `rekordbox status` is tests/test_cli_frame.py's ---
+# --- the parser of the words not rebuilt yet (`rekordbox status | preview` and `batch list | show` are the new
+# command line's: tests/test_cli_frame.py, test_cli_rekordbox.py, test_cli_batches.py) ---
 
 def run_json(argv, capsys):
     code = cli.main(argv)
@@ -464,8 +465,8 @@ def run_json(argv, capsys):
 
 
 def test_the_legacy_words_still_parse():
-    for argv in (["setup"], ["upgrade", "discard", "x"], ["batch", "list"], ["convert", "--all", "lossless"],
-                 ["rekordbox", "preview", "x"], ["settings", "auto-upgrade"]):
+    for argv in (["setup"], ["upgrade", "discard", "x"], ["batch", "resume", "1"], ["convert", "--all", "lossless"],
+                 ["rekordbox", "backups"], ["settings", "auto-upgrade"]):
         assert cli.parse_args(argv).command == argv[0]
 
 
@@ -479,81 +480,12 @@ def test_the_sync_flags_work_before_and_after_a_command():
 
 
 def test_rekordbox_commands_need_their_arguments(capsys):
-    for argv in (["rekordbox"], ["rekordbox", "preview"], ["rekordbox", "preview", "a", "--path", "b"],
-                 ["rekordbox", "nonsense"]):
+    for argv in (["rekordbox"], ["rekordbox", "restore"], ["rekordbox", "nonsense"],
+                 ["rekordbox", "preview", "a"]):  # `preview` is not an old word any more
         with pytest.raises(SystemExit) as e:
             cli.parse_args(argv)
         assert e.value.code == 2, argv
     capsys.readouterr()
-
-
-def own_library(root):
-    """A music folder with one own MP3 (a fixture) and, for rekordbox, nothing yet."""
-    import shutil
-    from pathlib import Path
-    from rekordbox_helpers import own_entry, save_library
-    paths = Paths(root, support=root / ".support")
-    file = root / "Library/Mine/old name.mp3"
-    file.parent.mkdir(parents=True)
-    shutil.copyfile(Path(__file__).parent / "fixtures" / "clicks-lame.mp3", file)
-    save_library(paths, {"local:1": own_entry()})
-    return paths, "local:1", file
-
-
-@needs_ffmpeg
-def test_preview_prints_json_and_words_and_takes_no_lock(root, capsys):
-    paths, key, file = own_library(root)
-    with run_lock(paths.lock):  # a sync is running: a read still answers
-        code, data = run_json(["rekordbox", "preview", key, "--json"], capsys)
-        assert code == 0 and data["ok"] and data["track"] == key and data["file"] == str(file)
-        assert data["eligible"] == {"same_track": "no_upgrade", "convert": None, "rename": "needs_convert"}
-        assert data["new_file"] == str(root / "Library/Mine/Artist - Song.aiff")
-        assert set(data) == {"ok", "track", "file", "codec", "sample_rate", "bits", "new_file", "superseded",
-                             "rekordbox", "timing", "entries", "eligible"}
-        assert cli.main(["rekordbox", "preview", key]) == 0
-    lines = capsys.readouterr().out.splitlines()
-    assert lines[0] == f"File: {file}" and lines[1] == "Format: mp3, 44.1 kHz"
-    assert lines[2] == "rekordbox: no library on this Mac, closed"
-    assert lines[3] == "Timing: no rekordbox library on this Mac, so nothing to line up with (0 samples)"
-    assert "Same track: not now (no better version is waiting)" in lines
-    assert "Convert to AIFF: possible" in lines
-    assert "Give it its clean name: not now (needs Convert to AIFF first)" in lines
-    assert f"New file: {root / 'Library/Mine/Artist - Song.aiff'}" in lines
-    assert f"The old file would go to: {root / 'Superseded/Mine/old name.mp3'}" in lines
-
-
-@needs_ffmpeg
-def test_preview_by_path_needs_no_music_folder(tmp_path, capsys):
-    from pathlib import Path
-    file = Path(__file__).parent / "fixtures" / "clicks-notag.mp3"
-    code, data = run_json(["rekordbox", "preview", "--path", str(file), "--json"], capsys)  # no Setup done
-    assert code == 0 and data["track"] is None and data["file"] == str(file)
-    assert set(data["eligible"].values()) == {"not_in_library"}
-    assert cli.main(["rekordbox", "preview", "--path", str(file)]) == 0
-    assert "Same track: not now (not a file of your library)" in capsys.readouterr().out
-
-
-def test_preview_refusals_and_exit_codes(root, capsys):
-    paths, key, file = own_library(root)
-    code, data = run_json(["rekordbox", "preview", "nope", "--json"], capsys)
-    assert (code, data["ok"], data["kind"], data["reason"]) == (1, False, "refused", "unknown_track")
-    file.unlink()
-    code, data = run_json(["rekordbox", "preview", key, "--json"], capsys)
-    assert (code, data["kind"], data["reason"]) == (1, "refused", "file_missing")
-    assert cli.main(["rekordbox", "preview", key]) == 1
-    assert capsys.readouterr().out.strip() == f"There is no file at {file}."
-    code, data = run_json(["rekordbox", "preview", "--path", str(root / "bad.mp3"), "--json"], capsys)
-    assert (code, data["reason"]) == (1, "file_missing")
-    (root / "bad.mp3").write_bytes(b"not audio")
-    code, data = run_json(["rekordbox", "preview", "--path", str(root / "bad.mp3"), "--json"], capsys)
-    assert (code, data["kind"]) == (1, "failed") and "couldn't read bad.mp3" in data["message"]
-
-
-def test_preview_of_a_key_without_a_music_folder_exits_2(capsys):
-    code, data = run_json(["rekordbox", "preview", "t1", "--json"], capsys)  # conftest: a scratch support, no folder
-    assert (code, data["ok"], data["reason"]) == (2, False, "no_library")
-    assert cli.main(["rekordbox", "preview", "t1"]) == 2
-    assert "discjockey setup" in capsys.readouterr().out
 
 
 # --- discjockey upgrade / batch / rekordbox checked | backups | restore (issue 33 stage B) ---

@@ -141,7 +141,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("aiff_plan", "aiff convert", "RJ", params=SCOPE, dry_run="aiff_plan"),
     _e("aiff_plan", "aiff rename", "RJ", params=SCOPE, dry_run="aiff_plan"),
     _e("tidy_preview", "tidy run", "R", "tidy run --dry-run"),
-    _e("move_batches", "batch list", "R", "batch list --kind moves"),
+    _e("move_batches", "", "R", built=True),  # the window's own list; `batch list` is `batches`
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
        params={"batch_id": _positional("moves", type="int")}),
     _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True, locks={"rekordbox_r"}),
@@ -150,7 +150,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("media_url", "", "dropped"),
     _e("dashboard", "status", "R", "status"),
     _e("runs", "report list", "R", "report list"),
-    _e("run", "report show", "R", "report show last", params={"run_id": _positional("report")}),
+    _e("run", "report show", "R", "report show last", params={"run_id": _positional()}, built=True),
     _e("open_report", "open report", "R", "open report last", params={"run_id": _positional("report")}),
     _e("sync_preview", "sync plan", "R", "sync plan"),
     # --- sync and jobs
@@ -252,9 +252,12 @@ ENTRIES: tuple[Entry, ...] = (
     _e("resolve", "", "R", cli_first=True, built=True),
     _e("find_tracks", "track find", "R", "track find get naughty", params={
         "words": Arg(positional=True, many=True), "path": Arg("--path")}, cli_first=True, built=True),
-    _e("rekordbox_preview", "rekordbox preview", "R", cli_first=True),
-    _e("batches", "", "R", cli_first=True),
-    _e("batch_detail", "batch show", "R", cli_first=True),
+    _e("rekordbox_preview", "rekordbox preview", "R",
+       'rekordbox preview "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff"',
+       params={"track_id": _positional("track")}, cli_first=True, built=True, locks={"rekordbox_r"}),
+    _e("batches", "batch list", "R", "batch list", cli_first=True, built=True),
+    _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional()}, cli_first=True,
+       built=True),
     _e("select", "", "R", cli_first=True),
     _e("upgrade_preview", "", "R", cli_first=True),
     _e("fill_facts", "", "J", cli_first=True),

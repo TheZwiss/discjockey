@@ -1,0 +1,23 @@
+Id           aiff:1
+Kind         aiff
+Batch        1
+What         upgrade
+Started by   user
+State        done
+Stop reason  none
+Started      2026-11-10T09:00:00
+Ended        2026-11-10T09:01:00
+Total        2
+Done         1
+Skipped      1
+Failed       0
+Planned      0
+Undone       0
+Backup       2026-11-10_090001
+Undone by    none
+
+Results
+Track  Action      State    Reason        Message   Path                                                Rekordbox                            Name
+t1     same_track  done     none          Upgraded  Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff  entries: 4711, kept: title, comment  Vatoz Locoz - Gimme Gimme
+t2     same_track  skipped  needs_choice  none      none                                                none                                 Armin Hermann - Get Naughty
+2 of 2 shown
