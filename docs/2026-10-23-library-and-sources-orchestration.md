@@ -474,6 +474,23 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
+  - **CURRENT STATE (2026-11-15 evening, issue 39 phase 1 building; read this first):** standing user go: build
+    phase 1, reviews, phase review, merge, then the A-D live tests WITHOUT asking between steps (ping the user only
+    for P steps at the Mac; stop only for product decisions, the Qobuz "Use this" note before phase 2, extras E2-E9).
+    Plan: docs/2026-11-15-agent-cli-plan-v2.md. Briefs: ~/DJ Downloader/.claude/issue39/phase1/V1.x.md (gate passed).
+    Phase branch feat/cli-1-live-slice, kept checked out in worktree .claude/worktrees/cli1-live; per group: branch
+    feat/cli-1-N from it + worktree .claude/worktrees/cli1-N; after the agent: my own full pytest in background if it
+    changed anything after its last full run; `git worktree remove`, then in cli1-live `git merge --no-ff feat/cli-1-N`
+    + `git merge --no-ff main`, check_public, push; log size here; next group. Dispatch prompt pattern = V1.8's (brief
+    path, worktree, D3/D4/D10/D11 note, earlier groups' decisions, no real data, full pytest at end, report <10 lines).
+    Merged: V1.1-V1.7 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.8 (Sonnet, est. 210-300k).
+    Next: V1.9, V1.10 (no own review); V1.11-V1.15 each: build → Sonnet review (findings file in phase1/) → fix-round
+    agent that also runs the rehearsal on a copy (V1.11+V1.12 share one `rehearse`; made-up data only, never the
+    user's support folder/library); then Opus phase review + fix, `npm run verify` once on the phase branch (bg), CI
+    green, merge to main, then the live tests (v1 plan §7 runbook). CARRY: review-V1.7 #9 → V1.12/V1.13 prompts
+    (convert_cmd `_plan` + batch_cmd `_rekordbox_status` take reader_lock and answer `writing`) and the `tools update`
+    builder (terminal update via `_support_job`'s registry check); phase review items are in the V1.x entries below.
+    Phase 1 spent so far ~2.41M; remaining est. ~4.0M (not measured: plan prices +~15% as groups have landed).
   - **NIGHT RUN (2026-11-14 ~23:55, user asleep, go: "finish the design work through the night"):** scope = steps 2-5
     only (design → adversarial review → design fixes → build plan), then STOP for the user's go before any build.
     Step 2 running: Opus designer, brief `brief-39-design.md`, output `docs/2026-11-14-agent-cli-design.md` (est.
@@ -637,6 +654,12 @@ Results:
     mid-plan. Merged + main → b8271dd9, pushed. BUG found: test_cli_job follower-through-compaction fails 4/6 alone
     (events out of order: m3.. then m1, m2), also on V1.7's base → V1.6/V1.4 bug; fix-round on feat/cli-1-6fix
     (root cause + deterministic test + window reader check). Issue 39 ~6.43M.
+    Follower fix e760ee82: fix-round **80k** (est. 90-150k; 22 calls): EventReader read head then tail, lines flushed
+    between the reads came out after the tail's; now tail first (writer flushes head before creating the tail), one
+    open file for the tail, resume by last line seen; 3 deterministic tests (fail on old code); original test was
+    wrong (a 10-event burst vs tail=5 may compact unseen events, allowed by design) → one at a time; 20/20 alone;
+    full 5098 passed. Window reader not affected (in-memory queue). Merged + main → 5057d827, pushed.
+    Issue 39 ~6.51M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
