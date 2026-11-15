@@ -225,6 +225,7 @@ class EventsWriter:
             self._head_file.write(line + "\n")
             return
         if self._tail_file is None:
+            self._head_file.flush()  # a follower relies on it: a line in the tail means the head is complete on disk
             self._tail_file = open(self.tail_path, "a", encoding="utf-8")
         self._after_head += 1
         self._tail_lines.append(line)
