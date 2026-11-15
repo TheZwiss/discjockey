@@ -24,13 +24,12 @@ import time
 
 from .. import auto_upgrade, library, planner, report as rep, run
 from ..console import ConsolePrinter, upgrade_lines, waiting_lines
-from ..events import CancelToken
+from ..events import CTRL_C_REPEAT_S, CancelToken
 from ..library import LockHeld, NoLibrary
 from ..rekordbox import process
 from ..rekordbox.locate import locate
 
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
-CTRL_C_REPEAT_S = 1.0  # uv and caffeinate forward one Ctrl-C a second time; ignore repeats this close together
 
 
 def _positive_int(text: str) -> int:

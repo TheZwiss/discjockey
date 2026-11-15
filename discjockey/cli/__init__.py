@@ -73,8 +73,14 @@ def _run(argv: list[str]) -> int:
     return emit(env, flags)
 
 
+WORKER = ["job", "_worker"]  # the hidden command a job's worker process runs (cli/worker.py); not in `help`, not parsed
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:2] == WORKER:
+        from . import worker
+        return worker.main(argv[2:])
     if [a for a in argv if a != "--json"] in (["--help"], ["-h"]):  # the usual first probe: the short list
         argv = ["help", *(a for a in argv if a == "--json")]
     if parser.route(argv) == "legacy":

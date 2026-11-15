@@ -311,8 +311,8 @@ def test_a_dry_run_on_a_command_without_one_is_bad_args(capsys):
     assert code == 2 and "no --dry-run" in env["message"]
 
 
-def test_a_job_entry_is_not_built_yet_until_the_job_client_lands():
-    entry = replace(catalog.by_method("upgrade_all")[0], planned=None)
+def test_a_read_job_entry_is_not_built_yet_until_the_job_client_lands():
+    entry = replace(catalog.by_method("aiff_plan")[0], planned=None)  # RJ: group 1.6 (J, a write job, is 1.5's)
     env = call.run(entry, {}, parser.Flags())
     assert env["outcome"] == "bad_args" and "not built yet" in env["message"]
 
