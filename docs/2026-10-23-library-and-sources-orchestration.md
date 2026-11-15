@@ -598,6 +598,14 @@ Results:
     (stderr), `Jobs(inline=…)`, and the queued→lost race (any reader marks a `queued` job `lost` while no one holds
     `alive`: create→worker lock needs a handoff; a test pins today's behaviour). Worktrees lack node_modules (agent
     symlinked main's, then removed). Issue 39 ~5.37M.
+    V1.5 done 766ea67f: Sonnet **244k** (est. 215k; 69 calls). My full pytest: 5024 passed, 4 skipped; 0 leftover
+    `job _worker`. Merged + main → a2eb94b2, pushed. Queued→lost fix: `Registry.create` takes `alive` before
+    state.json exists, passes the fd to the worker (`pass_fds`), creator closes its copy: lost only if both die
+    (tests pin it). Frozen app spawns `[sys.executable, "job", "_worker", id]` (no -m), routed before the parser.
+    Worker finds the registry via DISCJOCKEY_SUPPORT set by the spawner; progress fields {step, done, total, item,
+    message}; state.json += `method`, `wait_busy`; prune at each job start (client); stderr → log.txt. For V1.6: a
+    lock race lost under `--wait-busy` writes `JobFinished(console)` before the retry → the follower ends on
+    result.json, not that event. Issue 39 ~5.61M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
