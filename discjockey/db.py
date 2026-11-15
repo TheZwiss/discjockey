@@ -229,13 +229,72 @@ class _Connection(sqlite3.Connection):
             self.close()
 
 
-def connect(path: Path, *, wait_ms: int = 5000) -> sqlite3.Connection:
+class _ReadConnection(_Connection):
+    """A read-only connection. `made` are the `-wal` and `-shm` files this open created (a WAL database opened
+    `mode=ro` creates them and, being read-only, cannot remove them): closing tidies them away again."""
+
+    path: Path
+    made: tuple[Path, ...] = ()
+
+    def close(self) -> None:
+        super().close()
+        made, self.made = self.made, ()
+        if made:
+            _tidy_sidecars(self.path, made)
+
+
+def _sidecars(path: Path) -> tuple[Path, Path]:
+    return Path(f"{path}-wal"), Path(f"{path}-shm")
+
+
+def _tidy_sidecars(path: Path, made: tuple[Path, ...]) -> None:
+    """Takes away the `-wal` and `-shm` a read-only open made. Never by deleting them: another process may have
+    started using them since, so a plain read-write open and close does it, and SQLite itself removes them only when
+    that close is the last one on the database. Nothing is written to the database (an empty log has nothing to
+    checkpoint). Best effort: a folder that cannot be written leaves them as they are."""
+    if not any(f.exists() for f in made):
+        return
+    try:
+        conn = sqlite3.connect(str(path), timeout=0)
+        try:
+            conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
+
+
+def _read_only_uri(path: Path) -> tuple[str, tuple[Path, ...]]:
+    """`file:<path>?mode=ro` and the sidecars that open will create. SQLite's rules for `mode=ro` on a WAL database:
+    it needs the `-shm` (and `-wal`); where they are absent it creates them (a writable folder) or fails with
+    "attempt to write a readonly database" (a folder that is not writable). A folder nobody can write is also one no
+    writer is working in, so there the database is opened `immutable=1` (no files, no locks); anywhere else with
+    the sidecars absent the open is plain `mode=ro` and the files it makes are tidied on close."""
+    from urllib.parse import quote
+    uri = f"file:{quote(str(path))}?mode=ro"
+    absent = tuple(f for f in _sidecars(path) if not f.exists())
+    if absent and not os.access(path.parent, os.W_OK):
+        return f"{uri}&immutable=1", ()
+    return uri, absent
+
+
+def connect(path: Path, *, wait_ms: int = 5000, read_only: bool = False) -> sqlite3.Connection:
     """Opens library.db with the binding settings: WAL (if the volume can't do WAL, the default journal: correctness
     doesn't depend on it), synchronous=FULL, foreign keys, F_FULLFSYNC for commits and checkpoints (the SQLite form
     of library.full_fsync), a 5 s wait for another writer (`wait_ms`: shorter for a best-effort write that must not
-    hold its caller up). A file that isn't a database is StateError."""
+    hold its caller up). A file that isn't a database is StateError.
+    `read_only` (every read of the records and every dry run: issue 39 design §7.1) opens `file:<path>?mode=ro`: no
+    journal mode is set, nothing is created beside library.db, nothing is written to it. A file that is not there
+    is an error, not a new database."""
     conn = None
     try:
+        if read_only:
+            uri, made = _read_only_uri(path)
+            conn = sqlite3.connect(uri, uri=True, isolation_level=None, factory=_ReadConnection)
+            conn.path, conn.made = path, made
+            conn.execute(f"PRAGMA busy_timeout = {int(wait_ms)}")
+            conn.execute("PRAGMA foreign_keys = ON")
+            return conn
         conn = sqlite3.connect(str(path), isolation_level=None, factory=_Connection)
         conn.execute(f"PRAGMA busy_timeout = {int(wait_ms)}")
         conn.execute("PRAGMA foreign_keys = ON")
@@ -818,6 +877,12 @@ def save(conn: sqlite3.Connection, state: dict, *, library: Path, facts: Facts, 
 def watched_folders(conn: sqlite3.Connection) -> list[WatchedFolder]:
     return [WatchedFolder(i, Path(p), k) for i, p, k in conn.execute(
         "SELECT id, path, kind FROM watched_folders ORDER BY id")]
+
+
+def scan_times(conn: sqlite3.Connection) -> list[tuple[Path, str | None]]:
+    """(each watched folder's path, when it was last scanned: an ISO time or None), for telling whether a folder
+    changed after its scan (`HubApi.scan_next`)."""
+    return [(Path(p), s) for p, s in conn.execute("SELECT path, last_scan FROM watched_folders ORDER BY id")]
 
 
 def freshness(conn: sqlite3.Connection) -> tuple[str | None, str | None]:

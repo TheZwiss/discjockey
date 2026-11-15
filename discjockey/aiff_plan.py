@@ -224,7 +224,7 @@ def view_inputs(paths: Paths, view: str, lines, records, watched) -> tuple[list[
         lines = pf.load(paths.playlists_file).rows
     if (records is None and view == "playlist") or (watched is None and view == "folder"):
         if paths.db_file.exists():
-            with db.connect(paths.db_file) as conn:
+            with db.connect(paths.db_file, read_only=True) as conn:
                 records = db.playlist_records(conn) if records is None else records
                 watched = db.watched_folders(conn) if watched is None else watched
     return lines, records or {}, watched or ()

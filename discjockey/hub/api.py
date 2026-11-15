@@ -47,7 +47,7 @@ from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatc
                       PlaylistLine,
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold, search_fold
-from ..words import preview_words, rekordbox_words
+from ..words import SCAN_OLDER, preview_words, rekordbox_words
 from ..ops import OpProblem, snapshot
 from .. import pending_signs
 from ..pacing import Budget
@@ -55,7 +55,7 @@ from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, 
 from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, media as media_mod, registry, spectrum as spec, views
+from . import catalog, media as media_mod, plan_store, registry, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from .outcomes import problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Job, Jobs, PreviewStore, SignInPhase,
@@ -187,6 +187,11 @@ def _answering(fn):
         except BadId as e:
             return {"ok": False, "kind": "bad_args", "message": e.message, "outcome": "bad_args", "reason": e.reason,
                     "next": [], "person_steps": [], "data": None}
+        except plan_store.UnknownPlan as e:  # `--plan` with an id no dry run made (or one pruned long ago)
+            return {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": "unknown_id",
+                    "next": [], "person_steps": [], "data": None}
+        except plan_store.PlanExpired as e:  # older than 24 hours, or made for another music folder
+            return {"ok": False, "kind": "refused", "message": str(e), **problem_fields("refused", e)}
         except TypeError as e:  # the page called with wrong arguments
             traceback.print_exc()
             return {"ok": False, "kind": "crashed", "message": UNEXPECTED, **problem_fields("crashed")}
@@ -243,7 +248,7 @@ def _import_folders(paths: Paths | None) -> int:
     if paths is None or not paths.db_file.exists():
         return 0
     try:
-        with db.connect(paths.db_file) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             return sum(1 for f in db.watched_folders(conn) if f.kind == "import")
     except (sqlite3.Error, StateError, OSError):
         return 0
@@ -436,6 +441,18 @@ class HubApi:
     def _state(self) -> dict:
         return library.load_state(self._paths)
 
+    def _plan_root(self) -> str | None:
+        return str(self._bound.root) if self._bound is not None else None
+
+    def _bind_plan(self, plan_id: str, now: Mapping[str, object]) -> tuple[plan_store.Plan, plan_store.Binding]:
+        """The plan `plan_id` loaded for this music folder and held against the items a run finds now (`now`: item key
+        -> the answer the engine gives today): which still stand, which changed (the run answers them `skipped`,
+        `changed`) and which are new since the plan (`data.new_since_plan`, left out). Raises `UnknownPlan` or
+        `PlanExpired`, which `_answering` turns into `bad_args` / `refused` for whoever called. What every write method
+        that takes a `plan_id` starts with, under its lock."""
+        plan = plan_store.load(self._support.support, plan_id, self._plan_root())
+        return plan, plan_store.bind(plan, now)
+
     def _settings(self) -> Settings:
         try:
             return load_settings(self._support.settings_file)
@@ -578,7 +595,7 @@ class HubApi:
         folder, and only if the path, links resolved, stays inside that folder (a link leading out is refused)."""
         if not self._paths.db_file.exists():
             return None
-        with db.connect(self._paths.db_file) as conn:
+        with db.connect(self._paths.db_file, read_only=True) as conn:
             where = db.online_file(conn, file_id)
         return media_mod.file_inside(*where) if where is not None else None
 
@@ -1636,7 +1653,7 @@ class HubApi:
             yield None
             return
         try:
-            with db.connect(self._paths.db_file) as conn:
+            with db.connect(self._paths.db_file, read_only=True) as conn:
                 db.check(conn)
                 yield conn
         except sqlite3.Error as e:
@@ -2865,6 +2882,43 @@ class CliApi(HubApi):
     (tests/test_hub_api.py): the window's `HubApi` has none of these."""
 
     RESOLVERS = {"track": "_resolve_track"}  # kind -> the method that makes it (grows per group)
+
+    # --- plans (design §7.1): the command line's call path saves a dry run's plan (`save_plan`) and says when its scan
+    # was (`scan_next`); a write method that takes `plan_id` binds it (`HubApi._bind_plan`). Plain methods, not bridge
+    # methods: the window's HubApi has none of the public ones
+
+    def save_plan(self, kind: str, answer: Mapping, command: str) -> str | None:
+        """Stores the plan of a dry run's `answer` (`plan_store.save`; its `items`, each with a `key`, are the plan's
+        items, its `plan_extra` what else the run needs) and returns the id; None when the answer lists no items (a
+        what-if or a question is not a plan). `command` is the command line of the dry run, which an expired plan
+        says to repeat."""
+        items = plan_store.items_of(answer)
+        if items is None:
+            return None
+        extra = {**(answer.get("plan_extra") or {}), "command": command}
+        return plan_store.save(self._support.support, kind, self._plan_root(), items, extra)
+
+    def scan_next(self) -> list[dict]:
+        """The `next` of a dry run that planned on the last scan: `library scan` when Library/ or a watched folder was
+        changed after that scan (or was never scanned), else nothing. Read only (the folders' modified times against the
+        stored scan times); a library that cannot be read says nothing."""
+        bound = self._bound
+        if bound is None:
+            return []
+        try:
+            with self._move_log() as conn:
+                scans = db.scan_times(conn) if conn is not None else [(bound.library, None)]
+        except (sqlite3.Error, StateError):
+            return []
+        for folder, scanned in scans:
+            try:
+                changed = datetime.fromtimestamp(Path(folder).stat().st_mtime)
+                stale = scanned is None or changed > datetime.fromisoformat(scanned)
+            except (OSError, ValueError):
+                continue  # a drive that is away, or a time that cannot be read: nothing to say
+            if stale:
+                return [{"run": "library scan", "why": SCAN_OLDER}]
+        return []
 
     @cli_first
     def resolve(self, kind: str, values: list[str]) -> dict:

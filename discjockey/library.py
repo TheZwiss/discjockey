@@ -318,7 +318,7 @@ def load_state(paths: Paths) -> dict:
     from . import db
     if paths.db_file.exists():
         try:
-            with db.connect(paths.db_file) as conn:
+            with db.connect(paths.db_file, read_only=True) as conn:
                 db.check(conn)
                 return db.snapshot(conn, paths.library)
         except sqlite3.Error as e:
@@ -338,7 +338,7 @@ def watched_root(paths: Paths, path: str) -> str | None:
     if not PurePosixPath(path).is_absolute() or not paths.db_file.exists():
         return None
     try:
-        with db.connect(paths.db_file) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             return db.watched_root(conn, path)
     except sqlite3.Error as e:
         raise db.unreadable(e) from None
@@ -351,7 +351,7 @@ def import_left(paths: Paths) -> int:
     if not paths.db_file.exists():
         return 0
     try:
-        with db.connect(paths.db_file) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             db.check(conn)
             return db.import_left(conn)
     except sqlite3.Error as e:
@@ -368,8 +368,16 @@ def _v1_snapshot(paths: Paths, state: dict) -> dict:
     return state
 
 
-def open_state(paths: Paths, emit: Emit = no_emit, *, recovered: list[tuple[str, bool]] | None = None) -> dict:
-    """The snapshot for a writer (the caller holds the lock): open_records, then load_state."""
+def open_state(paths: Paths, emit: Emit = no_emit, *, recovered: list[tuple[str, bool]] | None = None,
+               read_only: bool = False) -> dict:
+    """The snapshot for a writer (the caller holds the lock): open_records, then load_state. `read_only` (a dry run:
+    issue 39 design §7.1) is the snapshot with no open_records: nothing is created, migrated or recovered, library.db
+    is opened `mode=ro`, and a library not yet moved into library.db is shown from state.json as it is. The music
+    folder still has to be there."""
+    if read_only:
+        if not paths.root.is_dir():
+            raise NoLibrary(MUSIC_GONE)
+        return load_state(paths)
     open_records(paths, emit, recovered=recovered)
     return load_state(paths)
 

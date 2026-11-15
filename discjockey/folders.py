@@ -69,7 +69,7 @@ def check_import_folder(path: Path | str, *, paths: Paths, support: Path, progra
         return refuse("not_readable")
     try:
         if paths.db_file.exists():
-            with db.connect(paths.db_file) as conn:
+            with db.connect(paths.db_file, read_only=True) as conn:
                 merges = db.check_watched_folder(conn, p, paths.library)
         else:
             merges = db.check_watched_folder(None, p, paths.library)
@@ -107,7 +107,7 @@ def add(paths: Paths, path: Path | str, now: datetime | None = None) -> AddedFol
 
 def removal(paths: Paths, folder_id: int) -> RemovalCounts:
     """What removing the folder takes away (W4): its files, and the playlist songs that download again."""
-    with db.connect(paths.db_file) as conn:
+    with db.connect(paths.db_file, read_only=True) as conn:
         return db.removal_counts(conn, folder_id)
 
 

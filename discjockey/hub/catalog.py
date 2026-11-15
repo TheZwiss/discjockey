@@ -71,6 +71,17 @@ HOUSEKEEPING = (("help",), ("where",), ("app", "open"), ("call",), ("job", "list
 
 PHASE = "phase 1"
 
+# What the window asks before it does a `needs_yes` command, and says under the question: `<command> -> words`. A
+# command line that is run without `--yes` answers `refused`, `needs_yes` with these words as `message`; a command
+# without a row says the reason's own words. The group that builds a `needs_yes` command adds its row (phase 6 moves
+# the words into the entry's own `confirm`).
+CONFIRM: dict[str, str] = {}
+
+
+def confirm_words(entry: "Entry") -> str | None:
+    """The window's question for `entry`'s command, or None when no row names it (the reason's own words say it)."""
+    return CONFIRM.get(" ".join(entry.command) or entry.method)
+
 
 def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapping[str, Arg] | None = None,
        fixed: Mapping[str, object] | None = None, needs_yes: bool = False, dry_run: str | None = None,

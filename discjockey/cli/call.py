@@ -49,6 +49,45 @@ def _resolved(api, command: str, arg: catalog.Arg, value: object) -> tuple[objec
     return (resolved if arg.many else resolved[0]), None
 
 
+def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool) -> tuple[dict, dict | None]:
+    """The method's arguments from what the person typed (resolved through `HubApi.resolve`, the entry's `fixed` values
+    added), or the envelope of why not."""
+    kwargs = dict(args)
+    if not exact:
+        for name, arg in catalog.effective_params(entry, signature_of(entry.method)).items():
+            if arg.resolve and name in kwargs:
+                value, failed = _resolved(api, command, arg, kwargs[name])
+                if failed is not None:
+                    return {}, failed
+                kwargs[name] = value
+    kwargs.update(entry.fixed)
+    return kwargs, None
+
+
+def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
+    """The entry's `--dry-run` (design §7.1): its `dry_run` method on the last scan, answering `as_of.scanned_at` and,
+    when a watched folder changed after that scan, `next: library scan`. An answer that lists its items (each with a
+    `key`) is stored as a plan (`plan_store`: the one file a dry run writes) and its id is `data.plan_id`, which
+    `--plan` runs."""
+    answer = getattr(api, entry.dry_run)(**{k: v for k, v in kwargs.items() if k in parameters_of(entry.dry_run)})
+    env = envelope.from_answer(command, answer, as_of=_as_of(api))
+    if env["outcome"] == "ok":
+        if (plan_id := api.save_plan(command, answer, command)) is not None:
+            env["data"]["plan_id"] = plan_id
+        env["next"] += [n for n in api.scan_next() if n not in env["next"]]
+    return env
+
+
+def _needs_yes(entry: Entry, command: str, kwargs: Mapping | None = None, api=None) -> dict:
+    """`refused`, `needs_yes`: the window asks first and this command never asks. `message` is the window's question
+    (`catalog.CONFIRM`), `data` what the dry run shows (as `--dry-run` answers it, its plan id too) for a command that
+    has one, so the person sees what `--yes` would do. Without `api` (a command with no dry run) nothing is looked at."""
+    dry = _dry_run(entry, command, kwargs, api) if entry.dry_run and api is not None else None
+    shown = dry is not None and dry["outcome"] == "ok"
+    return envelope.problem(command, "refused", "needs_yes", catalog.confirm_words(entry),
+                            data=dry["data"] if shown else None, as_of=dry["as_of"] if shown else None)
+
+
 def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = False) -> dict:
     """Runs one entry. `args` are the method's parameters by name as the person gave them (what the command line
     typed; `resolve` turns them into arguments), or, with `exact` (`call`), already the bridge's own arguments."""
@@ -62,26 +101,23 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
                                        "use `job stop <job>`.")
     if flags.dry_run and not entry.dry_run:
         return envelope.usage(command, f"{command} has no --dry-run: it does not change anything or it cannot be tried first.")
-    if entry.needs_yes and not flags.yes and not flags.dry_run:
-        return envelope.problem(command, "refused", "needs_yes")
-    method = entry.dry_run if flags.dry_run else entry.method
-    if method == entry.method and entry.kind not in ("R", "B", "J", "RJ"):
+    if not flags.dry_run and entry.kind not in ("R", "B", "J", "RJ"):
         return envelope.usage(command, NOT_BUILT.format(command=command))
+    if entry.needs_yes and not flags.yes and not flags.dry_run and not entry.dry_run:
+        return _needs_yes(entry, command)  # nothing to show: refused before anything is looked up
     api = api or bind.default()
-    kwargs = dict(args)
-    if not exact:
-        for name, arg in catalog.effective_params(entry, signature_of(entry.method)).items():
-            if arg.resolve and name in kwargs:
-                value, failed = _resolved(api, command, arg, kwargs[name])
-                if failed is not None:
-                    return failed
-                kwargs[name] = value
-    kwargs.update(entry.fixed)
-    if method != entry.method:
-        kwargs = {k: v for k, v in kwargs.items() if k in parameters_of(method)}
-    if method == entry.method and entry.kind in ("J", "RJ"):
+    kwargs, failed = _arguments(entry, args, command, api, exact)
+    if failed is not None:
+        return failed
+    if flags.dry_run:
+        if entry.dry_run == entry.method and entry.kind in ("J", "RJ"):  # the read is the job (`aiff_plan`): a worker runs it
+            return start_job(entry, kwargs, command, flags)
+        return _dry_run(entry, command, kwargs, api)
+    if entry.needs_yes and not flags.yes:
+        return _needs_yes(entry, command, kwargs, api)
+    if entry.kind in ("J", "RJ"):
         return start_job(entry, kwargs, command, flags)
-    answer = getattr(api, method)(**kwargs)
+    answer = getattr(api, entry.method)(**kwargs)
     return envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None)
 
 
