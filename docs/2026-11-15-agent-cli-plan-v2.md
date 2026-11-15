@@ -38,17 +38,19 @@ files, library.db, master.db or settings.
 | Row | Kind | Δ | What |
 |---|---|---|---|
 | A | moved, **not a saving** | −2 580 | v1 groups now priced as extras the user ticks: 2.2 (E9), 2.3–2.5 (E7), 3.2 (E6), 5.1 (E1), 5.4 (E2), 5.5 and 5.3's declarations (E3), 7.3 and 7.2's real clone (E5), with their reviews, rehearsals and shots |
-| B | real saving | −1 172 | Self-contained briefs: −17k per build group (46 carried over), −20k per review (30); +210k for the agent that writes phase 1's briefs. **Rests on one record (D3a) that groups read their plan whole** (§1.2) |
-| C | real saving, process cut | −540 | A writer group's rehearsal runs inside its last agent (fix round, or the review when it has no fix) instead of a fresh agent; still one rehearsal on a copy per writer group (G5) |
-| D | real saving | −493 | The generic call path and printer: phase 3 recut from 7 groups to 4, no handler or render module per command in phases 1 and 4 (§3) |
-| E | real saving | −440 | Phase 6 keeps its per-cluster reviews and drops the extra Opus phase review (checklist line 6: per-group reviews **or** a stage review; phase 6 writes no user data) |
+| B1 | saving, estimated from one record | −572 | Self-contained briefs for build groups: −17k each (46 carried over) + 210k for the agent that writes phase 1's briefs. Rests on D3a (a build group read its plan whole, §1.2) |
+| B2 | saving, **not measured** | −600 | The same −20k for each review (30): no record says a reviewer read the plan whole, and v1 §4 already gave reviewers a short list |
+| C | process cut, **not measured** | −540 | A writer group's rehearsal runs inside its last agent (fix round, or the review when it has no fix) instead of a fresh agent; still one rehearsal on a copy per writer group (G5); the 40k unit has no record (§1.1) |
+| D1 | saving, estimated, no record | −113 | Generic path in phases 1 and 4: the named modules not written (`render/rekordbox`, `batch`, `report`, `upgrade`, `check`; a handler and text layout per phase 4 command, −15k a group) |
+| D2 | saving, estimated, no record | −380 | Phase 3 recut 7 → 4: v1 3.1, 3.5, 3.6's ~20 plain reads each had a handler, layout and golden file; in V3.1 they are catalogue rows under one parametrised test. V3.2 and V3.3 are new engine reads the generic path doesn't shorten: they keep v1 3.3, 3.4, 3.7's engine work (status, doctor, history, superseded, match) and lose their commands' text layouts, which V3.4's four pages and the generic printer replace |
+| E | saving, by the checklist's rule | −440 | Phase 6 keeps its per-cluster reviews and drops the extra Opus phase review (checklist line 6: per-group reviews **or** a stage review; phase 6 writes no user data) |
 | F | estimate correction, both plans | +725 | Units from the record instead of v1's: own review 150k (v1 125k), fix round 150k (v1 130k), Opus phase review 200k (v1 300k), shots pass 120k (v1 80k) |
 | H | gaps closed | +75 | §9.3 rows v1 placed in no group (U17, U18, U19, U9; the "Deleted" list), `app install-command` (in no v1 group), flags generated from signatures |
 | I | rounding | +90 | each group rounded up to 5k |
 | J | v1's arithmetic | +20 | v1's phase 6 rows add up to 2 690k, its total uses 2 670k; v2 builds on the rows |
 | | | **−4 315** | 24 370k → 20 055k |
 
-So the real savings are **B + C + D + E ≈ 2.6 M**; 2.6 M more is extras moved out (priced in §7, 4.3 M at v2's record
+So the savings are **B + C + D + E ≈ 2.6 M**: 1.0 M rests on a record or a rule (B1, E), 1.6 M is estimated without a record or not measured (B2, C, D1, D2). **If only B1 and E hold, the base is ≈ 21.7 M** (20 055 + 600 + 540 + 493). 2.6 M more is extras moved out (priced in §7, 4.3 M at v2's record
 units), and the record corrections add 0.7 M back. **With every extra ticked v2 costs what v1 costs (24.4 M)**: the
 savings pay for record-based unit sizes, the gaps v1 left, and an MCP server v1 didn't price.
 
@@ -58,7 +60,7 @@ savings pay for record-based unit sizes, the gaps v1 left, and an MCP server v1 
   path removed most per-command work, was recut (7 → 4).
 - **The ~100k start is mostly not shared docs** (§1.2): what v1 told a group to read beyond its material is ~3k; the
   record that groups read the whole plan (20.7k) gives the −17k used here. If the brief's premise held (whole design
-  and plan read, ~58k), the base would be ~2.8 M lower (≈ 17.3 M); it is not measured, so it isn't counted.
+  and plan read, ~58k), the base would be ~2.8 M lower (≈ 17.2 M); it is not measured, so it isn't counted.
 - **Phase 6 (G1) and phase 4 (G5)** carry 8.3 M between them: 12 groups that move ~115 window decisions with shots,
   and 8 writer groups each with its own review and rehearsal. Both are goals.
 - **E1 is needed by G3 in the strict sense** (the window's fixed tooltips and explanations reach the CLI only through
@@ -368,6 +370,27 @@ Brief outline: v1 1.2's decisions (headless bind, `remember=False`, routing per 
 | Opus phase review + fix | 180k + 150k (over V1.1–V1.6, V1.8–V1.10, and T1–T3, T7′, T8–T10 whole) | | |
 | **Phase 1** | **5 100k**, then the live tests (v1 §7, unchanged) 300k | | |
 
+**Per group: design, files touched, and what its brief carries** (parts 2–4 of §4.1; part 5 = v1's "Touches" and
+"Reads" cells ± the change named; parts 1, 6, 7 are the same for all):
+
+| Group | Design (copied into the brief) | Touches: v1's cell ± | Brief carries besides |
+|---|---|---|---|
+| V1.1 | §3, §4.3, §5.2, §8.1, §10.1, §13 T1 T8 | v1 1.1 + `Arg.secret`, signature defaults | v1 §2.1–§2.3; v1 1.1's tests, check-first; D5 |
+| V1.2 | §2.2, §4.1, §4.2, §8.1, §12 | v1 1.2 − `render/rekordbox.py` + `render/generic.py`, `cli/call` command, T7′ and golden harnesses | v1 1.2's decisions and tests; this plan §3.1–§3.2 |
+| V1.3 | §2.1, §2.3, §4.1, §9.1, §10.2, §13 T12 | v1 1.3 + CLAUDE.md line 177 | v1 1.3's decisions and tests; D9's rule text |
+| V1.4 | §6.2, §6.4, §6.5 | v1 1.4 | v1 §2.4; v1 1.4's tests |
+| V1.5 | §2.1, §6.1, §6.3 | v1 1.5 + `call.run` J path | v1 §2.4; v1 1.5's decisions, tests, check-first |
+| V1.6 | §4.1, §4.3, §6.4, §6.5 | v1 1.6 + RJ path | v1 1.6's tests |
+| V1.7 | §6.1 | v1 1.7 | v1 1.7's tests; the rehearsal steps for the last agent |
+| V1.8 | §3, §4.2, §5.2 (`todo`, `track`), §10.1, §13 T4 | v1 1.8; `render/todo.py`, `render/track.py` on `rest()` | v1 1.8's decisions, check-first, tests; T4 as a parametrised harness |
+| V1.9 | §3, §5.2 (`rekordbox_status`, `move_batches`, `run`), §5.3 | v1 1.9 − the three render modules | v1 1.9's tests |
+| V1.10 | §7.1, §7.2, §7.3, §13 T9 | v1 1.10 | v1 §2.5; v1 1.10's decisions, check-first, tests |
+| V1.11 | §4.3 (R24, R29), §4.4, §5.2 (`upgrade`, `upgrade_all`, `undo_upgrade`, `rekordbox_checked`), §7.2, §7.4, §12 | v1 1.11 − `render/upgrade.py`, `render/check.py` | v1 1.11's decisions and tests |
+| V1.12 | §5.2 (`batch_resume`, `batch_undo`), §6.6, §7.4, §12 | v1 1.12 | v1 1.12's tests; the rehearsal for V1.11 + V1.12 |
+| V1.13 | §5.2 (`aiff_plan`, `convert`, `rename`, `make_aiff`), §5.3, §7.1, §9.3 L D1 | v1 1.13 | v1 1.13's tests; `rehearse-convert` |
+| V1.14 | §5.2 (folder, `set_auto_upgrade`, `start_sync`), §6.1, §15 C | v1 1.14 | v1 1.14's decisions, check-first, tests; `rehearse-sync` |
+| V1.15 | §10.1, §15 Clean-up | v1 1.15 | v1 1.15's tests, check-first; the scratch-library rehearsal |
+
 **§15 against phase 1** (every command the A–D tables and v1 §7's runbook use, and its group): `where` V1.3;
 `rekordbox status` V1.2 (+C7 fields V1.9); `rekordbox preview --path` V1.9; `folder add`, `folder remove --yes`,
 `settings set auto-upgrade`, `sync run --auto-upgrade-only [--dry-run]` V1.14; `library scan` V1.5; `job wait/stop`,
@@ -421,7 +444,7 @@ All read-only: one Opus phase review + fix 330k. `--png` is E6. `offer`, the six
 | V4.5 | `question list/answer`, `duplicate list/keep` (on `keep_file`) | v1 4.5 | 170k |
 | V4.6 | `version search/preview/use/reject/add-file` (shared pacer; `busy` while a sync runs anywhere), `track hide/unhide/never/download` | v1 4.6 | 195k |
 | V4.7 | Accounts: `login use`, `login sign-in` (person job, live `step:sign_in`, `step:keychain`), `check`, `sign-out --yes`, `skip`, `qobuz --password-stdin`, `spotify`; `setup_cmd.py` deleted | v1 4.7 | 210k |
-| V4.8 | `settings set` (the rest), `limits set/seen`, `tools update/rollback`, `setup music [--yes]`, `setup skip-import`, `library favourites …`, `folder crates …`, **`app install-command`** (§2.1; in no v1 group); legacy `update` deleted | v1 4.8 | 205k |
+| V4.8 | `settings set` (the rest), `limits set/seen`, `tools update/rollback`, `setup music [--yes]`, `setup skip-import`, `library favourites …`, `folder crates …`, setting changes logged for `history` (v1 3.4), **`app install-command`** (§2.1; in no v1 group); legacy `update` deleted | v1 4.8 | 205k |
 
 Every group writes the user's files, playlists.txt, library.db or settings: own review each (8 × 130k), fixes
 5 × 150k, a rehearsal on a copy or scratch support folder in the last agent each (8 × 40k; V4.6 and V4.7 with fake
