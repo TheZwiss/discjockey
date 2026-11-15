@@ -904,6 +904,11 @@ SoundCloud's own download button (`url` is then the SoundCloud page). Empty when
 lossy download carries the bitrate when known ("YouTube Music OPUS 135 kbps · cutoff 20.1 kHz"). A dropped bought
 file may be WAV, AIFF, FLAC or MP3.
 
+Also in `track()` (issue 39, the command line): `cutoff_text`, the cutoff in words as the stat card says it: "16.0 kHz ·
+where the highs end · lossless reaches about 22 kHz", "no clear edge in the highs" (no cutoff found), and for a fake
+lossless file "16.0 kHz · where the highs end · a lossy file inside the WAV" (the format of the file's extension, else
+"a lossless file"); `null` for a lossless or missing file and for a sound not checked yet. `cutoff_hz` stays the fact.
+
 Also in `track()` (2026-10-18, details redone as facts): `source_full` ("YouTube Music", "bought", "your own file"
 for a file the import found), null without a file.
 `track()` says what the file **is** apart from what it was **made from** (sources round, E1): `format_line` is the file
@@ -939,7 +944,7 @@ Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by
 tag); the `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge
 already says the kHz.
 
-`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|same_song|duplicate|upgrade_ready|not_found|weak|good_lossy|fake|other`.
+`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|same_song|duplicate|upgrade_ready|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `unknown_id`).
 Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". The import adds two
 groups after the first (see "Watched folders and the import" below): `same_song` and `duplicate`, whose items also carry
 a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, in a question and
@@ -2023,7 +2028,7 @@ latest is sent). The pause card's source is the latest `SourceChosen` of the cur
 
 - **Problem kind `rekordbox_open`**: a batch or an undo needs rekordbox closed ("rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed."; stopped mid-way: "rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and press Resume."). `JobFinished.result` is the stopped `AiffBatchResult` (or the `UndoResult`) when items ran.
 - **`upgrade` block** (`track().upgrade`): `swap_possible` now means "Same track can run now" (the quick answer: a parked upgrade, the file there, a stored alignment `exact`/`shifted`, and for a file that isn't AIFF a rekordbox library Discjockey can open or none); new `swap_how` (`in_place` for an AIFF, `new_aiff`), `why_not` (an eligibility reason key, null when possible), `rekordbox: {state: ready\|none\|unreadable, running}` (cached, see below), `auto_refused` (stage C, see "Auto-upgrade" below). `upgrade_status` says "cues can stay" whenever Same track is possible.
-- **`check_view`** (`check`): reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
+- **`check_view`** (`check`): gains `person_steps` (issue 39, the command line's): `[{id, say, then}]`, the steps only the person can do in rekordbox. An added file (New track) is `step:relocate_new`, its `say` the check's text ending with the new file's absolute path; a swap, Same track or Convert is `step:reload_tag`, its `say` the check's text (with the USB step for a repointed or converted file rekordbox has tracks of); `then` is `check done <track_id>`; a clean name and a wrong song have none (`words.person_steps`). The window words its own numbered steps and ignores it. Reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
 - **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
 - **Cached rekordbox state**: `HubApi._rekordbox_status()` keyed on master.db's modified time and size plus whether rekordbox runs; one read open per change. A reader takes `rekordbox.lock` shared and without waiting (`rekordbox.lock.reader_lock`); while a writer of any Discjockey process (a batch's session, a restore, a recovery of analysis files) holds it, master.db is never opened and the answer is the last value (`writing`, see `rekordbox_status()`). The same goes for the plan behind To-do's CDJ group and the `aiff_plan` read: with a writer holding the lock they plan on rekordbox's cached state and no lookup. A write job that holds no rekordbox session does not stop the read. Services `rekordbox_running` and `rekordbox_place` are injected (tests and the fake never touch a real library).
 

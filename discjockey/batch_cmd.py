@@ -36,13 +36,11 @@ from .rekordbox import backup as rbbackup, eligible
 from .rekordbox.eligible import Skip
 from .rekordbox.preview import REASON_WORDS
 from .rekordbox_cmd import failed, no_library, say
-from .settings import SettingsError, load_settings
 from .upgrades import UpgradeProblem
 
 OK, FAILED, NO_LIBRARY, BUSY, REKORDBOX_OPEN, STOPPED = 0, 1, 2, 3, 4, 5
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
 NOTHING = "None of these can be upgraded right now."
-AUTO_WAITS = "Waited for rekordbox to be closed at your last sync; it is upgraded at your next sync."
 WAYS = {"same-track": "same_track", "new-track": "add_new"}
 RESTORE_WORDS = {
     "no_rekordbox": "There is no rekordbox library on this Mac, so nothing was changed.",
@@ -69,9 +67,6 @@ def add_commands(commands, box_commands) -> dict[str, argparse.ArgumentParser]:
     upgrade = commands.add_parser("upgrade", description="The better versions Discjockey found, without prompts. "
                                   "(`upgrades` goes through them by hand.)")
     steps = upgrade.add_subparsers(dest="upgrade_command", metavar="command", required=True)
-    json_flag(steps.add_parser("list", help="the parked upgrades and whether Same track can run",
-                               description="Read only: every better version waiting, and why Same track can't run "
-                                           "for it yet."))
     apply = json_flag(steps.add_parser(
         "apply", help="replace tracks with their better versions",
         description="Replace the given tracks, or --all of them. same-track: one batch (a file that isn't AIFF "
@@ -328,7 +323,7 @@ def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequ
     return _code_of(d)
 
 
-# --- upgrade list ---
+# --- helpers of upgrade apply (`upgrade list` is the command line's `todo` read, discjockey/cli/) ---
 
 def _listed(state: dict, order: list[str]) -> list[tuple[str, dict]]:
     """The parked upgrades the To-do page lists (`views.upgrade_ready_keys`, the same answer as the window's Upgrade
@@ -345,61 +340,10 @@ def _folder_order(paths: Paths) -> list[str]:
         return []
 
 
-def _quality(e: dict, which: str) -> str:
-    from .upgrades_cmd import quality_text
-    if which == "now":
-        return quality_text(e.get("source"), e.get("source_format"), e["status"], e.get("cutoff_hz"),
-                            e.get("source_kbps"))
-    up = e["upgrade"]
-    return quality_text(up["source"], up.get("source_format"), up.get("status", "lossless"), up.get("cutoff_hz"),
-                        up.get("kbps"))
-
-
 def _quick(paths: Paths, e: dict | None, rb: rekordbox.Status) -> str | None:
     """Same track's quick answer for an entry: None when it can run, else the reason."""
     verdict = Skip("no_upgrade") if e is None else eligible.same_track_quick(e, rb, batches.present(paths, e))
     return verdict.reason if isinstance(verdict, Skip) else None
-
-
-def run_upgrade_list(args: argparse.Namespace) -> int:
-    resolved = library.resolve_paths()
-    if resolved.paths is None:
-        return no_library(args, resolved)
-    paths = resolved.paths
-    try:
-        state = library.load_state(paths)
-    except StateError as e:
-        return failed(args, str(e))
-    try:
-        auto_on = load_settings(paths.settings_file).auto_upgrade
-    except SettingsError as e:
-        return failed(args, str(e), "refused", "settings_invalid")
-    rb = _rekordbox_status()
-    rows = []
-    for key, e in _listed(state, _folder_order(paths)):
-        found = e["upgrade"].get("auto_refused")  # the sync's Auto-upgrade record (plan stage C §0.6)
-        record = found if isinstance(found, dict) else None
-        same_track = _quick(paths, e, rb)
-        rows.append({"track": key, "artist": e["artist"], "title": e["title"], "folder": e["folder"],
-                     "file": e.get("path"), "parked": e["upgrade"]["file"], "now": _quality(e, "now"),
-                     "new": _quality(e, "new"),
-                     "alignment": (e["upgrade"].get("alignment") or {}).get("result") or "unknown",
-                     "same_track": same_track,
-                     "auto_refused": {k: record.get(k) for k in ("reason", "message", "at")} if record else None,
-                     "auto_waits": views.auto_waits_mark(e["upgrade"], auto_on, same_track)})
-    lines = []
-    for r in rows:
-        lines.append(f"{r['track']}  [{r['folder']}] {r['artist']} - {r['title']}")
-        why = "possible" if r["same_track"] is None else f"not now ({_words(r['same_track'])})"
-        lines.append(f"    now {r['now']} · new {r['new']} · same edit: {r['alignment']} · Same track: {why}")
-        if r["auto_waits"]:
-            lines.append("    " + AUTO_WAITS)
-        if r["auto_refused"]:
-            lines.append(f"    Not upgraded at your sync: {r['auto_refused']['message']}")
-    if not rows:
-        lines.append("No better versions are waiting.")
-    say(args, {"ok": True, "upgrades": rows, "count": len(rows)}, lines)
-    return OK
 
 
 # --- upgrade apply ---
@@ -782,7 +726,7 @@ def run(args: argparse.Namespace) -> int:
     """Dispatches the commands of this module; `cli.main` calls it for `upgrade`, `batch` and `rekordbox checked |
     backups | restore`."""
     if args.command == "upgrade":
-        return {"list": run_upgrade_list, "apply": run_upgrade_apply, "discard": run_upgrade_discard,
+        return {"apply": run_upgrade_apply, "discard": run_upgrade_discard,
                 "undo": run_upgrade_undo}[args.upgrade_command](args)
     if args.command == "batch":
         return {"list": run_batch_list, "show": run_batch_show, "resume": run_batch_resume,

@@ -10,8 +10,9 @@ from discjockey.hub.api import CliApi, HubApi
 from discjockey.hub.catalog import Arg, Entry
 
 # The phase 1 ceiling: how many entries may still be `planned` (their command not built). Every group that builds a
-# command lowers the number; nothing may raise it. 1.1 plans them all; 1.2 builds `rekordbox status` and `resolve`; 1.3 builds `freshness`.
-PHASE_1_CEILING = 120
+# command lowers the number; nothing may raise it. 1.1 plans them all; 1.2 builds `rekordbox status` and `resolve`; 1.3 builds `freshness`; 1.8 builds `track show`, `todo list`, `upgrade list`,
+# `check list` and `track find`.
+PHASE_1_CEILING = 109
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select",
              "upgrade_preview", "fill_facts", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",

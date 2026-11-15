@@ -101,7 +101,11 @@ export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swap
   rekordbox: { entries: number; kept: string[] } | null;
   /** stage D: a `renamed` check's old base name ("Artist - Title [FREE DL].aiff"), null for every other check; a
    *  `converted` check's `old_path` is where the old file is now (Superseded/), a `renamed` one has none */
-  old_name: string | null };
+  old_name: string | null;
+  /** the steps only the person can do in rekordbox (the command line's; the window words its own numbered steps from
+   *  the same facts): `id` ("step:reload_tag", "step:relocate_new"), `say` (the engine's sentence for the check), `then`
+   *  ("check done <track>"); none for a check that leaves nothing to do (a clean name) */
+  person_steps?: { id: string; say: string; then: string }[] };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
@@ -439,6 +443,10 @@ export type TrackDetail = TrackRow & {
   file_state: FileState;
   /** where the file sits, as the Folder column says it (null without a file) */
   place: string | null;
+  /** the cutoff in words, as the stat card says it ("16.0 kHz · where the highs end · lossless reaches about 22 kHz";
+   *  a fake lossless file names the format it really is); null for a lossless or missing file and for a sound not
+   *  checked yet (the command line prints it; the window words the card itself) */
+  cutoff_text?: string | null;
   isrc: string | null; playlists: string[] | null; in_playlist_count: number; quality_line: string;
   /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought", "your own file" for a file the import
    *  found (both null without a file) */

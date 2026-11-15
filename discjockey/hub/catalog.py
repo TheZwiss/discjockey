@@ -126,13 +126,13 @@ ENTRIES: tuple[Entry, ...] = (
     _e("library", "library list", "R", "library list --in all --search love --quality lossless", params={
         "view": Arg("--in", type="str", resolve="collection"), "key": _derived("collection"),
         "query": Arg("--search"), "filter": Arg("--quality"), "sort": Arg("--sort")}),
-    _e("track", "track show", "R", "track show local:1", params={"track_id": TRACK}),
+    _e("track", "track show", "R", 'track show "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff"', params={"track_id": TRACK}, built=True, locks={"rekordbox_r"}),
     _e("todo", "todo list", "R", "todo list --hidden", params={
-        "filter": Arg("--group", many=True), "show_hidden": Arg("--hidden", type="bool")}),
+        "filter": Arg("--group"), "show_hidden": Arg("--hidden", type="bool")}, built=True, locks={"rekordbox_r"}),
     _e("todo", "upgrade list", "R", "upgrade list", params={"show_hidden": Arg("--hidden", type="bool")},
-       fixed={"filter": "upgrade_ready"}),
+       fixed={"filter": "upgrade_ready"}, built=True, locks={"rekordbox_r"}),
     _e("todo", "check list", "R", "check list", params={"show_hidden": Arg("--hidden", type="bool")},
-       fixed={"filter": "rekordbox_check"}),
+       fixed={"filter": "rekordbox_check"}, built=True, locks={"rekordbox_r"}),
     _e("sidebar", "library collections", "R", "library collections"),
     _e("watched_folders", "folder list", "R", "folder list"),
     _e("removal_preview", "folder remove", "R", "folder remove folder:/Music/Crate --dry-run",
@@ -250,7 +250,8 @@ ENTRIES: tuple[Entry, ...] = (
     # --- methods the command line needs and the window has not (their shapes belong to the group that builds them)
     _e("freshness", "", "R", cli_first=True, built=True),
     _e("resolve", "", "R", cli_first=True, built=True),
-    _e("find_tracks", "", "R", cli_first=True),
+    _e("find_tracks", "track find", "R", "track find get naughty", params={
+        "words": Arg(positional=True, many=True), "path": Arg("--path")}, cli_first=True, built=True),
     _e("rekordbox_preview", "rekordbox preview", "R", cli_first=True),
     _e("batches", "", "R", cli_first=True),
     _e("batch_detail", "batch show", "R", cli_first=True),

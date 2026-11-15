@@ -12,7 +12,7 @@ from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Callable, NamedTuple
 from urllib.parse import quote_plus
 
@@ -29,6 +29,7 @@ from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PLAN_LABELS, auto_upgrade_line, check_text, result_folder
 from ..settings import Settings
+from ..words import person_steps
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
@@ -630,6 +631,26 @@ def file_format_line(e: dict) -> str | None:
     return f"{name} · {bits.group(1)}-bit" if bits else name
 
 
+CUTOFF_FORMATS = {".flac": "FLAC", ".wav": "WAV", ".wave": "WAV", ".aif": "AIFF", ".aiff": "AIFF", ".aifc": "AIFF",
+                  ".alac": "ALAC", ".caf": "CAF", ".wv": "WavPack", ".ape": "APE"}  # the lossless containers the page names
+
+
+def cutoff_text(e: dict) -> str | None:
+    """The cutoff as the details panel's stat card words it: where the highs end, what that means, and for a fake
+    lossless file the format it really is ("16.0 kHz · where the highs end · a lossy file inside the WAV"). None for a
+    lossless or missing file, and for one whose sound isn't checked yet (no cutoff to show; "no clear edge" would be
+    a verdict)."""
+    if e["status"] in ("lossless", "missing") or not sound_checked(e):
+        return None
+    value = khz(e.get("cutoff_hz"))
+    if e["status"] == "fake_lossless":
+        inside = CUTOFF_FORMATS.get(PurePosixPath(e.get("path") or "").suffix.lower())
+        label = f"where the highs end · a lossy file inside {f'the {inside}' if inside else 'a lossless file'}"
+    else:
+        label = "where the highs end · lossless reaches about 22 kHz" if value else "no clear edge in the highs"
+    return f"{value} · {label}" if value else label
+
+
 def free_downloads(e: dict) -> list[dict]:
     """The artists' free downloads found on SoundCloud (a gate page or SoundCloud's own button), while the track
     is not lossless."""
@@ -763,7 +784,7 @@ def undone_words(reasons: Sequence[str | None]) -> str:
     return UNDONE_NAMES if names == len(reasons) else UNDONE_BOTH
 
 
-def check_view(check: dict | None, batch_size: int = 1) -> dict:
+def check_view(check: dict | None, batch_size: int = 1, track_id: str | None = None, new_path: str | None = None) -> dict:
     """RekordboxCheck as the To-do panel reads it: the step that left it and what the two files measured as (its
     numbered steps follow them), `aligned` (an added file: Discjockey rendered the new file lined up with rekordbox's
     timeline of the old one, so the old track's cues fit it to the sample; false for a swap and for records from before
@@ -777,7 +798,11 @@ def check_view(check: dict | None, batch_size: int = 1) -> dict:
     Stage D (Convert, Give it its clean name): `old_path` is where the old file is now for a `converted` check too
     (Superseded/): the Convert's own undo record, which a Convert→Rename chain keeps nested in the rename's
     (`library.undo_chain`); a `renamed` check has no old file (the same file kept its audio, only its name changed), so
-    `old_path` is null and `old_name` says the name it had (the file's base name), null for every other check."""
+    `old_path` is null and `old_name` says the name it had (the file's base name), null for every other check.
+
+    `person_steps` (the command line's, issue 39): the steps only the person can do in rekordbox, `{id, say, then}`
+    each (`words.person_steps`); `track_id` is the track the check is on, `new_path` its file's absolute path (the new
+    file of an added one). Without a `track_id` there are none."""
     c = check or {}
     undo = c.get("undo") or {}
     rb = c.get("rekordbox")
@@ -793,7 +818,8 @@ def check_view(check: dict | None, batch_size: int = 1) -> dict:
             "batch": {"id": c["batch"], "size": batch_size} if c.get("batch") else None,
             "rekordbox": {"entries": len(rb.get("entries") or []), "kept": list(rb.get("kept") or [])} if rb else None,
             "text": check_text(c),
-            "old_path": old_path, "old_name": old_name}
+            "old_path": old_path, "old_name": old_name,
+            "person_steps": person_steps(track_id, c, new_path) if track_id else []}
 
 
 # Auto-upgrade's marks on a parked upgrade (plan stage C §3, §4): To-do's row detail and the panel's facts
@@ -909,7 +935,7 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
     has_file = e["status"] != "missing" and e.get("source")
     link = track_link(track_id, e, fetched)
     return {**track_row(track_id, e, cover), "sound_checked": sound_checked(e), "isrc": e.get("isrc"),
-            "file_state": state, "place": place,
+            "file_state": state, "place": place, "cutoff_text": cutoff_text(e),
             "playlists": folders, "in_playlist_count": len(folders) if folders is not None else None,
             "quality_line": quality_line(e["source"], e.get("source_format") or "?", e["status"], e.get("cutoff_hz"),
                                          e.get("source_kbps"), own=is_own_file(e),
@@ -1499,6 +1525,7 @@ TODO_GROUPS = [("rekordbox_check", "Check in rekordbox", "the file changed; reko
                ("other", "Other", "something is in the way")]
 
 
+TODO_GROUP_KEYS = tuple(g for g, _, _ in TODO_GROUPS)
 FREE_GROUPS = ("not_found", "weak", "good_lossy", "fake")  # where an artist's free download is worth a tag
 
 
@@ -1774,6 +1801,16 @@ def stopped_batch(rows: Sequence[AiffBatchRow], *, scope: str | None = None,
     return None
 
 
+def _absolute(root: Path | None, path: str | None) -> str | None:
+    """A snapshot path as an absolute one: a path of an import folder is absolute already, a Library path is under the
+    music folder `root`; None without a path (or, for a relative one, without a root)."""
+    if not path:
+        return None
+    if PurePosixPath(path).is_absolute():
+        return path
+    return str(root / path) if root is not None else None
+
+
 def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
@@ -1782,7 +1819,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
          stopped: tuple[int, int] | None = None, auto_on: bool = True,
          started_by: Mapping[int, str] | None = None, cdj_all: tuple[int, int] = (0, 0),
          cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None,
-         cdj_waits: Mapping[str, str] | None = None, decided: Collection[str] = ()) -> dict:
+         cdj_waits: Mapping[str, str] | None = None, decided: Collection[str] = (), root: Path | None = None) -> dict:
     """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
     CDJs, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
@@ -1829,7 +1866,10 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     stopped `todo:*` batch, `stopped_batch`). `batch_kinds`: AIFF batch id -> `aiff_batches.kind` for the batch items
     (a Convert batch says "Made AIFF"). `decided`: the songs an open question or duplicate group asks about
     (`decided_songs`): the CDJ group leaves them out, their decision comes first, and so does the `cdj` plan the
-    counts come from."""
+    counts come from.
+
+    `root`: the music folder, for the absolute path of an added file in a check's `person_steps` (a path of an import
+    folder is absolute already; without a root the step says no path)."""
     members = cdj_rule.group_members(state, include_hidden=True, held=decided)
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}
@@ -1862,14 +1902,16 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
             bid = e["rekordbox_check"].get("batch")
             check_item = {**track_row(k, e, cover), "group": "rekordbox_check",
                           "detail": check_status(e["rekordbox_check"]),
-                          "check": check_view(e["rekordbox_check"], len(batch_checks.get(bid, ())) or 1),
+                          "check": check_view(e["rekordbox_check"], len(batch_checks.get(bid, ())) or 1, k,
+                                              _absolute(root, e.get("path"))),
                           "can_undo": can_undo(e), "file_state": row_file_state(e, away)}
             if bid in batched:
                 if k == batched[bid][0]:  # the batch's one item stands where its first track is
                     items["rekordbox_check"].append(_batch_item(bid, [
                         {**track_row(t, state["tracks"][t], cover), "group": "rekordbox_check",
                          "detail": check_status(state["tracks"][t]["rekordbox_check"]),
-                         "check": check_view(state["tracks"][t]["rekordbox_check"], len(batched[bid])),
+                         "check": check_view(state["tracks"][t]["rekordbox_check"], len(batched[bid]), t,
+                                             _absolute(root, state["tracks"][t].get("path"))),
                          "can_undo": can_undo(state["tracks"][t]),
                          "file_state": row_file_state(state["tracks"][t], away)} for t in batched[bid]],
                         (started_by or {}).get(bid), (batch_kinds or {}).get(bid)))

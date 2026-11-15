@@ -42,10 +42,12 @@ def crashed(command: str) -> dict:
 
 
 def from_answer(command: str, answer: Mapping, **fields) -> dict:
-    """The envelope of one `HubApi` answer: the answer minus `ok` is `data` when it worked; a problem keeps its
+    """The envelope of one `HubApi` answer: the answer minus `ok` is `data` when it worked (an answer that says what to
+    run next, a search with no hit, carries it as `next`: that is the envelope's, not `data`'s); a problem keeps its
     `outcome`, `reason`, `message`, `next`, `person_steps` and `data`."""
     if answer.get("ok"):
-        return envelope(command, "ok", data={k: v for k, v in answer.items() if k != "ok"}, **fields)
+        return envelope(command, "ok", data={k: v for k, v in answer.items() if k not in ("ok", "next")},
+                        next=answer.get("next") or (), **fields)
     outcome = answer.get("outcome") or "failed"
     reason = answer.get("reason")
     return envelope(command, outcome, reason=reason if reason in REASONS else None, message=answer.get("message"),

@@ -1,0 +1,39 @@
+"""The words the engine owns for the command line (issue 39, design §8.3): the steps only a person can do after a
+change that rekordbox does not notice by itself. The window still builds its own numbered steps from the same facts
+(`decisionModel.ts`); phase 6 splits these into numbered steps and takes that copy away. A later group adds the words
+of the other answers here.
+
+`person_steps` turns one open rekordbox check into the steps of `HubApi.todo`'s `check.person_steps`: the step's `id`
+and `then` come from `outcomes.STEPS`, its `say` is the engine's own sentence for the check (`report.check_text`, with
+the USB step where the check has one: `report.usb_step`). The track's name is its key: `check done <key>` is the next
+command."""
+from __future__ import annotations
+
+from . import report
+from .hub.outcomes import person_step
+
+SWAP_REASONS = ("swapped", "repointed", "converted")  # the old rekordbox track keeps its file: Reload Tag
+ADDED_REASON = "added_as_new"                          # a new file: the old rekordbox track is pointed at it by hand
+
+
+def check_sentence(check: dict) -> str:
+    """What to do in rekordbox for `check` (a `rekordbox_check` record), as one sentence: `report.check_text`, then the
+    USB step when this check has one (a repointed or converted file that rekordbox has tracks of)."""
+    usb = report.usb_step(check)
+    return f"{report.check_text(check)} {usb}" if usb else report.check_text(check)
+
+
+def person_steps(track_id: str, check: dict | None, new_path: str | None = None) -> list[dict]:
+    """The steps for the open check of `track_id`: an added file (New track) is `step:relocate_new`, with the new
+    file's absolute path (`new_path`) at the end of its sentence; a swap, Same track or Convert is `step:reload_tag`.
+    Every step's `then` is `check done <track_id>`. A check that leaves the person nothing to do (a clean name, the
+    wrong song) has none."""
+    check = check or {}
+    reason = check.get("reason")
+    if reason == ADDED_REASON:
+        name, say = "relocate_new", check_sentence(check) + (f" The new file: {new_path}" if new_path else "")
+    elif reason in SWAP_REASONS:
+        name, say = "reload_tag", check_sentence(check)
+    else:
+        return []
+    return [{**person_step(name, tracks=track_id), "say": say}]

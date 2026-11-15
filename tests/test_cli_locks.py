@@ -80,6 +80,9 @@ DRIVERS = {
     "freshness": lambda api, rec: api.freshness(),
     "resolve": lambda api, rec: api.resolve("track", ["t1"]),
     "rescan_library": lambda api, rec: wait_job(api, rec, api.rescan_library()),
+    "track": lambda api, rec: api.track("t2"),
+    "todo": lambda api, rec: api.todo(),
+    "find_tracks": lambda api, rec: api.find_tracks("naughty"),
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 

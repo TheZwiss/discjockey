@@ -15,14 +15,15 @@ from ..hub.outcomes import REASONS
 from . import call, envelope, housekeeping, parser
 from .legacy import parse_args  # noqa: F401 - the old parser's entry, for the callers that pin its words
 from .parser import APP_OPEN, HOUSEKEEPING, Flags, UsageError
-from .render import generic, layout
+from . import render
+from .render import layout
 
 
 def render_text(env: dict, flags: Flags, *, color: bool = False) -> str:
-    """The text of an answer: its `data` as a generic page, under the message when it worked (a problem's message goes
-    to stderr)."""
-    page = generic.page(env["data"] or {}, message=env["message"] if env["outcome"] == "ok" else None,
-                        verbose=flags.verbose, limit=flags.limit, offset=flags.offset)
+    """The text of an answer: its `data` as the command's page (a hand page, else the generic one), under the message
+    when it worked (a problem's message goes to stderr)."""
+    page = render.page_for(env["command"])(env["data"] or {}, message=env["message"] if env["outcome"] == "ok" else None,
+                                           verbose=flags.verbose, limit=flags.limit, offset=flags.offset)
     return layout.render(page, color=color)
 
 

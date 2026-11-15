@@ -6,7 +6,7 @@ all three for free:
   diff to see the page);
 * T7': every leaf of `data`, as the printer writes it, occurs in the text with `--verbose` (pages may reorder and
   word, never drop);
-* T4: `--json`'s `data` equals the bridge's answer minus `ok`."""
+* T4: `--json`'s `data` equals the bridge's answer minus `ok` (and `next`, which the envelope carries)."""
 import json
 import os
 import shlex
@@ -17,6 +17,7 @@ from hub_helpers import choose_music, make_root
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
+from test_cli_reads import rich_library
 from discjockey.cli import bind, parser
 from discjockey.cli.render import generic
 from discjockey.hub import catalog
@@ -25,10 +26,17 @@ GOLDEN = Path(__file__).parent / "cli_golden"
 READS = [e for e in parser.built() if e.kind == "R"]
 
 
+RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
+                                                                                        # parked and checks open
+
+
 @pytest.fixture
-def fixture(tmp_path, monkeypatch):
+def fixture(tmp_path, monkeypatch, request):
     """The hub fixtures every read runs on: a library of three songs, a rekordbox library with no tracks, rekordbox
-    closed (conftest)."""
+    closed (conftest). The reads of To-do and one track run on `rich_library` (an upgrade waiting, two open checks)."""
+    entry = request.node.callspec.params.get("entry") if hasattr(request.node, "callspec") else None
+    if entry is not None and entry.command in RICH:
+        return rich_library(tmp_path, monkeypatch).root
     make_root(tmp_path)
     choose_music(tmp_path, monkeypatch)
     make_master(tmp_path / "rekordbox", [])
@@ -80,7 +88,9 @@ def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
     answer = getattr(api, entry.method)(**kwargs, **entry.fixed)
     assert answer["ok"], answer
     _, out, _ = run([*words(entry), "--json"], capsys)
-    assert json.loads(out)["data"] == {k: v for k, v in answer.items() if k != "ok"}
+    # an answer that says what to run next (a search with no hit) has it in the envelope's `next`, not in `data`;
+    # a headless api has no media server, so no answer carries a hub URL
+    assert json.loads(out)["data"] == {k: v for k, v in answer.items() if k not in ("ok", "next")}
 
 
 def test_every_built_read_has_a_golden_file_and_no_golden_file_is_left_over():

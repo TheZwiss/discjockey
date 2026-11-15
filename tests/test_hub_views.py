@@ -1024,7 +1024,8 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     assert by["h"]["detail"] == "analyse, set the cues again"
     assert by["h"]["check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": None, "offset_ms": None,
                                 "moved": False, "aligned": False,
-                                "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "old_name": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
+                                "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "old_name": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again.",
+                                "person_steps": [{"id": "step:relocate_new", "say": "This is a different edit. In rekordbox: analyse it again and set the cues again.", "then": "check done h"}]}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
     both = views.todo(s, "all", True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
