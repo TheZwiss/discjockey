@@ -1,7 +1,9 @@
 # Discjockey's command line for agents and people (issue 39, design)
 
-Status: design, 2026-11-14. Input: the six audit files `docs/2026-11-14-cli-audit-{library,todo,app,supplement-a,
-supplement-b,supplement-c}.md` (cited as **L**, **T**, **A**, **SA**, **SB**, **SC** with their row ids, e.g. L D15,
+Status: design, 2026-11-14; revised 2026-11-15 after the adversarial and coverage reviews (step 4a: §6, §7.1, §7.5,
+§8, §9.2, §10.3, §13, §15 and §16 redesigned; the "Fix status" table at the end of
+`docs/2026-11-14-agent-cli-design-review.md` says which findings are done and which a later fix round applies).
+Input: the six audit files `docs/2026-11-14-cli-audit-{library,todo,app,supplement-a,supplement-b,supplement-c}.md` (cited as **L**, **T**, **A**, **SA**, **SB**, **SC** with their row ids, e.g. L D15,
 T §5.4), today's commands (`CONTRIBUTING.md` › "Commands for scripts and agents"), `docs/issues.md` › 39, `CLAUDE.md`
 › "Agent-ready". A later Opus agent turns this into a build plan for Sonnet groups; this file fixes the decisions,
 the interfaces and the behaviours tests pin, not the code.
@@ -14,7 +16,7 @@ the interfaces and the behaviours tests pin, not the code.
 
 | # | Rule | How this design meets it (section) |
 |---|---|---|
-| H1 | **Everything the window shows, and more.** Every text, number, sentence, badge, colour or dimming that means something, tooltip, count, ordering, and the data behind every picture is reachable by a command; where the window leaves things out, the command gives them anyway. Nothing is reachable only in the window. Guaranteed by construction. | The window and the command line read the **same view objects** (`views.py` + one new layer, `discjockey/present/`), and every word the window shows is produced by the engine, not by Svelte (§8). The CLI prints the view object whole; text mode renders it field by field from one schema (§4). Tests compare the bridge payloads and the command payloads key for key (§13). |
+| H1 | **Everything the window shows, and more.** Every text, number, sentence, badge, colour or dimming that means something, tooltip, count, ordering, and the data behind every picture is reachable by a command; where the window leaves things out, the command gives them anyway. Nothing is reachable only in the window. Guaranteed by construction. | The command line runs on the **same object the window talks to**: a headless `HubApi` (§8.1), so a command's payload *is* the bridge's payload. Every word that carries data or depends on data comes from the engine; the window's fixed words are extracted from its source at build time into a catalogue the CLI prints (§8.2). The CLI prints the payload whole; text mode renders it from one schema (§4). Checks that fail when the window computes, words, colours, orders or offers anything the payloads lack (§8.3, §13). |
 | H2 | **For people too.** Readable text by default with the same facts; a machine shape for agents; pictures as data plus a way to see them. | Text is the default; `--json` prints the versioned envelope (§4). Pictures: `--json` gives the numbers; `--png <file>` writes the picture a person or a vision agent opens; text mode prints the verdict line and a small text sketch (§4.5). |
 | H3 | **Everything the user can do in the window, an agent can do**, under the same invariants. An agent's command counts as the user starting it. | The full catalogue maps every bridge method to a command or to "window only" with a view-state reason (§5). Writes keep the lock, Qobuz protection, never-delete, batches the user started, and a dry run where the hub has one (§7). |
 | H4 | **Coverage from what the app is FOR.** | §11 lists the user's goals and questions and the commands that answer each. |
@@ -22,9 +24,10 @@ the interfaces and the behaviours tests pin, not the code.
 
 ### 1.2 Principles (how the decisions below were made)
 
-1. **One engine answer, two renderers.** A fact the window shows comes from the engine; Svelte and the console both
-   render it. When the window decides something itself today (≈115 audit rows), the decision moves into the engine
-   (§9). The window keeps only how things are laid out and what the person is looking at (pure view state).
+1. **One engine answer, two renderers.** A fact the window shows comes from the engine (`HubApi` and the pure
+   `views.py`); Svelte and the console both render it. When the window decides something itself today (≈115 audit
+   rows), the decision moves into the engine (§9). The window keeps only how things are laid out, what the person is
+   looking at (pure view state) and its fixed words, which the CLI gets from the build's word catalogue (§8.3).
 2. **Read commands are free, write commands are deliberate.** Reads take no lock, never write, never touch the
    network unless they say so, and work while the window runs. Every write is an explicit verb with `--dry-run` where
    anything moves or changes, and a `--yes` where the window asks a question first.
@@ -99,10 +102,10 @@ selection flags (bulk writes, §7.3):  <ids…> | --all | --rows   with --in <co
 |---|---|---|
 | 1 | `Discjockey --help` (or no TTY and no args: still the window; any `help` word reaches the CLI) | First line: "AI agents: run `<path> help agents` first." Then the nouns with one line each |
 | 2 | `discjockey help agents` | The agent guide (§14.2): what Discjockey is, the concepts, the safety rules, the workflow (look → dry run → ask the user → apply → follow → report the person's steps), ids, outcomes |
-| 3 | `discjockey where --json` | `music` (path, state `ok`/`missing`/`not_chosen`), `support`, `rekordbox` (library path or null), `command` (absolute path of this program), `version`, `sandbox` (null or its dir), `window_open` (bool), `jobs_running` |
+| 3 | `discjockey where --json` | `music` (path, state `ok`/`missing`/`not_chosen`), `support`, `rekordbox` (library path or null), `command` (absolute path of this program), `version`, `sandbox` (null or its dir), `windows_open` (count of live windows on this music folder, from the window files of §6.4; never by probing the window's lock), `jobs_running` |
 | 4 | `discjockey status --json` | The cross-screen overview (Dashboard + counts + running jobs + problems + what needs a person), §11 |
 | 5 | `discjockey help --json` | The machine index: every command with its args, flags, whether it writes, its job kind, its outcome reasons, the name of its data schema; `help <cmd> --json` adds the schema (JSON Schema) |
-| 6 | `discjockey help concepts` / `help glossary` | The model of the app (§14.2) and every badge, colour, tone and tooltip word with its meaning (the word catalogue's static part, §8) |
+| 6 | `discjockey help concepts` / `help glossary` | The model of the app (§14.2) and every badge, colour, tone and tooltip word with its meaning (the extracted word catalogue `words.json`, §8.3) |
 
 The folders are found the way the window finds them (`library.resolve_paths`: `config.json` in the support folder,
 the support folder from `DISCJOCKEY_SUPPORT` or `~/Library/Application Support/Discjockey`); `where` prints the
@@ -129,13 +132,13 @@ file's path) the command accepts that too and prints the id it resolved to.
 | AIFF batch | `aiff:<n>` | `aiff:<n>` (a bare number is `bad_args`: "say aiff:12 or moves:12") | yes |
 | Move batch | `moves:<n>` | `moves:<n>` | yes |
 | Run (sync report) | `run:<YYYY-MM-DD_HHMMSS>` | that, or `last` | yes |
-| Job | `job:<8 hex>` | that, or `current` (the one running write job) | yes (registry, §6) |
+| Job | `job:<8 hex>`, for window jobs too (a contract change: today the window's ids are integers) | that, or `current` (the one running write job on this music folder) | yes (registry, §6) |
 | Duplicate group | `dup:<sorted file ids>` (`models.group_id`) | the same | changes when its files change, by design (asked again); a stale one is `refused`/`changed` with `next: duplicate list` |
 | Same-song question | `same:<song key>~<own key>` | the same | yes while the question stands |
 | rekordbox check | one per track: the `track_id` | `track_id`s, or `--batch aiff:<n>` | yes |
 | Version candidate | `cand:<source>:<id>` | the same, valid while that track's last search is cached | until the next search |
 | rekordbox backup | its `id` (today's) | the same | yes |
-| Plan (any dry run) | `plan:<12 hex>` | the same | 24 h, kept in `.discjockey/plans/` |
+| Plan (any dry run) | `plan:<12 hex>` | the same | 24 h, kept in `<support>/plans/` (§7.1); older: `refused`, `plan_expired` |
 | Sync action | `act:<kind>:<track_id>:<n>` (n = position of its `to_dir` in the plan's folder list) | the same | for that plan |
 | Record revision | `rev`: 10 hex of `models.snapshot(entry)` | `--if-rev <rev>` | changes on every change of the record |
 | Person step | `step:<name>` (§10.1) | n/a | yes |
@@ -163,7 +166,7 @@ prints argparse text even with `--json`, L §5). Shape:
  "command": "upgrade apply",            the noun and verb that ran
  "outcome": "ok" | "partial" | "refused" | "busy" | "needs_person" | "stopped" | "failed" | "bad_args" | "running",
  "reason": null | "<key>",              why, for every outcome but ok (keys in §4.3)
- "message": null | "<words>",           the window's sentence for this outcome (from the word catalogue, §8)
+ "message": null | "<words>",           the window's sentence for this outcome (from `words.py`, §8.3)
  "data": { … },                         the command's payload (its schema: help <cmd> --json); present for ok and
                                         partial, and for a problem when there is something to show (a batch's state)
  "next": [{"run": "<command line>", "why": "<words>"}],   what to do next, as commands (may be [])
@@ -179,7 +182,7 @@ prints argparse text even with `--json`, L §5). Shape:
 - **Versioning.** `v` is the envelope and payload major version. Within `v: 1` changes are additive only (new keys,
   new enum values documented in `help --json`); removing or renaming a key bumps `v`. Nothing old is kept around
   (one user, rule H5): a bump changes the docs and tests in the same commit. Each payload has a JSON Schema generated
-  from the present layer's typed shapes (§8.1); `help <cmd> --json` prints it; a test pins that every command's real
+  from the typed shapes of `hub/shapes.py` (§8.2); `help <cmd> --json` prints it; a test pins that every command's real
   output validates against its schema.
 - **Window URLs become paths.** Payloads carry `cover_path`, `path`, `upgrade.path`; the hub adapter alone turns
   them into `cover_url` / `audio_url` (a declared transform list, pinned by a test). An agent reads files, a person
@@ -210,14 +213,16 @@ prints argparse text even with `--json`, L §5). Shape:
 | 5 | `stopped` | Stopped by Ctrl-C or `job stop`; finished steps stay; `next` says how to carry on | `stop`, `stop_now` |
 | 6 | `partial` | Ran to its end; some items were skipped or failed, each with its reason | — (per item) |
 | 7 | `refused` | The rules say no; nothing done | `no_library`, `not_set_up`, `needs_yes`, `nothing_to_do`, `changed`, `not_stopped`, `setting_off`, `exists`, `protected`, `sandbox_required`, `outside_sandbox`, the `eligible.REASONS` keys for one item |
-| 8 | `running` | `--wait` (or `job wait --timeout`) ran out; the job goes on: `job` holds its id | `still_running` |
+| 8 | `running` | `--wait` (also on `job wait`) ran out; the job goes on: `job` holds its id | `still_running` |
 
 - Every bridge `ProblemKind` (`types.ts:3`) maps to one row: `busy`, `console`, `sync_running` → `busy`;
   `not_set_up`, `no_library`, `setting_off`, `exists`, `changed`, `refused`, `protected` → `refused`;
   `login_expired`, `rekordbox_open` → `needs_person`; `offline`, `playlist_unreadable`, `config_invalid`,
   `qobuz_login_failed`, `login_failed`, `failed`, `crashed` → `failed`; `stopped` → `stopped`. The map lives in one
-  table in the engine (`present/outcomes.py`) that both the CLI and the bridge use; the bridge keeps answering
-  `{ok, kind, message}` to the window (CLAUDE.md invariant) and adds `outcome` beside `kind`.
+  table in the engine (`discjockey/hub/outcomes.py`) that the `bridge` decorator applies, so the CLI reads it off the
+  same answer: the bridge keeps answering `{ok, kind, message}` to the window (CLAUDE.md invariant) and adds
+  `outcome`, `reason`, `next`, `person_steps` and `data` beside them (additive; the engine's `OpProblem` carries
+  them).
 - **Why these changes:** today exit 1 means refused, failed, crashed *and* "some skipped" (with `ok: true`), exit 2
   means both "usage error" and "no music folder", Ctrl-C is 5 in batches and 130 in the sync, and rekordbox open (4)
   is the only person step with a code (T §5.6). An agent needs: did it all work (0), may I retry later (3, 8), must I
@@ -258,7 +263,7 @@ window's canvas uses, exported once from the engine (§8) so both draw the same 
 | Noun | What it is to the user | Verbs |
 |---|---|---|
 | `help`, `where`, `status`, `doctor`, `history` | finding one's way; the whole picture; health; what changed | (§2.3, §11) |
-| `library` | the Library page's collections and table | `list`, `collections`, `scan`, `favourites`, `superseded` |
+| `library` | the Library page's collections and table | `list`, `collections`, `scan`, `facts`, `favourites`, `superseded` |
 | `track` | one song and its file | `show`, `find`, `spectrum`, `hide`, `unhide`, `undo` |
 | `todo` | the To-do page | `list` |
 | `upgrade` | parked better versions | `list`, `apply`, `discard` |
@@ -284,8 +289,10 @@ window's canvas uses, exported once from the engine (§8) so both draw the same 
 
 ### 5.2 Every bridge method → its command
 
-Kinds: **R** read (no lock, never writes), **J** write job (§6), **B** brief save (no lock, answers at once),
-**W** window only. "New args" names bridge signature changes the design needs (contract changes, §16).
+Kinds: **R** read (no lock, never writes), **RJ** a read that can take minutes and runs as a read job (§6.1: no
+lock, same `--wait` rules as a write), **J** write job (§6), **B** brief save (no library lock, answers at once),
+**W** window only. Which locks each J takes is the catalogue's `locks` column (§6.1). "New args" names bridge
+signature changes the design needs (contract changes, §16).
 
 | Bridge method | Command | Kind | Notes |
 |---|---|---|---|
@@ -296,7 +303,7 @@ Kinds: **R** read (no lock, never writes), **J** write job (§6), **B** brief sa
 | `watched_folders()` | `folder list` | R | rows, unreadable files, `waiting`, import `state` (`stopped` now on disk, §9) |
 | `removal_preview(id)` | `folder remove <folder> --dry-run` | R | |
 | `check_import_folder(path)` | `folder check <path>` | R | |
-| `aiff_plan(scope)` | `aiff convert … --dry-run`, `aiff rename … --dry-run` | R | the same `AiffPlan`; a dry run never writes (facts read in memory, §12) |
+| `aiff_plan(scope)` | `aiff convert … --dry-run`, `aiff rename … --dry-run` | RJ | the same `AiffPlan`; a dry run never writes: up to 50 files without facts are read in memory, more answer `refused`, `facts_missing`, `next: library facts` (§7.1) |
 | `tidy_preview()` | `tidy run --dry-run` | R | |
 | `move_batches()` | `batch list [--kind moves]` | R | one list for both batch kinds, typed ids |
 | `undo_preview(batch)` | `batch undo moves:<n> --dry-run` | R | |
@@ -308,11 +315,11 @@ Kinds: **R** read (no lock, never writes), **J** write job (§6), **B** brief sa
 | `runs()` | `run list [--since T] [--limit N]` | R | |
 | `run(run_id)` | `run show <run\|last>` | R | the end screen's whole data, one engine definition of "what a run did" (§9 U14) |
 | `open_report(run)` | `open report <run>` | R (person) | prints the `.md` path; opens it unless `--print` |
-| `sync_preview()` | `sync plan [--search W]` | R | the stored plan (§9: persisted), with scope, presets, next-sync set, estimate, folds; `plan_id` |
-| `refresh(auto)` | `sync read` | J | reads playlists (network), scans, stores the plan on disk |
+| `sync_preview()` | `sync plan [--search W]` | R | the plan derived from the stored read (§9.2), with scope, presets, next-sync set, estimate, folds; `plan_id` |
+| `refresh(auto)` | `sync read` | J | reads playlists (network) without a lock, scans when the library lock is free, stores the read in library.db (§9.2) |
 | `stop_refresh()` | `job stop <job>` | J-control | |
-| `start_sync(selected)` | `sync run [selection] [--plan P] [--limit N] [--auto-upgrade-only] [--dry-run]` | J | §7.3; `--auto-upgrade-only` runs only the last phase (T J11 C) |
-| `stop()` | `job stop <job\|current> [--now]` | J-control | reaches a window job too (stop file, §6.3); new arg `job_id` |
+| `start_sync(selected)` | `sync run [selection] [--plan P] [--limit N] [--auto-upgrade-only] [--dry-run]` | J | §7.3; `--auto-upgrade-only` runs only the last phase without reading the playlists (T J11 C; its dry run gives the phase's before-start line); new arg `plan_id`: the window's Start binds to the plan it showed like `--plan` (§9.2) |
+| `stop()` | `job stop <job\|current> [--now]` | J-control | reaches a window job too (stop file, §6.4); new arg `job_id` (a string) |
 | `never_download(id,never)` | `sync never <track…>`, `sync again <track…>` | J | |
 | `setup_status()` | `setup status` | R | six steps incl. "Your existing music" (§9 U32) |
 | `app_update()` | `app info` | R | |
@@ -328,7 +335,7 @@ Kinds: **R** read (no lock, never writes), **J** write job (§6), **B** brief sa
 | `save_limits(s,l,e)` | `limits set <service> <n> [--extra-today N]` | J | replaces the sync's `--extra N` (which wrote settings even in a dry run) |
 | `mark_warnings_seen(s)` | `limits seen <service>` | J | |
 | `playlists()` | `playlist list` | R | names/covers from the stored read (§9), overlaps, tidy waiting |
-| `add_playlist(url)` | `playlist check <url>` | R (network) | the found card; `suggested_folder`; duplicates by `sources.recognise` |
+| `add_playlist(url)` | `playlist check <url>` | RJ (network) | the found card; `suggested_folder`; duplicates by `sources.recognise` |
 | `preview_playlist_change(lines)` | `--dry-run` of every `playlist` write | R | new arg `op` (the engine applies the edit, §9 U25) |
 | `save_playlists(lines,ver,files)` | `playlist add <url> [--folder F] [--at N]`, `remove`, `rename`, `move --to N`, `enable`, `disable`, `edit --file <playlists.txt>` | J | `--files move\|leave`, `--no-rename` answer the save question; `--if-version` |
 | `set_read_liked_music(on)` | `settings set read-liked-music on\|off` | J | |
@@ -338,7 +345,7 @@ Kinds: **R** read (no lock, never writes), **J** write job (§6), **B** brief sa
 | `downloads_view()` | `login list` | R | per source state, last check, ladder (rungs lit, sentence) (§9 SB ladder) |
 | `find_logins(service)` | `login find <service>` | R | plus `offer`: the browser/profile the window would offer first |
 | `setup_account(s,b,p)` | `login use <service> --browser B [--profile P]` | J | may raise a keychain prompt: `needs_person` step `step:keychain` |
-| `account_sign_in(s,b,p)` | `login sign-in <service> [--browser B] [--profile P]` | J (person) | opens the browser, waits ≤ 10 min for the person |
+| `account_sign_in(s,b,p)` | `login sign-in <service> [--browser B] [--profile P]` | J (person) | opens the browser, waits ≤ 10 min for the person; `step:sign_in` shows as live `person_steps` while it waits (§6.5) |
 | `stop_sign_in()` | `job stop <job>` | J-control | |
 | `open_privacy_settings()` | `open privacy-settings` | R (person) | |
 | `setup_check_account(s)` | `login check <service>` | J | unused by the window; the bridge method is dropped, `login check` re-runs `setup_account` with the saved browser |
@@ -378,9 +385,9 @@ Kinds: **R** read (no lock, never writes), **J** write job (§6), **B** brief sa
 | `upgrade_all()` | `upgrade apply --all` | J | refused while a stopped upgrade batch waits (`not_stopped` → `next: batch resume`), as the window hides it |
 | `rekordbox_checked(ids)` | `check done <tracks> \| --batch aiff:<n> \| --all` | J | |
 | `add_bought_file(id)` | `version add-file <track> <path>` | J | new arg `path` (T §1.3) |
-| `search_candidates(id)` | `version search <track>` | R (network) | refused `busy`/`sync_running` while a sync runs (Qobuz pacing) |
-| `preview(id,cand)` | `version preview <track> <cand:…>` | R (network) | writes the 20-s clip to the cache, prints its `path` |
-| `use_candidate(id,cand)` | `version use <track> <cand:…>` | J | Qobuz limit counts as in the window |
+| `search_candidates(id)` | `version search <track>` | RJ (network) | refused `busy`/`sync_running` while a sync of any process runs (the registry, §6); Qobuz searches go through the shared pacer and skip a paused Qobuz (§7.5) |
+| `preview(id,cand)` | `version preview <track> <cand:…>` | RJ (network) | writes the 20-s clip to the cache, prints its `path` |
+| `use_candidate(id,cand)` | `version use <track> <cand:…>` | J | the daily limit, the shared pacing and the shared failure streak of §7.5, for the window and every command alike |
 | `use_link(id,url)` | `version use <track> --link <url>` | J | |
 | `reject_current(id)` | `version reject <track> --yes` | J | "None of these" |
 
@@ -400,6 +407,7 @@ Kinds: **R** read (no lock, never writes), **J** write job (§6), **B** brief sa
 | `rekordbox match [--in C]` | rekordbox tracks whose file is missing, moved to `Superseded/`, or not in the library; library files rekordbox lacks |
 | `sync scope …` | the Sync page's switches, now saved settings (§9 U1) |
 | `import status` | the import card's state as data |
+| `library facts [--dry-run]` | a write job (library lock) that reads and stores missing file facts (today's `importer.fill_facts`), so dry runs stay read-only and fast (§7.1) |
 | `job …`, `sandbox …`, `app install-command` | §6, §10.3, §2.1 |
 
 `rekordbox preview` gains `folder_path`, `content_file` and `updated_at` per entry (T J11 B 9b: no command showed
@@ -409,64 +417,150 @@ them).
 
 ## 6. Long runs, jobs and the open window
 
-### 6.1 Every write is a job in a registry both front ends share
+Redesigned after the review (R4–R7, R17–R19, R21, R22, R27). One registry per support folder holds every long piece
+of work from any process; a job is alive while its process holds a lock, never judged by its pid; each job kind
+declares the locks it takes.
 
-- **Registry:** `<music>/.discjockey/jobs/<job id>/` with `state.json` (id, kind, args, `via` window|terminal,
-  `pid`, `status` queued|running|stopping|done|lost, `started`, `ended`, the reduced progress: index, total, current
-  item, step, waiting, counts, the one-line `line` the window's foot shows), `events.jsonl` (every event, as the window
-  receives it), `result.json` (the final envelope) and `log.txt` (warnings and tracebacks of that job: today there is
-  no log file at all, A §5.6). Kept: the newest 100 jobs or 30 days.
-- **The window's jobs register too** (`hub/jobs.py` `Jobs.start` writes the same files in-process). So `job list`
-  shows window jobs, the window shows terminal jobs, and `status` answers "is something running, which, how far" for
-  everyone (today a command can only learn that from an exit-3 refusal, L §1a `job_status`).
-- **Terminal jobs run in a worker process, never in the client.** A write command validates its arguments, writes the
-  job's `state.json` (`queued`), starts the worker (`Discjockey job _worker <id>`, a new session, its own `caffeinate`)
-  and then **follows** it: progress to stderr, the final envelope to stdout. Killing or closing the client (an
-  agent's tool call timing out, a closed Terminal tab) never kills the work. Ctrl-C in an attached client is
-  forwarded: the first press stops after the current item, a second press at least a second later stops at once
-  (today's semantics, `CTRL_C_REPEAT_S`).
-- **The worker takes the library lock**, not the client. Busy → the worker writes the `busy` envelope and ends; the
-  client prints it (exit 3) unless `--wait-busy <s>` lets the worker retry until then (rides out the window's opening
-  scan and its 60 s rescan, L D28; today a command meets them with an immediate exit 3).
-- **Brief saves** (favourites, crate switches, skip import) are not jobs: they answer at once, as in the window.
+### 6.1 Job kinds and the locks they take
 
-### 6.2 Waiting and following
+| Kind (catalogue) | Library lock (`<music>/.discjockey/.lock`) | Support lock (`<support>/.support.lock`, new) | `rekordbox.lock` | Commands |
+|---|---|---|---|---|
+| **write job** (J) | the whole job; held → `busy`, or retried under `--wait-busy` | only around a settings, config or login save inside it | exclusive, as today, only inside a rekordbox session (AIFF batch, undo, restore) | `sync run`, `upgrade …`, `aiff …`, `track hide/undo`, `tidy run`, `folder add/remove`, `import run`, `duplicate keep`, `question answer`, `version use/reject/add-file`, `check done`, `batch resume/undo`, `library scan`, `library facts`, `sync never/again`, `playlist` writes |
+| **playlist read** | only for its scan, and only when free (today's `scan_lock`); otherwise it plans on the last scan | — | — | `sync read` |
+| **read job** (RJ) | — | — | shared, non-blocking (below) | the RJ rows of §5.2, `rekordbox match`, `status --ready`, `doctor`, `track spectrum` |
+| **person job** | — | at its save only | — | `login sign-in`, `login use` (it may wait for the Keychain question) |
+| **settings write** | briefly while a music folder is bound (today's `lock_briefly`: a running library job never sees its settings change under it) | around the read-change-write | — | `settings set`, `limits set/seen`, `login qobuz/skip/sign-out/spotify`, `setup music`, `sync scope` |
+| **support-only job** | — | the whole job; refused `busy` while a write job of this support folder runs (a sync imports yt-dlp lazily) | — | `tools update`, `tools rollback` |
+| **brief save** (B) | — (library.db waits ≤ 1.5 s, today's rule) | for `setup skip-import` (it writes settings) | — | `library favourites …`, `folder crates …`, `setup skip-import` |
+
+- The **support lock** is an `flock` on `<support>/.support.lock`, waited for ≤ 2 s, then `busy`
+  (`reason: "support_lock"`). It guards `settings.json`, `config.json`, `tools/` and the login files against a
+  read-change-write from two processes (two windows, a window before Setup has a music folder, a terminal). The
+  window's in-process `_settings_mutex` stays in front of it.
+- **rekordbox readers** (status, preview, match, the rekordbox parts of todo, track, check and status) try
+  `rekordbox.lock` with `LOCK_SH | LOCK_NB`. While a writer holds it they never open master.db and answer their
+  rekordbox part as `writing` (the process's last cached answer when it has one, with its `as_of`). `writer_lock`
+  retries for up to 2 s, so a reader's brief shared hold never makes a writer `Busy`. This replaces the hub's
+  in-process rule (`_rekordbox_status` skips master.db while its own write job runs), which no other process sees
+  (R4).
+- The catalogue's `locks` column states this per entry; T10 pins it.
+
+### 6.2 The registry
+
+- **Where:** `<support>/jobs/<job id>/`, per Mac and support folder, never in the music folder: jobs exist without a
+  music folder (Setup, `tools update`), the registry must not vanish with an unplugged drive, and a sandbox clone must
+  not inherit running jobs. Each job records its roots (`music` or null, `support`, `rekordbox`, `sandbox`); `job
+  list` shows the jobs of the current music folder and those with none, unless `--all`.
+- **Files of a job:**
+  - `state.json`: id, kind, catalogue command, args, `via` (`window` | `terminal`), `roots`, `pid` and `pid_started`
+    (the process's start time), `status` (`queued` | `running` | `stopping` | `done` | `lost`), `started`, `ended`, the
+    reduced progress (index, total, current item, step, waiting, counts, the one-line `line` the window's foot shows),
+    live `person_steps` (§6.5). Written with `write_json_atomic` at every status change and at most once a second
+    otherwise.
+  - `alive`: an `flock` the process running the job holds for the job's whole life.
+  - `events.jsonl`: the events as the window receives them (`events.py`, serialised as for the bridge). One writer
+    thread per job; the engine's thread only enqueues. `Progress` and `Waiting` are coalesced by today's `_same_slot`
+    rule (the latest per slot, flushed at most twice a second). Capped: the first 2 000 events, a
+    `Truncated {skipped}` marker, then a rolling tail of the last 10 000 (`events.tail.jsonl`), so a multi-hour sync
+    neither slows down nor fills the disk (R17).
+  - `result.json`: the final envelope (§4.1).
+  - `log.txt`: warnings and tracebacks of that job (a worker's stderr).
+  - `stop`: present once someone asked the job to stop (§6.4).
+- **Retention:** the newest 100 jobs or 30 days, pruned at each job start; a job whose `alive` lock is held is never
+  pruned.
+- **Liveness:** a job is `lost` when its `state.json` says `queued`, `running` or `stopping` and its `alive` lock is
+  free (one `LOCK_SH | LOCK_NB` try, released at once). Never by pid: pids are reused after a crash or a reboot (R6).
+  The reader that finds it lost rewrites `status: lost`; the next writer's `recover_pending` finishes its journaled
+  step as today; `doctor` names it; `job wait` on it answers `failed`, `reason: "worker_lost"`, `next: doctor`.
+- **Ids:** `job:<8 hex>` for every job, the window's included (contract change: `JobStarted.id`, `JobFinished.id`,
+  `job_status()` and `stop(job_id)` carry the string).
+
+### 6.3 How a job runs
+
+**From the terminal: a worker process.**
+1. The client parses and checks the command line, resolves the roots (music, support, rekordbox, sandbox) as it sees
+   them, writes `state.json` (`queued`) and starts the worker `Discjockey job _worker <id>` in a new session (stdin and
+   stdout to `/dev/null`, stderr to `log.txt`; a write job under its own `caffeinate -i -w <pid>`).
+2. The worker takes `alive`, records `pid` and `pid_started`, and builds a headless `HubApi` (§8.1) **from the roots
+   in `state.json`, never from its own environment** (a sandbox job can't land on the real library, §10.3). It calls
+   the catalogue's method with the stored args. `HubApi`'s `Jobs` runs **inline** in a worker: it adopts the job id of
+   `state.json`, runs the work on the worker's **main thread** (the only thread that gets signals and where
+   `deferred_interrupt` holds a Ctrl-C until a step is safe) and takes the locks of §6.1 there.
+3. A held library lock: without `--wait-busy` the worker writes the `busy` envelope and ends; with `--wait-busy <s>`
+   it tries again every 2 s until then (it rides out the window's opening scan and its 60 s rescan, L D28).
+4. Signals: the first SIGINT cancels the token (Stop safely); a second one at least `CTRL_C_REPEAT_S` (1.0 s) later
+   raises `KeyboardInterrupt` (stop at once, still held back inside a step by `deferred_interrupt`); a repeat sooner is
+   ignored, as today.
+5. At the end the worker writes `result.json`, then `status: done`, then releases `alive`.
+
+The client meanwhile **follows** the registry (polls `state.json`, tails `events.jsonl`): progress to stderr, the final
+envelope to stdout, by the rules of §6.5. Killing or closing the client (an agent's tool call timing out, a closed
+Terminal tab) never touches the worker. Ctrl-C in an attached client becomes a stop request: the first press writes the
+`stop` file, a second one ≥ 1 s later asks for `--now`.
+
+**From the window.** `Jobs.start` registers the job the same way (in-process, `via: window`; the window process holds
+the job's `alive` lock) and runs it on a thread as today; the job's writer thread writes its files. So `job list`,
+`status` and `job show` see the window's jobs, and the window sees the terminal's (§6.6).
+
+**Read jobs** take the same path without locks. **Brief saves** run in the client and answer at once, as in the
+window.
+
+### 6.4 Stopping, from any process
+
+- `job stop <job|current>` writes `jobs/<id>/stop` and answers `ok` with `data.status: stopping` (`refused`,
+  `not_running` when the job has ended). The job ends `stopped` (exit 5 for whoever waits on it).
+- `CancelToken` gains a stop file: `cancelled` is true when its event is set **or** the file exists (one `stat` at most
+  every 0.5 s); `check()` uses `cancelled`; `sleep()` waits in steps of at most 0.5 s and checks `cancelled` in each, so
+  a Spotify rate-limit wait of minutes ends within a second (R18). Every place that checks the token today (between
+  items, inside steps, in pacing sleeps) therefore stops for a request from any process, the window's own jobs
+  included.
+- `--now` (terminal jobs only; the window offers only "Stop safely", so a window job answers `refused`,
+  `window_job`): the client sends SIGINT twice, ≥ 1.0 s apart, and only while the job's `alive` lock is held **and**
+  the pid's start time equals `pid_started` (`proc_pidinfo`); otherwise the job is `lost` and no signal is sent to
+  whatever process now has that pid.
+
+### 6.5 Waiting and following
 
 | Want | Command | Answer |
 |---|---|---|
-| Start and get the id at once | `<write> --detach` | `outcome: ok`, `job: "job:…"`, `data.status: running`, exit 0 |
-| Wait at most N seconds | `<write> --wait 120` | the job's own envelope if it ended, else `outcome: running` (exit 8) with `job` |
-| Follow events | `job follow <job> [--jsonl]` | the events from the start (or `--from-end`), then the final envelope; text mode = the console's progress lines |
-| Wait for the end | `job wait <job> [--timeout S]` | the job's envelope (its own outcome and exit code), or `running` (exit 8) |
-| See it | `job show <job>` | `state.json` + the last events + `result` when done |
-| Stop it (any process, also the window's) | `job stop <job\|current> [--now]` | `stopping`; the job ends `stopped` (exit 5 for whoever waits). `--now` = the second Ctrl-C; for a window job it is refused (`refused`, `reason: "window_job"`): the window offers only "Stop safely" |
+| Start and get the id at once | `<command> --detach` | returns once the worker reports `running` (it holds its locks) or has ended (a `busy` included), at most `--wait-busy` + 5 s later: `outcome: ok`, `job`, `data.status: running`, exit 0; or the job's own envelope when it ended first |
+| Wait at most S seconds | `<command> --wait S` | the job's own envelope if it ended, else `outcome: running` (exit 8) with `job`, the progress and the live `person_steps` |
+| No flag, stdout a terminal | — | follow to the end (a person in the Terminal sees today's behaviour) |
+| No flag, stdout not a terminal (an agent, a pipe) | — | `--wait 90`: agent shells kill a call after about 2 minutes, and a killed `--json` client would have printed nothing (R21) |
+| Follow events | `job follow <job> [--jsonl] [--from-end]` | the events from the start (or the end), then the final envelope; text mode = the console's progress lines |
+| Wait for the end | `job wait <job> [--wait S]` | the job's envelope (its own outcome and exit code), or `running` (exit 8); the same default as above |
+| See it | `job show <job> [--log]` | `state.json`, the last events, `result` when done, `log.txt` with `--log` |
+| Stop it | `job stop <job\|current> [--now]` | §6.4 |
 | Everything running and recent | `job list [--all]` | running first, then newest |
 
-Default without `--wait`/`--detach`: follow to the end (a person in the Terminal sees today's behaviour). The agent
-guide tells agents to pass `--detach` or `--wait 120` on every long write, then `job wait --timeout 300` in a loop.
-A job whose worker died (pid gone, status still running) shows `lost`; the next writer's `recover_pending` finishes
-its journaled step as today, and `doctor` names it.
+- The **first stderr line** of every job command is `Job job:… started (follow: <path> job follow job:…)`, before
+  anything else, so an agent whose call was killed still has the id; with `--json` the envelope's `job` holds it.
+- **A job that waits for a person says so while it runs** (R22). The process running the job writes live
+  `person_steps` into `state.json` the moment the job reaches a person's step (`SignInPhase` waiting: `step:sign_in`;
+  a Chromium cookie read about to raise the Keychain question: `step:keychain`; a batch that waits for rekordbox to
+  close: `step:quit_rekordbox`) and clears them when it moves on. `running` envelopes, `job show`, `job list` and
+  `status` carry them. The guide's rule: on `running` with `person_steps`, tell the user now, then `job wait` again.
+- The agent guide and §15 use `--wait 90` and `job wait <job> --wait 90` in a loop, never one longer call.
 
-### 6.3 Stopping a run another process started
-
-`job stop` writes `jobs/<id>/stop`. `CancelToken` gains a file check: `cancelled` is true when its event is set **or**
-the job's stop file exists (stat at most every 0.5 s). Every place that checks the token today (between items, inside
-steps, in pacing sleeps) therefore stops for a request from any process, the window's own jobs included. `--now` (a
-terminal job only) sends SIGINT twice to the worker, as two Ctrl-Cs do. Test: a window job and a terminal job both end
-`stopped` after a stop file appears, and nothing half done remains.
-
-### 6.4 The window open at the same time
+### 6.6 The window open at the same time
 
 | Topic | Rule |
 |---|---|
-| Shared library | one music folder, one `library.db`, one lock (`.lock`); the window binds its folder at start, commands resolve it fresh each time; `where` says `window_open` |
-| The lock | the arbiter stays the lock: one writer at a time. Window writes refused while a terminal job holds it answer `console` (bridge) as today; terminal writes answer `busy` with `holder` |
-| Who sees whose runs | the registry: the window's "console running" banner reads the terminal job's `state.json` (kind and `line`: "Sync running in the Terminal · 4 of 60"), and the Sync page can show its live view from `events.jsonl`; `job list` and `status` show the window's jobs. The 3 s lock probe stays only as the fallback for a holder without a registry entry |
+| Shared library | one music folder, one `library.db`, one library lock; the window binds its folder at start, a command resolves it fresh each time (a worker takes it from `state.json`) |
+| The lock | stays the arbiter: one library writer at a time. Window writes refused while a terminal job holds it answer `console` (bridge) as today, now with the job's `line`; terminal writes answer `busy` with `data.holder` {job, via, kind, line} |
+| Who sees whose jobs | the window watches `<support>/jobs/` (one poll a second of the running jobs' `state.json`) instead of probing the lock every 3 s. The "running in the Terminal" banner shows the job's kind and `line` ("Sync running in the Terminal · 4 of 60"), and the Sync page can show its live view from `events.jsonl`. When a terminal job ends, the window emits the same `JobFinished` it emits for its own (from `result.json`) and re-reads, so a terminal write of any length refreshes the window (today one shorter than the 3 s probe was never noticed, A §5.6). The lock probe stays only for a holder with no registry entry (an older Discjockey) |
 | Who sees whose batches | all batches in one table: `batch list` and the window list the same rows. The `console` scope is dropped: a batch records where it started (`via`) and its real scope (`library:<view>[:<key>]`, `todo:cdj`, `selection`), so the window's Resume links show stopped terminal batches too (T §0.5) |
-| A command's changes in the window | the window re-reads on every `JobFinished` it sees; terminal jobs now produce one in the registry, so the window refreshes after a terminal write of any length (today a command shorter than the 3 s probe was never noticed, A §5.6) |
-| The stored plan | the plan lives on disk (§9.2), so the window's Sync page and `sync plan` show the same plan, and a terminal sync re-plans it at its end like a window sync (`preview_after_run`); today a console run left the window's plan stale |
-| The window's own automatic work | scan at open and after 60 s in the background, the first read, the automatic import once per session: they stay window behaviour (a person opened the window). Commands never start them by themselves; an agent runs `library scan`, `sync read`, `import run` |
-| A music folder change | `setup music <path>` writes `config.json`; an open window keeps its folder until reopened: the answer carries `person_steps: [step:reopen_window]` when `window_open` |
+| The plan | derived from the stored read (§9.2): the window's Sync page and `sync plan` show the same plan in any process, and a terminal sync's read is the window's next plan without any hook |
+| Which windows are open | each window writes `<support>/windows/<pid>.json` (pid, start time, music root) and holds an `flock` on it while open; `where.windows_open` counts the files whose lock is held and never touches the window's own `.window.lock` (R19: taking that lock to probe it could make a starting window think it isn't first and lose its saved settings). A window start removes stale files |
+| The window's own automatic work | scan at open and after 60 s, the first read, the automatic import once per session: they stay window behaviour (a person opened the window). Commands never start them by themselves; an agent runs `library scan`, `sync read`, `import run` |
+| A music folder change | `setup music <path>` writes `config.json` (support lock); an open window keeps its folder until reopened: the answer carries `person_steps: [step:reopen_window]` when `windows_open > 0` |
+
+Pinned by T10: a stop file stops a window job and a terminal job between items, and inside a 60 s token sleep within
+1 s; a killed client leaves the job running and `job wait` then gets its envelope; a dead worker is `lost` (its `alive`
+lock free) even when its pid now belongs to another process, and `--now` signals nothing then; two clients that start
+writes at once get one `running` and one `busy`; a window job and a terminal job each appear in the other's list, and
+the window gets a `JobFinished` for the terminal one; the locks table of §6.1 per catalogue entry; a rekordbox reader
+during a (fake) write never opens master.db.
 
 ---
 
@@ -475,19 +569,30 @@ terminal job only) sends SIGINT twice to the worker, as two Ctrl-Cs do. Test: a 
 ### 7.1 Dry runs and the gap to the apply
 
 - **Every write that moves, renames, converts or deletes a file, writes rekordbox, edits playlists.txt or changes what
-  a sync will do has `--dry-run`.** A dry run takes no lock, writes nothing (no `settings.json`, no facts, no
-  `library.db`) and answers exactly what the window shows before the person presses the button: the AIFF plan, the
-  tidy rows, the undo preview, the removal preview, the playlist change's preview with its save question, the limit's
-  what-if, the upgrade's ways and outcomes. Today `convert --dry-run` fills facts under the lock and `--extra N` writes
-  settings in a dry run (L §5, A §1.4): both stop (the dry run reads missing facts in memory, `importer` facts code
-  split into "read" and "store").
-- **The plan id.** A dry run's answer carries `data.plan_id` (`plan:<12 hex>`) and stores the plan in
-  `.discjockey/plans/` (24 h). `<write> --plan <id>` runs **only the items of that plan**: each item is asked again as
-  it runs (the engine's per-item checks stay), an item whose answer changed is skipped with `reason: "changed"`, an
-  item that is new since the plan is left out and listed under `data.new_since_plan`. This is the window's sync rule
-  (`run.select_actions` with `new_since_preview`) made general. Without `--plan` a write plans fresh, as the window
-  does when the person presses a button without a panel. The agent guide says: dry run → show the user → apply with
-  `--plan`.
+  a sync will do has `--dry-run`.** A dry run takes no lock and answers exactly what the window shows before the
+  person presses the button: the AIFF plan, the tidy rows, the undo preview, the removal preview, the playlist
+  change's preview with its save question, the limit's what-if, the upgrade's ways and outcomes.
+- **What a dry run may write: exactly one file, its plan, `<support>/plans/<plan id>.json`.** Nothing in the music
+  folder, rekordbox's folder, `settings.json` or `library.db` (T9 compares every byte outside `<support>/plans/` and
+  `<support>/cache/`). Three rules make that true:
+  - **No scan.** A dry run plans on the last scan, says when in `as_of.scanned_at`, and puts `library scan` in `next`
+    when a watched folder's or `Library/`'s modified time is newer. (Today `prepare(dry_run=True)` stores a scan when it
+    gets the lock.)
+  - **No stored facts.** Missing file facts are read in memory for up to 50 files; more answer `refused`,
+    `facts_missing`, `next: library facts` (the explicit write of §5.3). Today `convert --dry-run` fills facts under
+    the lock (L §5); `importer`'s facts code splits into "read" and "store".
+  - **No settings.** `limits set --dry-run` is the what-if; today's `--extra N` wrote settings in a dry run (A §1.4).
+  - Reads open `library.db` with `?mode=ro` (today every open is read-write in WAL mode and its close checkpoints).
+- **The plan id.** A dry run's answer carries `data.plan_id` (`plan:<12 hex>`, the hash of its kind, its music root and
+  its sorted item keys) and stores the plan in `<support>/plans/` for 24 h: kind, root, the items with their keys and
+  answers, and for a sync the read id and records generation it was derived from (§9.2). `<write> --plan <id>` runs
+  **only the items of that plan**: each item is asked again as it runs (the engine's per-item checks stay), an item
+  whose answer changed is skipped with `reason: "changed"`, an item that is new since the plan is left out and listed
+  under `data.new_since_plan`. This is the window's sync rule (`run.select_actions` with `new_since_preview`) made
+  general; the window's own Start sends the plan id it showed (`start_sync(plan_id, selected)`). An unknown plan id is
+  `bad_args`, `unknown_id`; one older than 24 h or for another music folder is `refused`, `plan_expired`, with the dry
+  run in `next`. Without `--plan` a write plans fresh, as the window does when the person presses a button without a
+  panel. The agent guide says: dry run → show the user → apply with `--plan`.
 - Writes with a version instead of items keep their version check: `playlist … --if-version <v>` (the file's hash,
   `playlists_file.save`), single-record writes `--if-rev <rev>` (§3).
 
@@ -512,7 +617,7 @@ Every bulk write takes exactly one of three forms (a usage error otherwise):
 | `--all` | the verb's own "all" button where it is used: `upgrade apply --all` = Upgrade all; `aiff convert --all --in C` = Make all lossless files AIFF in that view; `aiff convert --all --todo cdj` = Convert all; `aiff rename --all [--in C]`; `check done --all`; `tidy run --all` = the rows the engine ticks | the group head's "… all" |
 | `--rows` with `--in C` or `--todo G`, and `--search`, `--quality` | **every row that listing shows**, as `library list` / `todo list` with the same flags prints it: filter and search applied, a playlist's `also` rows included, rows without a file left out | ⌘A on the screen with that search and filter |
 
-- One engine function answers "which ids does this listing select" (`present.select(listing)`), used by `--rows` and
+- One engine function answers "which ids does this listing select" (`HubApi.select(listing)`, §8.1), used by `--rows` and
   by the window's ⌘A, which sends the listing instead of the ids (bridge: every bulk write accepts
   `{"tracks": [...]} | {"listing": {view, key, query, filter} | {todo, show_hidden}}`). So the window's "all" and
   the command's "all" are the same answer by construction (L D15).
@@ -533,62 +638,215 @@ What can't be undone is said before: `check done` ends the undo of those tracks 
 discard` deletes a parked download for good, `duplicate keep` moves files to `Superseded/` without an undo (today's
 D10 rule; the files stay there and the answer lists their paths).
 
+### 7.5 Qobuz and account protection across processes
+
+Redesigned after the review (R1). Today the pause after 3 failures in a row and the pacing live inside one process:
+`Budget` keeps the streak per run (the hub carries one for "Use this" in `HubApi._qobuz_streak` /
+`_account_streaks`), a `Pacer` is made per run, and "Use this" runs with `NoPacer` (harmless at a person's speed). With
+one process per command both would start fresh at every call, so an agent's loop of `version use` would get no pacing,
+no break and no pause. The protection becomes shared state, one owner per fact:
+
+| Fact | Today | Lives in | Changed by |
+|---|---|---|---|
+| Daily counts, carry-over, signals | `usage` table (library.db), per library | unchanged | every download, under the library lock (every download is a write job) |
+| Failure streak and pause, per service (`failures_in_a_row`, `download_failed_in_row`, `paused`, `paused_at`) | memory, per run; the hub's session copy | the service's `usage` row, as `streak` beside the counts | `Budget`: loaded when built, saved with every `count` / `failed` / `succeeded`, under the library lock |
+| Pacing, per service (`last_request_at`, `last_download_end_at`, `since_break`, `next_break`) | a `Pacer` per run | `<support>/pace.json`, guarded by `<support>/pace.lock` (an `flock` held only to read and reserve, never while sleeping) | the shared pacer, from every job and every network read of any process |
+
+Rules:
+- **One pacer for everything.** `pacing.SharedPacer` replaces `Pacer` and `NoPacer` in the sync, "Use this", "Use
+  link", `version search` and `version preview`, in the window and in every command. Today's numbers, now across the
+  processes of this Mac: a Qobuz search starts no sooner than 2–5 s after the previous Qobuz request; a Qobuz download
+  no sooner than 20–60 s after the previous Qobuz download ended; after every 10–15 Qobuz downloads a 2–5 minute break;
+  the same per account service (YouTube Premium, SoundCloud Go+); free fallback downloads keep their 3–8 s. Ten
+  minutes without a download of that service count as the break (its count starts again), which keeps today's "a new
+  run starts a fresh count" without letting back-to-back commands dodge the break.
+- **Reservation, not a race.** Under `pace.lock` a request takes the next free slot (`max(now, last + drawn gap)`),
+  writes it, releases the lock and waits for it on the token (a `Waiting` event as today, so the window and `job
+  follow` show "Protection pause …"). Two processes asking at once get two slots a gap apart.
+- **Why the support folder:** the logins, and so the accounts, belong to the support folder; two music folders on one
+  account share one pace. The daily counts stay per library, as today (unchanged, noted).
+- **The streak across processes.** A success ends it (today's rule, including "a search success doesn't end a row of
+  failed downloads"); three failures in a row pause the service for every process; **the pause ends when the next
+  sync starts**, in any process (`run.execute` clears it under the library lock: today's "paused for this run" and the
+  hub's "the streak starts again when a sync starts", made durable). One change from today: a pause a sync ended with
+  now also holds for "Use this" until the next sync. The account has just failed three times in a row, so this is the
+  reading of the invariant that protects it.
+- **Searches** (`version search`, no library lock) go through the pacer and leave out a paused Qobuz with a note
+  ("Qobuz was not searched: it is paused after 3 failed requests in a row."), as today's not-set-up note does; they
+  don't change the streak (as today in the window).
+- `version search`, `version preview`, `version use` and the `login` checks answer `busy`, `sync_running` while a sync
+  job of this support folder runs in any process (the registry, §6), replacing `_no_sync_running`'s in-process look.
+- In a sandbox no account login exists at all (§10.3), so nothing there can count against a real account.
+- `HubApi._qobuz_streak` and `_account_streaks` are deleted (§9.2).
+- Tests: three processes that each fail once in turn pause Qobuz for all of them; two back-to-back `version use`
+  workers start their Qobuz downloads at least the drawn gap apart; a sync's start clears the pause; a loop of
+  `version search` is spaced 2–5 s per Qobuz request; the window's "Use this" waits for a slot a terminal job reserved.
+
 ---
 
 ## 8. "Everything the window shows" by construction (H1)
 
-Three mechanisms together make a gap impossible rather than unlikely: one source of payloads, one source of words, and
-checks that fail on anything the window shows from elsewhere.
+Redesigned after the reviews (R15, R16, R36, R37, R40–R44, C4). Three mechanisms make a gap fail rather than merely
+unlikely: one object answers both front ends, so the CLI prints exactly the window's payloads; every word that depends
+on data comes from the engine, and the window's fixed words are extracted into a catalogue the CLI prints; and checks
+fail as soon as the window computes, words, colours, orders or offers anything its payloads don't carry.
 
-### 8.1 One surface for both front ends
+### 8.1 One answer for both front ends: a headless `HubApi`
 
-- New package **`discjockey/surface/`**: one function per bridge method, same name, same arguments, returning the
-  payload (`surface.reads`, `surface.writes` (each write = a validated job spec), `surface.jobs` (runner + registry),
-  `surface.select`, `surface.outcomes`). It gathers what it needs from disk (state, settings, the stored plan, the
-  rekordbox status, file presence) and calls the pure `views.py` (which stays pure).
-- `HubApi` becomes an adapter: the `bridge` decorator, the path→URL transform, events to the page, and the two window
-  methods. The CLI is the other adapter: parsing, rendering, the job client. **Neither adapter may compute a fact**;
-  a test (§13 T3) checks each `HubApi` read method body is a call to its `surface` twin plus the declared transform.
-- `discjockey/surface/catalog.py` is the one table of §5.2 in code: method → command path, kind, `needs_yes`,
-  `dry_run`, job kind, schema name, or `WINDOW_ONLY` with a reason from a closed set (`native_dialog`,
-  `closes_window`). Parser, `help --json`, the agent reference and the tests are generated from it.
-- Every payload is a `TypedDict` per schema in `surface/shapes.py`, the source of the JSON Schemas (§4.1), of
-  `hub-ui/src/lib/bridge/types.ts` (generated, replacing the hand-kept copy) and of the text renderers' field lists.
+**Decision (R15): the CLI runs on `HubApi` itself, without a window. No `surface/` package is extracted.** Reasons:
+- `HubApi(support, events=None, services=None, media=None)` already builds without a window; the CLI binds it to the
+  library the way `app.main` does.
+- Its reads need what a set of free functions has no place for: `Services` (95 uses of `self._svc`; what tests replace)
+  and the caches that keep the window fast (`_rb_cache`, `_cdj_cache`, `_tag_cache`, covers). A headless `HubApi`
+  keeps them; in a one-shot command they are just cold.
+- What tied `HubApi` to one window is its session state, and §9.2 moves that to disk anyway (the stored read, `rev`,
+  the registry, the import state, the shared streak). After that, two processes with a `HubApi` each give the same
+  answers.
+- Parity becomes true by construction: the command calls the very method the bridge calls. Extracting ~150 KB of
+  `api.py` behind an unchanged bridge was the largest risk of the first draft's build, for no gain in reach.
+- Splitting `api.py` into modules by area stays a refactor anyone may do later, never a prerequisite.
 
-### 8.2 One source of words: the word catalogue
+The shape:
+- **`HubApi` is the one surface.** Every catalogue entry names a `HubApi` method. Reads the window lacks today
+  (`status --ready`, `doctor`, `history`, `track find`, `rekordbox preview`, `rekordbox match`, `library superseded`,
+  `upgrade_preview`, the Auto-upgrade phase alone, `library facts`, …) become `HubApi` methods too, marked `cli_first`
+  in the catalogue (no window caller yet; the window may use them later). Only the CLI's housekeeping has no method:
+  `help`, `where`, `job …`, `sandbox …`, `app install-command`, and `open …` (which calls the same engine helpers as
+  the bridge's open methods).
+- **Payloads carry paths.** Every payload carries `path`, `cover_path`, `upgrade.path`; the `bridge` decorator adds
+  `cover_url` / `audio_url` beside them when a media server is attached (a declared transform list in
+  `hub/catalog.py`, pinned by a test). Headless, no URL keys exist.
+- **Answers carry the outcome.** `OpProblem` and `Busy` gain `reason`, `next`, `person_steps` and `data`; the `bridge`
+  decorator maps `kind` to `outcome` through `hub/outcomes.py` and puts them all beside `{ok, kind, message}`
+  (additive, §4.3). The CLI reads the same dict.
+- **Writes** return `{job_id}` and finish with `JobFinished` as today. In a worker `Jobs` runs inline (§6.3), so the
+  method returns after `JobFinished`, whose `result` is the envelope's `data`.
+- **The CLI adapter** (`discjockey/cli/`): the parser generated from the catalogue, the envelope and exit codes, the
+  text renderers (`discjockey/cli/render/`, one layout per schema), the job client (§6). **A CLI handler computes no
+  fact:** T3 is an import and AST check that a handler calls only the `HubApi` methods the catalogue names (or the
+  housekeeping modules above) and renders their answer.
+- **`discjockey/hub/catalog.py`** is the table of §5.2 in code. Per entry: method → command path, kind (§5.2),
+  `locks` (§6.1), `needs_yes`, the dry-run method, the per-item states that make it `partial` (R24), the schema name,
+  and **the map of every parameter** (and every key of a dict parameter, through its `TypedDict`) to a flag or
+  positional (R40); or `WINDOW_ONLY` with a reason from a closed set (`native_dialog`, `closes_window`). The parser,
+  `help --json`, the agent reference and the tests are generated from it.
+- `discjockey/hub/select.py` holds `select(listing)` (§7.3) and `discjockey/hub/outcomes.py` the outcome table; both
+  serve `HubApi`. One name throughout: there is no `present/` or `surface/` package (R33).
 
-- **`discjockey/surface/words.py`** holds every user-visible sentence, label and tooltip the window shows, keyed
-  (`quality.fake.word` "fake lossless", `upgrade.why_not.not_analysed` "Same track needs the track analysed in
-  rekordbox first. …", `check.step.reload_tag`, `ui.button.replace`), with named fields and plural forms. There is
-  one copy of each (today: `REASON_WORDS` 24 keys in the engine vs `SAME_TRACK_WHY`/`WHY_NOT_LINE` in the UI, two
-  size-word functions, T §0.4, L D36).
-- **Words that carry data are filled in by the engine** and travel in the payload next to their facts:
-  `next_try` + `next_try_text` ("next try in 3 days"), `quality` + `quality_word`, `dim` + `dim_why`, `actions[]`
-  with `label`, `primary`, `blocked` + `blocked_text`, `steps[]` of a rekordbox check, `outcomes[]` with `tone` and
-  `text`, `empty` + `empty_text`. The window renders them; the CLI prints them.
-- **Words that carry no data** (headings, button labels, static explanations, the badge glossary) are exported from
-  `words.py` into `hub-ui/src/lib/generated/words.json` by `python -m discjockey.surface.words --export` (committed,
-  checked by CI like `hub/static`). The UI imports them; `help glossary` prints the same catalogue with each entry's
-  meaning, so every tooltip is reachable from the Terminal.
-- **The rule checker** (`npm run rules`, new check `words`) fails on a user-visible string literal in
-  `hub-ui/src/{pages,lib}` that does not come from `words.json` or a payload: text nodes, `title=`, `aria-label=`,
-  `placeholder=`, and string returns of `*Model.ts`, `copy.ts`, `format.ts`. Allowed: class names, ids, routes, test
-  ids, numbers and dates formatted by one shared `format.ts` helper set listed in the checker. During the build a
-  ratchet file `hub-ui/words-ratchet.json` (file → count) may only shrink; the last build group empties and deletes
-  it. From then on the window **cannot** show a word the engine lacks.
-- Dates and numbers: the engine sends ISO dates and raw numbers plus the text ("31 Oct", "today", "1.2 GB"); the
-  window may format a number it receives (grouping, `m:ss`) only through the shared helpers, which mirror
-  `surface/words.py` formatters and are pinned against them by a shared fixture test.
+### 8.2 Payload shapes, one source
 
-### 8.3 Shown information and screen states, checked
+- Every payload is a `TypedDict` in `discjockey/hub/shapes.py`. Every field is
+  `Annotated[<type>, F(shown=<bool>, doc="<words>")]`: `shown` says whether the window shows it (the text renderer must
+  place it, T7), `doc` gives its meaning for the reference. A field without `F` fails T6.
+- An in-repo generator (`python -m discjockey.hub.shapes --export`) walks `typing.get_type_hints(include_extras=True)`
+  and supports a closed set of constructs: `Literal`, `NotRequired`, `X | None`, `list[…]`, `dict[str, …]`, nested
+  `TypedDict`s, `str`, `int`, `float`, `bool`; anything else is an error. It writes the JSON Schemas
+  (`additionalProperties: false`; `help <cmd> --json`, T6), `hub-ui/src/lib/bridge/types.ts` (generated, replacing the
+  hand-kept copy; CI checks it is fresh, like `hub/static`) and the renderers' field lists. No new dependency
+  (no pydantic) (R36).
+- `docs/hub-bridge-contract.md` shrinks to its rules (never reject, jobs and events, brief saves, the URL transform)
+  plus a pointer to the generated reference; it is no longer a third copy of the shapes.
+- The fake backend's payloads validate against the same schemas (T6), so the fake can't show a field the engine lacks
+  (R16).
 
-- Each fake scenario in `hub-ui` already has the real bridge's data. New: every `shots.json` entry declares
-  `reads: ["track", "todo", …]` (the bridge reads behind it) or `view: "<reason>"` from a closed set (`layout`,
-  `open_panel`, `selection`, `player`, `menu`, `scroll`, `loading`, `width`). A vitest fails on an entry with neither.
-  A Python test runs, for every declared read of every scenario's library, the command twin and checks the payloads
-  are equal (§13 T4). A new screen state therefore names its command, or argues why it is only a view.
-- Supplement C's `file_missing` surprise is closed by the same rule: `file_state` is computed once in the surface
-  (one stat per file, I/O outside `views.py`), so a row and the details agree.
+### 8.3 Words: data words from the engine, fixed words extracted
+
+**Decision (R44): split by kind of word, made strict.**
+- **Words that carry data come from the engine**, filled in next to their facts: `next_try` + `next_try_text`
+  ("next try in 3 days"), `quality` + `quality_text`, `dim` + `dim_text`, `actions[]` with `label`, `primary`,
+  `blocked` + `blocked_text`, the `steps[]` of a rekordbox check, `outcomes[]` with `tone` and `text`, `empty` +
+  `empty_text`. `discjockey/words.py` (pure) holds them with named fields and plural forms, one copy each (today
+  `REASON_WORDS` in the engine and `SAME_TRACK_WHY`/`WHY_NOT_LINE` in the UI, two size-word functions: T §0.4, L D36).
+- **State words are data words.** A fixed word the window shows *because of* data (a badge, a chip label, an
+  empty-state sentence, a status word, a reason, "Resume · k left", a tone's word) travels in the payload as
+  `<fact>_text` next to its fact. The window never picks a word by a condition it computes.
+- **Fixed words stay in the window's source.** Headings, column names, button labels, static explanations and
+  tooltips that the window shows whatever the data stay literals in Svelte markup, or constants in `*.words.ts`
+  modules (string constants only). A build step extracts them.
+
+Why: moving every fixed word out of 163 Svelte and 129 TS files into keyed Python would be about two thirds of the
+first draft's group 7 (one Sonnet group per page with screenshot comparisons) and buys no reach, because a fixed word
+carries no fact. What an agent needs from fixed words (every tooltip and explanation, and which word stands for which
+field) the extraction gives completely and without anyone keeping a list. What the guarantee needs is that **no word
+depends on data unless the engine sent it**; that is a rule about the window's code (§8.4), not about where fixed words
+are kept. So the single source of every *meaningful* word is the engine, and the fixed words have one source too: the
+window's markup, read by the build.
+
+The extraction:
+- `hub-ui/scripts/words.mjs` runs in `npm run build` (Svelte's own parser for markup, the TypeScript parser for
+  `*.words.ts`). It collects every text node; every `title`, `aria-label`, `placeholder` and `alt`; and the text props
+  of the blocks that show words (`Hint`, `InfoTip`, `NoteCard`, button labels, …; a list kept beside the blocks).
+- Each entry: `id` (`<component path>:<slug>`), `text` (the template), `kind` (`text` | `title` | `aria` |
+  `placeholder` | `tip`), `page`, `component`, `term` (what an `InfoTip` explains: a required prop of `InfoTip`) and
+  `when`: the payload field whose truth or value shows it, when the literal sits in an `{#if}` on a bare payload field
+  or enum value (`row.hidden` → "Hidden"). `when` is how the CLI's glossary and text renderer know the window's word
+  for a boolean or enum field.
+- Output: `discjockey/hub/static/words.json` (build output, committed; CI checks a fresh build produces it, like the
+  rest of `hub/static`). The app bundles it; `help glossary` prints it by page, each tooltip with its `term`; the
+  text renderers use its `when` words for boolean and enum fields.
+- **One template syntax for both languages (R37):** `{name}` fills a field, `{n|file|files}` picks the plural form,
+  `**…**` marks emphasis. One `fill()` in Python (`words.py`) and one in TypeScript (`lib/fill.ts`), pinned by one
+  shared fixture file. A fixed word with a view-state number ("Convert {n|file|files}" for a selection) is filled by
+  the window; its fields are named, so the rendered check (§8.4) knows `n` comes from view state. A payload sentence
+  with emphasis travels as `parts[] {text, strong}`.
+- Dates and numbers: the engine sends ISO dates and raw numbers plus their `_text` ("31 Oct", "today", "1.2 GB"); the
+  window may format a number it receives (grouping, `m:ss`) only through the shared helpers of `lib/format.ts`, which
+  mirror `words.py`'s formatters and are pinned against them by the shared fixture.
+
+### 8.4 Checks that fail when the window gains anything the CLI lacks
+
+The CLI prints the payloads whole (§8.1), so the window can show more than the CLI only by producing something in
+TypeScript. Four checks make that fail (C4, R41, R42), from the cheapest to the most complete:
+
+1. **`derive` (static and type-aware; rule checker, part of `npm run check`).** In `hub-ui/src/{pages,lib}` (except
+   `lib/bridge`, `lib/format.ts`, `lib/fill.ts`), every expression that reaches the screen (a text node, an attribute,
+   a block's prop, a `class:` or `style:` directive, an `{#if}` condition, an `{#each}` list or key) must be one of:
+   - a payload value read as is: a member chain from a value whose type comes from the generated `types.ts`, with
+     `??` or optional chaining for absence;
+   - a fixed literal in markup or a `*.words.ts` constant, or `fill()` of one with payload or view-state fields;
+   - a shared format helper applied to a payload value;
+   - as an `{#if}` condition: a payload boolean, or a payload enum compared with one of its own literals (presentation
+     per value, such as which icon or which fixed word; the fact is the field, and the CLI prints it);
+   - an `{#each}` over a payload list, in payload order;
+   - view state: a value declared through the `view()` marker (`$state(view(…))`: selection, open panel, hover,
+     scroll, width, player time, an unsent draft).
+
+   Anything else that reads a payload value fails: arithmetic, comparisons other than the enum case, `.filter`,
+   `.sort`, `.length`, `.reduce`, `.slice`, `.some`, `.find`, a table looked up by a payload value
+   (`TONE[row.quality]`), strings built from payload values. Props that carry meaning by colour (`tone`, `dim`,
+   `badge`, and a declared list of meaning classes) accept only a payload value read as is. The checker gets types
+   through `svelte2tsx` and the TypeScript compiler (both already in the toolchain through `svelte-check`); a payload
+   value cast to `any` or `unknown` fails.
+   Exceptions live in `hub-ui/derive-allow.json`, each with a reason from a closed set: a view reason (`layout`,
+   `selection`, `open_panel`, `player`, `scroll`, `width`, `loading`, `draft`) or `debt:<§9.3 row>`. `debt` entries
+   may only shrink (a ratchet) and the §9.3 groups remove them; a view entry is reviewed like code. So the next
+   `rowInTodo` (L D6: a count, order, tone, visibility or default a model computes from payload fields) fails the day
+   it is written.
+2. **`flows` (static; rule checker).** One user action (one event handler) calls at most one bridge write, because a
+   window action built from several calls has no single command (R42). Today's exceptions sit in the allow file as
+   `debt:<row>` and go to zero (L D10 is the known one).
+3. **The rendered check (T5b; `npm run verify`, every shot).** The fake bridge records each shot's read answers. In
+   every shot, every visible string (text plus `title`, `aria-label`, `placeholder`, `alt`, collected as
+   `scripts/strings.mjs` does today) must be either a `words.json` entry filled with values of the shot's payloads or
+   its named view fields, or a payload value **in scope**, as is or through a shared format helper. Scope: blocks emit
+   `data-item="<id>"` from the item's `id` prop, so a string inside an item must come from that item's payload object
+   or the page-level fields; a computed "3" can't pass because some other field happens to hold 3. Every
+   `[data-tone]`, `[data-dim]` and `[data-badge]` must equal its item's payload field, and every `[data-list]` shows
+   its items in payload order unless it carries `data-sort-view` (a view sort the allow file names). The escape routes
+   of a literal-finder (template strings, `key.replace('_', ' ')`, enum keys printed as words, SVG `<text>`, CSS
+   `content:`) all end up as a visible string that is neither, so they fail here: this is the backstop for whatever
+   the static rule misses (R41).
+4. **Every component is seen.** In fake mode a Vite plugin marks each component when it mounts; after the shots run,
+   a component under `pages/` or `lib/components` that mounted in no shot fails (gallery-only blocks excepted by a list
+   in the plugin), so a new screen part can't skip check 3 by having no shot. Every `shots.json` entry declares
+   `reads: [...]` (the bridge reads behind it) or `view: "<reason>"` from the closed set; a vitest fails on neither.
+
+On the Python side the same promise rests on: T1, which now maps every parameter and dict key of every bridge method,
+so the window can't gain a choice the CLI lacks (R40); T6, every real output and every fake payload valid against its
+schema; T7, the text rendering places every `shown` field; and the parity test on the Python hub fixtures
+(`tests/hub_helpers.py`): for every read of the catalogue the bridge answer minus the URL keys equals `--json`'s
+`data` (true by construction since §8.1, pinned so a handler that reshapes fails; R16). `file_state` is one
+computation in `HubApi` (one stat per file), so a row and the details agree (Supplement C's `file_missing` surprise).
 
 ---
 
@@ -596,7 +854,7 @@ checks that fail on anything the window shows from elsewhere.
 
 ### 9.1 The rule
 
-A computation the window does today **moves into the surface/engine** when it does any of:
+A computation the window does today **moves into the engine** (`HubApi`, the pure `views.py`, `words.py`) when it does any of:
 (a) decides which items an action applies to, what it will do, or whether it may run;
 (b) produces a fact, count, order, state, colour/tone or dimming the person reads;
 (c) produces a sentence that carries data.
@@ -607,19 +865,50 @@ it calls the bridge field instead of its own copy, and the copy is deleted in th
 
 ### 9.2 State the window holds today, and where it lives now
 
-| State today | Where it moves | Why |
+Redesigned after the review (R14): **store the playlist read, derive the plan.** A stored plan can't hold today's
+`run.Prepared` (the whole planned snapshot, and `SourceTrack`s whose private link tokens are kept out of `asdict` on
+purpose), and across processes every writer would have to re-plan and rewrite it after each change, in the right
+order. The read has neither problem.
+
+- **What is stored.** library.db's `playlist_reads` / `playlist_tracks` (they exist: playlist, service, read_at and
+  the tracks) widen to everything the planner and the Sync, Playlists and Library pages need from a read. Per track:
+  every `SourceTrack` fact the planner uses (isrc, album, image, link, duration, streamable, account_only, …),
+  **never** the private SoundCloud link token. Per playlist: the read's problem and its service,
+  `unread_folders` / `unread_members`, and the playlist's infos (name, owner, cover: today's `_infos`; the tracks a
+  `playlist check` read: today's `_extra_tracks`). A read id (`read:<n>`, rising) names one stored read.
+- **Who writes it.** Every read stores itself in one library.db transaction at its end: `sync read` (window or
+  terminal) and the read a `sync run` makes. The records sit outside library state (like Favourites: no `generation`
+  bump, not in `snapshot`), so writing them needs no library lock; the transaction keeps the newer read, so a slow
+  read that finishes after a newer one was stored doesn't overwrite it (today's `PreviewStore.ready` rule, made
+  durable). A failed read keeps the last good tracks and stores its problem beside them (today's "the last good plan
+  with the problem next to it").
+- **The plan is derived, never stored.** `plan = planner.plan(stored read, current records, settings)`, today's
+  `run.replan`, pure. `HubApi` caches it per (read id, records generation, settings hash) in its own process. Any
+  process that asks after any write gets the plan for the library as it is now: no writer needs a re-plan hook,
+  nothing can go stale, and `stale` disappears (a sync's own read is the newest one).
+- **Secrets stay in memory.** `sync run` reads the playlists again, as today (`sync_work` → `run.prepare`), so a
+  private track's link token is fetched for the run and never written.
+- **Binding.** `sync plan`'s `plan_id` is the hash of its root, read id and sorted action keys, stored in
+  `<support>/plans/` (§7.1). `sync run --plan P` and the window's Start (`start_sync(plan_id, selected)`) select
+  those actions from the run's fresh plan with `run.select_actions`, as today; actions new since the plan are listed
+  under `new_since_plan`.
+- **What this unlocks:** the Sync page, `library().rows[].track_link`, the same-song questions and duplicate groups
+  and `dashboard.ready` exist in every process after any read, not only in the window that made it (A §0).
+
+| State today | Where it lives now | Why |
 |---|---|---|
-| `PreviewStore.prep` (the last read's plan), `read_at`, read problem, `stale`; `_infos` (playlist names, covers) | `.discjockey/plan.json` (+ `plan_infos.json`), written by `sync read` and the window's read; re-planned without network when library state changes (today's `replanned_work`) | the Sync page, `library().rows[].track_link`, the questions and `dashboard.ready` exist only after a read in the same window (A §0) |
-| "Is this the same song?" questions and same-song duplicate groups (inside `prep`) | derived from `plan.json` by `surface.reads.todo`; `question list` | an agent can neither list nor answer them today (L finding 4) |
-| Sync scope switches (localStorage `sync.scope`), weekly checks on/off | `settings.json` `sync_scope` {`off`: [collections], `weekly_off`: [kinds]}; `sync scope show/on/off`; the window's switch becomes a brief save | the run's selection must be the same for the window and an agent (A U1) |
+| `PreviewStore.prep`, `read_at`, read problem, `stale`; `_infos`; `_extra_tracks` | the stored read in library.db; the plan derived on demand (above) | the Sync page, the questions and `dashboard.ready` exist only after a read in the same window today (A §0) |
+| "Is this the same song?" questions and same-song duplicate groups (inside `prep`) | derived from the derived plan by `HubApi.todo`; `question list` | an agent can neither list nor answer them today (L finding 4) |
+| `PreviewStore.auto_read` | stays (the window's one automatic read per session is window behaviour, §6.6) | a person opened the window |
+| Sync scope switches (localStorage `sync.scope`), weekly checks on/off | `settings.json` `sync_scope` {`off`: [collections], `weekly_off`: [kinds]}; `sync scope show/on/off`; the window's switch becomes a settings write | the run's selection must be the same for the window and an agent (A U1) |
 | Ticks and "how many" | stay a window draft; the presets and the default are engine answers (`sync plan` `presets`, `default_how_many`); `sync run` takes them as flags | a draft until Start is a view; what a choice means is not |
 | `sync.lastSelection` (localStorage) | the job's `args` in the registry | the window's run list needs it after a reload; so does `job show` |
 | `_shown` | `rev` tokens (§3) | stateless, works across processes |
 | `_dropped`, `_selected` | the drop's `path` travels in `FileDropped` and back in `add_bought_file(track_id, path)` | a command passes a path (SA finding 3) |
-| `_import_stopped`, `_import_auto_done` | `library.db` import state (`stopped_at`, `waiting`); the auto import stays a window behaviour keyed on it | "Import stopped, n to go" must survive the window and be readable (L D29) |
-| `Jobs.current`, `refresh`, `sign_in` | the job registry (§6) | |
-| `_qobuz_streak` | stays (protection counter, already reset per sync) | invariant, not view |
-| `_cdj_cache` | stays a cache (keyed by records generation) | no meaning |
+| `_import_stopped`, `_import_auto_done` | library.db import state (`stopped_at`, `waiting`); the automatic import stays a window behaviour keyed on it | "Import stopped, n to go" must survive the window and be readable (L D29) |
+| `Jobs.current`, `refresh`, `sign_in` | the job registry (§6.2) | every process sees every job |
+| `_qobuz_streak`, `_account_streaks` | the `streak` in each service's `usage` row (§7.5) | one process per command would reset the protection at every call (R1) |
+| `_rb_cache`, `_cdj_cache`, `_tag_cache`, the cover cache | stay per-process caches of `HubApi`, keyed by records generation, rekordbox's key or a file's size and mtime | no meaning; a cold cache costs only time |
 | Recent toasts | each job's `result.json` | |
 
 ### 9.3 The rule applied to the audit rows
@@ -627,11 +916,11 @@ it calls the bridge field instead of its own copy, and the copy is deleted in th
 Ids: **L D1–D37** (library audit §2), **U1–U39** (app audit §2), **T:`fn`** (todo audit §2, by function), **SA/SB:
 `file:fn`** (supplements). "→ field" names where the answer lives after the move.
 
-**Moves into the surface/engine (the window deletes its copy):**
+**Moves into the engine (the window deletes its copy, and its `debt` entry in `derive-allow.json`, §8.4):**
 
 | Rows | What moves | → where |
 |---|---|---|
-| L D1 | a route name is a playlist or a Library folder | `surface.resolve_collection(name)`; `--in` uses it |
+| L D1 | a route name is a playlist or a Library folder | `HubApi.resolve_collection(name)`; `--in` uses it |
 | L D5, T:`decisionFor`, SA `TrackDetails` decision choice | which decision a track waits for (check > duplicate > upgrade) | `track().decision` {kind, item id} |
 | L D6, SA `rowInTodo`/`inTodo` | "is it on the To-do list" (today it **diverges** from `views._group`/`todo_listed`) | row and track field `in_todo`, from the engine's one rule |
 | L D7, D34, T:`actionsFor`/`IMPROVABLE`, SA `footAction`, `aiffShown`, `aiffVariant`, T `Details.aiff` | which actions an item/row offers, which one is the filled button, which menu items exist | `actions[]` {id, label, primary, blocked, blocked_text, command} on rows, tracks, to-do items |
@@ -640,7 +929,7 @@ Ids: **L D1–D37** (library audit §2), **U1–U39** (app audit §2), **T:`fn`*
 | L D10, T:`groupIdOf` + `DuplicateFlow.#keepOne`, SA `DuplicateFoot` | "keep this file" as N−1 jobs with the group id recomputed in JS | one engine op `folders.keep_file(group, file_id, expect)` in one job; answer names the track holding the kept file (L D4 data part) |
 | L D11, T:`keepWords`/`fileWords`/`fileFormat`/`lastFolder`/`keepLabel` | the duplicate's button and file words | `pair.files[].words`, `pair.keep_label` |
 | L D12, D13, D14 (except `panelPhase`, `listShape` fold), T `aiffModel.*`, `aiffBatchModel.*`, SA `AiffCard`/`AiffFoot` | why Convert/Rename/Make is off (space, rekordbox open), button words, rows Now/Becomes/Name/Space, outcomes, notes, "Left as they are", drive names ("this Mac") | `aiff` card fields and `AiffPlan` gain `blocked`, `blocked_text`, `label`, `rows[]`, `outcomes[]`, `notes[]`, `left[]`, `space[].drive_name` |
-| L D15, T:`cdjAllKeys`/`cdjReachable`/`wholeCdjGroup`/`upgradeAllKeys`/`wholeUpgradeGroup`/`multiScope`/`MULTI_GROUPS`, T `AiffBatchFlow.start` | what "all", ⌘A and a whole group select; which groups allow several | `surface.select(listing)` (§7.3); `groups[].multi`, `groups[].all` |
+| L D15, T:`cdjAllKeys`/`cdjReachable`/`wholeCdjGroup`/`upgradeAllKeys`/`wholeUpgradeGroup`/`multiScope`/`MULTI_GROUPS`, T `AiffBatchFlow.start` | what "all", ⌘A and a whole group select; which groups allow several | `HubApi.select(listing)` (§7.3); `groups[].multi`, `groups[].all` |
 | L D19, D20, D21, D22, SA `noFileNote`, `waitWords`, `notFoundTip`, `cutoffStat`, `qualityWords`, `fileAwayWords`, `titleNote`, `placeLine`, SA `TrackHead` line | empty states (six), "next try in N days", the no-file note, quality and cutoff words, away words, place words | `empty` + `empty_text`; `next_try_text`; `why` (§11); `quality_word`, `cutoff_text`; `file_state_text`; `place_text` |
 | L D23, D25, SA `RowLead` | the collections list as drawn: "Not in a playlist" only when > 0, one row per folder path, playlists in playlists.txt order, away marks, which can be shown in Finder | `library collections` sections; `reveal_path` per collection (A–Z order stays a view pref) |
 | L D24, U34, SB `cratesModel`, `CrateSwitches` | a crate's default visibility and what override to store | `folder crates` takes the wanted state; the engine stores the override or `null` |
@@ -677,7 +966,7 @@ U11, U16 (plan search: `sync plan --search` reuses the engine's fold), U35 (the 
 other selection/hold/deep-link helpers, T `flows` `adopt`, the panel phases, `FILTER_MAX` (five before "More"), SA
 players (`ComparePlayer`, `MiniPlayer`, `NowPlayingRow`, `PlayButton`, `FilePlay`), `ListRow`, `ShareStrip`,
 `ShareBar` geometry, `qualityBarModel` percentages (the words move), `Spinner`, `ErrorBoundary`, `NotFound`,
-`LinkGuide` (static words move to the catalogue).
+`LinkGuide` (fixed words, extracted into `words.json`, §8.3).
 
 **Deleted:** `PageStub.svelte`, `SectionLabel.svelte`, `TrackRow.svelte` and its gallery entry (no page uses them).
 
@@ -694,6 +983,7 @@ engine names each one; a command never pretends to do it.
 |---|---|---|---|
 | `step:quit_rekordbox` | a write needs rekordbox closed (`needs_person`, exit 4) | "Quit rekordbox, then tell me to carry on." | the same command, or `batch resume aiff:<n>` |
 | `step:open_rekordbox` | live tests only | "Open rekordbox." | the next read |
+| `step:remove_test_tracks` | live tests only, at the clean-up (§15) | "In rekordbox, remove these test tracks from the collection: <names>. Then quit rekordbox." | the test script's `--clean` |
 | `step:reload_tag`, `step:analyse_again`, `step:auto_relocate`, `step:relocate_new`, `step:rebuild_usb` | after a replace, Same track, Convert (in `check.steps` and the result's `person_steps`) | the window's numbered words with the track names | `check done <tracks>` once the person did them |
 | `step:listen` | an upgrade marked different or unsure; a fake verdict the user doubts | "Listen to both: <now path> and <new path>." | `upgrade apply …` or `upgrade discard …` |
 | `step:sign_in` | `login sign-in`, `login_expired` | "Sign in to <service> in <browser>; the window that just opened. I'll notice it." | `job wait <job>` |
@@ -715,26 +1005,62 @@ Covered in §2.1: no argument opens the window, any argument is a command, `wher
 install-command` makes a short name. The self-test (`--self-test`) gains one CLI round trip (`help --json` and
 `where --json` in a scratch support folder) so a built app proves its command works.
 
-### 10.3 The sandbox: rehearsing without touching the real library or rekordbox
+### 10.3 The sandbox: rehearsing without touching the real library, rekordbox or an account
 
-| Command | Does |
-|---|---|
-| `sandbox create <dir> [--from empty\|real] [--rekordbox none\|copy\|<fixture dir>] [--no-audio]` | makes `<dir>/music`, `<dir>/support`, `<dir>/rekordbox` and a marker `.discjockey-sandbox`. `--from real` clones the music folder (incl. `.discjockey/`) with APFS clones (`clonefile`, no extra space, instant); watched folders on the same volume are cloned too and their paths rewritten in the sandbox's `library.db`, others become `folder_missing`. Without a clone-capable volume it refuses unless `--no-audio` (copies `.discjockey/` and `playlists.txt` only; audio steps meet `file_missing`). `settings.json` is copied **without logins**; no login file is copied. `--rekordbox copy` clones rekordbox's library folder (rekordbox must be closed while copying) |
-| `--sandbox <dir>` or `DISCJOCKEY_SANDBOX=<dir>` on any command | runs it against the sandbox (sets the three folders); every envelope says `sandbox`; text mode prints "Sandbox: <dir>" on stderr first |
-| `sandbox info <dir>` | what it was made from, size, when |
-| `sandbox remove <dir> --yes` | deletes a folder only if it holds the marker and is neither the real music folder, a watched folder, nor inside one |
+Redesigned after the review (R2, R3, R8, R9, R10). The rule: **guard the roots, not a list of write calls.** A process
+in a sandbox knows no path to the real library, the real rekordbox or the user's accounts, so a writer someone forgets
+to guard can still only write inside. A sandbox folder holds exactly what `sandbox create` made: `music/`, `support/`,
+`rekordbox/`, `watched/<n>/` (clones of watched folders) and the marker `.discjockey-sandbox` (JSON: id, created, made
+from, the real roots at that moment, the list of what it made, the rekordbox mapping report).
 
-Guarantees, pinned by tests:
-- **No write escapes.** In a sandbox, the lowest write layer (`library.run_op`, `move_files`, `move_path`,
-  `rekordbox.write.open_write`, the tools updater, settings and config writes) refuses any target outside the sandbox
-  root (`refused`, `reason: "outside_sandbox"`). A test runs every write command of the catalogue in a sandbox with a
-  real-looking library next to it and checks no byte outside the sandbox changed.
-- **Qobuz protection holds trivially:** a sandbox has no Qobuz login, so nothing downloads from Qobuz; anonymous
-  reads and free streams work and are paced as usual.
-- `DISCJOCKEY_REQUIRE_SANDBOX=1` makes every command but `help` refuse (`sandbox_required`) unless a sandbox is set:
-  for developer agents working on the code (CLAUDE.md tells them to export it).
-- `DISCJOCKEY_SUPPORT` / `DISCJOCKEY_REKORDBOX` stay as the plumbing the sandbox and the tests use; the docs point
-  agents to `--sandbox`.
+| Command | Does | Refuses |
+|---|---|---|
+| `sandbox create <dir> [--from empty\|real] [--rekordbox none\|copy\|<fixture dir>] [--no-audio] [--wait-busy S]` | `--from real`, holding the real library lock for the copy: library.db through SQLite's backup API (a consistent copy, its WAL included), `playlists.txt`; the audio of `Library/`, `Superseded/`, `Upgrades ready/` and of each watched folder on the same volume cloned with `clonefile` (no extra space); the watched folders' paths rewritten in the copy to `watched/<n>/`, one on another volume left `folder_missing`; `settings.json` with every login, account and Qobuz setting removed (`qobuz_skipped`, no `accounts`). Never copied: login files, `jobs/`, `plans/`, `windows/`, caches, locks, `-wal`/`-shm` | `<dir>` exists and isn't empty (`exists`); `<dir>` equals, lies inside or contains the real music folder, a watched folder, rekordbox's folder, the support folder, the home folder or a volume root (`protected`); the real library's `pending` holds steps (`pending_steps`, `next: doctor`); no clone-capable volume (APFS, the library's volume) and no `--no-audio` (`no_clone`); `--rekordbox copy` while rekordbox runs (`needs_person`, `step:quit_rekordbox`) |
+| `--sandbox <dir>` or `DISCJOCKEY_SANDBOX=<dir>` on any command | runs it against the sandbox, all roots taken from the marker's folder; every envelope says `sandbox`; text mode prints "Sandbox: <dir>" on stderr first | a folder without a valid marker (`bad_args`) |
+| `sandbox info <dir>` | what it was made from, when, its size, the rekordbox tracks it couldn't map | — |
+| `sandbox remove <dir> --yes` | deletes what the marker lists as made by `create` (with whatever later commands made inside those folders), then the marker and `<dir>` | anything else at the top of `<dir>` (`not_sandbox_content`); `<dir>` equal to, inside or containing a real root, the home folder or a volume root (`protected`), the real roots resolved from the default support folder whatever the environment says |
+
+Why `remove` may delete: a sandbox's audio is clones and rehearsal output; removing a clone never touches its original.
+What protects the user's music is that `remove` only ever deletes inside a folder that `create` found new or empty, and
+only what the marker says `create` made there (R3: `sandbox create ~/Music` is refused, so `sandbox remove ~/Music`
+can't follow).
+
+**The root guard, in sandbox mode:**
+- `SupportPaths`, `Paths` and `rekordbox.locate` resolve only inside the sandbox (support `<dir>/support`, rekordbox
+  `<dir>/rekordbox`); a `config.json` that names a music folder outside the sandbox is `refused`, `outside_sandbox`,
+  when the paths are resolved, before anything is read.
+- Inputs that name a path: `setup music` and `folder add` refuse a path outside the sandbox; `version add-file <path>`
+  reads a file from outside and copies it in; `--png <file>` writes where the person said.
+- The write layer (`run_op`, `move_files`, `move_path`, `write_json_atomic`, `db.connect` for writing,
+  `rekordbox.write.open_write`, the backup restore, `write.replace_bytes`, `playlists_file.save`, reports, the
+  operations log, the tools updater) checks each target against the sandbox root as a second line (`outside_sandbox`).
+  The first line is that no real root is known to the process at all.
+- A worker takes every root from `state.json` (§6.3), never from its environment.
+- `DISCJOCKEY_REQUIRE_SANDBOX=1` makes every command but `help` and `sandbox …` refuse (`sandbox_required`) unless a
+  sandbox is set: for developer agents working on the code (CLAUDE.md tells them to export it).
+- `DISCJOCKEY_SUPPORT` / `DISCJOCKEY_REKORDBOX` stay as the plumbing the tests use; the docs point agents to
+  `--sandbox`.
+
+**No accounts in a sandbox (R2).** Every account login write (`login qobuz`, `login use`, `login sign-in` for YouTube
+or SoundCloud) answers `refused`, `sandbox_no_accounts`; settings loaded in a sandbox force `qobuz_skipped` and no
+`accounts`, so a login file copied in by hand does nothing. The Spotify read login, anonymous reads and free streams
+stay: reads have no limit, and free streams are paced by the shared pacer of §7.5 (with the sandbox's own `pace.json`).
+Nothing in a sandbox can download through or count against a real account.
+
+**rekordbox in a sandbox (R10).** `--rekordbox copy` is refused while rekordbox runs. It copies rekordbox's library
+folder (master.db and the analysis `share` folder, files cloned) while holding `rekordbox.lock`, then, **inside the
+copy only**, repoints every track whose file lies under the real music folder or a cloned watched folder to its clone
+(`write.Writer`'s path change and `anlz.splice_ppth`, rekordbox's own scheme). `sandbox info` lists the tracks it
+couldn't map (files elsewhere or on other volumes). So Same track, Convert and Rename rehearse their real repoint. The
+real rekordbox app never opens the copy: any step that opens, looks at or plays in rekordbox belongs to the real
+library (§15).
+
+Pinned by T9: every write command of the catalogue, run in a sandbox made from a real-looking fixture library next to
+it, changes no byte outside `<dir>` (except a named `--png` target); `create` on a folder that contains the music
+folder, and `remove` of it, refuse with nothing deleted; a `config.json` naming an outside folder is refused at
+resolve; a Qobuz login planted in the sandbox downloads nothing; a clone made while a fake writer holds the lock waits
+or answers `busy`, and its library.db opens clean; a clone refuses while `pending` holds a step; `--rekordbox copy`
+maps a fixture track to its clone and a Same track rehearsal repoints it in the copy.
 
 ---
 
@@ -807,6 +1133,8 @@ The model of the app's concepts an agent needs is part of the agent guide (§14.
 | `batch list` newest 20 only | **change** → `--limit`, `--since`, `total` | |
 | the cli.py/convert_cmd claim "keys as the library's JSON prints them" | **change** → true (`library list`, `track find`) | |
 | CONTRIBUTING's hand-written command shapes | **drop** → generated reference + AGENTS.md (§14) | they drift |
+| today's command modules (`batch_cmd`, `convert_cmd`, `upgrades_cmd`, `rekordbox_cmd`, `settings_cmd`, the bare sync) | **drop**, each in the group that lands its replacement (§16); until then the new parser routes their old words to them unchanged | H5: nothing is kept for compatibility, and migrating them into the new framework first would build them twice (R45) |
+| the window's lock probe every 3 s (`watch_console`) | **change** → the registry watch (§6.6); the probe stays only for a holder without a registry entry | a command shorter than 3 s was never seen; the probe can't say which job or how far |
 
 ---
 
@@ -814,21 +1142,22 @@ The model of the app's concepts an agent needs is part of the agent guide (§14.
 
 | Test | Fails when |
 |---|---|
-| T1 catalogue ↔ bridge | a `@bridge` method of `HubApi` is missing from `surface/catalog.py`, or an entry names no method; a `WINDOW_ONLY` reason is outside `{native_dialog, closes_window}` |
-| T2 catalogue ↔ parser | an entry's command path doesn't parse, or a parser command has no entry (except the §5.3 list, which is its own table in the catalogue) |
-| T3 adapters compute nothing | a `HubApi` read method does more than call its `surface` twin and the declared path→URL transform (AST check); a CLI handler builds data instead of passing the surface's payload |
-| T4 screen states ↔ commands | a `shots.json` entry has neither `reads` nor a `view` reason; for every scenario library, a declared read's bridge payload ≠ its command's `--json` `data` (after the transform) |
-| T5 words | the `words` rule finds a literal (ratchet may only shrink, then none); `words.json` is stale against `words.py`; two catalogue keys hold the same sentence |
-| T6 schemas | a command's real output doesn't validate against its schema; `types.ts` is stale against `shapes.py` |
-| T7 text shows everything | a field marked `shown` in a schema is absent from the text rendering of a sample payload |
+| T1 catalogue ↔ bridge | a `@bridge` method of `HubApi` is missing from `hub/catalog.py`, or an entry names no method; a parameter of a bridge method, or a key of a dict parameter's `TypedDict`, has no flag or positional in its entry (`inspect.signature` against the entry's map, R40); a `WINDOW_ONLY` reason is outside `{native_dialog, closes_window}` |
+| T2 catalogue ↔ parser | an entry's command path doesn't parse, or a parser command has no entry (the housekeeping commands are their own table in the catalogue); once the last replacement group has landed, a route to a legacy command module remains |
+| T3 the CLI computes nothing | a CLI handler calls anything but the `HubApi` methods its entry names (or the housekeeping modules of §8.1), or builds data instead of rendering the answer (import and AST check) |
+| T4 screen states ↔ reads; parity | a `shots.json` entry has neither `reads` nor a `view` reason (vitest); on the Python hub fixtures, a catalogue read's bridge answer minus the URL keys differs from its command's `--json` `data` (R16) |
+| T5 the window adds nothing | static (§8.4, 1–2): `derive` finds an expression outside the allowed forms, `flows` a handler with two bridge writes, the allow file gains a `debt` entry or holds a reason outside the closed set; `words.json` is stale against a fresh extraction; the `fill()` fixture renders differently in Python and TypeScript. Rendered (T5b, §8.4, 3–4): in a shot, a visible string, `data-tone`, `data-dim`, `data-badge` or list order is not backed by the shot's payloads in scope or the word catalogue; a component mounted in no shot |
+| T6 schemas | a payload field lacks its `F(shown, doc)`; a command's real output or a fake payload doesn't validate against its schema; `types.ts` is stale against `shapes.py` |
+| T7 text shows everything | a field marked `shown` is not placed by its schema's text layout, on the real fixture outputs and on a generated sample with every optional field set (R43); the golden text of a schema changes without its file (a review aid, R30) |
 | T8 outcomes | a command exits with a code not matching its `outcome`; a `ProblemKind` has no row in the outcome map; `--json` prints anything but one object (also for usage errors and crashes) |
-| T9 safety | a dry run writes a byte (run every command's `--dry-run` on a fixture library, compare all files and `library.db`); a `needs_yes` command acts without `--yes`; a sandbox write escapes |
-| T10 jobs | a stop file stops a window job and a terminal job between items; a killed client leaves the job running; `lost` is reported for a dead worker |
+| T9 safety | a dry run writes a byte outside `<support>/plans/` and `<support>/cache/` (every command's `--dry-run` on a fixture library: all files, library.db and the rekordbox fixture compared); a `needs_yes` command acts without `--yes`; any of the sandbox cases of §10.3 |
+| T10 jobs and locks | any of the cases of §6.6 (stop files, killed clients, lost workers, `--now` safety, the locks table, two writers, window and terminal seeing each other, rekordbox readers during a write) |
 | T11 docs | `docs/agent-commands.md` differs from `discjockey help --markdown`; a catalogue entry has no example in it |
 | T12 app binary | a built app with any argument but `-psn_…` doesn't reach the CLI (self-test round trip) |
+| T13 shared protection | any of the cases of §7.5 (the pause across processes, the pacing gap between back-to-back commands, the reset at a sync's start, searches spaced, the window waiting for a terminal's slot) |
 
-The CLAUDE.md "Agent-ready" rule is rewritten to point at T1–T11: a new bridge method, payload field, word or screen
-state can't land without its command, schema, text rendering and docs, because the tests fail.
+The CLAUDE.md "Agent-ready" rule is rewritten to point at T1–T13: a new bridge method, parameter, payload field, word,
+derivation or screen state can't land without its command, schema, text rendering and docs, because a test fails.
 
 ---
 
@@ -857,8 +1186,9 @@ state can't land without its command, schema, text rendering and docs, because t
    the user before any write that moves, converts, discards, undoes or touches rekordbox; Qobuz protection can't be
    switched off — never try to work around a limit or a pause; never touch rekordbox's library yourself; rehearse in a
    sandbox when unsure; never pass a password on the command line.
-4. The workflow: `where` → `status` → read → dry run → ask → apply with `--plan` and `--detach`/`--wait` → `job wait`
-   → tell the user every `person_steps` entry word for word → follow `next`.
+4. The workflow: `where` → `status` → read → dry run → ask → apply with `--plan` and `--wait 90` (or `--detach`) →
+   `job wait <job> --wait 90` while it answers `running` (tell the user any live `person_steps` at once, §6.5) → tell
+   the user every `person_steps` entry of the result word for word → follow `next`.
 5. Ids, selection, outcomes and exit codes (the tables of §3, §4.3, §7.3).
 6. The questions of §11 with their commands.
 
@@ -867,7 +1197,29 @@ state can't land without its command, schema, text rendering and docs, because t
 ## 15. The issue 33 live tests (todo audit J11) with the new commands
 
 Every step marked **P** needs the user; everything else the agent runs. "Real" = against the user's library and
-rekordbox with their go; the stage plans' rehearsal parts can run in `--sandbox` with `--rekordbox copy`.
+rekordbox with their go; the stage plans' rehearsal parts can run in `--sandbox` with `--rekordbox copy` once the
+sandbox group has landed.
+
+**When (decision on R46):** right after the live-test slice of §16 (phase 1), not at the end of issue 39. The user's
+goal is that an agent runs these tests through the CLI, and stages A–D sit merged but untested on a real library
+until then; so the commands these tables use are built first, and the tests run as soon as they exist. Running them
+now with today's commands (the review's option a) would test the rekordbox writes but not the goal, and would be done
+again later; running them last (option c) leaves the rekordbox writes untested for the length of the rebuild. The
+slice needs nothing of §9.2: C 1a reads the phase's before-start line from `sync run --auto-upgrade-only --dry-run`.
+
+**Waiting:** every long step uses `--wait 90` and then `job wait <job> --wait 90` until it ends (§6.5); written below
+as "`--wait 90` + `job wait`".
+
+**Clean-up (decision on R48):** the agent never deletes a file, and Discjockey gets no "forget" command for tests.
+Every live-test script names what it makes with the marker `(upgrade test)`, in the file name and in the title tag, so
+every file Discjockey derives from them (a New track, a Convert, a clean name) carries it too. After the person has
+removed the test tracks from rekordbox (`step:remove_test_tracks`), the agent runs `folder remove <scratch> --yes`, then
+the script's `--clean <entry>`: it refuses unless rekordbox is closed and the library lock is free, removes the test
+entries from library.db (today's `--remove`), moves to the macOS Trash exactly the marked files in `Library/`,
+`Superseded/`, `Upgrades ready/` and the scratch folder (and the `_Upgrade test/` folders once empty), lists what it
+moved, and ends with `library scan` in `next`. The Trash is not a deletion: the user empties it. Rejected: a
+`track forget` command (a product write path that exists only for tests) and running the agent parts in a sandbox
+(every stage has steps in the real rekordbox app, which never opens a sandbox copy).
 
 **Stage A**
 
@@ -879,22 +1231,22 @@ rekordbox with their go; the stage plans' rehearsal parts can run in `--sandbox`
 | 2 offsets of an MP3, a 48 kHz M4A, an AIFF | agent | `rekordbox preview --path <file> --json` (`timing.offset_samples`, `entries[].offset_ms`) |
 | 3a make a test track | agent | `scripts/make_upgrade_test.py --keep-lossy m4a` |
 | 3b import, analyse, 3 hot cues, quit rekordbox | **P** | — |
-| 3c Discjockey knows the file | agent | `folder add <scratch folder> --wait 600` |
+| 3c Discjockey knows the file | agent | `folder add <scratch folder> --wait 90` + `job wait` |
 | 3d New track | agent | `upgrade list`; `upgrade apply <track> --way new-track --dry-run`; apply `--plan P` |
 | 3e Relocate the old track to the new `.aiff` | **P** | the answer's `person_steps` (`step:relocate_new` with the path) |
 | 3f cues on the same beats, no click | **P** (looks, listens) | agent afterwards: `rekordbox preview --path <new>` |
-| 3g remove the test files | agent | `folder remove <scratch> --yes`, then deletes the script's own files |
+| 3g clean up | **P**, then agent | `step:remove_test_tracks`; then `folder remove <scratch> --yes`, `scripts/make_upgrade_test.py --clean upgrade-test-<n>`, `library scan` (see Clean-up above) |
 
 **Stage B**
 
 | Step | Who | Command |
 |---|---|---|
 | 0a File › Library › Backup; a spare USB stick | **P** | — |
-| 0b copy rekordbox's folder aside; four click tracks with parked upgrades; scratch folder | agent | file copy; script; `folder add <scratch> --wait 600` |
+| 0b copy rekordbox's folder aside; four click tracks with parked upgrades; scratch folder | agent | file copy; script; `folder add <scratch> --wait 90` + `job wait` |
 | 1 import, analyse, cues, playlists, edit a title, export to the stick, quit | **P** | — |
-| 2a Upgrade all | agent | `upgrade apply --all --dry-run` → `--plan P --detach`; `job follow <job>` |
+| 2a Upgrade all | agent | `upgrade apply --all --dry-run` → `--plan P --detach`; `job wait <job> --wait 90` |
 | 2b Stop midway | agent | `job stop <job>` → the job ends `stopped` (exit 5), `next: batch resume aiff:<n>` |
-| 2c Resume | agent | `batch resume aiff:<n> --wait 600` |
+| 2c Resume | agent | `batch resume aiff:<n> --wait 90` + `job wait` |
 | 3 AIFF/44.1/16, plays, cues and grid, names, sorting, history, playlists | **P** looks; agent reads | `batch show aiff:<n>` (paths, `rekordbox.entries/kept`), `rekordbox preview --path <new>` |
 | 4–6 reopen, seek, re-analyse; Reload Tag; USB stick | **P** | `check list` gives the steps to read out |
 | 7a rekordbox open, Undo all says quit | **P** opens; agent | `batch undo aiff:<n> --yes` → `needs_person` (exit 4), `step:quit_rekordbox`, nothing undone |
@@ -908,11 +1260,11 @@ rekordbox with their go; the stage plans' rehearsal parts can run in `--sandbox`
 | Step | Who | Command |
 |---|---|---|
 | 0 click tracks with same-edit upgrades; rekordbox backup | agent / **P** | script, `folder add`; backup **P** |
-| 1a rekordbox open; the Sync page's before-start line | **P** opens; agent | `sync plan` (`start_note`, `auto_upgrade`) |
-| 1b sync: "… wait for rekordbox to be closed" | agent | `sync run --auto-upgrade-only --wait 600` (no downloads needed) → `auto_upgrade.waiting`, rows `rekordbox_open` |
+| 1a rekordbox open; the Sync page's before-start line | **P** opens; agent | `sync run --auto-upgrade-only --dry-run` (`start_note`, `auto_upgrade`) |
+| 1b sync: "… wait for rekordbox to be closed" | agent | `sync run --auto-upgrade-only --wait 90` + `job wait` (no downloads needed) → `auto_upgrade.waiting`, rows `rekordbox_open` |
 | 1c To-do marks them; nothing changed | agent; **P** may look | `todo list --group upgrade_ready` (`sub`: "Waits for rekordbox to be closed") |
 | 2a quit rekordbox | **P** | — |
-| 2b sync again: upgraded, end screen lists | agent | `sync run --auto-upgrade-only --wait 600`; `run show last` |
+| 2b sync again: upgraded, end screen lists | agent | `sync run --auto-upgrade-only --wait 90` + `job wait`; `run show last` |
 | 2c AIFF with cues in rekordbox | **P** | agent: `rekordbox preview --path <new>` |
 | 2d "Undo all from this sync" offered | agent | `check list` (batch `undo.label`) |
 | 3 undo; back with cues | agent; **P** looks | `batch undo aiff:<n> --yes` |
@@ -925,7 +1277,7 @@ rekordbox with their go; the stage plans' rehearsal parts can run in `--sandbox`
 |---|---|---|
 | 0 backup; five click tracks analysed with cues in a playlist; rekordbox closed | **P** (+ agent script) | — |
 | 1a the plan for the folder | agent | `aiff convert --all --in folder:<path> --dry-run` |
-| 1b run it | agent | `aiff convert --all --in folder:<path> --plan P --wait 600` |
+| 1b run it | agent | `aiff convert --all --in folder:<path> --plan P --wait 90` + `job wait` |
 | 1c AIFF/44.1/16, cues, grid, playlist | **P** | agent: `rekordbox preview --path <new>` |
 | 2a the AAC listed with its words | agent | `todo list --group cdj` / `aiff convert --all --todo cdj --dry-run` |
 | 2b Convert all; plays with cues | agent; **P** plays | `aiff convert --all --todo cdj --plan P` |
@@ -935,33 +1287,73 @@ rekordbox with their go; the stage plans' rehearsal parts can run in `--sandbox`
 | 5b Convert one file: "Quit rekordbox", nothing changed | agent | `aiff convert <track>` → `needs_person` (exit 4), the batch of one closed, no resume |
 | 6 export to a stick, play on a CDJ | **P** | — |
 
+After each of stages B, C and D: the clean-up of A 3g for that stage's test tracks (person step, `folder remove`, the
+script's `--clean`, `library scan`).
+
 ---
 
 ## 16. Risks and how the build plan must split
 
 | Risk | Why it is risky | What the plan must do |
 |---|---|---|
-| Extracting `surface/` out of `api.py` (~150 KB) | every window read and write moves; a slip changes what the window shows | move method groups one by one behind the unchanged bridge; T3 and the existing bridge tests green after each group; no behaviour change in the extraction groups |
-| The words into the engine | hundreds of strings across ~60 UI files, rendered by Svelte; easy to change a word by accident | per page, Sonnet mechanical with the ratchet; screenshots compared to `main` per page (words must be identical unless a duplicate is merged); UI build/shots split from model work |
-| Job registry and worker processes | concurrency, crash recovery, the window's in-process jobs writing the same files, stop files in hot loops | one Opus group owns `surface/jobs.py` + `CancelToken` change + window wiring; T10 before any write command uses it |
-| Persisted plan (`plan.json`) and sync scope in settings | changes how the Sync page and the run choose actions (`select_actions`) | its own group with the sync's tests; the window's Sync page switched over in a UI group after it |
-| Contract changes (`track_id`, mode enum, `add_bought_file(path)`, `keep_file`, `stop(job_id)`, listing selections, `expect`) | `types.ts`, `contract.ts`, the fake backend and `hub-bridge-contract.md` must move together | one contract group per change set, generated `types.ts` first |
-| Sandbox escape guard | must sit in the lowest write layer or it is decoration | build it with T9 before `sandbox create`; review by Opus |
-| App routing | a mistake opens the window for every command or a command for every Finder open | small group with the self-test round trip |
-| New outcome scheme across today's commands | every existing command test changes | first group (framework) migrates today's commands; nothing else lands before it |
+| A headless `HubApi` in a worker (§8.1) | `HubApi` was built for one window: session state, threads, the media server | group 1.1 binds a headless instance and proves one read and one write end to end before anything else; the §9.2 moves land before the commands that need them |
+| Job registry and worker processes (§6) | concurrency, crash recovery, signals, the window writing the same files | Opus group 1.2 with T10's terminal cases before any write command uses it; the window's side separately in 1.4 |
+| Locks per job kind (§6.1) | a wrong lock blocks the window for minutes, or lets two processes race on `settings.json` | the catalogue's `locks` column and its T10 table test in 1.3 |
+| Shared Qobuz and account protection (§7.5) | a slip in the pacer or the streak is a risk to the user's account | Opus group 2.4 with T13; no command that downloads (4.1, 4.3) lands before it |
+| Stored read, derived plan (§9.2) | changes how the Sync page and the run choose actions | Opus group 2.2 with the sync's tests; the Sync page's small switch-over in the same group |
+| Contract changes (string job ids, `track_id`, the mode enum, `add_bought_file(path)`, `keep_file`, `stop(job_id)`, `start_sync(plan_id, …)`, `expect`, the answer's added keys) | `types.ts`, `contract.ts`, the fake and `hub-bridge-contract.md` must move together | one change set per group; the generated `types.ts` (2.1) before the read groups |
+| The guarantee tooling (§8.4) | a type-aware checker can be slow or flaky; the rendered check touches every block | Opus groups 5.2 and 5.3; the allow file is seeded with today's debt, so nothing fails on day one and the ratchet then drives phase 6 |
+| Phase 6, the window switched to engine fields | a slip changes what the window shows | per cluster, model and UI in separate groups; shots compared to `main`, words identical unless a duplicate is merged |
+| Sandbox (§10.3) | it must sit at the roots or it is decoration; `remove` deletes | Opus group 7 with T9's sandbox cases written first; an Opus review |
+| App routing (§2.1) | a mistake opens the window for every command, or a command for every Finder open | in 1.1 with the self-test round trip (T12) |
+| The live tests on the real library (§15) | they write the user's rekordbox library | only with the user's go, after phase 1, with the rekordbox backup step and the clean-up of §15 |
 
-Suggested order of groups (the planner sizes them; one deliverable each, < 150k tokens):
-1. CLI framework: grammar, global flags, envelope, outcomes and exit codes, ids, `help`/`where`, catalogue skeleton, app routing; today's commands migrated (Sonnet).
-2. `surface` extraction, reads, by area (library/track/todo; sync/runs/status; playlists/limits/logins/setup/tools; rekordbox), each with its read commands, schemas and T1–T4/T6 parity (Sonnet ×4).
-3. Jobs registry, worker, `job …`, stop files, window integration (Opus).
-4. Persisted state: plan, scope, import state, questions, `rev`, drop path, `keep_file`, `select`/`media_url`/`setup_check_account` removal (Opus plan, Sonnet build; contract group).
-5. Write commands by area, each with dry runs, `--plan`, `--yes`, selection (Sonnet ×4: sync+playlists; folders+import+tidy+batches; upgrades+aiff+checks+versions; logins+settings+limits+tools).
-6. Decisions into the engine (§9.3 rows), window switched to the fields, no visible change (Sonnet model groups + Opus UI wiring).
-7. Words catalogue, export, rule checker, ratchet emptied page by page (Sonnet per page, Opus final).
-8. Pictures (spectrum text/PNG), `status --ready`, `doctor`, `history`, `rekordbox match`, `library superseded` (Sonnet).
-9. Sandbox + T9 (Opus).
-10. Docs (AGENTS.md, generated reference, README, CONTRIBUTING, CLAUDE.md rule), T11 (Sonnet), then an Opus whole-design review.
-11. The A–D live tests of §15 with the user.
+**The groups (decision on R45).** Sonnet groups are planned at ≤ 250k tokens and Opus groups at ≤ 300k (the record:
+Sonnet 150–380k, Opus UI 300–360k). One deliverable each; the plan agent may split further, never merge. Today's
+command modules are deleted in the group that lands their replacement, never migrated first (§12).
+
+Phase 1, the live-test slice (decision on R46: the CLI the live tests need comes first):
+
+| # | Group | Model | Size |
+|---|---|---|---|
+| 1.1 | CLI framework on a headless `HubApi`: catalogue skeleton, parser (global flags anywhere, `bad_args` envelope), envelope, `hub/outcomes.py` with its precedence, exit codes, typed ids, `help` / `help --json`, `where`, app routing, `OpProblem`'s new keys; legacy routes to today's modules | Sonnet | ~230k |
+| 1.2 | Job registry and worker (§6.2–§6.5): files, `alive`, liveness, the worker, inline `Jobs`, signals, the `CancelToken` stop file and sleep, `job …`, the wait defaults, live `person_steps`, the events writer | Opus | ~300k |
+| 1.3 | Locks (§6.1): the support lock, `locks` per catalogue entry, rekordbox shared readers, `tools` refusal | Sonnet | ~180k |
+| 1.4 | The window on the registry: window jobs registered, string job ids (contract), the registry watch, `JobFinished` for terminal jobs, the window files | Opus | ~260k |
+| 1.5 | Live-test reads: `rekordbox status` / `preview`, `todo list`, `check list`, `track show`, `track find`, `upgrade list`, `batch list` / `show`, `run show`, with their text layouts | Sonnet | ~220k |
+| 1.6 | Live-test writes A: `upgrade apply` / `discard` (with the upgrade dry run), `batch resume` / `undo`, `track undo`, `check done`; the plan store, `--plan`, `--yes` | Sonnet | ~230k |
+| 1.7 | Live-test writes B: `aiff convert` / `rename`, `library facts`, `folder add` / `remove`, `library scan`, `settings set auto-upgrade`, `sync run --auto-upgrade-only`; the test scripts' marker and `--clean` | Sonnet | ~230k |
+| — | **The A–D live tests of §15** with the user (an agent at the commands, the user at the **P** steps) | — | ~300k |
+
+Phase 2, foundations: 2.1 the shape generator, schemas, generated `types.ts`, the contract doc reduced (Sonnet,
+~200k); 2.2 the stored read and the derived plan, the window's Start bound to a plan id (Opus, ~280k); 2.3 the other
+persisted state: sync scope, import state, `rev`, the drop's path, `keep_file`, the three dropped methods (Sonnet,
+~230k); 2.4 shared protection, §7.5 (Opus, ~250k).
+
+Phase 3, reads by area, each with its shapes, text layouts and parity (Sonnet ×4, ~220k each): library and track (the
+rest, with the spectrum's text and PNG); sync, runs, `status`, `history`, `doctor`, `status --ready`; playlists, limits,
+logins, setup, tools, app; `rekordbox match`, `library superseded`, `open …`, the limits picture.
+
+Phase 4, writes by area (Sonnet ×4, ~220k each): the full `sync run` and the playlist writes; folders, import, tidy,
+questions, duplicates; versions (on §7.5), hide, never; logins, settings, limits, tools, setup.
+
+Phase 5, the guarantee tooling: 5.1 the word extraction, `fill()` on both sides, `help glossary` (Sonnet, ~200k); 5.2
+the `derive` and `flows` rules with the seeded allow file (Opus, ~280k); 5.3 the rendered check, the blocks' `data-*`
+attributes, mount coverage, the fake's schema validation (Opus, ~280k).
+
+Phase 6, §9.3 into the engine: about 40 rows in six clusters of at most eight, by page (Library; To-do decisions and
+upgrades; To-do checks, batches and AIFF; Sync; Limits and Playlists; Settings, Setup and the import). Each cluster is
+two groups: the engine fields with shapes, tests and the fake (Sonnet, ~200k), then the window switched to them with
+its `debt` entries removed and shots compared to `main` (Opus, ~280k). Twelve groups.
+
+Phase 7, the sandbox and T9's sandbox cases (Opus, ~300k). Phase 8: the docs (AGENTS.md, the generated reference,
+README, CONTRIBUTING, the CLAUDE.md rule, T11; Sonnet, ~180k), then an Opus whole-design review (~250k).
+
+**Total:** 37 build groups, about 8.7 M tokens of building; with a Sonnet review per group (~110k), fix rounds
+(~120k for about two groups in three), an Opus review at the end of each phase and the live tests, **about 17 M tokens
+(between 14 and 20 M)**. Phase 6 is the largest part (about 5 M with its reviews): it is what makes today's ~115
+window decisions engine answers. The plan agent restates the count and the total for the user before the build
+starts.
 
 ---
 
@@ -970,7 +1362,7 @@ Suggested order of groups (the planner sizes them; one deliverable each, < 150k 
 **Decision: no MCP server in issue 39.** The agents the user names (Claude Code, Codex) have a shell; the CLI with
 `--json`, `help --json` and jobs gives them everything an MCP server would, and long runs are solved by jobs either
 way (an MCP tool call times out just like a shell call). An MCP server now would be a second surface to keep complete.
-Because every command comes from `surface/catalog.py` with a JSON Schema per payload and per argument set, an MCP
+Because every command comes from `hub/catalog.py` with a JSON Schema per payload and per argument set, an MCP
 server later is a thin generated adapter (one tool per catalogue entry, `needs_yes` as a required boolean, jobs as
 `job_wait` polling). Build it when a user wants an agent without a shell (Claude Desktop); note it in `docs/issues.md`
 then.
