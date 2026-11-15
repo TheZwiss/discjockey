@@ -56,7 +56,9 @@ from pathlib import Path
 
 from . import align, audio, convert, db, library, ops, rbstep, rekordbox, rename, report as rep, upgrades
 from .events import BatchProgress, Cancelled, CancelToken, Emit, Result, no_emit
+from .hub.outcomes import person_step
 from .models import AiffBatchRow, AiffItemRow
+from .problem import Problem
 from .rekordbox import Session, eligible
 from .rekordbox import session as rbsession
 from .rekordbox.eligible import Skip
@@ -168,7 +170,7 @@ class Stopped(Cancelled):
         self.result = result
 
 
-class RekordboxOpen(rbsession.RekordboxOpen):
+class RekordboxOpen(rbsession.RekordboxOpen, Problem):
     """rekordbox runs and the batch needs a rekordbox write (at the start: nothing was changed), or it opened
     during the batch (the item in work was rolled back). The batch is `stopped` (`rekordbox_open`); `resume` after
     rekordbox is quit. `result` is the batch as it stands; the message is for the user. An undo raises it too
@@ -183,7 +185,12 @@ class RekordboxOpen(rbsession.RekordboxOpen):
             done = result.total - sum(1 for i in result.results if i.state == "planned")
             super().__init__(convert.REKORDBOX_OPEN if not done else
                              STOPPED_BY_REKORDBOX.format(done=done, total=result.total))
+        Problem.__init__(self, str(self))  # the answer fields of every problem; a stopped batch adds its step below
         self.result = result
+
+    def stopped_batch(self, batch_id: int) -> None:
+        """The batch waits (`stopped`): what the person does after quitting rekordbox is its Resume, not the command again."""
+        self.person_steps = [{**person_step("quit_rekordbox"), "then": f"batch resume aiff:{batch_id}"}]
 
 
 class Refused(Exception):
@@ -304,7 +311,7 @@ def present(paths, e: dict) -> eligible.Present:
 
 # --- the dry run of an upgrade (what `upgrade apply --dry-run` answers: the Same track and New track ways) ---
 
-PREVIEW_MODES = {"swap": "same_track", "add_new": "add_new"}  # the bridge's mode -> the action the plan names
+PREVIEW_MODES = {"same_track": "same_track", "new_track": "add_new"}  # the bridge's mode -> the action the plan names
 
 
 def quick_reason(paths, e: dict | None, rb: rekordbox.Status) -> str | None:
@@ -322,7 +329,7 @@ def preview_row(paths, state: dict, key: str, e: dict | None, mode: str, reason:
     if reason or e is None:
         return row
     try:
-        if mode == "add_new":
+        if mode == "new_track":
             new, old = upgrades.add_new_names(paths, state, key, e, e["upgrade"].get("status", "lossless"))
         elif upgrades.swap_possible(e):
             new = e["path"]
@@ -356,21 +363,21 @@ def preview_space(paths, state: dict, rows: Sequence[dict]) -> list[dict]:
 
 
 def upgrade_preview(paths, state: dict, tracks: Sequence[str], mode: str, rb: rekordbox.Status) -> dict:
-    """What an upgrade of `tracks` would do (`mode`: `swap` is Same track, `add_new` New track), asked the way the run
+    """What an upgrade of `tracks` would do (`mode`: `same_track` or `new_track`), asked the way the run
     asks it first, without a file decoded: `{mode, total, planned, skipped, items, space, rekordbox}`. Each item is a
     song's `preview_row`; `space` the free space per drive; `rekordbox.needs_rekordbox_closed` whether a Same track
     that is not a swap would need rekordbox closed. Reads only."""
     rows = []
     for key in dict.fromkeys(tracks):
         e = state["tracks"].get(key)
-        if mode == "swap":
+        if mode == "same_track":
             reason = quick_reason(paths, e, rb)
         else:
             reason = "no_upgrade" if not e or not e.get("upgrade") else \
                 {"away": "away", "missing": "file_missing"}.get(present(paths, e))
         rows.append(preview_row(paths, state, key, e, mode, reason))
     planned = [r for r in rows if r["state"] == "planned"]
-    needs_closed = rb.running and mode == "swap" and any(
+    needs_closed = rb.running and mode == "same_track" and any(
         not upgrades.swap_possible(state["tracks"][r["key"]]) for r in planned)
     return {"mode": mode, "total": len(rows), "planned": len(planned), "skipped": len(rows) - len(planned),
             "items": rows, "space": preview_space(paths, state, planned),

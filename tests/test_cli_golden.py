@@ -27,6 +27,7 @@ from discjockey.hub import catalog
 
 GOLDEN = Path(__file__).parent / "cli_golden"
 READS = [e for e in parser.built() if e.kind == "R"]
+WRITES = ["upgrade_apply"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
 
 
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
@@ -119,5 +120,5 @@ def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
 
 
 def test_every_built_read_has_a_golden_file_and_no_golden_file_is_left_over():
-    wanted = {f"{'_'.join(e.command)}.txt" for e in READS}
+    wanted = {f"{'_'.join(e.command)}.txt" for e in READS} | {f"{name}.txt" for name in WRITES}
     assert {p.name for p in GOLDEN.glob("*.txt")} == wanted

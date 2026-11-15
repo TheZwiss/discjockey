@@ -31,6 +31,7 @@ CHECK_DONE = "check_done"    # "Done, checked" for every check To-do lists
 VERB_ALL = (UPGRADE_ALL, CHECK_DONE)
 
 CONFLICT = "conflicting_flags"
+ALL_IS_SAME_TRACK = "All of them is Same track only; name the songs to add them as new tracks."
 NOT_A_LISTING = "A listing is a set of words: source, in, search, quality, group, hidden or verb_all."
 
 

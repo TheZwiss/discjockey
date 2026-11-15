@@ -208,16 +208,25 @@ def _stopped_reason(env: dict, signals: StopSignals) -> dict:
     return env
 
 
-def _finished_envelope(command: str, files: registry.JobFiles, job) -> dict:
-    """The envelope of a job that ran (`JobFinished`): `result` is the data of a success, or what a failed job left."""
+def _finished_envelope(command: str, files: registry.JobFiles, job, api=None, method: str | None = None) -> dict:
+    """The envelope of a job that ran (`JobFinished`): `result` is the data of a success, or what a failed job left. A run
+    whose items end in a state its entry counts (`Entry.partial`) is `partial`; the engine's words beside the result
+    (`CliApi.result_words`: the batch's id, the steps for the person, what to run next) are added."""
     done = job.finished or {}
+    result = done.get("result") or {}
+    words = api.result_words(method, result) if api is not None and method and result else {}
+    words = words if words.get("ok") else {}  # words are an extra: a failure to find them leaves the answer as it is
+    entry = catalog.entry_of(method, command) if method else None
     if done.get("ok"):
-        return envelope.envelope(command, "ok", message=done.get("message") or None, data=done.get("result") or {},
-                                 job=files.id)
+        outcome = outcomes.run_outcome(result.get("results"), entry.partial if entry else ())
+        return envelope.envelope(command, outcome, message=done.get("message") or words.get("message") or None,
+                                 data={**result, **(words.get("data") or {})}, next=words.get("next") or (),
+                                 person_steps=words.get("person_steps") or (), job=files.id)
     fields = outcomes.problem_fields(done.get("problem") or "crashed", job.error)
-    data = {**(done.get("result") or {}), **(fields["data"] or {})} or None
+    data = {**result, **(words.get("data") or {}), **(fields["data"] or {})} or None
     return envelope.envelope(command, fields["outcome"], reason=fields["reason"], message=done.get("message"),
-                             data=data, next=fields["next"], person_steps=fields["person_steps"], job=files.id)
+                             data=data, next=[*fields["next"], *(words.get("next") or ())],
+                             person_steps=[*fields["person_steps"], *(words.get("person_steps") or ())], job=files.id)
 
 
 def _call(api, method: str, args: dict) -> dict:
@@ -248,7 +257,7 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
             return _stopped_reason(envelope.from_answer(command, answer, job=files.id), signals)
         if job is None or job.finished is None:  # the job ended without its JobFinished (a stop in the very first moment)
             return envelope.problem(command, "failed", "worker_lost", job=files.id)
-        return _stopped_reason(_finished_envelope(command, files, job), signals)
+        return _stopped_reason(_finished_envelope(command, files, job, api, method), signals)
     except (ev.Cancelled, KeyboardInterrupt):
         return _stopped_reason(envelope.problem(command, "stopped", "stop", job=files.id), signals)
 

@@ -320,4 +320,7 @@ def parse(argv: list[str]) -> Parsed:
         if (arg.positional and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
                 and not (selected and name == "track_ids")):  # --all / --rows say which songs instead
             raise UsageError(f"{name.replace('_', ' ')} is missing.")
+        if (arg.flag and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
+                and not flags.all):  # a flag the method cannot do without; the verb's own --all has its meaning without it
+            raise UsageError(f"{arg.flag} is missing.")
     return Parsed(command, entries, ns, flags, words)

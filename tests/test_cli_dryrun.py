@@ -358,11 +358,10 @@ KINDS = ["mp3", "stale", "aiff", "mp3_plain"]
 
 
 def upgrade_row() -> Entry:
-    """The catalogue's `upgrade apply` row that answers the command, as if its command were built (V1.11 builds it: until
-    then it stays planned, which keeps `upgrade apply` on the old handler)."""
+    """The catalogue's `upgrade apply` row that answers the command and its `--dry-run`."""
     [row] = [e for e in catalog.ENTRIES if e.method == "upgrade" and e.command == ("upgrade", "apply")]
-    assert row.dry_run == "upgrade_preview" and row.planned
-    return dataclasses.replace(row, planned=None)
+    assert row.dry_run == "upgrade_preview" and not row.planned
+    return row
 
 
 @pytest.fixture
@@ -390,7 +389,7 @@ def test_upgrade_apply_all_dry_run_lists_what_upgrade_all_would_run(upgrades):
     assert env["outcome"] == "ok", env
     data = env["data"]
     assert [r["key"] for r in data["items"]] == wanted == [lib.tracks[0], lib.tracks[2], lib.tracks[3]]
-    assert (data["mode"], data["total"], data["planned"], data["skipped"]) == ("swap", 3, 3, 0)
+    assert (data["mode"], data["total"], data["planned"], data["skipped"]) == ("same_track", 3, 3, 0)
     first = data["items"][0]
     root = lib.paths.root
     assert (first["state"], first["action"], first["file"], first["new_file"], first["superseded"]) == (
@@ -425,7 +424,7 @@ def test_upgrade_preview_asks_for_songs_or_all_but_not_both_and_all_is_same_trac
     answer = api.upgrade_preview()
     assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "bad_args", "usage")
     assert api.upgrade_preview(["", 3])["kind"] == "refused"  # the window's own rule for a list that is no songs
-    for kwargs in ({"track_ids": upgrades.tracks, "all": True}, {"all": True, "mode": "add_new"}):
+    for kwargs in ({"track_ids": upgrades.tracks, "all": True}, {"all": True, "mode": "new_track"}):
         answer = api.upgrade_preview(**kwargs)
         assert (answer["kind"], answer["reason"]) == ("bad_args", "conflicting_flags"), kwargs
     assert api.upgrade_preview(upgrades.tracks, "discard")["reason"] == "usage"
@@ -433,8 +432,8 @@ def test_upgrade_preview_asks_for_songs_or_all_but_not_both_and_all_is_same_trac
 
 @needs_ffmpeg
 def test_the_new_track_preview_names_the_files_it_would_add(upgrades):
-    answer = bind.default().upgrade_preview(upgrades.tracks[:3:2], "add_new")
-    assert answer["ok"] and answer["mode"] == "add_new" and answer["planned"] == 2
+    answer = bind.default().upgrade_preview(upgrades.tracks[:3:2], "new_track")
+    assert answer["ok"] and answer["mode"] == "new_track" and answer["planned"] == 2
     assert {r["action"] for r in answer["items"]} == {"add_new"} and all(r["new_file"] for r in answer["items"])
     assert answer["rekordbox"]["needs_rekordbox_closed"] is False  # New track never writes rekordbox
 

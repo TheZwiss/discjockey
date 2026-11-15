@@ -152,6 +152,13 @@ def pick(outcomes: Iterable[str]) -> str:
     return next((o for o in PRECEDENCE if o in found), "ok")
 
 
+def run_outcome(results: Iterable[Mapping] | None, partial: Iterable[str]) -> str:
+    """`ok`, or `partial` when a finished run has an item in a state its command counts (the catalogue's `partial`
+    column, design §4.3, R24): never `ok` with the failures hidden, never `failed` for a run that did the rest."""
+    states = set(partial)
+    return "partial" if any(r.get("state") in states for r in results or ()) else "ok"
+
+
 def problem_fields(kind: str, error: BaseException | None = None) -> dict:
     """What the bridge adds beside `{ok, kind, message}` for a problem of `kind`: `outcome`, `reason`, `next`,
     `person_steps`, `data`. `error` is what was raised: a `Problem` carries its own reason, next, person steps and

@@ -14,10 +14,10 @@ from discjockey.hub.catalog import Arg, Entry
 # `check list` and `track find`; 1.9 builds `rekordbox preview`, `batch list`, `batch show`, `report show`
 # and takes `move_batches` out of the plan (it has no command: `batches` is `batch list`); 1.10 builds the two methods
 # its dry runs and selections need (`select_listing`, `upgrade_preview`: no command of their own).
-PHASE_1_CEILING = 102
+PHASE_1_CEILING = 100
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
-             "upgrade_preview", "fill_facts", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
+             "upgrade_preview", "result_words", "fill_facts", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
              "rekordbox_backups", "rekordbox_restore"}
 
 

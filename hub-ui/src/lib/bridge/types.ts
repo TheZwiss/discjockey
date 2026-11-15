@@ -692,7 +692,7 @@ export type OpResult = { track_id: string; result: Result; recovered: [string, b
 export type ItemResult = { track: string; action: string; state: 'planned' | 'done' | 'skipped' | 'failed' | 'undone';
   reason: string | null; message: string | null; path: string | null;
   rekordbox: { entries: string[]; kept: string[] } | null };
-/** The result of `upgrade(…, 'swap')`, `upgrade_all`, `batch_resume` and, in stage D, `convert`, `rename` and `make_aiff`
+/** The result of `upgrade(…, 'same_track')`, `upgrade_all`, `batch_resume` and, in stage D, `convert`, `rename` and `make_aiff`
  *  (job `aiff_batch`); New track and Discard lists have the same shape
  *  with `batch` null (and a job also carries it when it ends `stopped`, `rekordbox_open`, `busy` or `refused`). */
 export type AiffBatchResult = { batch: number | null; state: 'running' | 'stopped' | 'done';

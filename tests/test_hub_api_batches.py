@@ -49,7 +49,7 @@ def progress(rec):
 def test_upgrade_takes_a_list_of_song_keys(hub):
     lib, rb, api, rec = hub(["mp3"])
     for bad in ("t0aaaaaaa", [], [3], None, ["t0aaaaaaa", ""]):
-        assert api.upgrade(bad, "swap")["kind"] == "refused"
+        assert api.upgrade(bad, "same_track")["kind"] == "refused"
     assert api.upgrade(lib.tracks, "explode")["kind"] == "refused"
     assert api.undo_upgrade("t0aaaaaaa")["kind"] == "refused"
     assert api.rekordbox_checked([])["kind"] == "refused"
@@ -58,7 +58,7 @@ def test_upgrade_takes_a_list_of_song_keys(hub):
 
 def test_same_track_for_a_list_is_one_batch_with_progress(hub):
     lib, rb, api, rec = hub(["mp3", "aiff"])
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert f.ok and f.kind == "upgrade_batch"
     r = f.result
     assert (r["state"], r["total"], r["done"], r["skipped"], r["failed"], r["recovered"]) == ("done", 2, 2, 0, 0, [])
@@ -73,7 +73,7 @@ def test_same_track_for_a_list_is_one_batch_with_progress(hub):
 
 def test_one_track_is_a_list_of_one_and_a_refusal_keeps_its_words(hub):
     lib, rb, api, rec = hub(["stale"])
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert (f.ok, f.problem, f.kind) == (False, "refused", "upgrade_batch")
     assert f.result["skipped"] == 1 and f.result["results"][0]["reason"] == "needs_choice"
 
@@ -81,7 +81,7 @@ def test_one_track_is_a_list_of_one_and_a_refusal_keeps_its_words(hub):
 def test_rekordbox_open_stops_a_batch_and_resume_finishes_it(hub):
     lib, rb, api, rec = hub(["mp3", "mp3"], running=True)
     before = lib.dump()
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert (f.ok, f.problem) == (False, "rekordbox_open") and "Quit rekordbox" in f.message
     r = f.result
     assert (r["state"], r["stop_reason"], r["done"]) == ("stopped", "rekordbox_open", 0)
@@ -95,7 +95,7 @@ def test_rekordbox_open_stops_a_batch_and_resume_finishes_it(hub):
 
 def test_a_single_track_meeting_rekordbox_open_leaves_nothing_to_resume(hub):
     lib, rb, api, rec = hub(["mp3"], running=True)
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert (f.ok, f.problem) == (False, "rekordbox_open")
     assert f.result["state"] == "done" and f.result["results"][0]["reason"] == "rekordbox_open"
     ready = group(api, "upgrade_ready")
@@ -105,7 +105,7 @@ def test_a_single_track_meeting_rekordbox_open_leaves_nothing_to_resume(hub):
 def test_stop_ends_the_batch_after_the_item_in_work_and_resume_does_the_rest(hub):
     stop = []
     lib, rb, api, rec = hub(["mp3", "mp3"], compare=lambda a, b: stop.append(api.stop()) or EXACT)
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert (f.ok, f.problem, f.message) == (False, "stopped", "Stopped after 1 of 2.")
     assert [i["state"] for i in f.result["results"]] == ["done", "planned"] and f.result["stop_reason"] == "stop"
     assert group(api, "upgrade_ready")["stopped"]["left"] == 1
@@ -117,7 +117,7 @@ def test_busy_rekordbox_lock_is_a_busy_problem_with_the_batch(hub):
     from discjockey.rekordbox import session as rbsession
     lib, rb, api, rec = hub(["mp3", "aiff"])
     with rbsession.writer_lock(lib.paths.support):
-        f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+        f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert (f.ok, f.problem, f.message) == (False, "busy", rbsession.BUSY)
     assert (f.result["state"], f.result["stop_reason"]) == ("stopped", "busy")
 
@@ -137,7 +137,7 @@ def test_upgrade_all_takes_what_the_list_counts_and_starts_as_upgrade_all(hub):
 
 def test_the_checks_of_a_batch_are_one_item_and_batch_undo_puts_them_back(hub):
     lib, rb, api, rec = hub(["mp3", "aiff", "mp3_free"])
-    r = wait_job(api, rec, api.upgrade(lib.tracks, "swap")).result
+    r = wait_job(api, rec, api.upgrade(lib.tracks, "same_track")).result
     todo = api.todo()
     check = group(api, "rekordbox_check")
     [item] = check["items"]
@@ -163,7 +163,7 @@ def test_the_checks_of_a_batch_are_one_item_and_batch_undo_puts_them_back(hub):
 
 def test_undo_upgrade_takes_a_list_and_fails_refused_when_nothing_could_be_undone(hub):
     lib, rb, api, rec = hub(["mp3", "aiff"])
-    wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     f = wait_job(api, rec, api.undo_upgrade(lib.tracks))
     assert f.ok and f.kind == "undo_upgrade" and (f.result["undone"], f.result["batch"]) == (2, None)
     f = wait_job(api, rec, api.undo_upgrade(lib.tracks[:1]))                  # nothing left to undo
@@ -174,7 +174,7 @@ def test_undo_upgrade_takes_a_list_and_fails_refused_when_nothing_could_be_undon
 
 def test_checked_for_a_list_ends_their_undo(hub):
     lib, rb, api, rec = hub(["mp3", "aiff"])
-    wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     f = wait_job(api, rec, api.rekordbox_checked([*lib.tracks, "nope"]))
     assert f.ok and f.kind == "rekordbox_checked"
     assert (f.result["checked"], f.result["not_checked"]) == (lib.tracks, ["nope"])
@@ -192,7 +192,7 @@ def test_new_track_and_discard_run_a_list_one_after_the_other(hub):
     assert [p[1:] for p in progress(rec)][-1] == (3, 3, None) and progress(rec)[0][0] == 0
     assert not lib.entry(0)["upgrade"] and lib.entry(2)["upgrade"]
     api.todo()                                                                    # the page shows the track
-    f = wait_job(api, rec, api.upgrade(lib.tracks[2:], "add_new"))               # one track: the old single-track call
+    f = wait_job(api, rec, api.upgrade(lib.tracks[2:], "new_track"))               # one track: the old single-track call
     assert f.ok and f.kind == "upgrade_add_new" and f.result["done"] == 1 and f.result["results"][0]["path"]
     f = wait_job(api, rec, api.upgrade(lib.tracks[:1], "discard"))               # no upgrade waits any more
     assert (f.ok, f.problem) == (False, "changed")
@@ -200,7 +200,7 @@ def test_new_track_and_discard_run_a_list_one_after_the_other(hub):
 
 def test_stop_between_the_tracks_of_a_list_keeps_the_rest_planned(hub):
     lib, rb, api, rec = hub(["mp3", "mp3"], compare=lambda a, b: (api.stop(), EXACT)[1])
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "add_new"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "new_track"))
     assert (f.ok, f.problem, f.message) == (False, "stopped", "Stopped after 1 of 2."), f.result
     assert [i["state"] for i in f.result["results"]] == ["done", "planned"], f.result["results"]
     assert f.result["batch"] is None
@@ -283,6 +283,6 @@ def test_no_rekordbox_on_this_mac_is_an_answer_not_a_problem(tmp_path, monkeypat
                         rekordbox_place=lambda: None)
     u = api.track(lib.tracks[0])["track"]["upgrade"]
     assert (u["swap_possible"], u["rekordbox"]["state"]) == (True, "none")
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert f.ok and f.result["done"] == 1 and f.result["results"][0]["rekordbox"] is None
     assert DIFFERENT.result == "different"                  # (the stale kind above stores this alignment)

@@ -345,7 +345,7 @@ def _quick(paths: Paths, e: dict | None, rb: rekordbox.Status) -> str | None:
 
 # --- upgrade apply ---
 
-MODES = {"same-track": "swap", "new-track": "add_new"}  # --way -> the engine's mode
+MODES = {"same-track": "same_track", "new-track": "new_track"}  # --way -> the engine's mode
 
 
 def _dry_run(args: argparse.Namespace, paths: Paths, tracks: list[str] | None) -> int:

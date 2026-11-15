@@ -86,6 +86,19 @@ CONFIRM: dict[str, str] = {}
 ALL_OF: dict[str, str] = {"upgrade apply": select.UPGRADE_ALL, "check done": select.CHECK_DONE}
 
 
+# The method that runs a verb's `--all` when it has one of its own (the window's button: `upgrade_all`), `<command> ->
+# method`. Every other verb's `--all` is the songs `ALL_OF` selects, given to the verb's ordinary method.
+ALL_METHOD: dict[str, str] = {"upgrade apply": "upgrade_all"}
+
+# The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
+UPGRADE_PARTIAL = ("skipped", "failed")
+
+
+def entry_of(method: str, command: str) -> "Entry | None":
+    """The entry of `method` whose command is `command` (a method that serves several commands has several entries)."""
+    return next((e for e in by_method(method) if " ".join(e.command) == command), None)
+
+
 def confirm_words(entry: "Entry") -> str | None:
     """The window's question for `entry`'s command, or None when no row names it (the reason's own words say it)."""
     return CONFIRM.get(" ".join(entry.command) or entry.method)
@@ -93,10 +106,12 @@ def confirm_words(entry: "Entry") -> str | None:
 
 def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapping[str, Arg] | None = None,
        fixed: Mapping[str, object] | None = None, needs_yes: bool = False, dry_run: str | None = None,
-       cli_first: bool = False, built: bool = False, locks: Iterable[str] = ()) -> Entry:
-    """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command."""
+       cli_first: bool = False, built: bool = False, locks: Iterable[str] = (), partial: Iterable[str] = ()) -> Entry:
+    """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command.
+    `partial`: the per-item states that end a finished run `partial` (design §4.3, R24)."""
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
                  params=params or {}, fixed=fixed or {}, cli_first=cli_first, locks=frozenset(locks),
+                 partial=frozenset(partial),
                  planned=None if built or kind in ("W", "dropped") else PHASE, example=example)
 
 
@@ -256,10 +271,13 @@ ENTRIES: tuple[Entry, ...] = (
     _e("batch_resume", "batch resume", "J", params={"batch_id": _positional("aiff", type="int")}),
     _e("batch_undo", "batch undo", "J", params={"batch_id": _positional("aiff", type="int")}, needs_yes=True),
     _e("undo_upgrade", "track undo", "J", params={"track_ids": TRACKS}, needs_yes=True),
-    _e("upgrade", "upgrade apply", "J", params={"track_ids": TRACKS, "mode": Arg("--way", resolve="upgrade_way")},
-       dry_run="upgrade_preview"),
+    _e("upgrade", "upgrade apply", "J",
+       "upgrade apply \"Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff\" --way same-track --dry-run",
+       params={"track_ids": TRACKS, "mode": Arg("--way", resolve="upgrade_way")}, dry_run="upgrade_preview", built=True,
+       locks={"library", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
     _e("upgrade", "upgrade discard", "J", params={"track_ids": TRACKS}, fixed={"mode": "discard"}, needs_yes=True),
-    _e("upgrade_all", "upgrade apply", "J"),
+    _e("upgrade_all", "upgrade apply", "J", "upgrade apply --all --dry-run", built=True,
+       locks={"library", "rekordbox_r", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
     _e("rekordbox_checked", "check done", "J", params={"track_ids": _positional("track_or_batch", many=True)}),
     _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK}),
     _e("search_candidates", "version search", "RJ", params={"track_id": TRACK}),
@@ -280,6 +298,7 @@ ENTRIES: tuple[Entry, ...] = (
        built=True),
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("upgrade_preview", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
+    _e("result_words", "", "R", cli_first=True, built=True),
     _e("fill_facts", "", "J", cli_first=True),
     _e("auto_upgrade_preview", "", "R", cli_first=True),
     _e("auto_upgrade_run", "", "J", cli_first=True),

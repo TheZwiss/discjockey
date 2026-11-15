@@ -1271,11 +1271,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { results, checked: have, not_checked: ids.filter((id) => !have.includes(id)), recovered: [] });
       }, 300 / speed));
     },
-    async upgrade(track_ids: string[], mode: 'swap' | 'add_new' | 'discard') {
+    async upgrade(track_ids: string[], way: 'same_track' | 'new_track' | 'discard') {
       const ids = listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
-      if (!['swap', 'add_new', 'discard'].includes(mode)) return fail('refused', 'Pick swap, add as new or discard.');
-      if (mode === 'swap') return runAiff('user', ids);
+      if (!['same_track', 'new_track', 'discard'].includes(way)) return fail('refused', 'Pick Same track, New track or discard.');
+      if (way === 'same_track') return runAiff('user', ids);
+      const mode = way === 'new_track' ? 'add_new' : 'discard'; // the engine's action: the job kind and the results keep it
       return startJob(`upgrade_${mode}`, ids.length === 1 ? ids[0] : null, (finish) => {
         const results: AiffItemResult[] = [];
         const stop = batchStop = { stopped: false };

@@ -16,7 +16,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 
 from .. import tools
-from ..hub import catalog, registry
+from ..hub import catalog, registry, select
 from ..hub.catalog import Entry
 from ..rekordbox.locate import locate
 from . import bind, envelope, follow, worker
@@ -88,6 +88,7 @@ def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool,
     return kwargs, None
 
 
+NOTHING_LEFT = {"total": 0, "done": 0, "skipped": 0, "failed": 0, "results": []}  # the data of a run of no songs
 SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all or --rows."
 
 
@@ -132,6 +133,8 @@ def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> 
     answer = api.select_listing(listing)
     if not answer.get("ok"):
         return {}, envelope.from_answer(command, answer)
+    if not answer["ids"] and answer.get("message") and not flags.dry_run:  # a verb's "all" with nothing left is done (R29)
+        return {}, envelope.envelope(command, "ok", message=answer["message"], data=NOTHING_LEFT)
     return {**args, "track_ids": answer["ids"]}, None
 
 
@@ -189,6 +192,12 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     kwargs, failed = _arguments(entry, args, command, api, exact, chosen)
     if failed is not None:
         return failed
+    if flags.all and not exact and command in catalog.ALL_METHOD:  # the verb's own `--all` (the window's button)
+        if kwargs.get("mode") not in (None, "same_track"):
+            return envelope.usage(command, select.ALL_IS_SAME_TRACK, "conflicting_flags")
+        if not flags.dry_run:
+            entry = catalog.entry_of(catalog.ALL_METHOD[command], command)
+            kwargs = {k: v for k, v in kwargs.items() if k in parameters_of(entry.method)}
     if flags.dry_run:
         if entry.dry_run == entry.method and entry.kind in ("J", "RJ"):  # the read is the job (`aiff_plan`): a worker runs it
             return start_job(entry, kwargs, command, flags)

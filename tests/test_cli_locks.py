@@ -83,6 +83,28 @@ def _preview(api, rec):
     assert answer["ok"], answer
 
 
+def _parked(api, rec, *, all_of_them: bool = False):
+    """`upgrade` / `upgrade_all` on a song with a parked upgrade, against a fixture rekordbox library that does not hold the
+    song (the batch opens it for writing: its master.db is the one thing a Same track changes there)."""
+    from pathlib import Path
+    from unittest import mock
+
+    from rekordbox_helpers import make_master
+    from discjockey.align import Alignment
+    hub_helpers.make_root(api._paths.root, upgrade=True)
+    folder = api._paths.root / "rekordbox"
+    make_master(folder, [])
+    api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
+    api._svc.rekordbox_place = lambda: locate_in(folder)
+    answer = api.upgrade_all() if all_of_them else api.upgrade(["t2"], "same_track")
+    assert wait_job(api, rec, answer).ok
+
+
+def locate_in(folder):
+    from discjockey.rekordbox.locate import Place
+    return Place(folder / "master.db", folder / "share", "override", None)
+
+
 # one driver per built entry's method: it does what the command's method does, once
 DRIVERS = {
     "rekordbox_preview": _preview,
@@ -103,6 +125,9 @@ DRIVERS = {
     "find_tracks": lambda api, rec: api.find_tracks("naughty"),
     "select_listing": lambda api, rec: api.select_listing({"group": "all"}),  # a library listing takes no lock at all
     "upgrade_preview": lambda api, rec: api.upgrade_preview(["t2"]),
+    "result_words": lambda api, rec: api.result_words("upgrade", {"results": [], "total": 0, "done": 0}),
+    "upgrade": lambda api, rec: _parked(api, rec),
+    "upgrade_all": lambda api, rec: _parked(api, rec, all_of_them=True),
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 

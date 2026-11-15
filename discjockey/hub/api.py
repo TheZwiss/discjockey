@@ -49,7 +49,7 @@ from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatc
 from ..names import fold, search_fold
 from ..words import SCAN_OLDER, preview_words, rekordbox_words
 from ..ops import OpProblem, snapshot
-from .. import pending_signs
+from .. import pending_signs, words as engine_words
 from ..pacing import Budget
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
 from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
@@ -57,15 +57,21 @@ from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import catalog, media as media_mod, plan_store, registry, select, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
-from .outcomes import problem_fields
+from . import outcomes
+from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Job, Jobs, PreviewStore, SignInPhase,
                    import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
-UPGRADE_MODES = ("swap", "add_new", "discard")
+UPGRADE_MODES = ("same_track", "new_track", "discard")
+NEW_TRACK_ACTION = {"new_track": "add_new", "discard": "discard"}  # the bridge's mode -> the action each track runs
 NO_TRACKS = "No tracks were chosen."
 NO_UPGRADES = "None of these can be upgraded right now."
+PLAN_NOT_DISCARD = "A plan goes with Same track or New track; Discard has none."
+PLAN_NOTHING = OUTCOME_REASONS["changed"].text
+PLAN_CHANGED_WORDS = OUTCOME_REASONS["changed"].text
+RESUME_FIRST = "An upgrade was stopped halfway. Carry it on instead of starting Upgrade all again."
 BAD_AIFF_SCOPE = "That isn't a set of files Discjockey can make AIFF."
 AIFF_ORIGINS = ("library", "todo")  # where a Convert was started: the batch's scope says so ("library:selection")
 TAG_CACHE_MAX = 50000  # file tag reads kept in memory (plan stage D §0.7); a library past it starts the cache over
@@ -321,6 +327,8 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
 
 
 class HubApi:
+    _resume_first = False  # the command line refuses Upgrade all while a stopped upgrade batch waits (the window hides it)
+
     def __init__(self, support: Path, events=None, services: Services | None = None, media=None,
                  remember: bool = True):
         """Built from the support folder alone; a library is bound later with _bind (app.main at start when the
@@ -2046,21 +2054,23 @@ class HubApi:
         return {"emit": ctx.emit, "token": ctx.token, "now": self._svc.now, "state": state,
                 "running": self._svc.rekordbox_running, "place": self._svc.rekordbox_place()}
 
-    def _batch_work(self, make: Callable[[], int] | None, resume: int | None, *, alone: bool):
+    def _batch_work(self, make: Callable[[], int] | None, resume: int | None, *, alone: bool,
+                    left: Sequence[batches.ItemResult] = (), extra: Mapping | None = None):
         """A Same track batch as a write job: `make()` records a new batch of the chosen tracks (after recovery), or
         `resume` names a stopped one (a Convert batch too). The result is a BatchResult dict (+ `recovered`); a Stop,
         rekordbox opened (`rekordbox_open`), another window changing rekordbox (`busy`) and a batch with nothing to do
         (`refused`) end the job as a problem that still carries the batch (`JobFinished.result`), so the page can show
         where it stopped and Resume. `alone`: a batch of one track that meets rekordbox open or busy before anything
-        ran is closed instead of left stopped (the track simply stays where it was; `batches.close_unrun`)."""
+        ran is closed instead of left stopped (the track simply stays where it was; `batches.close_unrun`). `left`: songs
+        a plan left out of the batch (`_each_work`'s words: they end as skipped); `extra`: what else the result says."""
         def work(ctx) -> dict:
             state, recovered = self._begin()
             batch_id = resume if resume is not None else make()
-            return self._run_batch(ctx, state, recovered, batch_id, resume is not None, alone)
+            return self._run_batch(ctx, state, recovered, batch_id, resume is not None, alone, left, extra)
         return work
 
     def _run_batch(self, ctx, state: dict, recovered: list, batch_id: int, resuming: bool, alone: bool,
-                   left: Sequence[batches.ItemResult] = ()) -> dict:
+                   left: Sequence[batches.ItemResult] = (), extra: Mapping | None = None) -> dict:
         """Runs (or resumes) AIFF batch `batch_id` as `_batch_work` says. `left`: the songs a Convert or Rename plan left
         out of the batch (never items): a batch that ends normally lists them as skipped, as the console does."""
         options = self._rekordbox_options(ctx, state)
@@ -2073,13 +2083,15 @@ class HubApi:
                     and not result.done:
                 result = batches.close_unrun(self._paths, batch_id, "busy" if isinstance(e, batches.Busy)
                                              else "rekordbox_open", str(e), now=self._svc.now)
-            ctx.failed_result = {**result.to_dict(), "recovered": recovered}
+            if isinstance(e, batches.RekordboxOpen) and result.state == "stopped":
+                e.stopped_batch(result.batch)  # the batch waits: its Resume is what the person does after quitting
+            ctx.failed_result = {**result.to_dict(), "recovered": recovered, **(extra or {})}
             raise
         body = result.to_dict()
         if left:
             body = {**body, "total": body["total"] + len(left), "skipped": body["skipped"] + len(left),
                     "results": [*body["results"], *(r.to_dict() for r in left)]}
-        return {**body, "recovered": recovered}
+        return {**body, "recovered": recovered, **(extra or {})}
 
     def _aiff_work(self, scope: dict, *, only: str | None, started_by: str, batch_scope: str):
         """Convert, Give it its clean name and Make all lossless files AIFF as one write job: recovery, the facts fill
@@ -2108,11 +2120,13 @@ class HubApi:
             return self._run_batch(ctx, state, recovered, batch_id, False, alone, left)
         return work
 
-    def _each_work(self, ids: list[str], mode: str):
-        """New track and Discard on a list: one job, one track after the other (Stop between them, per-track results,
-        no batch record, no Resume: each is quick and has its own undo). One track keeps the old single-track
-        behaviour: the entry as the page showed it is checked and a failure ends the job with its own words. The
-        result is BatchResult-shaped (`batch` null)."""
+    def _each_work(self, ids: list[str], mode: str, *, left: Sequence[batches.ItemResult] = (),
+                   extra: Mapping | None = None):
+        """New track and Discard on a list (`mode` is the action each track runs: `add_new` | `discard`): one job, one
+        track after the other (Stop between them, per-track results, no batch record, no Resume: each is quick and has
+        its own undo). One track keeps the old single-track behaviour: the entry as the page showed it is checked and a
+        failure ends the job with its own words. The result is BatchResult-shaped (`batch` null). `left`: songs a plan
+        left out (they end as skipped); `extra`: what else the result says."""
         with self._lock:
             expect = self._shown.get(ids[0]) if len(ids) == 1 else None
         one = len(ids) == 1
@@ -2153,12 +2167,14 @@ class HubApi:
                 else:
                     ops.log_operation(self._paths, self._svc.now(), key, e, f"upgrade_{mode}", "done", done.note)
                     results.append(batches.ItemResult(key, mode, "done", None, done.note, done.path, None))
+            if not stopped:
+                results += left
             count = lambda st: sum(1 for r in results if r.state == st)  # noqa: E731
             if count("done"):
                 rep.write_not_lossless(self._paths, state)
             body = {"batch": None, "state": "stopped" if stopped else "done", "stop_reason": "stop" if stopped else None,
                     "total": len(results), "done": count("done"), "skipped": count("skipped"), "failed": count("failed"),
-                    "results": [r.to_dict() for r in results], "backup": None, "recovered": recovered}
+                    "results": [r.to_dict() for r in results], "backup": None, "recovered": recovered, **(extra or {})}
             if stopped:
                 ctx.failed_result = body
                 raise batches.Stopped(batches.BatchResult(0, "stopped", "stop", body["total"], body["done"],
@@ -2210,23 +2226,46 @@ class HubApi:
                     "not_checked": [t for t in ids if t not in checked], "recovered": recovered}
         return {"job_id": self._jobs.start("rekordbox_checked", work, track_id=ids[0] if len(ids) == 1 else None).id}
 
+    def _plan_run(self, plan_id: str, mode: str, ids: list[str], state: dict
+                  ) -> tuple[list[str], list[batches.ItemResult], dict]:
+        """A run with a plan (design §7.1): the songs of `ids` that still stand as the dry run saw them (`_bind_plan`
+        against what `upgrade_preview` says today), the songs it leaves as skipped (`changed`) and what the result adds
+        (`new_since_plan`: the songs the plan did not have). The words of the dry run are the one check of what changed:
+        a song asked about again by the run itself, as always."""
+        rows = batches.upgrade_preview(self._paths, state, ids, mode, self._rekordbox_status())["items"]
+        _, bound = self._bind_plan(plan_id, {r["key"]: r for r in rows})
+        if not bound.run:
+            raise OpProblem(PLAN_NOTHING, "changed")
+        action = batches.PREVIEW_MODES[mode]
+        left = [batches.ItemResult(k, action, "skipped", "changed", PLAN_CHANGED_WORDS, None, None)
+                for k in bound.changed]
+        return list(bound.run), left, {"new_since_plan": list(bound.new)} if bound.new else {}
+
     @bridge
-    def upgrade(self, track_ids: list[str], mode: str) -> dict:
-        """Replaces tracks with their better versions. `swap` is Same track for any format and runs one AIFF batch (job
-        kind "upgrade_batch", result a BatchResult); `add_new` and `discard` run the tracks one after the other (kinds
-        "upgrade_add_new" / "upgrade_discard", a BatchResult-shaped result without a batch). One track is a list of
-        one. Progress is a BatchProgress event for all three."""
+    def upgrade(self, track_ids: list[str], mode: str, plan_id: str | None = None) -> dict:
+        """Replaces tracks with their better versions. `same_track` is Same track for any format and runs one AIFF batch
+        (job kind "upgrade_batch", result a BatchResult); `new_track` and `discard` run the tracks one after the other
+        (kinds "upgrade_add_new" / "upgrade_discard", a BatchResult-shaped result without a batch). One track is a list
+        of one. Progress is a BatchProgress event for all three. `plan_id` (the command line's `--plan`; Same track and
+        New track only): runs only the songs of that plan that still stand (`_plan_run`); the others end as skipped."""
         if mode not in UPGRADE_MODES:
             raise ValueError(f"mode must be one of {', '.join(UPGRADE_MODES)}")
         ids = self._track_list(track_ids)
-        track = ids[0] if len(ids) == 1 else None
-        if mode == "swap":
+        left: list[batches.ItemResult] = []
+        extra: dict = {}
+        if plan_id is not None:
+            if mode == "discard":
+                raise ValueError(PLAN_NOT_DISCARD)
+            ids, left, extra = self._plan_run(plan_id, mode, ids, self._state())
+        track = ids[0] if len(ids) == 1 and not left else None
+        if mode == "same_track":
             work = self._batch_work(lambda: batches.start(
                 self._paths, [(t, "same_track") for t in ids], started_by="user", now=self._svc.now), None,
-                alone=len(ids) == 1)
+                alone=len(ids) == 1, left=left, extra=extra)
             return {"job_id": self._jobs.start("upgrade_batch", work, track_id=track, batch_kind="upgrade").id}
-        return {"job_id": self._jobs.start(f"upgrade_{mode}", self._each_work(ids, mode), track_id=track,
-                                           batch_kind="upgrade").id}
+        action = NEW_TRACK_ACTION[mode]
+        return {"job_id": self._jobs.start(f"upgrade_{action}", self._each_work(ids, action, left=left, extra=extra),
+                                           track_id=track, batch_kind="upgrade").id}
 
     def _upgrade_all_ids(self, state: dict) -> list[str]:
         """What Upgrade all runs: the songs of To-do's Upgrade ready group whose Same track can run (`select`, the one
@@ -2234,15 +2273,25 @@ class HubApi:
         return select.upgrade_all_ids(self._todo(state, "upgrade_ready", False))
 
     @bridge
-    def upgrade_all(self) -> dict:
+    def upgrade_all(self, plan_id: str | None = None) -> dict:
         """Upgrade all: Same track for every parked upgrade the To-do list shows as possible (the group's `all.n`), as
-        one batch started by `upgrade_all` (job kind "upgrade_batch")."""
-        ids = self._upgrade_all_ids(self._state())
+        one batch started by `upgrade_all` (job kind "upgrade_batch"). `plan_id` (the command line's `--plan`): only the
+        songs of that plan that still stand. The command line refuses while a stopped upgrade batch waits (`_resume_first`:
+        the window hides the button then and shows Resume)."""
+        state = self._state()
+        ids = self._upgrade_all_ids(state)
         if not ids:
             raise OpProblem(NO_UPGRADES, "refused")
+        if self._resume_first and (stopped := views.stopped_batch(self._aiff_batches(), kinds=("upgrade",))):
+            raise OpProblem(RESUME_FIRST, "refused", reason="not_stopped",
+                            next=[{"run": f"batch resume aiff:{stopped[0]}", "why": f"{stopped[1]} left to do"}])
+        left: list[batches.ItemResult] = []
+        extra: dict = {}
+        if plan_id is not None:
+            ids, left, extra = self._plan_run(plan_id, "same_track", ids, state)
         work = self._batch_work(lambda: batches.start(
             self._paths, [(t, "same_track") for t in ids], started_by="upgrade_all", now=self._svc.now), None,
-            alone=False)
+            alone=False, left=left, extra=extra)
         return {"job_id": self._jobs.start("upgrade_batch", work, batch_kind="upgrade").id}
 
     def _selection_job(self, kind_only: str | None, track_ids: list[str], origin: str):
@@ -2889,7 +2938,8 @@ class CliApi(HubApi):
     pywebview exposes every public name of the object it is given, and the window sees exactly the contract
     (tests/test_hub_api.py): the window's `HubApi` has none of these."""
 
-    RESOLVERS = {"track": "_resolve_track"}  # kind -> the method that makes it (grows per group)
+    RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way"}  # kind -> the method that makes it (grows per group)
+    _resume_first = True
 
     # --- plans (design §7.1): the command line's call path saves a dry run's plan (`save_plan`) and says when its scan
     # was (`scan_next`); a write method that takes `plan_id` binds it (`HubApi._bind_plan`). Plain methods, not bridge
@@ -2905,6 +2955,46 @@ class CliApi(HubApi):
             return None
         extra = {**(answer.get("plan_extra") or {}), "command": command}
         return plan_store.save(self._support.support, kind, self._plan_root(), items, extra)
+
+    @cli_first
+    def result_words(self, method: str, result: dict) -> dict:
+        """What the command line says beside a finished write's `result` (design §4.4, §8.3): `{message, data, next,
+        person_steps}`, each left out when there is nothing to add. Upgrade's results (Same track, New track, Upgrade
+        all) name their batch as `aiff:<n>`, give each done song the steps only a person can do in rekordbox
+        (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
+        for the whole run. Read only: it looks at the records after the job. A method with no words says nothing."""
+        if method not in ("upgrade", "upgrade_all") or not isinstance(result.get("results"), list):
+            return {}
+        out: dict = {}
+        results = result["results"]
+        if isinstance(result.get("batch"), int):
+            batch = f"aiff:{result['batch']}"
+            out["data"] = {"batch_id": batch}
+            if result.get("done"):
+                out["next"] = [{"run": f"batch show {batch}", "why": "every song of this batch"},
+                               {"run": "check list", "why": "what is left to do in rekordbox"}]
+        parts = [f"{result['done']} of {result['total']} songs done"]
+        parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed"))) if n]
+        out["message"] = ", ".join(parts) + "."
+        tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
+            r.get("state") == "done" for r in results) else {}
+        steps, reload, rows = [], [], []
+        for r in results:
+            mine = []
+            if r.get("state") == "done":
+                new_file = str(self._paths.root / r["path"]) if r.get("action") == "add_new" and r.get("path") else None
+                mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
+                for step in mine:
+                    (steps if step["id"] == "step:relocate_new" else reload).append(step)
+            rows.append({**r, "person_steps": mine})
+        if reload:
+            keys = " ".join(step["then"].removeprefix("check done ") for step in reload)
+            then = f"check done --batch aiff:{result['batch']}" if isinstance(result.get("batch"), int) else f"check done {keys}"
+            steps.append({**outcomes.person_step("reload_tag", tracks=keys), "then": then})
+        out["data"] = {**out.get("data", {}), "results": rows}
+        if steps:
+            out["person_steps"] = steps
+        return out
 
     def scan_next(self) -> list[dict]:
         """The `next` of a dry run that planned on the last scan: `library scan` when Library/ or a watched folder was
@@ -2964,6 +3054,13 @@ class CliApi(HubApi):
         if key is None:
             raise BadId("unknown_id", f"Your library has no track with the file {text}.")
         return key
+
+    def _resolve_upgrade_way(self, text: str) -> str:
+        """`--way`: `same-track` or `new-track` (the snake_case spellings too) as the bridge's mode."""
+        found = {"same-track": "same_track", "new-track": "new_track"}.get(text.strip().lower().replace("_", "-"))
+        if found is None:
+            raise BadId("usage", f"--way is same-track or new-track, not {text}.")
+        return found
 
     def _song_holding(self, text: str, state: dict | None = None) -> str | None:
         """The song key whose file is the path `text` (absolute, or relative to the music folder), else None."""
@@ -3050,20 +3147,27 @@ class CliApi(HubApi):
         screen of that listing shows, each once, in the order shown (`hub/select.py` says the words of a listing: the
         Library's `in` / `search` / `quality`, To-do's `group` / `hidden`, or a verb's own "all"). Read only, on the last
         scan; the answer is what `library list` / `todo list` with the same words print, a playlist's `also` rows
-        included and the rows without a file left out. (`select` is the window's own call, which tells the hub where a
-        dropped file goes.)"""
+        included and the rows without a file left out. A verb's "all" that selects none adds `message`, what the window
+        says then. (`select` is the window's own call, which tells the hub where a dropped file goes.)"""
         want = select.parse(listing)
         state = self._state()
         if want.verb_all == select.UPGRADE_ALL:
-            return {"ids": self._upgrade_all_ids(state)}
+            return self._nothing_left({"ids": self._upgrade_all_ids(state)}, NO_UPGRADES)
         if want.verb_all == select.CHECK_DONE:
-            return {"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))}
+            return self._nothing_left({"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))},
+                                      NOTHING_TO_CHECK)
         if want.source == "todo":
             return {"ids": select.todo_ids(self._todo(state, want.group, want.hidden))}
         view, key = want.view, want.key
         if view == "folder":
             key = self._folder_key(key or "")
         return {"ids": select.library_ids(self._library_view(state, view, key, want.search, want.quality, None))}
+
+    @staticmethod
+    def _nothing_left(answer: dict, words: str) -> dict:
+        """A verb's "all" that selects no song says so in the window's words (`message`): a command that finds nothing
+        left to do answers `ok` with that, not `refused` (design §4.3, R29)."""
+        return answer if answer["ids"] else {**answer, "message": words}
 
     def _folder_key(self, typed: str) -> str:
         """The key the Library's folder view takes for a folder typed as `folder:<path>`: a path inside the music folder
@@ -3078,19 +3182,19 @@ class CliApi(HubApi):
         return PurePosixPath(os.path.normpath(typed)).as_posix()
 
     @cli_first
-    def upgrade_preview(self, track_ids: list[str] | None = None, mode: str = "swap", all: bool = False) -> dict:
+    def upgrade_preview(self, track_ids: list[str] | None = None, mode: str = "same_track", all: bool = False) -> dict:
         """What an upgrade would do, answered before it runs (design §7.1: the dry run of `upgrade apply`, and what Upgrade
         all would start): `{mode, total, planned, skipped, items, space, rekordbox}` (`batches.upgrade_preview`). One
         item per song, `{key, action, state: planned | skipped, reason, file, new_file, superseded}`; `space` is what the
         new files need per drive; `rekordbox.needs_rekordbox_closed` says a Same track must wait for rekordbox to be
-        quit. `mode` `swap` (Same track) or `add_new` (New track); `all` the songs Upgrade all would run (Same track
+        quit. `mode` `same_track` or `new_track`; `all` the songs Upgrade all would run (Same track
         only), instead of `track_ids`. Reads only: no file is decoded, nothing is stored."""
         if mode not in batches.PREVIEW_MODES:
             raise BadId("usage", f"mode must be one of {', '.join(batches.PREVIEW_MODES)}.")
         if all and track_ids:
             raise BadId("conflicting_flags", "Name the songs, or ask for all of them: not both.")
-        if all and mode != "swap":
-            raise BadId("conflicting_flags", "All of them is Same track only; name the songs to add them as new tracks.")
+        if all and mode != "same_track":
+            raise BadId("conflicting_flags", select.ALL_IS_SAME_TRACK)
         state = self._state()
         if all:
             ids = self._upgrade_all_ids(state)

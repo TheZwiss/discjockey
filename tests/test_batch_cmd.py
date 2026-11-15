@@ -16,6 +16,7 @@ import pytest
 from batch_helpers import DIFFERENT, Lib, make_lib, needs_ffmpeg, use
 from convert_helpers import EXACT
 from discjockey import align, batch_cmd, batches, cli, db, library, report
+from discjockey.cli import legacy
 from discjockey.events import CancelToken
 from discjockey.library import load_state, save_state
 from discjockey.rekordbox import backup as rbbackup
@@ -41,7 +42,9 @@ def make(tmp_path, monkeypatch, kinds: list[str], sub: str | None = None) -> Lib
 
 
 def run(argv: list[str], capsys) -> tuple[int, str, str]:
-    code = cli.main(argv)
+    """`upgrade apply` is the new command line's now (tests/test_cli_upgrade.py); this file pins the old handler, which
+    stays until V1.12 deletes it with `batch_cmd.py`, so that word goes through the old parser here."""
+    code = legacy.main(argv) if argv[:2] == ["upgrade", "apply"] else cli.main(argv)
     out = capsys.readouterr()
     return code, out.out, out.err
 
@@ -218,7 +221,7 @@ def test_one_id_several_ids_and_all_give_the_same_results(tmp_path, monkeypatch,
 
 
 def test_the_console_and_the_window_give_the_same_results_for_the_same_library(tmp_path, monkeypatch, capsys):
-    """Plan §5.2 B6, "as the bridge": the same library through `api.upgrade(ids, "swap")` and `upgrade apply` ends
+    """Plan §5.2 B6, "as the bridge": the same library through `api.upgrade(ids, "same_track")` and `upgrade apply` ends
     with the same per-track results (the console does not carry its own rules)."""
     from hub_helpers import make_api, wait_job
     kinds = ["mp3", "aiff", "mp3_free", "mp3_plain", "stale"]
@@ -226,7 +229,7 @@ def test_the_console_and_the_window_give_the_same_results_for_the_same_library(t
     hub_lib = make_lib(tmp_path / "hub", monkeypatch, kinds)
     api, rec = make_api(hub_lib.paths, compare=lambda a, b: EXACT, rekordbox_running=lambda: False,
                         rekordbox_place=lambda: hub_lib.place)
-    finished = wait_job(api, rec, api.upgrade(hub_lib.tracks, "swap"))
+    finished = wait_job(api, rec, api.upgrade(hub_lib.tracks, "same_track"))
     console_lib = make(tmp_path, monkeypatch, kinds, "console")
     code, data = run_json(["upgrade", "apply", *console_lib.tracks, *SAME], capsys)
     assert code == FAILED and data["ok"] is True               # some were skipped: ran to its end, exit 1

@@ -68,9 +68,10 @@ export interface Bridge {
   reject_current(track_id: string): Promise<JobStart>;
   /** "Done, checked in rekordbox" for tracks (a batch card sends its done tracks) */
   rekordbox_checked(track_ids: string[]): Promise<JobStart>;
-  /** Replace tracks with their better versions; one track is a list of one. `swap` (Same track, any format) is one
-   *  AIFF batch (job `upgrade_batch`); `add_new` / `discard` run the list one after the other */
-  upgrade(track_ids: string[], mode: 'swap' | 'add_new' | 'discard'): Promise<JobStart>;
+  /** Replace tracks with their better versions; one track is a list of one. `same_track` (any format) is one AIFF
+   *  batch (job `upgrade_batch`); `new_track` / `discard` run the list one after the other (jobs `upgrade_add_new` /
+   *  `upgrade_discard`) */
+  upgrade(track_ids: string[], mode: 'same_track' | 'new_track' | 'discard'): Promise<JobStart>;
   /** Upgrade all: Same track for every parked upgrade the list counts as possible (job `upgrade_batch`) */
   upgrade_all(): Promise<JobStart>;
   /** Convert to AIFF for songs, or only the name for a clean AIFF (each file's own answer decides): one batch, job
