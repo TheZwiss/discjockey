@@ -489,6 +489,12 @@ Results:
     No heartbeat (user: "no hourly check"): agents' completion notices drive the chain.
     Morning summary for the user (short): the CLI for an agent, what changed vs today and why, review findings, plan
     size. Gates G1-G5 below apply.
+    2026-11-15 ~04:00: designer cut by the usage limit at §9.2 (624 lines, uncommitted; script: 95/95 methods named;
+    missing §9 rows, person-only, sandbox, goals, A-D walk, keep/change/drop, tests+docs, MCP, risks); resumed by message.
+    Designer done 5d15f50b: Opus **348k** (est. 280k; 976 lines). G1 script: 95/95 methods, all 16 sections present.
+    Step 3 split (material design 23k + audits 104k + code greps > 150k, G2: said to the user in chat): 3a Sonnet
+    coverage review (every audit item → answered / by construction with reason / gap; `-review-coverage.md`, est.
+    ~230k), then 3b Opus adversarial review (soundness, invariants, A-D walk, goals; `-review.md`). Issue 39 ~2.40M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
