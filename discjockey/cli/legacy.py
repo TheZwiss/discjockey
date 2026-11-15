@@ -341,6 +341,9 @@ def _main(args: argparse.Namespace) -> tuple[int, dict | None]:
     except LockHeld:
         print(LOCK_HELD)
         return 3, _problem("busy", LOCK_HELD)
+    except library.SupportBusy as e:  # the support lock stayed held for 2 seconds: say so, no traceback
+        print(e)
+        return 3, _problem("busy", str(e), reason="support_lock")
     except KeyboardInterrupt:  # Ctrl-C while reading playlists, logging in or at the question
         print("\nStopped.")
         return 130, _problem("stopped", "Stopped.")

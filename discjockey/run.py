@@ -34,7 +34,7 @@ from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .rekordbox import process
 from .rekordbox.locate import locate
-from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
+from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
 
 logger = logging.getLogger(__name__)  # not `log`: that is a run's RunLog here
 
@@ -111,8 +111,8 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     if extra is not None:
         if not 1 <= extra <= MAX_EXTRA:
             raise SetupProblem(f"The extra amount must be between 1 and {MAX_EXTRA}.", "config_invalid")
-        settings = replace(settings, extra_date=date.today().isoformat(), extra_amount=extra)
-        save_settings(paths.settings_file, settings)
+        settings = update_settings(paths.settings_file, lambda s: replace(
+            s, extra_date=date.today().isoformat(), extra_amount=extra))
         emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
 
     emit(Message("info", "Reading your playlists..."))

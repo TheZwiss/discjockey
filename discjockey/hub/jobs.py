@@ -256,7 +256,7 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "stopped", "Stopped. Nothing was left half-done."
     if isinstance(e, rbsession.RekordboxOpen):  # a batch or an undo that needs rekordbox closed (design §8's words)
         return "rekordbox_open", str(e)
-    if isinstance(e, rbsession.Busy):  # another window or the Terminal changes rekordbox's library
+    if isinstance(e, (rbsession.Busy, library.SupportBusy)):  # another process changes rekordbox's library, or saves settings
         return "busy", str(e)
     if isinstance(e, batches.Refused):  # nothing in the batch could be done
         return "refused", str(e)
@@ -442,12 +442,14 @@ class Jobs:
         return Job(job_id, kind, track_id, token, self.now().isoformat(timespec="seconds"), batch_kind)
 
     def start(self, kind: str, work: Callable[[JobContext], dict | None], track_id: str | None = None,
-              batch_kind: str | None = None) -> Job:
+              batch_kind: str | None = None, *, hold_library: bool = True) -> Job:
         """A write job: `work(ctx)` runs in a worker thread while holding the engine lock and keeping the Mac awake.
         `batch_kind`: for an AIFF batch job ("upgrade_batch", "aiff_batch", "batch_resume") the batch's kind, so the
         snapshot of a reloaded window says whose batch runs. Raises Busy at once if another write job runs or the console holds the lock.
         Adopted by a worker process (`adopt`): the same checks, then the work runs here, on the calling thread, and the
-        job is finished when this returns."""
+        job is finished when this returns. `hold_library=False` is a support-only job (`tools update`, design §6.1): it
+        waits for the hub's other jobs like any write job but takes no library lock (its own work takes the support
+        lock), so it runs without a music folder and never makes a library job busy."""
         with self._mutex:
             if (busy := self._busy()) is not None:
                 raise busy
@@ -455,9 +457,10 @@ class Jobs:
                 raise Busy(CONSOLE_TEXT, "console")
             job = self.current = self._new(kind, track_id, batch_kind)
             if self.inline is None:
-                threading.Thread(target=self._run, args=(job, work, True), name=f"hub-job-{job.id}", daemon=True).start()
+                threading.Thread(target=self._run, args=(job, work, True, hold_library), name=f"hub-job-{job.id}",
+                                 daemon=True).start()
         if self.inline is not None:
-            self._run(job, work, True)  # outside the mutex: the work takes it again (lock_briefly)
+            self._run(job, work, True, hold_library)  # outside the mutex: the work takes it again (lock_briefly)
         return job
 
     def start_refresh(self, work: Callable[[JobContext], dict | None]) -> Job:
@@ -540,20 +543,21 @@ class Jobs:
             except Exception:  # noqa: BLE001
                 log.warning("the hook at the start of a write job failed", exc_info=True)
 
-    def _run(self, job: Job, work, write: bool) -> None:
+    def _run(self, job: Job, work, write: bool, hold_library: bool = True) -> None:
         emit = self._job_emit(job)
         emit(JobStarted(job.id, job.kind, job.track_id, job.batch_kind))
         ok, problem, message, result, service = True, None, "", None, None
         ctx = JobContext(job.id, job.kind, job.token, emit)
         try:
             if write:
-                lock = library.run_lock(self.lock) if self.lock is not None else nullcontext()
+                lock = library.run_lock(self.lock) if self.lock is not None and hold_library else nullcontext()
                 with lock, self.keep_awake("Discjockey is changing your library"):
-                    self._holder.on = True
+                    self._holder.on = hold_library
                     try:
                         if self.inline is not None:  # the worker has the library: the registry says so
                             self.inline.update(status="running", kind=job.kind)
-                        self._at_lock()
+                        if hold_library:
+                            self._at_lock()
                         result = work(ctx)
                     finally:
                         self._holder.on = False

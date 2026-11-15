@@ -3,9 +3,9 @@ stage C §2). Today only `auto-upgrade [on|off]`: without a value it prints the 
 it takes the library lock as every settings write does, saves and prints the new value.
 
 Exit codes: 0 done (or read), 1 the settings file can't be read (the message names the problem), 2 no music folder
-chosen yet or its drive isn't there, 3 busy (another run holds the library lock; nothing was changed). `--json` prints
-one object: `{"ok": true, "auto_upgrade": bool}`, or `{"ok": false, "kind", "message"}` for a problem. The settings are
-the same file the window writes (`settings.json` in the support folder), so the window shows the value at once.
+chosen yet or its drive isn't there, 3 busy (another run holds the library lock, or another process is saving its
+own settings for over 2 seconds; nothing was changed). `--json` prints one object: `{"ok": true, "auto_upgrade":
+bool}`, or `{"ok": false, "kind", "message"}` for a problem. The settings are the same file the window writes (`settings.json` in the support folder), so the window shows the value at once.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from dataclasses import replace
 from . import library
 from .library import LockHeld, NoLibrary
 from .rekordbox_cmd import failed, no_library, say
-from .settings import SettingsError, load_settings, save_settings
+from .settings import SettingsError, load_settings, update_settings
 
 OK, FAILED, NO_LIBRARY, BUSY = 0, 1, 2, 3
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
@@ -49,9 +49,8 @@ def run_auto_upgrade(args: argparse.Namespace) -> int:
             say(args, {"ok": True, "auto_upgrade": settings.auto_upgrade}, [line(settings.auto_upgrade)])
             return OK
         with library.run_lock(paths.lock):
-            settings = load_settings(paths.settings_file)  # as the lock holder sees it
             on = args.value == "on"
-            save_settings(paths.settings_file, replace(settings, auto_upgrade=on))
+            update_settings(paths.settings_file, lambda s: replace(s, auto_upgrade=on))
         say(args, {"ok": True, "auto_upgrade": on}, [line(on)])
         return OK
     except SettingsError as e:
@@ -60,6 +59,8 @@ def run_auto_upgrade(args: argparse.Namespace) -> int:
         return failed(args, str(e), "refused", "no_library", code=NO_LIBRARY)
     except LockHeld:
         return failed(args, LOCK_HELD, "busy", code=BUSY)
+    except library.SupportBusy as e:  # another process is saving its own settings for over 2 seconds
+        return failed(args, str(e), "busy", "support_lock", code=BUSY)
 
 
 def run(args: argparse.Namespace) -> int:

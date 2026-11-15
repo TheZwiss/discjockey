@@ -11,6 +11,7 @@ from convert_helpers import EXACT
 from discjockey import db, rekordbox
 from discjockey.events import BatchProgress
 from discjockey.library import load_state
+from discjockey.rekordbox.lock import writer_lock
 from hub_helpers import window, make_api, wait_job
 
 pytestmark = needs_ffmpeg
@@ -242,9 +243,9 @@ def test_the_rekordbox_state_is_read_once_per_change_of_master_db(hub, monkeypat
     assert len(calls) == 3
 
 
-def test_the_state_is_not_read_while_any_write_job_runs(hub, monkeypatch):
-    """A sync, import or tidy-up runs the recovery first, which can finish a rekordbox write: no job is known to
-    leave rekordbox alone, so the cached answer stays while one runs."""
+def test_the_state_is_not_read_while_a_writer_holds_rekordbox_lock(hub, monkeypatch):
+    """A writer of any Discjockey process (a batch's session, a recovery) holds `rekordbox.lock`: a reader never opens
+    master.db then and answers its last value; a write job that holds no rekordbox session does not stop the read."""
     lib, rb, api, rec = hub(["mp3"])
     calls = []
     real = rekordbox.status
@@ -254,11 +255,10 @@ def test_the_state_is_not_read_while_any_write_job_runs(hub, monkeypatch):
     rb.running = True                                       # rekordbox opened ...
     with open(lib.place.db, "ab") as f:                     # ... and master.db changed
         f.write(b"\0")
-    with monkeypatch.context() as m:
-        m.setattr(api._jobs, "running", lambda: type("J", (), {"kind": "sync"})())
+    with writer_lock(lib.paths.support):                    # another process (here: another descriptor) writes
         answer = api.todo()
         assert len(calls) == 1 and answer["groups"]         # the last value, no open
-    api.todo()                                              # the job is over: the new state is read
+    api.todo()                                              # the writer is done: the new state is read
     assert len(calls) == 2
 
 

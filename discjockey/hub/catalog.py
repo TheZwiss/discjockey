@@ -14,8 +14,8 @@ parameter has no word of its own (its entry says which `resolve` kind builds it)
 what the design names differently. `fixed` binds arguments a command never takes from the user.
 
 `planned` is "phase N" while the command is not built: T1 counts it as covered, the parser and `help --json` leave
-it out, and the last phase's test fails while any is left. `locks` stays empty until group 1.7 fills it for every
-built entry; `schema` stays None in phase 1 (phase 2 fills it)."""
+it out, and the last phase's test fails while any is left. `locks` (design §6.1) names the locks a command takes,
+per built entry (a later group fills it with its command; T10, tests/test_cli_locks.py, pins it); `schema` stays None in phase 1 (phase 2 fills it)."""
 from __future__ import annotations
 
 import inspect
@@ -144,7 +144,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("move_batches", "batch list", "R", "batch list --kind moves"),
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
        params={"batch_id": _positional("moves", type="int")}),
-    _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True),
+    _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True, locks={"rekordbox_r"}),
     _e("job_status", "", "R", built=True),  # the window's own job; `job list` / `job show` read the registry
     _e("spectrum", "track spectrum", "R", "track spectrum local:1 --which current", params={"track_id": TRACK}),
     _e("media_url", "", "dropped"),

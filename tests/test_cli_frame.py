@@ -175,7 +175,7 @@ def test_a_failure_in_the_bridge_answers_failed_with_exit_1(monkeypatch, capsys)
 
     def boom(*a, **k):
         raise PermissionError("no access")
-    monkeypatch.setattr(HubApi, "_rekordbox_status", boom)
+    monkeypatch.setattr(HubApi, "_rekordbox_read", boom)
     code, env = run_json(["rekordbox", "status", "--json"], capsys)
     assert code == 1 and env["outcome"] == "failed" and env["reason"] == "crashed" and env["data"] is None
 

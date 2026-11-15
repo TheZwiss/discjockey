@@ -75,7 +75,7 @@ def test_a_missing_folder_is_never_made(tmp_path):
 def test_write_music_folder_leaves_no_temp_file(tmp_path):
     write_music_folder(tmp_path, tmp_path / "a")
     write_music_folder(tmp_path, tmp_path / "b")
-    assert sorted(os.listdir(tmp_path)) == ["config.json"]
+    assert sorted(os.listdir(tmp_path)) == [".support.lock", "config.json"]  # the lock file stays
     assert read_music_folder(tmp_path) == tmp_path / "b"
 
 

@@ -257,7 +257,7 @@ def test_token_file_is_replaced_atomically_and_private(tmp_path, monkeypatch):
     spotify._save_token(path, {"access_token": "new"})
     assert json.loads(path.read_text())["access_token"] == "new"
     assert path.stat().st_mode & 0o777 == 0o600
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["token.json"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".support.lock", "token.json"]  # no .tmp left
 
 
 # --- the hub: token refresh from several threads, a login refreshed elsewhere, login without a terminal ---

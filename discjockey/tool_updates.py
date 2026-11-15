@@ -30,7 +30,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 
-from . import tools
+from . import library, tools
 
 log = logging.getLogger(__name__)
 
@@ -356,7 +356,15 @@ def update(support: Path, *, fetch: Callable[[str], bytes] | None = None, run: C
     """The newest yt-dlp (and the yt-dlp-ejs it pins), when it is newer than what the next start would use:
     downloaded, hash-checked, unpacked, tested in its own process, then `current`. (before, after, restart):
     {"yt-dlp": version} the next start uses before / after; restart: `after` isn't what this process runs. ToolsError
-    when anything fails, and then `current` is as it was. `check()` raises Cancelled to stop (the hub's Stop)."""
+    when anything fails, and then `current` is as it was. `check()` raises Cancelled to stop (the hub's Stop). The
+    support lock is held only from the moment the download is in memory (library.SupportBusy when another process
+    holds it then): the minutes of downloading leave every settings save free, and `tools/` still changes one process
+    at a time."""
+    return _update(support, fetch=fetch, run=run, check=check, running=running, builtin=builtin)
+
+
+def _update(support: Path, *, fetch: Callable[[str], bytes] | None, run: Callable | None,
+            check: Callable[[], None] | None, running: Path | None, builtin: Path | None) -> tuple[dict, dict, bool]:
     fetch = fetch or http_get  # looked up now: tests replace http_get
     run = run or subprocess.run
     check = check or (lambda: None)
@@ -382,7 +390,16 @@ def update(support: Path, *, fetch: Callable[[str], bytes] | None = None, run: C
     check()
     ejs_data = _download(fetch, ejs_wheel)
     check()
+    with library.support_lock(support):
+        return _install(support, latest, ejs_version, yt_data, ejs_data, before, run=run, check=check,
+                        running=running, builtin_version=builtin_version, running_version=running_version)
 
+
+def _install(support: Path, latest: str, ejs_version: str, yt_data: bytes, ejs_data: bytes, before: dict, *,
+             run: Callable, check: Callable[[], None], running: Path | None, builtin_version: str | None,
+             running_version: str | None) -> tuple[dict, dict, bool]:
+    """The part of an update that changes `tools/` (local only, no network), under the support lock: leftovers
+    cleared, the two wheels unpacked and tested in a partial folder, `current` moved, old folders removed."""
     root = tools.tools_root(support)
     previous = tools.current_folder(support)
     final = root / latest
@@ -421,7 +438,13 @@ def rollback(support: Path, *, running: Path | None = None,
              builtin: Path | None = None) -> tuple[dict, dict, bool]:
     """One step back: `current` -> the folder kept from before, or no `current` (the built-in yt-dlp) when there is
     none. The folder stepped back from is deleted unless this process runs it. Same answer as update();
-    ToolsError(NOTHING_TO_UNDO, kind "refused") when stepping back would change nothing."""
+    ToolsError(NOTHING_TO_UNDO, kind "refused") when stepping back would change nothing. Holds the support lock for
+    the whole step (library.SupportBusy when another process holds it)."""
+    with library.support_lock(support):
+        return _rollback(support, running=running, builtin=builtin)
+
+
+def _rollback(support: Path, *, running: Path | None, builtin: Path | None) -> tuple[dict, dict, bool]:
     running, builtin = _defaults(support, running, builtin)
     builtin_version = _version_of(builtin)
     if _after_rollback(support, builtin_version) is None:
