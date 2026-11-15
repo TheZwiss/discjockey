@@ -483,7 +483,7 @@ Results:
     changed anything after its last full run; `git worktree remove`, then in cli1-live `git merge --no-ff feat/cli-1-N`
     + `git merge --no-ff main`, check_public, push; log size here; next group. Dispatch prompt pattern = V1.8's (brief
     path, worktree, D3/D4/D10/D11 note, earlier groups' decisions, no real data, full pytest at end, report <10 lines).
-    Merged: V1.1-V1.9 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.10.
+    Merged: V1.1-V1.10 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.11.
     Next: V1.9, V1.10 (no own review); V1.11-V1.15 each: build → Sonnet review (findings file in phase1/) → fix-round
     agent that also runs the rehearsal on a copy (V1.11+V1.12 share one `rehearse`; made-up data only, never the
     user's support folder/library); then Opus phase review + fix, `npm run verify` once on the phase branch (bg), CI
@@ -683,6 +683,16 @@ Results:
     `db.connect(read_only=True)` tidies with a RW open+close (removed only as last connection), `immutable=1` when the
     folder is unwritable. FOR PHASE REVIEW: that RW tidy open on the real library.db while the window runs; `prepare`
     dry run still writes record_reads/signs/pending_signs/extra settings (part b's T9). Issue 39 ~7.40M.
+    Part b c062b331: Sonnet **268k** (est. 180-250k; 87 calls; full 5283 passed). V1.10 total 512k vs plan 205k.
+    `CliApi.select_listing` (window's `select(track_id)` untouched, DROPPED); `select.py` holds the Upgrade-all set
+    + "rows you can act on" (shared by library()/upgrade_all/upgrade_preview/select_listing); `upgrade_preview` +
+    helpers moved batch_cmd → batches.py. `upgrade apply` rows stay planned (legacy handler pinned by
+    test_batch_cmd; V1.11 builds it); `catalog.ALL_OF` names `upgrade apply` + `check done` (V1.11/V1.13 confirm);
+    To-do `--rows` keeps file-less songs; empty Upgrade all = ok total 0; planned ceiling 102. T9 found reader_lock
+    creating `rekordbox.lock` → readers no longer create it. FOR PHASE REVIEW (Important?): before any writer made
+    the lock file, a reader holds nothing, so the first writer doesn't wait (fix idea: create the lock file at
+    setup/app start, or keep it under an allowed path). `prepare` dry-run writes not hit yet (sync group).
+    Merged + main → dc538714, pushed. Issue 39 ~7.67M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
