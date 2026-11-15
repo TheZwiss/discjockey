@@ -1,6 +1,6 @@
-"""The console front end of issue 33's stage B: `discjockey upgrade …`, `discjockey batch …` and
+"""The console front end of issue 33's stage B: `discjockey upgrade …`, `discjockey batch resume | undo` and
 `discjockey rekordbox checked | backups | restore` (plan rekordbox stage B §2; design rekordbox-repoint §10). The
-interactive `discjockey upgrades` stays in `upgrades_cmd.py`; `rekordbox status` / `preview` are `rekordbox_cmd.py`.
+interactive `discjockey upgrades` stays in `upgrades_cmd.py`; `rekordbox status` and `preview` are the new command line's (`discjockey/cli/`).
 
 Every command runs without prompts and with `--json` prints one object at the end (progress lines go to stderr). A
 command that changes anything takes the library lock as the hub does, finishes interrupted steps first
@@ -35,7 +35,7 @@ from .hub import views
 from .rekordbox import backup as rbbackup, eligible
 from .rekordbox.eligible import Skip
 from .rekordbox.preview import REASON_WORDS
-from .rekordbox_cmd import failed, no_library, say
+from .cli.legacy_out import failed, no_library, say
 from .upgrades import UpgradeProblem
 
 OK, FAILED, NO_LIBRARY, BUSY, REKORDBOX_OPEN, STOPPED = 0, 1, 2, 3, 4, 5
@@ -81,11 +81,10 @@ def add_commands(commands, box_commands) -> dict[str, argparse.ArgumentParser]:
         json_flag(steps.add_parser(name, help=text, description=text.capitalize() + ".")).add_argument(
             "tracks", nargs="+", help="song keys")
 
-    batch = commands.add_parser("batch", description="Same track batches: look at them, resume, undo.")
+    batch = commands.add_parser("batch", description="Same track batches: resume, undo. (`batch list` and `batch show` "
+                                                     "are the new command line's.)")
     batch_steps = batch.add_subparsers(dest="batch_command", metavar="command", required=True)
-    json_flag(batch_steps.add_parser("list", help="the newest batches"))
-    for name, text in (("show", "one batch with its tracks"), ("resume", "carry on a stopped batch"),
-                       ("undo", "undo every track a batch did")):
+    for name, text in (("resume", "carry on a stopped batch"), ("undo", "undo every track a batch did")):
         json_flag(batch_steps.add_parser(name, help=text, description=text.capitalize() + ".")).add_argument(
             "batch_id", type=int, metavar="id", help="the batch's number")
 
@@ -583,37 +582,6 @@ def run_upgrade_undo(args: argparse.Namespace) -> int:
 
 # --- batch ---
 
-def _batch_dict(row) -> dict:
-    c = row.counts
-    return {"batch": row.id, "kind": row.kind, "started_by": row.started_by, "state": row.state,
-            "stop_reason": row.stop_reason, "started": row.started, "ended": row.ended, "total": sum(c.values()),
-            "done": c["done"], "skipped": c["skipped"], "failed": c["failed"], "planned": c["planned"],
-            "undone": c["undone"], "backup": row.backup}
-
-
-def _batch_line(b: dict) -> str:
-    stop = f", {b['stop_reason']}" if b["stop_reason"] else ""
-    return (f"#{b['batch']}  {b['started'][:16].replace('T', ' ')}  {b['state']}{stop}  {b['done']} of {b['total']} "
-            f"done" + (f", {b['skipped']} skipped" if b["skipped"] else "") +
-            (f", {b['failed']} failed" if b["failed"] else "") + (f", {b['undone']} undone" if b["undone"] else "") +
-            (f", {b['planned']} left" if b["planned"] else "") + f"  ({b['started_by']})")
-
-
-def run_batch_list(args: argparse.Namespace) -> int:
-    resolved = library.resolve_paths()
-    if resolved.paths is None:
-        return no_library(args, resolved)
-    paths = resolved.paths
-    rows: list[dict] = []
-    total = 0
-    if paths.db_file.exists():
-        with db.connect(paths.db_file) as conn:
-            found, total = db.aiff_batches(conn)
-        rows = [_batch_dict(r) for r in found]
-    say(args, {"ok": True, "batches": rows, "count": total}, [_batch_line(b) for b in rows] or ["No batches yet."])
-    return OK
-
-
 def _unknown_batch(args: argparse.Namespace, paths: Paths, batch_id: int) -> int | None:
     """Exit code 1 (`unknown_batch`) when there is no such batch, else None."""
     if paths.db_file.exists():
@@ -621,25 +589,6 @@ def _unknown_batch(args: argparse.Namespace, paths: Paths, batch_id: int) -> int
             if db.aiff_batch(conn, batch_id) is not None:
                 return None
     return failed(args, f"There is no batch {batch_id}.", "refused", "unknown_batch")
-
-
-def run_batch_show(args: argparse.Namespace) -> int:
-    resolved = library.resolve_paths()
-    if resolved.paths is None:
-        return no_library(args, resolved)
-    paths = resolved.paths
-    if (code := _unknown_batch(args, paths, args.batch_id)) is not None:
-        return code
-    try:
-        state = library.load_state(paths)
-    except StateError as e:
-        return failed(args, str(e))
-    result = batches.result_of(paths, args.batch_id)
-    with db.connect(paths.db_file) as conn:
-        info = _batch_dict(db.aiff_batch(conn, args.batch_id))
-    d = {**info, **result.to_dict()}
-    say(args, {"ok": True, **d}, [_batch_line(info)] + _batch_lines(state, result.to_dict()))
-    return OK
 
 
 def run_batch_resume(args: argparse.Namespace) -> int:
@@ -729,6 +678,5 @@ def run(args: argparse.Namespace) -> int:
         return {"apply": run_upgrade_apply, "discard": run_upgrade_discard,
                 "undo": run_upgrade_undo}[args.upgrade_command](args)
     if args.command == "batch":
-        return {"list": run_batch_list, "show": run_batch_show, "resume": run_batch_resume,
-                "undo": run_batch_undo}[args.batch_command](args)
+        return {"resume": run_batch_resume, "undo": run_batch_undo}[args.batch_command](args)
     return {"checked": run_checked, "backups": run_backups, "restore": run_restore}[args.rekordbox_command](args)

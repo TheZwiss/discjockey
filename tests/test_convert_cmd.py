@@ -54,6 +54,20 @@ def run_json(argv: list[str], capsys) -> tuple[int, dict]:
     return code, json.loads(out)          # exactly one JSON object on stdout
 
 
+def batch_rows(capsys) -> list[dict]:
+    """The rows of `batch list` (the new command line's read: tests/test_cli_batches.py pins its shape)."""
+    code, env = run_json(["batch", "list"], capsys)
+    assert code == OK and env["outcome"] == "ok"
+    return env["data"]["batches"]
+
+
+def batch_items(capsys, batch: str) -> list[tuple[str, str]]:
+    """(action, state) of each item of `batch show <batch>`."""
+    code, env = run_json(["batch", "show", batch], capsys)
+    assert code == OK
+    return [(r["action"], r["state"]) for r in env["data"]["results"]]
+
+
 def rekordbox_open(monkeypatch, on: bool = True) -> None:
     monkeypatch.setattr(process, "running", lambda: on)
 
@@ -549,8 +563,8 @@ def test_rekordbox_open_is_exit_4_and_resume_finishes_after_it_quit(tmp_path, mo
     assert code == REKORDBOX_OPEN and (data["ok"], data["kind"], data["reason"]) == (False, "rekordbox_open", "rekordbox_open")
     assert (data["state"], data["stop_reason"], data["done"], data["total"]) == ("stopped", "rekordbox_open", 0, 3)
     assert (lib.music(), lib.dump()) == before and data["backup"] is None
-    code, out, _ = run(["batch", "list"], capsys)
-    assert "stopped, rekordbox_open" in out and "3 left" in out
+    (row,) = batch_rows(capsys)
+    assert (row["state"], row["stop_reason"], row["planned"]) == ("stopped", "rekordbox_open", 3)
     code, out, _ = run(["rename", "--all"], capsys)                       # the same two files again: a new try, a new batch
     assert code == REKORDBOX_OPEN and "discjockey batch resume 2" in out
     rekordbox_open(monkeypatch, False)
@@ -566,8 +580,7 @@ def test_one_named_song_that_meets_rekordbox_open_is_closed_not_left_to_resume(t
     code, data = run_json(["convert", lib.tracks[0]], capsys)
     assert code == REKORDBOX_OPEN and data["kind"] == "rekordbox_open" and data["state"] == "done"
     assert [(r["state"], r["reason"]) for r in data["results"]] == [("skipped", "rekordbox_open")]
-    code, out, _ = run(["batch", "list"], capsys)
-    assert "stopped" not in out
+    assert all(row["state"] != "stopped" for row in batch_rows(capsys))
 
 
 def test_files_rekordbox_does_not_hold_run_while_rekordbox_is_open(tmp_path, monkeypatch, capsys):
@@ -613,15 +626,12 @@ def test_batch_commands_work_on_a_stopped_convert_batch(tmp_path, monkeypatch, c
     assert out.splitlines()[0] == "Done: Artist - Song 0 → Artist - Song 0.aiff"
     assert "Waiting: Artist - Song 1" in out and "Stopped after 1 of 3." in out
     assert "Resume it with: discjockey batch resume 1" in out
-    code, data = run_json(["batch", "list"], capsys)
-    [row] = data["batches"]
-    assert (row["batch"], row["kind"], row["started_by"], row["state"], row["stop_reason"], row["done"], row["planned"]) == (
-        1, "convert", "user", "stopped", "stop", 1, 2)
-    code, out, _ = run(["batch", "list"], capsys)
-    assert "stopped, stop  1 of 3 done, 2 left  (user)" in out
-    code, out, _ = run(["batch", "show", "1"], capsys)
-    assert code == OK and "Done: Artist - Song 0" in out and "Waiting: Artist - Song 2" in out
-    assert "Made 1 file AIFF." in out
+    [row] = batch_rows(capsys)
+    assert (row["id"], row["what"], row["started_by"], row["state"], row["stop_reason"], row["done"], row["planned"]) == (
+        "aiff:1", "convert", "user", "stopped", "stop", 1, 2)
+    assert batch_items(capsys, "aiff:1") == [("convert", "done"), ("rename", "planned"), ("convert", "planned")]
+    code, out, _ = run(["batch", "show", "aiff:1"], capsys)
+    assert code == OK and "Artist - Song 0" in out and "Artist - Song 2" in out
     # "Done, checked in rekordbox" for the batch's done tracks
     code, data = run_json(["rekordbox", "checked", "--batch", "1"], capsys)
     assert code == OK and data["checked"] == [lib.tracks[0]] and data["not_checked"] == []
@@ -648,5 +658,4 @@ def test_undo_of_a_chain_item_gives_the_original_file_back(tmp_path, monkeypatch
     assert (lib.paths.root / lib.olds[0]).read_bytes() == original and lib.entry(0)["path"] == lib.olds[0]
     assert lib.row(0)["FolderPath"].endswith("A/Artist - Song 0.aiff") and lib.entry(1)["path"] == lib.olds[1]
     assert not (lib.paths.root / "Superseded/A/Artist - Song 0.aiff").exists()
-    code, out, _ = run(["batch", "show", "1"], capsys)
-    assert "Undone: Artist - Song 0" in out and "Undone: Artist - Song 1" in out
+    assert [state for _, state in batch_items(capsys, "aiff:1")] == ["undone", "undone"]

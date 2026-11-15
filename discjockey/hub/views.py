@@ -2367,6 +2367,34 @@ def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | N
             "total": total}
 
 
+def aiff_batch_row(b: AiffBatchRow) -> dict:
+    """An AIFF batch as `HubApi.batches` lists it (the console's own key names, plus the typed `id`)."""
+    c = b.counts
+    return {"id": f"aiff:{b.id}", "kind": "aiff", "batch": b.id, "what": b.kind, "started_by": b.started_by,
+            "state": b.state, "stop_reason": b.stop_reason, "started": b.started, "ended": b.ended,
+            "total": sum(c.values()), "done": c["done"], "skipped": c["skipped"], "failed": c["failed"],
+            "planned": c["planned"], "undone": c["undone"], "backup": b.backup, "undone_by": None}
+
+
+def moves_batch_row(b: BatchRow, title: str, planned: int) -> dict:
+    """A move batch as `HubApi.batches` lists it: the same keys as an AIFF batch's (`what` is its title, `done` the files
+    moved, `failed` and `undone` 0: a move is done, skipped or planned, and an undo is a batch of its own, `undone_by`)."""
+    return {"id": f"moves:{b.id}", "kind": "moves", "batch": b.id, "what": title, "started_by": b.started_by,
+            "state": "done" if b.finished else "running", "stop_reason": None, "started": b.started,
+            "ended": b.finished, "total": b.moved + b.skipped + planned, "done": b.moved, "skipped": b.skipped,
+            "failed": 0, "planned": planned, "undone": 0, "backup": None,
+            "undone_by": None if b.undone_by is None else f"moves:{b.undone_by}"}
+
+
+def batch_moves(moves: list[MoveRow]) -> list[dict]:
+    """A move batch's moves as the records keep them (`seq`, `kind`, `label`, `src`, `dst`, `state`, `reason`, `detail`,
+    `files`), with `text`: why a move that was not made was not (null for the others)."""
+    return [{"seq": m.seq, "kind": m.kind, "label": m.label, "src": m.src, "dst": m.dst, "state": m.state,
+             "reason": m.reason, "detail": m.detail, "files": m.files,
+             "text": _skip_words(m.kind, m.src, m.dst, m.reason, m.detail) if m.state == "skipped" else None}
+            for m in moves]
+
+
 def _skipped_item(m: MoveRow) -> dict:
     frm, to, _, _ = _ends(m.kind, m.src, m.dst)
     return {"label": m.label, "from": frm, "to": to, "reason": m.reason,

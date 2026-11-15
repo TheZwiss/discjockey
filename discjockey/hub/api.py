@@ -36,7 +36,7 @@ from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
 from .. import auto_upgrade, batches, rekordbox, report as rep, run, upgrades
-from ..rekordbox import lock as rb_lock, process as rb_process
+from ..rekordbox import lock as rb_lock, preview as rb_preview, process as rb_process
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
@@ -47,6 +47,7 @@ from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatc
                       PlaylistLine,
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
 from ..names import fold, search_fold
+from ..words import preview_words, rekordbox_words
 from ..ops import OpProblem, snapshot
 from .. import pending_signs
 from ..pacing import Budget
@@ -55,7 +56,7 @@ from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import catalog, media as media_mod, registry, spectrum as spec, views
-from .ids import BadId, parse as parse_id
+from .ids import BATCH_KINDS, BadId, parse as parse_id
 from .outcomes import problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Job, Jobs, PreviewStore, SignInPhase,
                    import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
@@ -696,20 +697,21 @@ class HubApi:
         """`_rekordbox_read`'s status: what the screens and plans take of rekordbox's state."""
         return self._rekordbox_read()[0]
 
-    def _rekordbox_read(self) -> tuple[rekordbox.Status, bool, str | None]:
+    def _rekordbox_read(self) -> tuple[rekordbox.Status, bool, str | None, tuple[int, int] | None]:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
         (plan rekordbox B §4): one read open per change. A reader takes `rekordbox.lock` shared and without waiting
         (design §6.1): while a writer of any Discjockey process holds it master.db is never opened and the answer is the
         last value (or "ready" when there is none), `writing` True, with the time it was read (`as_of`). A write job that
-        holds no rekordbox session does not stop the read: only a writer's lock does. Returns (status, writing, as_of)."""
+        holds no rekordbox session does not stop the read: only a writer's lock does. Returns (status, writing, as_of,
+        stat): `stat` is master.db's (modified time in ns, size) as that value was read, None without a library."""
         running = bool(self._svc.rekordbox_running())
         with rb_lock.reader_lock(self._support.support) as free:
             with self._lock:
                 last, at = self._rb_cache, self._rb_at
             if not free:
                 if last is None:
-                    return rekordbox.Status("ready", running, None, None, None, None, None), True, None
-                return replace(last[1], running=running), True, at
+                    return rekordbox.Status("ready", running, None, None, None, None, None), True, None, None
+                return replace(last[1], running=running), True, at, last[0][2]
             place = self._svc.rekordbox_place()
             stat = None
             try:
@@ -720,7 +722,7 @@ class HubApi:
                 stat = None
             key = (running, str(place.db) if place is not None else None, stat)
             if last is not None and last[0] == key:
-                return last[1], False, None
+                return last[1], False, None, stat
             try:
                 answer = rekordbox.status(place, lambda: running)
             except Exception:  # noqa: BLE001 - status() never raises for a library it can't read; this is for the rest
@@ -728,7 +730,7 @@ class HubApi:
             with self._lock:
                 self._rb_cache = (key, answer)
                 self._rb_at = self._svc.now().isoformat(timespec="seconds")
-            return answer, False, None
+            return answer, False, None, stat
 
     def _aiff_batches(self) -> list[AiffBatchRow]:
         """The newest AIFF batches, newest first: where a stopped one is looked for (`views.stopped_batch`: Upgrade
@@ -824,14 +826,23 @@ class HubApi:
 
     @bridge
     def rekordbox_status(self) -> dict:
-        """rekordbox on this Mac, now (issue 33 stage C): `{state: "ready" | "none" | "unreadable", running}`. The state
-        is the cached answer of `_rekordbox_status` (one read open per change of master.db; while a writer of any
-        Discjockey process holds `rekordbox.lock` it answers its last value with `writing: true` and `as_of`, the time
-        that value was read), `running` is asked every time: the Sync page reads it when it opens and
-        when the window gets focus again, to say that rekordbox must be quit before a start. Works without a music
-        folder."""
-        status, writing, as_of = self._rekordbox_read()
-        return {"state": status.state, "running": status.running, **({"writing": True, "as_of": as_of} if writing else {})}
+        """rekordbox on this Mac, now (issue 33 stage C): `{state: "ready" | "none" | "unreadable", running, problem,
+        version, library, db_version, modified_at, size}` and the words `state_text` and `problem_text`. `problem` is what
+        is wrong with a library (`unclean` | `busy` | `key` | `db_version` | `schema`), `version` rekordbox's own, `library`
+        the path of master.db, `modified_at` (local ISO time) and `size` master.db's own, so "master.db was not touched
+        meanwhile" can be checked; each is null where unknown (no library; or a writer holds the lock and nothing was read
+        yet). The state is the cached answer of `_rekordbox_status` (one read open per change of master.db; while a writer
+        of any Discjockey process holds `rekordbox.lock` it answers its last value with `writing: true` and `as_of`, the
+        time that value was read), `running` is asked every time: the Sync page reads it when it opens and when the window
+        gets focus again, to say that rekordbox must be quit before a start. Works without a music folder."""
+        status, writing, as_of, stat = self._rekordbox_read()
+        state_text, problem_text = rekordbox_words(status.state, status.problem)
+        return {"state": status.state, "running": status.running, "state_text": state_text, "problem": status.problem,
+                "problem_text": problem_text, "version": status.version, "library": status.library,
+                "db_version": status.db_version,
+                "modified_at": datetime.fromtimestamp(stat[0] / 1e9).isoformat(timespec="seconds") if stat else None,
+                "size": stat[1] if stat else None,
+                **({"writing": True, "as_of": as_of} if writing else {})}
 
     def _sidebar_view(self, also: Sequence[str] = ()) -> dict:
         """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
@@ -1175,9 +1186,18 @@ class HubApi:
 
     @bridge
     def run(self, run_id: str) -> dict:
-        found = dict(self._reports()).get(run_id) if RUN_ID.fullmatch(run_id or "") else None
+        """One run's end screen. `run_id` is the report's stamp; the command line also says `report:<stamp>` or `last`
+        (the newest report)."""
+        reports = dict(self._reports())
+        text = run_id[len("report:"):] if isinstance(run_id, str) and run_id.startswith("report:") else run_id
+        if text == "last":
+            if not reports:
+                raise OpProblem("There is no run report yet.", "refused")
+            text = max(reports)
+        found = reports.get(text) if isinstance(text, str) and RUN_ID.fullmatch(text) else None
         if found is None:
             raise OpProblem("That run report is not there any more.", "refused")
+        run_id = text
         return {"run": views.run_detail(run_id, found, self._state(), cover=self._cover(self._images()),
                                         folder_order=self._folders())}
 
@@ -2932,6 +2952,97 @@ class CliApi(HubApi):
             answer["next"] = [{"run": "sync read", "why": "the playlists were read before their last change, or more "
                                                           "than a day ago: a song added to one since is in no record yet"}]
         return answer
+
+    @cli_first
+    def rekordbox_preview(self, track_id: str | None = None, path: str | None = None) -> dict:
+        """What Same track, Convert and Rename would do for one file, and what rekordbox holds for it (design §5.2; the
+        engine's `rekordbox/preview.py`): the song `track_id` (its key) or any file `path`, exactly one of them.
+        Read only: it decodes the file (a few seconds), takes no library lock, and holds the shared `rekordbox.lock` only
+        while master.db is open; with a writer holding it master.db is not opened, `rekordbox.writing` is true and the
+        timing `unreadable`. A file the library does not know still gets the rekordbox part. Each entry of the rekordbox
+        part has its `folder_path`, its analysis files (`content_file`: `path`, `hash`, `size`, `updated_at`) and its
+        `updated_at`; the words (`<fact>_text`) stand beside the facts. A song the library does not know is `refused`,
+        a file that is not there `refused` with the reason `file_missing` or `away`, one that cannot be read `failed`."""
+        if (track_id is None) == (path is None):
+            raise BadId("conflicting_flags" if track_id is not None else "usage",
+                        "Say either a song or --path <file>, not both." if track_id is not None
+                        else "Say which file: a song of your library or --path <file>.")
+        paths = self._paths if track_id is not None else self._bound  # a file needs no music folder
+        writing: list[bool] = []
+
+        @contextlib.contextmanager
+        def reading():
+            with rb_lock.reader_lock(self._support.support) as free:
+                if not free:
+                    writing.append(True)
+                yield free
+
+        answer = rb_preview.preview(paths, track=track_id, path=path, reading=reading)
+        if writing:
+            answer["rekordbox"]["writing"] = True
+        return preview_words(answer)
+
+    @cli_first
+    def batches(self, kind: str | None = None, limit: int = 20) -> dict:
+        """The batches Discjockey made, AIFF batches (Same track, Convert, Rename) and move batches (tidy-ups, saves,
+        folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them). `{batches, total}`;
+        `total` counts every batch of the kinds asked for, the list holds the newest `limit`. A row: `id` (`aiff:12` or
+        `moves:12`, the id every other command takes), `kind`, `what` (an AIFF batch's `upgrade` | `convert` | `mixed`; a
+        move batch's title), `started_by`, `state` (`running` | `stopped` | `done`), `stop_reason`, `started`, `ended`,
+        `total`, `done`, `skipped`, `failed`, `planned`, `undone` (items; for a move batch `done` is the files moved),
+        `backup` (the rekordbox backup an AIFF batch made), and for a move batch `undone_by` (the id of the batch that
+        undid it). `limit` 0 is every batch."""
+        if kind not in (None, *BATCH_KINDS):
+            raise BadId("bad_id_kind", f"A batch kind is aiff or moves, not {kind}.")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+            raise BadId("usage", "--limit takes a number: 0 for every batch.")
+        fetch = limit or -1  # SQLite's LIMIT -1 is no limit
+        paths = self._paths
+        rows: list[dict] = []
+        total = 0
+        with self._move_log() as conn:
+            if conn is not None:
+                if kind in (None, "aiff"):
+                    found, count = db.aiff_batches(conn, fetch)
+                    rows += [views.aiff_batch_row(b) for b in found]
+                    total += count
+                if kind in (None, "moves"):
+                    found, count = db.batches(conn, fetch)
+                    rows += [self._moves_batch_row(conn, b) for b in found]
+                    total += count
+        rows.sort(key=lambda r: (r["started"], r["batch"], r["kind"]), reverse=True)
+        return {"batches": rows[:limit] if limit else rows, "total": total}
+
+    def _moves_batch_row(self, conn, b: BatchRow) -> dict:
+        return views.moves_batch_row(b, self._batch_title(conn, b), db.planned_moves(conn, b.id))
+
+    @cli_first
+    def batch_detail(self, batch: str) -> dict:
+        """One batch by its typed id (`aiff:12` or `moves:12`; a bare number is `bad_args`: the two kinds count
+        separately): its row as `batches` lists it, and under `results` (an AIFF batch: each item with its `name`,
+        `action`, `state`, `reason`, `message`, the new file's `path` and what was written to rekordbox,
+        `rekordbox.entries` and `kept`) or `moves` (a move batch: each move as the records keep it, with `text` for
+        one that was not made). An id no batch has is `bad_args` / `unknown_id`."""
+        found = parse_id(batch, BATCH_KINDS)
+        paths = self._paths
+        with self._move_log() as conn:
+            if found.kind == "aiff":
+                row = db.aiff_batch(conn, found.value) if conn is not None else None
+                if row is None:
+                    raise BadId("unknown_id", f"There is no AIFF batch {found.value}.")
+                tracks = self._state()["tracks"]
+                result = batches.result_of(paths, found.value).to_dict()
+                items = [{**item, "name": self._track_name(tracks, item["track"])} for item in result["results"]]
+                return {**views.aiff_batch_row(row), "results": items}
+            row = db.batch(conn, found.value) if conn is not None else None
+            if row is None:
+                raise BadId("unknown_id", f"There is no move batch {found.value}.")
+            return {**self._moves_batch_row(conn, row), "moves": views.batch_moves(db.batch_moves(conn, found.value))}
+
+    @staticmethod
+    def _track_name(tracks: dict, key: str) -> str:
+        e = tracks.get(key)
+        return f"{e['artist']} - {e['title']}" if e else key
 
     def _read_is_old(self) -> bool:
         """Whether the last read of the playlists is older than a day or than playlists.txt's last change (or there was

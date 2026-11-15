@@ -107,12 +107,18 @@ def test_the_switch_is_the_setup_wizards_too_without_a_music_folder(tmp_path):
 
 
 # --- rekordbox_status ---
+def main_facts(answer: dict) -> dict:
+    """The four facts the window's Sync page reads of `rekordbox_status()` (the answer has more: library, version, the
+    size and time of master.db)."""
+    return {k: v for k, v in answer.items() if k in ("ok", "state", "running", "writing", "as_of")}
+
+
 
 def test_rekordbox_status_answers_the_cached_state_and_asks_whether_it_runs_each_time(hub):
     lib, rb, api, rec = hub(["mp3"])
-    assert api.rekordbox_status() == {"ok": True, "state": "ready", "running": False}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "ready", "running": False}
     rb.running = True
-    assert api.rekordbox_status() == {"ok": True, "state": "ready", "running": True}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "ready", "running": True}
     rb.running = False
     assert api.rekordbox_status()["running"] is False
 
@@ -122,11 +128,11 @@ def test_rekordbox_status_says_none_and_unreadable_and_works_without_a_music_fol
     empty.mkdir()
     api, _ = make_unbound_api(tmp_path / "support", rekordbox_running=lambda: True,
                               rekordbox_place=lambda: Place(empty / "master.db", empty / "share", "override", None))
-    assert api.rekordbox_status() == {"ok": True, "state": "none", "running": True}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "none", "running": True}
     lib = make_lib(tmp_path, monkeypatch, ["mp3"])
     lib.place.db.write_bytes(b"not a database")
     api, _ = make_api(lib.paths, rekordbox_running=lambda: False, rekordbox_place=lambda: lib.place)
-    assert api.rekordbox_status() == {"ok": True, "state": "unreadable", "running": False}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "unreadable", "running": False}
 
 
 # --- sync_preview().auto_upgrade ---

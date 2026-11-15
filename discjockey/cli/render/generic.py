@@ -108,8 +108,8 @@ def _rows(payload: Mapping, skip: Collection[str], verbose: bool) -> list[Row]:
     for key, value in payload.items():
         if key in skip or isinstance(value, Mapping) or _is_object_list(value):
             continue
-        if not verbose and not key.endswith(TEXT) and isinstance(payload.get(key + TEXT), str):
-            continue  # its words stand for it
+        if not verbose and not key.endswith(TEXT) and key + TEXT in payload:
+            continue  # its words stand for it ("none" too: a fact with no words has none)
         name = label(key[:-len(TEXT)]) if key.endswith(TEXT) and key[:-len(TEXT)] in payload and not verbose else label(key)
         out.append(Row(name, cell(value)))
     return out

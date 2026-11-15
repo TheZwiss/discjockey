@@ -41,7 +41,7 @@ from .events import BatchProgress, Cancelled, CancelToken, ImportProgress
 from .hub import views
 from .library import LockHeld, NoLibrary, Paths, StateError
 from .rekordbox import process
-from .rekordbox_cmd import failed, no_library, say
+from .cli.legacy_out import failed, no_library, say
 
 GROUPS = ("lossless", "cdj")
 NOTHING_TO_DO = aiff_plan.NOTHING_TO_CHANGE

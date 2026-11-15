@@ -402,14 +402,21 @@ def test_a_reader_without_a_support_folder_or_a_writable_one_reads_as_before(tmp
     assert not (tmp_path / "not-there").exists()  # a read makes no folder
 
 
+def main_facts(answer: dict) -> dict:
+    """The four facts the window's Sync page reads of `rekordbox_status()` (the answer has more: library, version, the
+    size and time of master.db)."""
+    return {k: v for k, v in answer.items() if k in ("ok", "state", "running", "writing", "as_of")}
+
+
+
 def test_status_with_a_writer_holding_answers_writing_with_the_last_value_and_as_of(procs, support, monkeypatch):
     api, _ = make_unbound_api(support)
-    first = api.rekordbox_status()
+    first = main_facts(api.rekordbox_status())
     assert first == {"ok": True, "state": "none", "running": False}  # nobody writes: no `writing` key
     boom = lambda *a, **k: pytest.fail("master.db was opened while a writer held rekordbox.lock")  # noqa: E731
     monkeypatch.setattr(rekordbox, "status", boom)
     holder = procs.holder(support, "writer")
-    again = api.rekordbox_status()
+    again = main_facts(api.rekordbox_status())
     assert again == {"ok": True, "state": "none", "running": False, "writing": True, "as_of": "2026-10-20T21:47:00"}
     procs.release(holder)
 
@@ -418,7 +425,7 @@ def test_status_with_a_writer_and_nothing_read_yet_answers_ready_writing_without
     api, _ = make_unbound_api(support)
     monkeypatch.setattr(rekordbox, "status", lambda *a, **k: pytest.fail("opened"))
     holder = procs.holder(support, "writer")
-    assert api.rekordbox_status() == {"ok": True, "state": "ready", "running": False, "writing": True, "as_of": None}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "ready", "running": False, "writing": True, "as_of": None}
     procs.release(holder)
 
 

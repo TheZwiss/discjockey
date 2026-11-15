@@ -906,7 +906,8 @@ def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
     checks.add("RH2 audio tree (Superseded/ and Upgrades ready/ with it), analysis files and master.db equal "
                "to before", ok, detail)
     code, data, _, _ = run_cli(work, "rh2-batches", "batch", "list", "--json", offline=True)
-    checks.add("RH2 no batch row", code == 0 and data.get("count") == 0, f"{data.get('count')} batches")
+    checks.add("RH2 no batch row", code == 0 and data.get("data", {}).get("total") == 0,
+               f"{data.get('data', {}).get('total')} batches")
 
 
 def rh3_dry_on(work: Path, ctx: dict, picks: list[dict], checks: Checks) -> None:
@@ -957,7 +958,8 @@ def rh4_phase(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Chec
     if not block.get("batch"):
         raise Refused("RH4: the sync ran no batch: stopped before the later steps.")
     state["batch1"], state["backup1"] = block["batch"], block.get("backup")
-    code, shown, _, _ = run_cli(work, "rh4-show", "batch", "show", str(block.get("batch")), "--json", offline=True)
+    code, shown, _, _ = run_cli(work, "rh4-show", "batch", "show", f"aiff:{block.get('batch')}", "--json", offline=True)
+    shown = shown.get("data") or {}  # the envelope's data: the batch's row and its items
     checks.add("RH4 batch show: started_by auto_upgrade, state done", shown.get("started_by") == "auto_upgrade"
                and shown.get("state") == "done", f"started_by {shown.get('started_by')}, state {shown.get('state')}, "
                f"{shown.get('total')} items")
@@ -1548,10 +1550,11 @@ def check_batch(work: Path, ctx: dict, tag: str, run: dict, code: int, started_b
                and not run.get("skipped") and not run.get("failed"),
                f"exit {code}, batch {run.get('batch')}, state {run.get('state')}, done {run.get('done')}/"
                f"{run.get('total')}, skipped {run.get('skipped')}, failed {run.get('failed')}")
-    code, shown, _ = cli(work, f"{tag.lower()}-show", "batch", "show", str(run.get("batch")))
+    code, shown, _ = cli(work, f"{tag.lower()}-show", "batch", "show", f"aiff:{run.get('batch')}")
+    shown = shown.get("data") or {}  # the envelope's data: the batch's row and its items
     checks.add(f"{tag} batch show: started_by {started_by}, kind {kind}, state done",
-               shown.get("started_by") == started_by and shown.get("kind") == kind and shown.get("state") == "done",
-               f"started_by {shown.get('started_by')}, kind {shown.get('kind')}, state {shown.get('state')}, "
+               shown.get("started_by") == started_by and shown.get("what") == kind and shown.get("state") == "done",
+               f"started_by {shown.get('started_by')}, kind {shown.get('what')}, state {shown.get('state')}, "
                f"{shown.get('total')} items")
 
 

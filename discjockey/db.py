@@ -1166,6 +1166,11 @@ def batches(conn: sqlite3.Connection, limit: int = 20) -> tuple[list[BatchRow], 
     return out, conn.execute("SELECT COUNT(*) FROM move_batches").fetchone()[0]
 
 
+def planned_moves(conn: sqlite3.Connection, batch_id: int) -> int:
+    """How many moves of a batch are still `planned` (a batch that is running, or was stopped by a crash)."""
+    return conn.execute("SELECT COUNT(*) FROM moves WHERE batch = ? AND state = 'planned'", (batch_id,)).fetchone()[0]
+
+
 def batch(conn: sqlite3.Connection, batch_id: int) -> BatchRow | None:
     """One batch as `batches` lists it; None when there is no such batch."""
     found = _batch_rows(conn, "WHERE b.id = ?", (batch_id,))

@@ -73,7 +73,7 @@ def test_the_short_help_starts_with_the_agents_line_and_lists_the_words(capsys):
 
 def test_help_of_one_noun_or_command(capsys):
     code, env = run_json(["help", "rekordbox"], capsys)
-    assert code == 0 and [c["command"] for c in env["data"]["commands"]] == ["rekordbox status"]
+    assert code == 0 and [c["command"] for c in env["data"]["commands"]] == ["rekordbox preview", "rekordbox status"]
     code, env = run_json(["help", "rekordbox", "status"], capsys)
     assert code == 0 and env["data"]["commands"][0]["example"] == "rekordbox status"
     code, env = run_json(["help", "app", "open"], capsys)

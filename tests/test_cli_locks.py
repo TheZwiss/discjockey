@@ -70,8 +70,26 @@ def taken_by(box, drive) -> frozenset[str]:
     return frozenset(rec.words)
 
 
+def _preview(api, rec):
+    """`rekordbox preview --path` on a real file, against a fixture rekordbox library: its master.db is opened once."""
+    from pathlib import Path
+    from unittest import mock
+
+    from rekordbox_helpers import make_master
+    folder = api._paths.root / "rekordbox"
+    make_master(folder, [])
+    with mock.patch.dict("os.environ", {"DISCJOCKEY_REKORDBOX": str(folder)}):
+        answer = api.rekordbox_preview(path=str(Path(__file__).parent / "fixtures" / "clicks-lame.mp3"))
+    assert answer["ok"], answer
+
+
 # one driver per built entry's method: it does what the command's method does, once
 DRIVERS = {
+    "rekordbox_preview": _preview,
+    "batches": lambda api, rec: api.batches(),
+    "batch_detail": lambda api, rec: api.batch_detail("moves:1"),
+    "move_batches": lambda api, rec: api.move_batches(),
+    "run": lambda api, rec: api.run("last"),
     "rekordbox_status": lambda api, rec: api.rekordbox_status(),
     "job_status": lambda api, rec: api.job_status(),
     "stop_refresh": lambda api, rec: api.stop_refresh(),

@@ -603,6 +603,17 @@ export type SetupStatus = {
 export type RekordboxStatus = {
   state: 'ready' | 'none' | 'unreadable';
   running: boolean;
+  /** The command line's richer answer (the window reads `state` and `running` only): the words for the state and the
+   *  problem, what is wrong with the library, rekordbox's version, master.db's path, DB version, modified time (local ISO,
+   *  to the second) and size; each null where unknown. */
+  state_text?: string;
+  problem?: 'unclean' | 'busy' | 'key' | 'db_version' | 'schema' | null;
+  problem_text?: string | null;
+  version?: string | null;
+  library?: string | null;
+  db_version?: string | null;
+  modified_at?: string | null;
+  size?: number | null;
   /** Present (true) while a Discjockey writer holds `rekordbox.lock`: `state` is then the last value read. */
   writing?: boolean;
   /** With `writing`: when that value was read (ISO time), null when none was read yet. */

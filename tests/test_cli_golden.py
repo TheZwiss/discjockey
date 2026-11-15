@@ -10,13 +10,16 @@ all three for free:
 import json
 import os
 import shlex
+import shutil
+import time
 from pathlib import Path
 
 import pytest
-from hub_helpers import choose_music, make_root
+from hub_helpers import LOSSY, choose_music, make_root
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
+from test_cli_batches import with_batches, with_report
 from test_cli_reads import rich_library
 from discjockey.cli import bind, parser
 from discjockey.cli.render import generic
@@ -28,19 +31,41 @@ READS = [e for e in parser.built() if e.kind == "R"]
 
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
                                                                                         # parked and checks open
+CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file: a preview decodes it
+MASTER_TIME = 1_700_000_000  # master.db's modified time in the fixture: a fixed one, in UTC, so its page is the same everywhere
 
 
 @pytest.fixture
-def fixture(tmp_path, monkeypatch, request):
+def utc():
+    """The page of `rekordbox status` words master.db's modified time in local time: UTC for the golden."""
+    before = os.environ.get("TZ")
+    os.environ["TZ"] = "UTC"
+    time.tzset()
+    yield
+    if before is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = before
+    time.tzset()
+
+
+@pytest.fixture
+def fixture(tmp_path, monkeypatch, request, utc):
     """The hub fixtures every read runs on: a library of three songs, a rekordbox library with no tracks, rekordbox
     closed (conftest). The reads of To-do and one track run on `rich_library` (an upgrade waiting, two open checks)."""
     entry = request.node.callspec.params.get("entry") if hasattr(request.node, "callspec") else None
     if entry is not None and entry.command in RICH:
         return rich_library(tmp_path, monkeypatch).root
-    make_root(tmp_path)
+    paths = make_root(tmp_path)
     choose_music(tmp_path, monkeypatch)
+    if entry is not None and entry.command[0] == "batch":
+        with_batches(paths)  # two AIFF batches and a move batch: the typed ids `aiff:1`, `aiff:2`, `moves:1`
+    if entry is not None and entry.command == ("report", "show"):
+        with_report(paths)
     make_master(tmp_path / "rekordbox", [])
+    os.utime(tmp_path / "rekordbox" / "master.db", (MASTER_TIME, MASTER_TIME))
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(tmp_path / "rekordbox"))
+    shutil.copyfile(CLICKS, tmp_path / LOSSY)  # a real file where the fake one was: `rekordbox preview` decodes it
     return tmp_path
 
 

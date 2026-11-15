@@ -27,7 +27,8 @@ can't read the file.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -67,6 +68,11 @@ class TimelineOffset:
 _LOCATE = object()
 
 
+@contextmanager
+def _free() -> Iterator[bool]:
+    yield True
+
+
 def analysis_files(place: Place, entry: Entry) -> tuple[Path, Path] | None:
     """The track's `.DAT` and `.EXT`: `AnalysisDataPath` (it starts with `/PIONEER/USBANLZ/…`) under `share`."""
     if not entry.analysis_path:
@@ -103,12 +109,14 @@ def _analysis(place: Place, entry: Entry) -> tuple[bool, np.ndarray | None]:
 
 def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool] | None = None,
                     decode: Callable | None = None, trim: Callable | None = None,
-                    probe_audio: Callable | None = None, view: RekordboxView | None = None) -> TimelineOffset:
+                    probe_audio: Callable | None = None, view: RekordboxView | None = None,
+                    reading: Callable[[], AbstractContextManager[bool]] | None = None) -> TimelineOffset:
     """Where rekordbox's timeline sits for `old_file`. `place` defaults to `locate()`, `running` to
     `process.running`, `decode` to `quality.decode_mono`, `trim` to `probe.start_trim`, `probe_audio` to
     `quality.probe`, each looked up at call time. `view`: a batch's open library (its index and status): the answer
     comes from it and nothing is located, asked or opened (`place` and `running` are not used); None opens the
-    library for this one answer."""
+    library for this one answer. `reading`: held while that library is open, yielding False when it must not be opened
+    (a writer holds `rekordbox.lock`: the answer is then `unreadable`, never a read)."""
     rb: Status | None = None
     entries: list[Entry] = []
     cues: dict[str, int] = {}
@@ -125,12 +133,18 @@ def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool
             entries = view.master.entries_for(Path(os.path.abspath(old_file)), view.index)
             cues = view.master.cue_counts([e.id for e in entries])
         else:
-            with master.open_read(place, is_running) as db:  # one keyed open answers the status and the queries
-                rb = master.status_of(db, is_running)
-                entries = db.entries_for(Path(os.path.abspath(old_file)))
-                cues = db.cue_counts([e.id for e in entries])
+            with (reading or _free)() as free:
+                if not free:  # a writer holds the lock: master.db is not opened, not even for the status
+                    return TimelineOffset(None, "unreadable", Status("ready", is_running, None, None, None, None, None), [])
+                with master.open_read(place, is_running) as db:  # one keyed open answers the status and the queries
+                    rb = master.status_of(db, is_running)
+                    entries = db.entries_for(Path(os.path.abspath(old_file)))
+                    cues = db.cue_counts([e.id for e in entries])
     except (Unreadable, sqlcipher3.DatabaseError):  # a read that fails (a busy or damaged file) is "can't read"
-        rb = rb or master.status(place, lambda: is_running)
+        if rb is None:  # the status is a keyed open too: under the same hold, and not at all while a writer has it
+            with (reading or _free)() as free:
+                rb = master.status(place, lambda: is_running) if free else Status(
+                    "ready", is_running, None, None, None, None, None)
         info = (probe_audio or quality.probe)(old_file)
         zero = timing.zero_only(info.codec)
         if rb.state == "none":  # the library went away between locate() and the open
