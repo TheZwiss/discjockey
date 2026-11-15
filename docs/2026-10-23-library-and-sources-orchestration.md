@@ -552,6 +552,17 @@ Results:
     V1.0 CUT by the Sonnet WEEKLY LIMIT (resets 2026-11-20 02:00 Berlin) before writing any brief (folder empty;
     size not reported). Every phase 1 group is Sonnet, so the queue waits for the reset. RESUME: after the reset,
     SendMessage the V1.0 agent to continue (its context is saved), else dispatch it fresh with the same prompt.
+    User reset the limit the same day; V1.0 resumed and done: Sonnet **408k** (est. 210k; 88 calls; material 39k:
+    ~10x material, it read the code to check every path and interface). 15 briefs 14-32k chars; gate script: 15/15
+    (seven parts, cited design § and v1 §2 names present, paths exist or made by this/earlier group, <=8k tokens).
+    Left to builders (no source fixes them): `resolve` return shape, `batches`/`batch_detail`/`settings_view`
+    shapes, `help --json` layout, per-reason words, `aiff convert` serving convert+make_aiff, `plan_id` param owner,
+    test override for `--wait 90`. Agent's additions: `cli/legacy_out.py` (helpers batch/convert/settings_cmd import
+    from rekordbox_cmd), `build(hub): static` rule, `select_listing`. Contradictions resolved (v2 113 vs 130 → 130;
+    RJ in V1.6; v1 1.12-1.14 sections win over §2 lines; code `job_id` not `JobStarted.id`; decisionModel path is
+    lib/decisions). V1.7 rehearsal: NOT a copy of the real settings.json; coordinator prepares a made-up one.
+    Branch feat/cli-1-live-slice from main 177fa59e; V1.1 worktree .claude/worktrees/cli1-1 on feat/cli-1-1.
+    Issue 39 ~4.50M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
