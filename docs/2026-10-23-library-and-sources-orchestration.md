@@ -483,7 +483,7 @@ Results:
     changed anything after its last full run; `git worktree remove`, then in cli1-live `git merge --no-ff feat/cli-1-N`
     + `git merge --no-ff main`, check_public, push; log size here; next group. Dispatch prompt pattern = V1.8's (brief
     path, worktree, D3/D4/D10/D11 note, earlier groups' decisions, no real data, full pytest at end, report <10 lines).
-    Merged: V1.1-V1.7 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.8 (Sonnet, est. 210-300k).
+    Merged: V1.1-V1.8 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.9.
     Next: V1.9, V1.10 (no own review); V1.11-V1.15 each: build → Sonnet review (findings file in phase1/) → fix-round
     agent that also runs the rehearsal on a copy (V1.11+V1.12 share one `rehearse`; made-up data only, never the
     user's support folder/library); then Opus phase review + fix, `npm run verify` once on the phase branch (bg), CI
@@ -660,6 +660,13 @@ Results:
     wrong (a 10-event burst vs tail=5 may compact unseen events, allowed by design) → one at a time; 20/20 alone;
     full 5098 passed. Window reader not affected (in-memory queue). Merged + main → 5057d827, pushed.
     Issue 39 ~6.51M.
+    V1.8 done 47b250a7: Sonnet **301k** (est. 210-300k; 118 calls; full 5146 passed). Moved into the engine:
+    `HubApi.find_tracks` (no-hit `next: sync read`; envelope lifts `next` from ok answers), `views.cutoff_text`
+    (window built it in format.ts), `check_view.person_steps` via new `discjockey/words.py` (+ `report.usb_step`
+    for the CLI, check_text unchanged to avoid printing it twice), bad `todo --group` = bad_args; `names.search_fold`
+    accent-insensitive for `track find` (FOR PHASE REVIEW: Library search still misses accent variants). Legacy
+    `upgrade list` removed from batch_cmd, tests ported; catalogue ceiling 109. No `todo --links` (not in catalogue).
+    Merged + main → 77b3eae6, pushed. Issue 39 ~6.81M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
