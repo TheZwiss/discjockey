@@ -88,13 +88,14 @@ def test_a_second_process_cannot_take_the_alive_lock(tmp_path):
 def test_liveness_is_the_lock_never_the_pid(tmp_path):
     files = make(tmp_path)
     files.update(status="running", pid=os.getpid(), pid_started=registry.process_started(os.getpid()))
+    files.release_claim()  # nobody holds the lock any more
     reader = Registry(tmp_path / "support").get(files.id)  # the recorded pid is this very process, and alive
     assert reader.state()["status"] == "lost"
     assert json.loads((files.dir / "state.json").read_text())["status"] == "lost"  # the reader rewrote it
     assert json.loads((files.dir / "state.json").read_text())["ended"]
     held = make(tmp_path)
     held.update(status="stopping")
-    with held.alive():
+    with held.alive():  # the creator's claim becomes the lock the job runs under
         assert Registry(tmp_path / "support").get(held.id).state()["status"] == "stopping"
 
 
@@ -298,7 +299,9 @@ def test_where_reports_the_jobs_running_from_the_registry(tmp_path, monkeypatch,
         assert cli.main(["where", "--json"]) == 0
         return json.loads(capsys.readouterr().out)["data"]["jobs_running"]
 
-    assert where() == 0  # queued, nobody holds the lock: lost
+    assert where() == 1  # `mine` is queued and its creator still holds the claim: alive, not lost
+    mine.release_claim()
+    assert where() == 0  # the creator let go and no worker took over: lost
     with mine.alive(), elsewhere.alive():
         mine.update(status="running")
         elsewhere.update(status="running")

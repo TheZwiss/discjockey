@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 from . import align, batches, convert, db, library, ops, rbstep, rekordbox, report as rep, upgrades
-from .events import BatchProgress, Cancelled, CancelToken, Result
+from .events import CTRL_C_REPEAT_S, BatchProgress, Cancelled, CancelToken, Result
 from .library import LockHeld, NameReserver, NoLibrary, Paths, StateError
 from .hub import views
 from .rekordbox import backup as rbbackup, eligible
@@ -40,7 +40,6 @@ from .settings import SettingsError, load_settings
 from .upgrades import UpgradeProblem
 
 OK, FAILED, NO_LIBRARY, BUSY, REKORDBOX_OPEN, STOPPED = 0, 1, 2, 3, 4, 5
-CTRL_C_REPEAT_S = 1.0  # as the sync's: uv and caffeinate forward one Ctrl-C a second time
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
 NOTHING = "None of these can be upgraded right now."
 AUTO_WAITS = "Waited for rekordbox to be closed at your last sync; it is upgraded at your next sync."

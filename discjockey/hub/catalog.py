@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import inspect
 import typing
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -72,10 +72,10 @@ PHASE = "phase 1"
 
 def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapping[str, Arg] | None = None,
        fixed: Mapping[str, object] | None = None, needs_yes: bool = False, dry_run: str | None = None,
-       cli_first: bool = False, built: bool = False) -> Entry:
+       cli_first: bool = False, built: bool = False, locks: Iterable[str] = ()) -> Entry:
     """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command."""
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
-                 params=params or {}, fixed=fixed or {}, cli_first=cli_first,
+                 params=params or {}, fixed=fixed or {}, cli_first=cli_first, locks=frozenset(locks),
                  planned=None if built or kind in ("W", "dropped") else PHASE, example=example)
 
 
@@ -164,7 +164,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("hide", "track unhide", "J", params={"track_id": TRACKS}, fixed={"hidden": False}),
     _e("setup_status", "setup status", "R", "setup status"),
     _e("app_update", "app info", "R", "app info"),
-    _e("rescan_library", "library scan", "J"),
+    _e("rescan_library", "library scan", "J", "library scan", built=True, locks={"library"}),
     _e("quit", "", "W"),
     _e("open_external", "open url", "R", "open url https://example.com"),
     _e("reveal", "open folder", "R", "open folder all"),

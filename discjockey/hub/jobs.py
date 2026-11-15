@@ -318,6 +318,7 @@ class Job:
     results: list = field(default_factory=list)  # every ActionFinished so far (as JSON data)
     finished: dict | None = None  # the JobFinished event
     finishing: threading.Lock = field(default_factory=threading.Lock)  # the worker and Stop never both finish it
+    error: BaseException | None = None  # what the work raised (a worker process reads its `Problem` fields off it)
 
     def record(self, event: object) -> None:
         data = event_dict(event)
@@ -336,10 +337,15 @@ class Job:
 
 class Jobs:
     def __init__(self, lock: Path | None, emit: Emit, *, keep_awake=keep_awake,
-                 now: Callable[[], datetime] = datetime.now):
+                 now: Callable[[], datetime] = datetime.now, inline: registry.JobFiles | None = None):
         """`lock`: the library's .lock; None while no music folder is bound (Setup's first steps): then a write job
-        only waits for the hub's other jobs, as there is no library to share with a terminal run."""
+        only waits for the hub's other jobs, as there is no library to share with a terminal run. `inline`: the job
+        folder of a worker process (`adopt`)."""
         self.lock, self.emit, self.keep_awake, self.now = lock, emit, keep_awake, now
+        self.inline: registry.JobFiles | None = None
+        self.inline_token: CancelToken | None = None  # the adopted job's token: Ctrl-C and its `stop` file cancel it
+        if inline is not None:
+            self.adopt(inline)
         self._mutex = threading.Lock()
         self.current: Job | None = None  # the running (or last) write job
         self.refresh: Job | None = None
@@ -351,6 +357,12 @@ class Jobs:
         self._brief = False  # lock_briefly or a scan holds (or is about to take) the engine lock: no terminal run
         self._scanning = False  # scan_lock holds the engine lock (without the mutex): writers answer busy
         self._briefs = 0  # how many times lock_briefly has taken it (a probe that overlapped one doesn't count)
+
+    def adopt(self, files: registry.JobFiles) -> None:
+        """A worker process (`job _worker`) runs exactly one job, the one `files` is: `start` takes that job's id, runs
+        the work on the calling (main) thread, which gets the signals and holds the locks, and returns after the
+        job's `JobFinished`. Its token also watches the job's `stop` file."""
+        self.inline, self.inline_token = files, CancelToken(files.dir / "stop")
 
     def bind(self, lock: Path) -> None:
         """The library's lock, once a music folder is bound (at start or when it is first chosen)."""
@@ -425,20 +437,27 @@ class Jobs:
             self._scanning = self._brief = False
 
     def _new(self, kind: str, track_id: str | None, batch_kind: str | None = None) -> Job:
-        return Job(registry.new_job_id(), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"), batch_kind)
+        files = self.inline
+        job_id, token = (files.id, self.inline_token) if files is not None else (registry.new_job_id(), CancelToken())
+        return Job(job_id, kind, track_id, token, self.now().isoformat(timespec="seconds"), batch_kind)
 
     def start(self, kind: str, work: Callable[[JobContext], dict | None], track_id: str | None = None,
               batch_kind: str | None = None) -> Job:
         """A write job: `work(ctx)` runs in a worker thread while holding the engine lock and keeping the Mac awake.
         `batch_kind`: for an AIFF batch job ("upgrade_batch", "aiff_batch", "batch_resume") the batch's kind, so the
-        snapshot of a reloaded window says whose batch runs. Raises Busy at once if another write job runs or the console holds the lock."""
+        snapshot of a reloaded window says whose batch runs. Raises Busy at once if another write job runs or the console holds the lock.
+        Adopted by a worker process (`adopt`): the same checks, then the work runs here, on the calling thread, and the
+        job is finished when this returns."""
         with self._mutex:
             if (busy := self._busy()) is not None:
                 raise busy
             if self.console_running():
                 raise Busy(CONSOLE_TEXT, "console")
             job = self.current = self._new(kind, track_id, batch_kind)
-            threading.Thread(target=self._run, args=(job, work, True), name=f"hub-job-{job.id}", daemon=True).start()
+            if self.inline is None:
+                threading.Thread(target=self._run, args=(job, work, True), name=f"hub-job-{job.id}", daemon=True).start()
+        if self.inline is not None:
+            self._run(job, work, True)  # outside the mutex: the work takes it again (lock_briefly)
         return job
 
     def start_refresh(self, work: Callable[[JobContext], dict | None]) -> Job:
@@ -532,6 +551,8 @@ class Jobs:
                 with lock, self.keep_awake("Discjockey is changing your library"):
                     self._holder.on = True
                     try:
+                        if self.inline is not None:  # the worker has the library: the registry says so
+                            self.inline.update(status="running", kind=job.kind)
                         self._at_lock()
                         result = work(ctx)
                     finally:
@@ -541,6 +562,7 @@ class Jobs:
             message = ctx.message
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
             ok = False
+            job.error = e
             problem, message = problem_of(e)
             service = service_of(e)
             result = ctx.failed_result

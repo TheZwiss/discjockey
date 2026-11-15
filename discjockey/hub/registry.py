@@ -17,6 +17,12 @@ the registry must not vanish with an unplugged drive, and a sandbox clone must n
 A job is `lost` when its `state.json` says `queued`, `running` or `stopping` and its `alive` lock is free: never decided
 by the pid (pids are reused after a crash or a reboot). The reader that finds it lost rewrites `status: lost`. A worker
 ends in this order: `result.json`, then `status: done`, then it lets go of the `alive` lock.
+
+The handoff (so a job is never `lost` between its creation and its worker's first breath): `Registry.create` takes the
+`alive` lock itself before `state.json` exists (the claim), the spawner passes that very descriptor to the worker
+(`pass_fds`; a `flock` belongs to the open file, not to the process, so the lock stays held while either process has
+it) and lets go of its own copy; the worker adopts the descriptor (`alive(fd=…)`). The job is therefore alive at every
+instant, and lost only if both die.
 """
 from __future__ import annotations
 
@@ -282,6 +288,7 @@ class JobFiles:
         self.id = directory.name
         self._lock = threading.Lock()
         self._mine: dict | None = None  # the state as the writing process has it
+        self._claim: int | None = None  # the `alive` descriptor the creator holds until the worker (or `alive()`) has it
         self._dirty = False
         self._written = float("-inf")
 
@@ -340,16 +347,52 @@ class JobFiles:
 
     # --- liveness ---
 
-    @contextmanager
-    def alive(self):
-        """Holds the `alive` flock for the job's whole life, and writes the process's pid and start time. Raises
-        `RuntimeError` when another process already holds it."""
+    def claim(self) -> int:
+        """Takes the `alive` lock before a worker exists (`Registry.create` does) and keeps the descriptor: pass it to
+        the worker with `pass_fds` and `release_claim` afterwards; or `alive()` of this same object adopts it. Raises
+        `RuntimeError` when another process holds the lock."""
+        if self._claim is not None:
+            return self._claim
         fd = os.open(self.dir / "alive", os.O_CREAT | os.O_RDWR, 0o644)
         try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            raise RuntimeError(f"{self.id} is already running in another process.") from None
+        self._claim = fd
+        return fd
+
+    def release_claim(self) -> None:
+        """Lets go of this process's copy of the claim (the worker's copy, if it got one, keeps the lock). Never call
+        `flock(LOCK_UN)` for this: that would release the lock for every copy."""
+        fd, self._claim = self._claim, None
+        if fd is not None:
+            os.close(fd)
+
+    @contextmanager
+    def alive(self, fd: int | None = None):
+        """Holds the `alive` flock for the job's whole life, and writes the process's pid and start time. `fd`: a
+        descriptor the spawner passed that already holds the lock (checked to be this job's `alive` file, and made
+        non-inheritable so no child of the worker keeps a dead job alive); this object's own claim is used when it has
+        one. Raises `RuntimeError` when another process already holds the lock."""
+        if fd is not None:
+            try:
+                same = os.fstat(fd).st_ino == os.stat(self.dir / "alive").st_ino
+            except OSError:
+                same = False
+            if not same:
+                raise RuntimeError(f"{self.id}: the descriptor handed over is not this job's alive lock.")
+            os.set_inheritable(fd, False)
+        elif self._claim is not None:
+            fd, self._claim = self._claim, None
+        else:
+            fd = os.open(self.dir / "alive", os.O_CREAT | os.O_RDWR, 0o644)
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
+                os.close(fd)
                 raise RuntimeError(f"{self.id} is already running in another process.") from None
+        try:
             self.update(pid=os.getpid(), pid_started=process_started(os.getpid()))
             try:
                 yield self
@@ -397,7 +440,9 @@ class Registry:
         self.root = Path(support) / "jobs"
 
     def create(self, kind: str, command: str, args: Mapping | None, via: str, roots: Mapping) -> JobFiles:
-        """A new job's folder with its `state.json` as `queued`. `roots`: `{music, support, rekordbox, sandbox}`
+        """A new job's folder with its `state.json` as `queued`, and the `alive` lock already taken by the caller (the
+        claim, see the handoff in the module's words): `files.release_claim()` once the worker has the lock, or
+        `with files.alive():` to run the job in this process. `roots`: `{music, support, rekordbox, sandbox}`
         (`sandbox` is null until sandboxes exist)."""
         if via not in ("window", "terminal"):
             raise ValueError(f"via is window or terminal, not {via!r}")
@@ -410,7 +455,7 @@ class Registry:
             except FileExistsError:
                 continue
         files = JobFiles(self.root / job_id)
-        (files.dir / "alive").touch()
+        files.claim()  # before state.json exists: a reader that sees the job sees it alive
         files.update(id=job_id, kind=kind, command=command, args=dict(args or {}), via=via,
                      roots={"music": None, "support": None, "rekordbox": None, "sandbox": None, **roots},
                      pid=None, pid_started=None, status="queued", started=_now(), ended=None, person_steps=[])
