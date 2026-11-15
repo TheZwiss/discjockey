@@ -414,7 +414,7 @@ def test_upgrade_apply_dry_run_of_named_songs_says_why_each_is_skipped(upgrades,
         (lib.tracks[0], "planned", None), (lib.tracks[1], "skipped", "needs_choice")]  # each song once
     assert data["rekordbox"] == {"state": "ready", "running": True, "needs_rekordbox_closed": True}
     plan = plan_store.load(lib.paths.support, data["plan_id"], str(lib.paths.root))
-    assert set(plan.items) == {lib.tracks[0], lib.tracks[1]} and plan.kind == "upgrade apply"
+    assert set(plan.items) == {lib.tracks[0], lib.tracks[1]} and plan.kind == "upgrade apply same_track"
     api = bind.default()
     nobody = api.upgrade_preview(["nope"])
     assert [(r["state"], r["reason"]) for r in nobody["items"]] == [("skipped", "no_upgrade")]

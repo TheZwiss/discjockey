@@ -79,8 +79,7 @@ PHASE = "phase 1"
 # the words into the entry's own `confirm`).
 CONFIRM: dict[str, str] = {
     "upgrade discard": "Throw away the new versions? Your current files stay. These versions are not offered again.",
-    "track undo": "Undo the last step of these tracks? Your old files go back where they were, and the new versions "
-                  "wait in Upgrades ready again.",
+    "track undo": "Undo the last step of these tracks? Your old files go back where they were.",
 }
 
 
@@ -281,7 +280,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("upgrade", "upgrade apply", "J",
        "upgrade apply \"Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff\" --way same-track --dry-run",
        params={"track_ids": TRACKS, "mode": Arg("--way", resolve="upgrade_way")}, dry_run="upgrade_preview", built=True,
-       locks={"library", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
+       locks={"library", "rekordbox_r", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
     _e("upgrade", "upgrade discard", "J", "upgrade discard t1aaaaaaa --dry-run", params={"track_ids": TRACKS},
        fixed={"mode": "discard"}, needs_yes=True, dry_run="upgrade_preview", built=True, locks={"library"},
        partial=UPGRADE_PARTIAL),

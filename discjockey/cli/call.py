@@ -20,7 +20,7 @@ from ..hub import catalog, registry, select
 from ..hub.catalog import Entry
 from ..rekordbox.locate import locate
 from . import bind, envelope, follow, worker
-from .parser import Flags, parameters_of, selects, signature_of
+from .parser import BATCH_SELECTION_WORDS, SELECTION_WORDS, Flags, parameters_of, selects, signature_of
 
 NOT_BUILT = "{command} is not built yet."
 START_WAIT_S = 15.0  # how long the client waits for a worker to leave `queued` (with --wait-busy: that much more)
@@ -89,8 +89,6 @@ def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool,
 
 
 NOTHING_LEFT = {"total": 0, "done": 0, "skipped": 0, "failed": 0, "results": []}  # the data of a run of no songs
-SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all or --rows."
-BATCH_SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all, --rows or --batch <aiff:n>."
 
 
 def _listing(entry: Entry, command: str, flags: Flags) -> tuple[dict | None, dict | None]:

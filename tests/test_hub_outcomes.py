@@ -196,3 +196,16 @@ def test_a_reason_the_list_lacks_falls_back_to_the_kind():
     err = OpProblem("x", "changed", reason="not_a_reason")
     assert outcomes.problem_fields("changed", err)["reason"] == "changed"
     assert outcomes.problem_fields("never_heard_of")["outcome"] == "failed"
+
+
+def test_a_run_that_did_nothing_and_failed_is_failed_and_a_run_that_did_some_is_partial():
+    row = lambda state: {"state": state}
+    partial = ("skipped", "failed")
+    assert outcomes.run_outcome([row("done")], partial) == "ok"
+    assert outcomes.run_outcome([row("done"), row("skipped")], partial) == "partial"
+    assert outcomes.run_outcome([row("done"), row("failed")], partial) == "partial"
+    assert outcomes.run_outcome([row("skipped"), row("failed")], partial) == "failed"  # nothing went through
+    assert outcomes.run_outcome([row("failed")], partial) == "failed"
+    assert outcomes.run_outcome([row("skipped")], partial) == "partial"  # nothing failed: not everything went through
+    assert outcomes.run_outcome([row("undone"), row("failed")], ("refused", "failed")) == "partial"
+    assert outcomes.run_outcome([row("refused"), row("failed")], ("refused", "failed")) == "failed"

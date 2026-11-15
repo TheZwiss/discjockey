@@ -23,7 +23,8 @@ from discjockey import batches, db, library, upgrades
 from discjockey.cli import bind, call, worker
 import discjockey.cli as cli
 from discjockey.hub import api as api_words, catalog, select
-from discjockey.rekordbox import process
+from discjockey.rekordbox import backup as rbbackup, process
+from discjockey.rekordbox import session as rbsession
 
 pytestmark = needs_ffmpeg
 
@@ -118,6 +119,11 @@ def test_same_track_on_three_tracks_is_one_aiff_batch_that_the_result_names(lib,
     [step] = [s for s in env["person_steps"] if s["id"] == "step:reload_tag"]
     assert step["then"] == "check done --batch aiff:1" and all(t in step["say"] for t in found.tracks)
     assert [r["person_steps"][0]["id"] for r in data["results"]] == ["step:reload_tag"] * 3
+    assert found.row(0)["FolderPath"].endswith("Song 0.aiff")  # rekordbox's row points at the new file
+    assert data["backup"]  # rekordbox's library was backed up before the batch wrote to it
+    assert data["results"][2]["rekordbox"] is None  # rekordbox does not hold the third
+    for r in data["results"][:2]:
+        assert set(r["rekordbox"]) == {"entries", "kept"} and isinstance(r["rekordbox"]["entries"], list), r
 
 
 def test_new_track_with_a_plan_runs_only_the_plans_items_and_says_where_to_relocate(lib, capsys):
@@ -126,7 +132,8 @@ def test_new_track_with_a_plan_runs_only_the_plans_items_and_says_where_to_reloc
     code, plan = run_json(["upgrade", "apply", a, b, *NEW, "--dry-run"], capsys)
     assert code == OK and plan["data"]["mode"] == "new_track" and plan["data"]["planned"] == 2
     plan_id = plan["data"]["plan_id"]
-    code, env = run_json(["upgrade", "apply", a, c, *NEW, "--plan", plan_id], capsys)  # b is gone, c is new
+    assert run_json(["upgrade", "discard", b, "--yes"], capsys)[0] == OK  # b changed since the plan; c is new
+    code, env = run_json(["upgrade", "apply", a, b, c, *NEW, "--plan", plan_id], capsys)
     data = env["data"]
     assert code == PARTIAL and env["outcome"] == "partial", env
     assert [(r["track"], r["action"], r["state"], r["reason"]) for r in data["results"]] == [
@@ -138,6 +145,56 @@ def test_new_track_with_a_plan_runs_only_the_plans_items_and_says_where_to_reloc
     assert step["id"] == "step:relocate_new" and new_file in step["say"] and step["then"] == f"check done {a}"
     assert data["results"][0]["person_steps"] == [step]
     assert env["next"] == []  # a New track has no batch
+    assert batches_of(found) == [] and rbbackup.backups(found.paths) == []  # no batch record, rekordbox never opened
+
+
+def test_a_dry_run_still_answers_while_the_library_and_rekordbox_writer_locks_are_held(lib, capsys):
+    found = lib(["mp3", "aiff"])
+    before = untouched(found)
+    with library.run_lock(found.paths.lock), rbsession.writer_lock(found.paths.support):  # busy would be exit 3
+        code, env = run_json(["upgrade", "apply", "--all", "--dry-run"], capsys)
+    assert (code, env["outcome"], env["data"]["planned"]) == (OK, "ok", 2)
+    assert untouched(found) == before and rbbackup.backups(found.paths) == []
+
+
+def test_a_plan_run_asks_only_about_the_songs_it_names(lib, capsys):
+    found = lib(["mp3", "aiff", "mp3_free"])
+    a, b, c = found.tracks
+    code, plan = run_json(["upgrade", "apply", a, b, c, *SAME, "--dry-run"], capsys)
+    code, env = run_json(["upgrade", "apply", a, b, *SAME, "--plan", plan["data"]["plan_id"]], capsys)  # c was not named
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert [(r["track"], r["state"]) for r in env["data"]["results"]] == [(a, "done"), (b, "done")]
+    assert env["data"]["total"] == 2 and env["data"]["skipped"] == 0
+    assert found.entry(2)["upgrade"]  # c stayed parked
+
+
+def test_all_with_a_plan_runs_what_the_plan_had_and_every_missing_song_is_changed(lib, capsys):
+    found = lib(["mp3", "aiff"])
+    code, plan = run_json(["upgrade", "apply", "--all", "--dry-run"], capsys)
+    assert code == OK and plan["data"]["planned"] == 2
+    code, env = run_json(["upgrade", "apply", "--all", "--plan", plan["data"]["plan_id"]], capsys)
+    assert (code, env["outcome"], env["data"]["done"], env["data"]["total"]) == (OK, "ok", 2, 2)
+
+
+def test_a_same_track_plan_with_a_changed_song_runs_the_rest_and_says_changed(lib, capsys):
+    found = lib(["mp3", "aiff", "mp3_free"])
+    a, b, c = found.tracks
+    code, plan = run_json(["upgrade", "apply", a, b, c, *SAME, "--dry-run"], capsys)
+    assert run_json(["upgrade", "discard", b, "--yes"], capsys)[0] == OK  # b changed since the plan
+    code, env = run_json(["upgrade", "apply", a, b, c, *SAME, "--plan", plan["data"]["plan_id"]], capsys)
+    assert (code, env["outcome"]) == (PARTIAL, "partial"), env
+    assert [(r["track"], r["state"], r["reason"]) for r in env["data"]["results"]] == [
+        (a, "done", None), (c, "done", None), (b, "skipped", "changed")]
+    assert env["data"]["batch_id"] == "aiff:1"
+
+
+def test_the_two_ways_of_the_same_songs_are_two_plans(lib, capsys):
+    found = lib(["mp3", "aiff"])
+    same = run_json(["upgrade", "apply", *found.tracks, *SAME, "--dry-run"], capsys)[1]["data"]["plan_id"]
+    new = run_json(["upgrade", "apply", *found.tracks, *NEW, "--dry-run"], capsys)[1]["data"]["plan_id"]
+    assert same != new
+    code, env = run_json(["upgrade", "apply", *found.tracks, *SAME, "--plan", same], capsys)  # not overwritten by the other
+    assert (code, env["outcome"]) == (OK, "ok"), env
 
 
 def test_a_plan_nobody_made_is_bad_args_and_a_plan_of_nothing_standing_is_refused(lib, capsys):
@@ -273,13 +330,21 @@ def test_the_bridge_takes_same_track_new_track_and_discard_and_refuses_swap_and_
     assert hub_api.UPGRADE_MODES == ("same_track", "new_track", "discard")
 
 
-def test_a_window_still_gets_the_old_results_and_none_of_the_command_lines_words(lib, capsys):
-    found = lib(["mp3"])
-    from hub_helpers import wait_job
-    api = bind.default()
-    assert not hasattr(type(api).upgrade, "resume_first") and api._resume_first
+def test_a_window_still_gets_the_old_results_and_none_of_the_command_lines_words(lib, capsys, monkeypatch):
+    import hub_helpers
     from discjockey.hub.api import HubApi
-    assert HubApi._resume_first is False  # only the command line refuses Upgrade all while a batch is stopped
+    found = lib(["mp3", "mp3"])
+    monkeypatch.setattr(process, "running", lambda: True)
+    assert run_json(["upgrade", "apply", *found.tracks, *SAME], capsys)[0] == NEEDS_PERSON  # leaves a stopped batch
+    monkeypatch.setattr(process, "running", lambda: False)
+    code, env = run_json(["upgrade", "apply", "--all"], capsys)  # the command line says: resume it first
+    assert (code, env["reason"]) == (REFUSED, "not_stopped")
+    assert HubApi._resume_first is False and api_words.CliApi._resume_first is True
+    api, rec = hub_helpers.make_api(found.paths)  # the window's own HubApi: Upgrade all still starts a job
+    answer = api.upgrade_all()
+    assert answer["ok"] and answer["job_id"]
+    finished = hub_helpers.wait_job(api, rec, answer)
+    assert not hasattr(api, "result_words") and "person_steps" not in (finished.result or {})  # the window's contract
 
 
 # --- the text page ---
@@ -337,7 +402,7 @@ def test_discard_with_yes_throws_the_new_versions_away_and_keeps_the_current_fil
     assert not found.entry(0)["upgrade"] and not found.entry(1)["upgrade"] and found.entry(2)["upgrade"]
     assert (found.paths.root / found.olds[0]).is_file()  # the current file stays
     code, env = run_json(["upgrade", "discard", found.tracks[2], "--yes"], capsys)
-    assert (code, env["outcome"], env["message"]) == (OK, "ok", "1 of 1 songs done.")
+    assert (code, env["outcome"], env["message"]) == (OK, "ok", "1 of 1 song done.")
 
 
 def test_discard_has_no_plan_and_one_song_with_nothing_to_discard_is_refused(lib, capsys):
@@ -510,7 +575,9 @@ def test_check_done_batch_ids_are_typed_and_checked(lib, capsys):
     code, env = run_json(["check", "done", found.tracks[0], "--batch", batch], capsys)
     assert (code, env["outcome"], env["reason"]) == (2, "bad_args", "conflicting_flags")
     code, env = run_json(["check", "done"], capsys)
-    assert (code, env["reason"]) == (2, "usage")
+    assert (code, env["reason"]) == (2, "usage") and "--batch <aiff:n>" in env["message"]
+    code, env = run_json(["track", "undo"], capsys)  # a command with no batch says the shorter list
+    assert (code, env["reason"]) == (2, "usage") and "--rows." in env["message"] and "--batch" not in env["message"]
     assert found.entry(0)["rekordbox_check"]
 
 
@@ -522,9 +589,14 @@ def test_a_track_with_nothing_to_check_is_skipped_not_an_error(lib, capsys):
     assert [(r["track"], r["state"], r["reason"]) for r in env["data"]["results"]] == [
         (found.tracks[0], "done", None), (found.tracks[1], "skipped", "nothing_to_check")]
     assert env["message"].startswith("1 of 2 tracks checked in rekordbox.") and env["message"].endswith("1 had nothing to check.")
-    code, env = run_json(["check", "done", found.tracks[1]], capsys)  # only such tracks: nothing was done
-    assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "changed")
-    assert env["data"]["results"][0]["state"] == "skipped" and env["message"] == api_words.NOTHING_TO_CHECK
+    code, env = run_json(["check", "done", found.tracks[1]], capsys)  # only such tracks: nothing to do is no error
+    assert (code, env["outcome"], env["reason"]) == (OK, "ok", None)
+    assert [(r["track"], r["state"], r["reason"]) for r in env["data"]["results"]] == [
+        (found.tracks[1], "skipped", "nothing_to_check")]
+    assert (env["data"]["total"], env["data"]["done"], env["data"]["skipped"]) == (0, 0, 1)
+    assert env["message"] == api_words.NOTHING_TO_CHECK
+    from discjockey.hub.api import HubApi  # the window's job keeps ending `changed`
+    assert HubApi._skipped_check_is_ok is False
 
 
 def test_check_done_all_checks_every_open_check_and_with_none_open_is_ok_total_0(lib, capsys):

@@ -17,6 +17,7 @@ EXIT = {"ok": 0, "failed": 1, "bad_args": 2, "busy": 3, "needs_person": 4, "stop
 
 # When several outcomes apply to one command (several items, several problems), the first of these wins; `partial`
 # is what is left when some items were done and others ended in a state the command counts as partial.
+DONE_STATES = ("done", "undone")  # an item's states that mean it went through (an undo's is `undone`)
 PRECEDENCE = ("bad_args", "busy", "refused", "needs_person", "stopped", "failed", "partial", "ok")
 
 
@@ -154,9 +155,15 @@ def pick(outcomes: Iterable[str]) -> str:
 
 def run_outcome(results: Iterable[Mapping] | None, partial: Iterable[str]) -> str:
     """`ok`, or `partial` when a finished run has an item in a state its command counts (the catalogue's `partial`
-    column, design §4.3, R24): never `ok` with the failures hidden, never `failed` for a run that did the rest."""
+    column, design §4.3, R24): never `ok` with the failures hidden, never `failed` for a run that did the rest. A run
+    in which no item was done and at least one failed is `failed`: `partial` is for a run that did some and not all."""
     states = set(partial)
-    return "partial" if any(r.get("state") in states for r in results or ()) else "ok"
+    rows = list(results or ())
+    if not any(r.get("state") in states for r in rows):
+        return "ok"
+    if not any(r.get("state") in DONE_STATES for r in rows) and any(r.get("state") == "failed" for r in rows):
+        return "failed"
+    return "partial"
 
 
 def problem_fields(kind: str, error: BaseException | None = None) -> dict:

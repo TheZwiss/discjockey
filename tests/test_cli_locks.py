@@ -97,7 +97,11 @@ def _parked(api, rec, *, all_of_them: bool = False):
     make_master(folder, [])
     api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
     api._svc.rekordbox_place = lambda: locate_in(folder)
-    answer = api.upgrade_all() if all_of_them else api.upgrade(["t2"], "same_track")
+    if all_of_them:
+        answer = api.upgrade_all()
+    else:  # with the plan of its dry run, as `--plan` runs it: that also reads rekordbox's state (`rekordbox_r`)
+        plan_id = api.save_plan("upgrade apply", api.upgrade_preview(["t2"], "same_track"), "upgrade apply t2 --dry-run")
+        answer = api.upgrade(["t2"], "same_track", plan_id)
     assert wait_job(api, rec, answer).ok
 
 

@@ -331,6 +331,7 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
 
 
 class HubApi:
+    _skipped_check_is_ok = False  # the window's job ends `changed` when no named track had a check; the command line's is ok, the rows skipped
     _resume_first = False  # the command line refuses Upgrade all while a stopped upgrade batch waits (the window hides it)
 
     def __init__(self, support: Path, events=None, services: Services | None = None, media=None,
@@ -461,7 +462,8 @@ class HubApi:
         -> the answer the engine gives today): which still stand, which changed (the run answers them `skipped`,
         `changed`) and which are new since the plan (`data.new_since_plan`, left out). Raises `UnknownPlan` or
         `PlanExpired`, which `_answering` turns into `bad_args` / `refused` for whoever called. What every write method
-        that takes a `plan_id` starts with, under its lock."""
+        that takes a `plan_id` starts with: before the job starts (`upgrade`, `upgrade_all`: the job asks each item again under
+        its lock)."""
         plan = plan_store.load(self._support.support, plan_id, self._plan_root())
         return plan, plan_store.bind(plan, now)
 
@@ -2233,7 +2235,7 @@ class HubApi:
             body = {"results": [asdict(r) for r in done], "checked": checked,
                     "not_checked": [] if ids is None else [t for t in ids if t not in checked], "recovered": recovered,
                     **({} if ids is not None else {"batch": batch_id})}
-            if not checked and ids is not None:
+            if not checked and ids is not None and not self._skipped_check_is_ok:
                 ctx.failed_result = body  # the skipped rows still say which tracks had nothing to check
                 raise OpProblem(NOTHING_TO_CHECK, "changed")
             for t in checked:
@@ -2243,19 +2245,21 @@ class HubApi:
         return {"job_id": self._jobs.start("rekordbox_checked", work,
                                            track_id=ids[0] if ids is not None and len(ids) == 1 else None).id}
 
-    def _plan_run(self, plan_id: str, mode: str, ids: list[str], state: dict
+    def _plan_run(self, plan_id: str, mode: str, ids: list[str], state: dict, typed: set[str] | None = None
                   ) -> tuple[list[str], list[batches.ItemResult], dict]:
         """A run with a plan (design §7.1): the songs of `ids` that still stand as the dry run saw them (`_bind_plan`
         against what `upgrade_preview` says today), the songs it leaves as skipped (`changed`) and what the result adds
-        (`new_since_plan`: the songs the plan did not have). The words of the dry run are the one check of what changed:
-        a song asked about again by the run itself, as always."""
+        (`new_since_plan`: the songs the plan did not have). `typed`: the songs the person named; a plan song they did not
+        name was never asked for, so it is no `changed` row (None, Upgrade all: every plan song that does not stand now
+        is `changed`). The words of the dry run are the one check of what changed: a song asked about again by the
+        run itself, as always."""
         rows = batches.upgrade_preview(self._paths, state, ids, mode, self._rekordbox_status())["items"]
         _, bound = self._bind_plan(plan_id, {r["key"]: r for r in rows})
         if not bound.run:
             raise OpProblem(PLAN_NOTHING, "changed")
         action = batches.PREVIEW_MODES[mode]
         left = [batches.ItemResult(k, action, "skipped", "changed", PLAN_CHANGED_WORDS, None, None)
-                for k in bound.changed]
+                for k in bound.changed if typed is None or k in typed]
         return list(bound.run), left, {"new_since_plan": list(bound.new)} if bound.new else {}
 
     @bridge
@@ -2273,7 +2277,7 @@ class HubApi:
         if plan_id is not None:
             if mode == "discard":
                 raise ValueError(PLAN_NOT_DISCARD)
-            ids, left, extra = self._plan_run(plan_id, mode, ids, self._state())
+            ids, left, extra = self._plan_run(plan_id, mode, ids, self._state(), typed=set(ids))
         track = ids[0] if len(ids) == 1 and not left else None
         if mode == "same_track":
             work = self._batch_work(lambda: batches.start(
@@ -2957,6 +2961,7 @@ class CliApi(HubApi):
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
+    _skipped_check_is_ok = True
 
     # --- plans (design §7.1): the command line's call path saves a dry run's plan (`save_plan`) and says when its scan
     # was (`scan_next`); a write method that takes `plan_id` binds it (`HubApi._bind_plan`). Plain methods, not bridge
@@ -2971,6 +2976,8 @@ class CliApi(HubApi):
         if items is None or kind in NO_PLAN_COMMANDS:
             return None
         extra = {**(answer.get("plan_extra") or {}), "command": command}
+        if answer.get("mode"):  # `upgrade apply`'s two ways are two plans of the same songs
+            kind = f"{kind} {answer['mode']}"
         return plan_store.save(self._support.support, kind, self._plan_root(), items, extra)
 
     @cli_first
@@ -2980,7 +2987,7 @@ class CliApi(HubApi):
         Upgrade all) name their batch as `aiff:<n>`, give each done song the steps only a person can do in rekordbox
         (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
         for the whole run. An undo says how many tracks went back; "Done, checked" gives each track a row, `done` or
-        `skipped` (nothing to check), and says that the undo ended. Read only: it looks at the records after the job. A
+        `skipped` (nothing to check; `outcome: "ok"` when no track had one), and says that the undo ended. Read only: it looks at the records after the job. A
         method with no words says nothing."""
         if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
             return self._upgrade_words(result)
@@ -2999,7 +3006,7 @@ class CliApi(HubApi):
             if result.get("done"):
                 out["next"] = [{"run": f"batch show {batch}", "why": "every song of this batch"},
                                {"run": "check list", "why": "what is left to do in rekordbox"}]
-        parts = [f"{result['done']} of {result['total']} songs done"]
+        parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
         parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed"))) if n]
         out["message"] = ", ".join(parts) + "."
         tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
@@ -3026,7 +3033,8 @@ class CliApi(HubApi):
         """`track undo`: how many tracks went back; each track that now has its better version waiting again is
         `upgrade list`'s."""
         undone = [r["track"] for r in result["results"] if r.get("state") == "undone"]
-        out: dict = {"message": f"{len(undone)} of {len(result['results'])} tracks undone."}
+        total = len(result["results"])
+        out: dict = {"message": f"{len(undone)} of {total} {'track' if total == 1 else 'tracks'} undone."}
         tracks = library.load_state(self._paths)["tracks"] if self._paths and undone else {}
         if any((tracks.get(t) or {}).get("upgrade") for t in undone):
             out["next"] = [{"run": "upgrade list", "why": "the better versions wait there again"}]
@@ -3041,15 +3049,14 @@ class CliApi(HubApi):
         rows += [{"track": t, "action": "check", "state": "skipped", "reason": "nothing_to_check",
                   "message": NOTHING_TO_CHECK_ONE} for t in result.get("not_checked") or ()]
         checked, skipped = len(result["checked"]), len(result.get("not_checked") or ())
-        if not rows:
-            message = NOTHING_TO_CHECK
-        else:
-            message = f"{checked} of {len(rows)} tracks checked in rekordbox." if skipped else \
-                f"{checked} {'track' if checked == 1 else 'tracks'} checked in rekordbox."
-            if checked:
-                message += CHECK_ENDS_UNDO
-            if skipped:
-                message += f" {skipped} had nothing to check."
+        if not checked:  # nothing to check is no error (an `--all` with none open, or only such tracks named): ok, total 0
+            return {"message": NOTHING_TO_CHECK, "outcome": "ok",
+                    "data": {"results": rows, "total": 0, "done": 0, "skipped": skipped, "failed": 0}}
+        message = f"{checked} of {len(rows)} tracks checked in rekordbox." if skipped else \
+            f"{checked} {'track' if checked == 1 else 'tracks'} checked in rekordbox."
+        message += CHECK_ENDS_UNDO
+        if skipped:
+            message += f" {skipped} had nothing to check."
         return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
                                              "failed": 0}}
 
