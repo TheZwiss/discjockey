@@ -580,6 +580,16 @@ Results:
     old rekordbox status handler gone, `data` = {state, running} until V1.9. Phase review: `call select` refused
     (select in DROPPED and cli_first); `app_main.CLI_COMMANDS` lacks `call` and the new nouns (V1.3's "any argument is
     a command"); `--json upgrade list` still drops --json (legacy, pinned; V1.11). Issue 39 ~4.96M.
+    V1.3 done eb7ecb34: Sonnet **208k** (est. 185k; 71 calls). My full pytest: 4970 passed, 4 skipped. Merged + main
+    → bf2f8892, pushed. Decisions: `call` moved to `cli/housekeeping.py`; HOUSEKEEPING += `where`, `app open`;
+    `bind.resolved()` for folders (T3 bans `library` imports in cli/); app_main opens the window only for a Finder
+    start, `app open` via cli.main; bare `-h`/`--help` = short help; `help --json` full index; `reasons` derived per
+    entry (minimum set); `as_of` only on reads; `where.sandbox` null in phase 1; CONTRIBUTING legacy command docs
+    replaced by a "Not rebuilt yet" bullet. G4 rule in CLAUDE.md:179-180 (window computes no fact/decision/state;
+    *Model.ts only formats; derive/flows from phase 5). Drift guard done by me (outside the repo): ui-build.md (its
+    "Logic goes in a pure *Model.ts" contradicted the rule) and fix-round.md carry the rule; dispatch-checklist line 6
+    makes every review ask it. Open: can the ratchet move before phase 5 → decide in the phase 2+ detailing run.
+    Issue 39 ~5.17M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
