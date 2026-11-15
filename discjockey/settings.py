@@ -7,8 +7,9 @@ import os
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
+from . import library
 from .accounts import ACCOUNTS, BROWSERS, DEFAULT_LIMITS
 
 DEFAULT_DAILY_LIMIT = 60
@@ -222,3 +223,13 @@ def save_settings(path: Path, s: Settings) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def update_settings(path: Path, change: Callable[[Settings], Settings]) -> Settings:
+    """The file as it is now, changed by `change`, saved: the one read-change-write of settings.json, under the support
+    lock so that two processes (two windows, a terminal, a worker) never lose each other's change. Raises
+    `library.SupportBusy` when the lock stays held, `SettingsError` for a file that can't be read. Returns what it saved."""
+    with library.support_lock(path.parent):
+        new = change(load_settings(path))
+        save_settings(path, new)
+    return new

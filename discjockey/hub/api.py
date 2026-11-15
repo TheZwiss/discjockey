@@ -36,7 +36,7 @@ from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
 from .. import auto_upgrade, batches, rekordbox, report as rep, run, upgrades
-from ..rekordbox import process as rb_process
+from ..rekordbox import lock as rb_lock, process as rb_process
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
@@ -51,13 +51,13 @@ from ..ops import OpProblem, snapshot
 from .. import pending_signs
 from ..pacing import Budget
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
-from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
+from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
-from . import media as media_mod, spectrum as spec, views
+from . import catalog, media as media_mod, registry, spectrum as spec, views
 from .ids import BadId, parse as parse_id
 from .outcomes import problem_fields
-from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Jobs, PreviewStore, SignInPhase,
+from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Job, Jobs, PreviewStore, SignInPhase,
                    import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
@@ -339,6 +339,7 @@ class HubApi:
         self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
         self._check_shown = remember  # False: no page showed anything, so a write checks nothing against `_shown`
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
+        self._rb_at: str | None = None  # when `_rb_cache`'s answer was read (ISO time): the `as_of` of a `writing` answer
         # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
         # away) -> the plan, so each To-do read doesn't open rekordbox's library again (A7)
         self._cdj_cache: tuple[tuple, plans.AiffPlan] | None = None
@@ -684,42 +685,50 @@ class HubApi:
                if generation is not None else None)
         if key is not None and last is not None and last[0] == key:
             return last[1]
-        plan = self._planned(state, {"kind": "cdj"}, held=decided)
-        # a plan made while a write job runs took rekordbox's cached state and no lookup: not kept for later reads
-        if key is not None and self._jobs.running() is None:
+        plan, blind = self._planned_read(state, {"kind": "cdj"}, held=decided)
+        # a plan made while a writer held rekordbox.lock took rekordbox's cached state and no lookup: not kept
+        if key is not None and not blind:
             with self._lock:
                 self._cdj_cache = (key, plan)
         return plan
 
     def _rekordbox_status(self) -> rekordbox.Status:
+        """`_rekordbox_read`'s status: what the screens and plans take of rekordbox's state."""
+        return self._rekordbox_read()[0]
+
+    def _rekordbox_read(self) -> tuple[rekordbox.Status, bool, str | None]:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
-        (plan rekordbox B §4): one read open per change, never while any write job of this hub runs (it answers the
-        last value then, or "readable" when it has none): a sync, import or tidy-up runs `recover_pending` first, which
-        can finish a rekordbox write, so no job is known to leave rekordbox alone."""
+        (plan rekordbox B §4): one read open per change. A reader takes `rekordbox.lock` shared and without waiting
+        (design §6.1): while a writer of any Discjockey process holds it master.db is never opened and the answer is the
+        last value (or "ready" when there is none), `writing` True, with the time it was read (`as_of`). A write job that
+        holds no rekordbox session does not stop the read: only a writer's lock does. Returns (status, writing, as_of)."""
         running = bool(self._svc.rekordbox_running())
-        with self._lock:
-            last = self._rb_cache
-        job = self._jobs.running()
-        if job is not None:
-            return last[1] if last else rekordbox.Status("ready", running, None, None, None, None, None)
-        place = self._svc.rekordbox_place()
-        stat = None
-        try:
-            if place is not None:
-                st = place.db.stat()
-                stat = (st.st_mtime_ns, st.st_size)
-        except OSError:
+        with rb_lock.reader_lock(self._support.support) as free:
+            with self._lock:
+                last, at = self._rb_cache, self._rb_at
+            if not free:
+                if last is None:
+                    return rekordbox.Status("ready", running, None, None, None, None, None), True, None
+                return replace(last[1], running=running), True, at
+            place = self._svc.rekordbox_place()
             stat = None
-        key = (running, str(place.db) if place is not None else None, stat)
-        if last is not None and last[0] == key:
-            return last[1]
-        try:
-            answer = rekordbox.status(place, lambda: running)
-        except Exception:  # noqa: BLE001 - status() never raises for a library it can't read; this is for the rest
-            answer = rekordbox.Status("unreadable", running, None, None, None, None, None)
-        with self._lock:
-            self._rb_cache = (key, answer)
-        return answer
+            try:
+                if place is not None:
+                    st = place.db.stat()
+                    stat = (st.st_mtime_ns, st.st_size)
+            except OSError:
+                stat = None
+            key = (running, str(place.db) if place is not None else None, stat)
+            if last is not None and last[0] == key:
+                return last[1], False, None
+            try:
+                answer = rekordbox.status(place, lambda: running)
+            except Exception:  # noqa: BLE001 - status() never raises for a library it can't read; this is for the rest
+                answer = rekordbox.Status("unreadable", running, None, None, None, None, None)
+            with self._lock:
+                self._rb_cache = (key, answer)
+                self._rb_at = self._svc.now().isoformat(timespec="seconds")
+            return answer, False, None
 
     def _aiff_batches(self) -> list[AiffBatchRow]:
         """The newest AIFF batches, newest first: where a stopped one is looked for (`views.stopped_batch`: Upgrade
@@ -760,17 +769,29 @@ class HubApi:
 
     def _planned(self, state: dict, scope: dict, only: str | None = None, *, in_job: bool = False,
                  held: Collection[str] | None = None) -> plans.AiffPlan:
-        """`aiff_plan.read_plan` for `scope` with one read open of rekordbox's library (the lookup of its tracks). A
-        read asked while a write job runs takes rekordbox's cached state and no lookup instead (as `_rekordbox_status`:
-        that job may be finishing a rekordbox write); a job plans for itself (`in_job`, after its recovery). The `cdj`
-        scope leaves out `held` (`_decided_now` when not given: what To-do shows as a question or a duplicate)."""
+        """`_planned_read`'s plan."""
+        return self._planned_read(state, scope, only, in_job=in_job, held=held)[0]
+
+    def _planned_read(self, state: dict, scope: dict, only: str | None = None, *, in_job: bool = False,
+                      held: Collection[str] | None = None) -> tuple[plans.AiffPlan, bool]:
+        """`aiff_plan.read_plan` for `scope` with one read open of rekordbox's library (the lookup of its tracks), and
+        whether it was made blind. A read asked while a writer holds `rekordbox.lock` (any Discjockey process) takes
+        rekordbox's cached state and no lookup instead (as `_rekordbox_status`); a job plans for itself (`in_job`,
+        after its recovery, holding no reader lock: its own session takes the writer's). The `cdj` scope leaves out
+        `held` (`_decided_now` when not given: what To-do shows as a question or a duplicate)."""
         if held is None:
             held = self._decided_now(state) if scope.get("kind") == "cdj" else ()
-        if not in_job and self._jobs.running() is not None:
-            return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(), entries=None, tags=self._tags,
-                              only=only, held=held)
-        return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
-                               running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags, held=held)
+        if in_job:
+            return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
+                                   running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags,
+                                   held=held), False
+        with rb_lock.reader_lock(self._support.support) as free:
+            if free:
+                return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
+                                       running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags,
+                                       held=held), False
+        return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(), entries=None, tags=self._tags,
+                          only=only, held=held), True
 
     def _aiff_scope(self, scope: object, kinds: Sequence[str] = plans.SCOPE_KINDS) -> dict:
         """A scope from the page as `aiff_plan.plan` takes it, or ValueError: `{kind: "tracks", tracks}`, `{kind:
@@ -803,12 +824,13 @@ class HubApi:
     @bridge
     def rekordbox_status(self) -> dict:
         """rekordbox on this Mac, now (issue 33 stage C): `{state: "ready" | "none" | "unreadable", running}`. The state
-        is the cached answer of `_rekordbox_status` (one read open per change of master.db; while a write job of this
-        hub runs it answers its last value), `running` is asked every time: the Sync page reads it when it opens and
+        is the cached answer of `_rekordbox_status` (one read open per change of master.db; while a writer of any
+        Discjockey process holds `rekordbox.lock` it answers its last value with `writing: true` and `as_of`, the time
+        that value was read), `running` is asked every time: the Sync page reads it when it opens and
         when the window gets focus again, to say that rekordbox must be quit before a start. Works without a music
         folder."""
-        status = self._rekordbox_status()
-        return {"state": status.state, "running": status.running}
+        status, writing, as_of = self._rekordbox_read()
+        return {"state": status.state, "running": status.running, **({"writing": True, "as_of": as_of} if writing else {})}
 
     def _sidebar_view(self, also: Sequence[str] = ()) -> dict:
         """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
@@ -2283,13 +2305,15 @@ class HubApi:
     def _save_spotify_app(self, client_id: str, user: str | None) -> None:
         """.spotify_app.json: the Client ID and, after a login, the account's display name (Settings: "connected as")."""
         data = {"client_id": client_id, **({"user": user} if user else {})}
-        library.write_json_atomic(self._support.spotify_app, data, parents=True)  # the support folder may be new
+        with library.support_lock(self._support.support):
+            library.write_json_atomic(self._support.spotify_app, data, parents=True)  # the support folder may be new
 
     @bridge
     def spotify_sign_out(self) -> dict:
         """Forgets the Spotify login (the Client ID stays, so Connect signs in again in one step)."""
         def work(ctx) -> dict:
-            self._support.spotify_token.unlink(missing_ok=True)
+            with library.support_lock(self._support.support):
+                self._support.spotify_token.unlink(missing_ok=True)
             try:
                 client_id = json.loads(self._support.spotify_app.read_text(encoding="utf-8"))["client_id"]
             except (OSError, ValueError, KeyError, TypeError):
@@ -2412,9 +2436,10 @@ class HubApi:
         """The file as it is now, changed, saved: every settings write in the hub goes through here. One writer at a
         time (spec settings-setup §13): a write job holds the engine lock already; a save from outside one (the
         sign-in slot, a check from the page) takes it for the moment of the save and raises Busy (busy / console)
-        instead of waiting. The mutex keeps this process's saves in order."""
+        instead of waiting. The mutex keeps this process's saves in order; the support lock (inside `update_settings`)
+        keeps every other process's saves of settings.json from being lost."""
         with self._settings_mutex, self._jobs.lock_briefly():
-            save_settings(self._support.settings_file, change(load_settings(self._support.settings_file)))
+            update_settings(self._support.settings_file, change)
 
     @bridge
     def setup_skip_qobuz(self) -> dict:
@@ -2603,6 +2628,29 @@ class HubApi:
 
         return {"job_id": self._jobs.start("setup_forget_account", work).id}
 
+    def _library_job_elsewhere(self) -> dict | None:
+        """A write job of another process of this support folder, from the registry: a running job whose command holds
+        the library lock (the catalogue's `locks` column). `{job, via, command}`, or None. This process's own job (the
+        one a worker runs) never counts."""
+        own = self._jobs.inline.id if self._jobs.inline is not None else None
+        for state in registry.Registry(self._support.support).list(all=True):
+            if state.get("status") not in registry.ACTIVE or state.get("id") == own:
+                continue
+            entries = catalog.by_method(state.get("method") or "")
+            if any("library" in e.locks for e in entries):
+                return {"job": state["id"], "via": state.get("via"), "command": state.get("command")}
+        return None
+
+    def _support_job(self, kind: str, work) -> Job:
+        """A support-only job (design §6.1: `tools update`, `tools rollback`): refused `busy` while a write job of this
+        support folder runs, in this process (`Jobs.start`) or another (the registry); it takes no library lock, only the
+        support lock inside its work."""
+        holder = self._library_job_elsewhere()
+        if holder is not None:
+            raise Busy("Another Discjockey job is working on your music folder. Wait until it has finished.", "busy",
+                       reason="library_lock", data={"holder": holder})
+        return self._jobs.start(kind, work, hold_library=False)
+
     @bridge
     def update_tools(self) -> dict:
         """The newest yt-dlp into the support folder (tool_updates). Afterwards (restart) the window asks to quit
@@ -2615,7 +2663,7 @@ class HubApi:
                 raise OpProblem(str(e), e.kind) from None
             return {"before": before, "after": after, "restart": restart}
 
-        return {"job_id": self._jobs.start("update_tools", work).id}
+        return {"job_id": self._support_job("update_tools", work).id}
 
     @bridge
     def rollback_tools(self) -> dict:
@@ -2628,7 +2676,7 @@ class HubApi:
                 raise OpProblem(str(e), e.kind) from None
             return {"before": before, "after": after, "restart": restart}
 
-        return {"job_id": self._jobs.start("rollback_tools", work).id}
+        return {"job_id": self._support_job("rollback_tools", work).id}
 
     @bridge
     def quit(self) -> dict:

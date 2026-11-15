@@ -30,7 +30,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
 
-from . import tools
+from . import library, tools
 
 log = logging.getLogger(__name__)
 
@@ -356,7 +356,15 @@ def update(support: Path, *, fetch: Callable[[str], bytes] | None = None, run: C
     """The newest yt-dlp (and the yt-dlp-ejs it pins), when it is newer than what the next start would use:
     downloaded, hash-checked, unpacked, tested in its own process, then `current`. (before, after, restart):
     {"yt-dlp": version} the next start uses before / after; restart: `after` isn't what this process runs. ToolsError
-    when anything fails, and then `current` is as it was. `check()` raises Cancelled to stop (the hub's Stop)."""
+    when anything fails, and then `current` is as it was. `check()` raises Cancelled to stop (the hub's Stop). The whole
+    update holds the support lock (library.SupportBusy when another process holds it): one change of `tools/` at a
+    time."""
+    with library.support_lock(support):
+        return _update(support, fetch=fetch, run=run, check=check, running=running, builtin=builtin)
+
+
+def _update(support: Path, *, fetch: Callable[[str], bytes] | None, run: Callable | None,
+            check: Callable[[], None] | None, running: Path | None, builtin: Path | None) -> tuple[dict, dict, bool]:
     fetch = fetch or http_get  # looked up now: tests replace http_get
     run = run or subprocess.run
     check = check or (lambda: None)
@@ -421,7 +429,13 @@ def rollback(support: Path, *, running: Path | None = None,
              builtin: Path | None = None) -> tuple[dict, dict, bool]:
     """One step back: `current` -> the folder kept from before, or no `current` (the built-in yt-dlp) when there is
     none. The folder stepped back from is deleted unless this process runs it. Same answer as update();
-    ToolsError(NOTHING_TO_UNDO, kind "refused") when stepping back would change nothing."""
+    ToolsError(NOTHING_TO_UNDO, kind "refused") when stepping back would change nothing. Holds the support lock for
+    the whole step (library.SupportBusy when another process holds it)."""
+    with library.support_lock(support):
+        return _rollback(support, running=running, builtin=builtin)
+
+
+def _rollback(support: Path, *, running: Path | None, builtin: Path | None) -> tuple[dict, dict, bool]:
     running, builtin = _defaults(support, running, builtin)
     builtin_version = _version_of(builtin)
     if _after_rollback(support, builtin_version) is None:

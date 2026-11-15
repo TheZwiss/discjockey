@@ -15,7 +15,7 @@ from dataclasses import replace
 from . import library
 from .library import LockHeld, NoLibrary
 from .rekordbox_cmd import failed, no_library, say
-from .settings import SettingsError, load_settings, save_settings
+from .settings import SettingsError, load_settings, update_settings
 
 OK, FAILED, NO_LIBRARY, BUSY = 0, 1, 2, 3
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
@@ -49,9 +49,8 @@ def run_auto_upgrade(args: argparse.Namespace) -> int:
             say(args, {"ok": True, "auto_upgrade": settings.auto_upgrade}, [line(settings.auto_upgrade)])
             return OK
         with library.run_lock(paths.lock):
-            settings = load_settings(paths.settings_file)  # as the lock holder sees it
             on = args.value == "on"
-            save_settings(paths.settings_file, replace(settings, auto_upgrade=on))
+            update_settings(paths.settings_file, lambda s: replace(s, auto_upgrade=on))
         say(args, {"ok": True, "auto_upgrade": on}, [line(on)])
         return OK
     except SettingsError as e:

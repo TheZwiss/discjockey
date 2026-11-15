@@ -185,7 +185,12 @@ def _holder(files: registry.JobFiles, roots: dict) -> dict | None:
     return None
 
 
-def _busy(command: str, files: registry.JobFiles, roots: dict) -> dict:
+def _busy(command: str, files: registry.JobFiles, roots: dict, job=None) -> dict:
+    """The `busy` envelope. A job that ended busy by a lock of its own (the support lock a save inside it met) says
+    that reason; otherwise the library is held: by the job the registry names, else by a terminal run."""
+    own = getattr(getattr(job, "error", None), "reason", None)
+    if own in outcomes.REASONS and outcomes.REASONS[own].outcome == "busy":
+        return envelope.problem(command, "busy", own, data=getattr(job.error, "data", None), job=files.id)
     holder = _holder(files, roots)
     reason = "library_lock" if holder else "console"
     return envelope.problem(command, "busy", reason, data={"holder": holder or {"via": "unknown"}}, job=files.id)
@@ -238,7 +243,7 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
                 continue
             break
         if _is_busy(answer, job):
-            return _busy(command, files, roots)
+            return _busy(command, files, roots, job)
         if not answer.get("ok"):
             return _stopped_reason(envelope.from_answer(command, answer, job=files.id), signals)
         if job is None or job.finished is None:  # the job ended without its JobFinished (a stop in the very first moment)

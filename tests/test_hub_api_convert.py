@@ -16,6 +16,7 @@ from batch_helpers import make_lib, make_own_lib, needs_ffmpeg
 from convert_helpers import EXACT
 from discjockey import aiff_plan, audio, batches, db
 from discjockey.events import BatchProgress
+from discjockey.rekordbox.lock import writer_lock
 from hub_helpers import make_api, wait_job
 
 pytestmark = needs_ffmpeg
@@ -139,19 +140,14 @@ def test_the_plan_read_answers_every_scope_in_one_shape(hub):
     assert api.aiff_plan({"kind": "cdj"})["plan"]["total"] == 0
 
 
-def test_the_plan_read_while_a_write_job_runs_takes_rekordbox_as_last_seen_and_opens_nothing(hub, monkeypatch):
+def test_the_plan_read_while_a_writer_holds_rekordbox_lock_takes_rekordbox_as_last_seen_and_opens_nothing(hub, monkeypatch):
     lib, box, api, rec = hub(["mp3", "clean"])
     assert api.rekordbox_status()["state"] == "ready"         # the cached state the read will take
-    gate = threading.Event()
-    job = api._jobs.start("sync", lambda ctx: gate.wait(5) and None)
-    try:
-        def boom(*a, **kw):
-            raise AssertionError("a plan read while a job writes must not open rekordbox's library")
-        monkeypatch.setattr(aiff_plan.master, "open_read", boom)
+    def boom(*a, **kw):
+        raise AssertionError("a plan read while a writer holds rekordbox.lock must not open rekordbox's library")
+    monkeypatch.setattr(aiff_plan.master, "open_read", boom)
+    with writer_lock(lib.paths.support):
         plan = api.aiff_plan({"kind": "tracks", "tracks": [lib.tracks[0], lib.tracks[1]]})["plan"]
-    finally:
-        gate.set()
-        wait_job(api, rec, {"ok": True, "job_id": job.id})
     assert plan["total"] == 2 and plan["rekordbox"]["state"] == "ready"
     assert plan["rekordbox"]["needs_closed"] is True          # no lookup: any file may be in rekordbox
 

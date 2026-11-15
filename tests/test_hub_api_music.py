@@ -56,7 +56,7 @@ def test_setup_works_without_a_music_folder(support):
     assert f.ok and json.loads((support / ".spotify_app.json").read_text()) == {"client_id": "0" * 32}
     f = wait_job(api, rec, api.setup_skip_qobuz())
     assert f.ok and json.loads((support / "settings.json").read_text())["qobuz_skipped"] is True
-    assert sorted(p.name for p in support.iterdir()) == [".spotify_app.json", "settings.json"]
+    assert sorted(p.name for p in support.iterdir()) == [".spotify_app.json", ".support.lock", "settings.json"]
 
 
 def test_choosing_a_folder_binds_it_in_place(support, tmp_path, monkeypatch):

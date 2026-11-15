@@ -592,7 +592,14 @@ export type SetupStatus = {
   auto_upgrade: boolean;
 };
 /** rekordbox on this Mac now (`rekordbox_status()`): its library's state and whether it runs. */
-export type RekordboxStatus = { state: 'ready' | 'none' | 'unreadable'; running: boolean };
+export type RekordboxStatus = {
+  state: 'ready' | 'none' | 'unreadable';
+  running: boolean;
+  /** Present (true) while a Discjockey writer holds `rekordbox.lock`: `state` is then the last value read. */
+  writing?: boolean;
+  /** With `writing`: when that value was read (ISO time), null when none was read yet. */
+  as_of?: string | null;
+};
 export type AccountStatus = { browser: Browser; browser_name: string; daily_limit: number; profile?: string | null;
   profile_name?: string | null; last_check?: LastCheck | null };
 /** find_logins(service): the installed browsers, the default first, and which profiles hold a login. */

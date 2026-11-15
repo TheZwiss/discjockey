@@ -10,7 +10,7 @@ from pathlib import Path
 from . import REPO, library, qobuz, tool_updates, tools
 from .sources import spotify
 from .library import Paths
-from .settings import SettingsError, load_settings, save_settings
+from .settings import SettingsError, update_settings
 
 TEMPLATE = """\
 # Your playlists for Discjockey (Spotify, Qobuz, SoundCloud or YouTube Music).
@@ -70,7 +70,8 @@ def _ask_client_id(paths: Paths) -> str:
         if not value:
             return ""
         if re.fullmatch(r"[0-9a-fA-F]{32}", value):
-            paths.spotify_app.write_text(json.dumps({"client_id": value}), encoding="utf-8")
+            with library.support_lock(paths.support):
+                library.write_json_atomic(paths.spotify_app, {"client_id": value}, parents=True)
             return value
         print("That does not look like a Client ID (32 letters and digits). Try again.")
 
@@ -99,7 +100,7 @@ def run_setup(paths: Paths) -> int:
         print("Spotify skipped. Use Qobuz, SoundCloud or YouTube Music playlist links, or connect Spotify later "
               "(run setup again, or Settings in the app).\n")
     try:
-        save_settings(paths.settings_file, replace(load_settings(paths.settings_file), spotify_skipped=not client_id))
+        update_settings(paths.settings_file, lambda s: replace(s, spotify_skipped=not client_id))
     except SettingsError as e:  # a settings.json that isn't valid: say so, as the sync does
         print(e)
         return 2

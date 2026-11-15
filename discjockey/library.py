@@ -220,6 +220,44 @@ def try_flock(fd: int) -> bool:
     return True
 
 
+SUPPORT_LOCK = ".support.lock"
+SUPPORT_WAIT_S, SUPPORT_RETRY_S = 2.0, 0.02
+SUPPORT_BUSY = "Another Discjockey process is saving its own settings. Try again in a moment."
+
+
+class SupportBusy(Problem):
+    """The support lock stayed held for the whole wait (`reason` support_lock; outcome busy, `Problem`'s fields)."""
+
+    def __init__(self, *, next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (),
+                 data: Mapping | None = None):
+        super().__init__(SUPPORT_BUSY, reason="support_lock", next=next, person_steps=person_steps, data=data)
+
+
+@contextmanager
+def support_lock(support: Path):
+    """`<support>/.support.lock`, exclusive for the block: one read-change-write of settings.json, config.json, the
+    login files or the tools folder at a time across every Discjockey process of this support folder (two windows,
+    a window before Setup, a terminal, a worker; design §6.1). Waits up to `SUPPORT_WAIT_S`, then raises SupportBusy.
+    The OS lets go of it if the process dies. Not re-entrant: a second hold in the same process waits like any other."""
+    support.mkdir(parents=True, exist_ok=True)
+    fd = os.open(support / SUPPORT_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        deadline = time.monotonic() + SUPPORT_WAIT_S
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise SupportBusy() from None
+                time.sleep(SUPPORT_RETRY_S)
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        yield
+    finally:
+        os.close(fd)
+
+
 class NoLibrary(Exception):
     """No music folder to work in: none chosen yet, or the chosen one isn't there (an unplugged drive). The hub
     answers it as no_library; the console prints it and exits 2."""
@@ -483,9 +521,10 @@ def save_state(paths: Paths, state: dict, *, rekeyed: Collection[str] = ()) -> N
 
 
 def write_music_folder(support: Path, folder: Path) -> None:
-    """config.json: the music folder this Mac uses. Written whole or not at all."""
-    write_json_atomic(SupportPaths(support=support).config_file, {"music_folder": str(folder)}, parents=True,
-                      indent=2, ensure_ascii=False)
+    """config.json: the music folder this Mac uses. Written whole or not at all, under the support lock."""
+    with support_lock(support):
+        write_json_atomic(SupportPaths(support=support).config_file, {"music_folder": str(folder)}, parents=True,
+                          indent=2, ensure_ascii=False)
 
 
 def _walk_files(paths: Paths) -> list[str]:

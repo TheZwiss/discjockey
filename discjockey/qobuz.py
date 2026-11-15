@@ -16,6 +16,7 @@ from streamrip.exceptions import (
 )
 from streamrip.rip.prompter import get_prompter
 
+from . import library
 from .library import SupportPaths
 from .models import Candidate
 
@@ -93,6 +94,12 @@ def _load_config(path: Path) -> Config:
 
 
 def write_config(paths: SupportPaths) -> Path:
+    """Streamrip's config.toml made right for Discjockey (read, change, saved), under the support lock."""
+    with library.support_lock(paths.support):
+        return _write_config(paths)
+
+
+def _write_config(paths: SupportPaths) -> Path:
     path = config_file(paths)
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
@@ -256,8 +263,9 @@ def interactive_login(paths: SupportPaths) -> None:
         try:
             prompter = get_prompter(client, cfg)
             runner.run(prompter.prompt_and_login())
-            prompter.save()
-            cfg.save_file()
+            with library.support_lock(paths.support):
+                prompter.save()
+                cfg.save_file()
             _test_search(client, runner)
         finally:
             _close(client, runner)
@@ -267,26 +275,29 @@ def _save_login(paths: SupportPaths, email: str, secret: str) -> None:
     """Writes the login into streamrip/config.toml, logs in and test-searches. Any failure is a QobuzError with a
     plain message (never streamrip's own text, see login_problem), and the config is put back as it was: a rejected
     login never replaces one that worked. A login Qobuz refused is a QobuzLoginRejected (see _login_error)."""
-    before = config_file(paths).read_bytes() if config_file(paths).exists() else None
-    path = write_config(paths)
-    cfg = _load_config(path)
-    for data in (cfg.file, cfg.session):
-        data.qobuz.use_auth_token = False
-        data.qobuz.email_or_userid = email
-        data.qobuz.password_or_token = secret
-    cfg.file.set_modified()
-    cfg.save_file()
+    with library.support_lock(paths.support):
+        before = config_file(paths).read_bytes() if config_file(paths).exists() else None
+        path = _write_config(paths)
+        cfg = _load_config(path)
+        for data in (cfg.file, cfg.session):
+            data.qobuz.use_auth_token = False
+            data.qobuz.email_or_userid = email
+            data.qobuz.password_or_token = secret
+        cfg.file.set_modified()
+        cfg.save_file()
     client = QobuzClient(cfg)
     with asyncio.Runner() as runner:
         try:
             runner.run(client.login())
-            cfg.save_file()  # streamrip fetched new app secrets
+            with library.support_lock(paths.support):
+                cfg.save_file()  # streamrip fetched new app secrets
             _test_search(client, runner)
         except Exception as e:
-            if before is None:
-                path.unlink(missing_ok=True)
-            else:
-                path.write_bytes(before)
+            with library.support_lock(paths.support):  # the login that worked comes back
+                if before is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_bytes(before)
             raise _login_error(e) from None
         finally:
             _close(client, runner)
