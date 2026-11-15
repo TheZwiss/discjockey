@@ -25,7 +25,7 @@ export type Fail = {
 };
 export type Outcome = 'ok' | 'failed' | 'bad_args' | 'busy' | 'needs_person' | 'stopped' | 'partial' | 'refused' | 'running';
 export type Res<T> = ({ ok: true } & T) | Fail;
-export type JobStart = Res<{ job_id: number }>;
+export type JobStart = Res<{ job_id: string }>;
 export type ActionKey = [string, string, string];          // sent back unchanged to start_sync
 export type LibraryFilter = 'all' | 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'upgrade_ready';
 /** `order` is a playlist's own order (its read record's); the engine's default there, and `artist` elsewhere. */
@@ -338,7 +338,7 @@ export type SyncPreview = {
 
 export type PlannedAction = { kind: string; track_id: string; title: string; artist: string; image_url?: string | null };
 export type JobSnap = {
-  id: number; kind: string; track_id: string | null; started: string; running: boolean; stopping: boolean;
+  id: string; kind: string; track_id: string | null; started: string; running: boolean; stopping: boolean;
   /** an AIFF batch job's (`upgrade_batch`, `aiff_batch`, `batch_resume`) batch kind, else null: after a reload it says
    *  whose batch runs (a resumed Convert batch is `convert`, not Same track's). `convert` is also what Convert,
    *  Give it its clean name and Make all start. The live `JobStarted` event carries it too, so a snapshot built from the

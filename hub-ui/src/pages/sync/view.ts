@@ -12,7 +12,7 @@ const ACTIVE = new Set<string>(ACTIVE_PHASES);
  * end screen (unless the page was told to go back to the plan for that job). Else → before the start.
  */
 export function whichView(run: RunState, hubSyncRunning: boolean, routeRunId: string | null | undefined,
-  dismissedJob: number | null = null): SyncView {
+  dismissedJob: string | null = null): SyncView {
   if (routeRunId) return { view: 'end', run_id: routeRunId };
   const mine = run.job_kind === 'sync';
   if (mine && ACTIVE.has(run.phase)) return { view: 'live' };
@@ -25,4 +25,4 @@ export function whichView(run: RunState, hubSyncRunning: boolean, routeRunId: st
 }
 
 /** Seam for the end screen (part B): "back to the plan" for this finished job. */
-export const dismissedJob = writable<number | null>(null);
+export const dismissedJob = writable<string | null>(null);

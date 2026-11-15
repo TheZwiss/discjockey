@@ -775,7 +775,7 @@ describe('the U1 states in fake mode', () => {
   function setup(scenario: string) {
     const evs: HubEvent[] = [];
     const f = createFakeBridge(scenario, { speed: 400, emit: (e) => evs.push(e) });
-    const finished = async (id: number) => {
+    const finished = async (id: string) => {
       for (let i = 0; i < 400; i++) {
         const e = evs.find((x) => x.type === 'JobFinished' && x.job_id === id);
         if (e) return e as Extract<HubEvent, { type: 'JobFinished' }>;
@@ -803,7 +803,7 @@ describe('the U1 states in fake mode', () => {
     }
     expect(evs.some((e) => e.type === 'BatchProgress' && e.track_id !== null)).toBe(true);
     await f.stop();
-    const fin = await finished((start as { job_id: number }).job_id);
+    const fin = await finished((start as { job_id: string }).job_id);
     expect(fin.problem).toBe('stopped');
     const r = fin.result as AiffBatchResult;
     expect(r.state).toBe('stopped');
@@ -812,13 +812,13 @@ describe('the U1 states in fake mode', () => {
   it('todo-upgrade-rekordbox-open: the batch stops before it starts and carries its tracks', async () => {
     const { f, finished } = setup('upgrade-rekordbox-open');
     const start = await f.upgrade_all();
-    const fin = await finished((start as { job_id: number }).job_id);
+    const fin = await finished((start as { job_id: string }).job_id);
     expect(fin.problem).toBe('rekordbox_open');
     expect((fin.result as AiffBatchResult).state).toBe('stopped');
   });
   it('todo-upgrade-done: a finished batch lists the track its check skipped, with the reason', async () => {
     const { f, finished } = setup('todo:upgrade-skips');
-    const fin = await finished(((await f.upgrade_all()) as { job_id: number }).job_id);
+    const fin = await finished(((await f.upgrade_all()) as { job_id: string }).job_id);
     expect(fin.ok).toBe(true);
     const r = fin.result as AiffBatchResult;
     expect(r.results.filter((x) => x.state === 'skipped').map((x) => x.reason)).toEqual(['timing']);
@@ -826,7 +826,7 @@ describe('the U1 states in fake mode', () => {
   });
   it('todo-upgrade-refused: every track skipped, refused, the batch still in the result', async () => {
     const { f, finished } = setup('todo:upgrade-refused');
-    const fin = await finished(((await f.upgrade_all()) as { job_id: number }).job_id);
+    const fin = await finished(((await f.upgrade_all()) as { job_id: string }).job_id);
     expect(fin.problem).toBe('refused');
     expect((fin.result as AiffBatchResult).results.every((x) => x.state === 'skipped')).toBe(true);
   });
@@ -916,7 +916,7 @@ describe('the U2 states in fake mode', () => {
   function setup(scenario: string) {
     const evs: HubEvent[] = [];
     const f = createFakeBridge(scenario, { speed: 400, emit: (e) => evs.push(e) });
-    const finished = async (id: number) => {
+    const finished = async (id: string) => {
       for (let i = 0; i < 400; i++) {
         const e = evs.find((x) => x.type === 'JobFinished' && x.job_id === id);
         if (e) return e as Extract<HubEvent, { type: 'JobFinished' }>;
@@ -951,7 +951,7 @@ describe('the U2 states in fake mode', () => {
   it('todo-check-batch-undo-refused: Undo all puts two back and lists the one it refused', async () => {
     const { f, finished, theBatch, checks } = setup('todo:check-batch-undo-refused');
     const ids = (await theBatch()).batch.tracks.map((t) => t.track_id);
-    const fin = await finished(((await f.undo_upgrade(ids)) as { job_id: number }).job_id);
+    const fin = await finished(((await f.undo_upgrade(ids)) as { job_id: string }).job_id);
     expect(fin.ok).toBe(true);
     const r = fin.result as UndoResult;
     expect(r.results.filter((x) => x.state === 'refused').map((x) => x.track)).toEqual([ids[1]]);
@@ -960,7 +960,7 @@ describe('the U2 states in fake mode', () => {
   it('todo-check-batch-rekordbox-open: Undo all undoes nothing while rekordbox is open', async () => {
     const { f, finished, theBatch } = setup('todo:check-batch-rekordbox-open');
     const ids = (await theBatch()).batch.tracks.map((t) => t.track_id);
-    const fin = await finished(((await f.undo_upgrade(ids)) as { job_id: number }).job_id);
+    const fin = await finished(((await f.undo_upgrade(ids)) as { job_id: string }).job_id);
     expect(fin.problem).toBe('rekordbox_open');
     expect((fin.result as UndoResult).results.every((x) => x.state === 'waiting')).toBe(true);
   });
@@ -969,7 +969,7 @@ describe('the U2 states in fake mode', () => {
     const before = await checks();
     expect(before.length).toBeGreaterThan(1);
     const fin = await finished(((await f.rekordbox_checked(
-      [...(before.find(isBatch)!).batch.tracks.map((t) => t.track_id), before.find((i) => !isBatch(i))!.track_id])) as { job_id: number }).job_id);
+      [...(before.find(isBatch)!).batch.tracks.map((t) => t.track_id), before.find((i) => !isBatch(i))!.track_id])) as { job_id: string }).job_id);
     expect(fin.ok).toBe(true);
     expect((await checks()).length).toBe(before.length - 2);
   });

@@ -22,7 +22,7 @@ const safari = (def = false): LoginBrowser => ({ id: 'safari', name: 'Safari', d
 const firefox = (signed = false): LoginBrowser => ({ id: 'firefox', name: 'Firefox', default: false, readable: true,
   problem: null, profiles: [{ id: 'abc.default', name: 'default', signed_in: signed }] });
 const fl = (...browsers: LoginBrowser[]): FindLogins => ({ browsers });
-const snap = (kind: string, running = true): JobSnap => ({ id: 1, kind, track_id: null, started: '', running,
+const snap = (kind: string, running = true): JobSnap => ({ id: 'job:00000001', kind, track_id: null, started: '', running,
   stopping: false, last: {}, results: [], finished: null, actions: [] });
 
 describe('first offer from find_logins', () => {

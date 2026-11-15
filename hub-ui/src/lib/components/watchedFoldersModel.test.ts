@@ -46,7 +46,7 @@ const row = (over: Partial<WatchedFolderRow> = {}): WatchedFolderRow => ({ id: 2
 const lib = row({ id: 1, kind: 'library', name: 'Library', path: '/Users/you/Music/Discjockey/Library', files: 412 });
 const data = (over: Partial<WatchedFolders> = {}): WatchedFolders => ({ folders: [lib, row()], unreadable: [], waiting: 0,
   stopped: false, ...over });
-const job = (over: Partial<JobSnap> = {}): JobSnap => ({ id: 7, kind: 'import', track_id: null, started: '', running: true,
+const job = (over: Partial<JobSnap> = {}): JobSnap => ({ id: 'job:00000007', kind: 'import', track_id: null, started: '', running: true,
   stopping: false, last: {}, results: [], finished: null, actions: [], ...over });
 const progress = (phase: 'scan' | 'facts' | 'tags' | 'sound' | 'link', done = 0, total = 0) =>
   ({ type: 'ImportProgress' as const, phase, done, total, unreadable: 0 });

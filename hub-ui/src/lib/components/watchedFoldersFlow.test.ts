@@ -23,10 +23,10 @@ function fakeWindow(over: Record<string, (...a: any[]) => any> = {}) {
     pick_folder: rec('pick_folder', { ok: true, path: '/Volumes/Example Drive/Music' }),
     check_import_folder: async (path: string) => ({ ok: true, path, exists: true, usable: true, problem: null, kind: 'import',
       message: null, merges: [], merge_hints: [] }),
-    add_watched_folder: rec('add_watched_folder', { ok: true, job_id: 5 }),
+    add_watched_folder: rec('add_watched_folder', { ok: true, job_id: 'job:00000005' }),
     removal_preview: rec('removal_preview', { ok: true, name: 'Music', files: 1240, redownload: 4 }),
-    remove_watched_folder: rec('remove_watched_folder', { ok: true, job_id: 6 }),
-    start_import: rec('start_import', { ok: true, job_id: 7 }),
+    remove_watched_folder: rec('remove_watched_folder', { ok: true, job_id: 'job:00000006' }),
+    start_import: rec('start_import', { ok: true, job_id: 'job:00000007' }),
     stop: rec('stop', { ok: true, stopped: true }),
     ...over,
   } };
@@ -96,7 +96,7 @@ describe('WatchedFoldersFlow', () => {
       body: 'Discjockey forgets its 1,240 files. The files stay where they are. 4 songs from your playlists had their '
         + 'only copy there. They will be downloaded again at the next sync.' });
     await flush();
-    dispatch({ type: 'JobFinished', job_id: 6, kind: 'remove_watched_folder', ok: true, problem: null, message: '', result: null } as any);
+    dispatch({ type: 'JobFinished', job_id: 'job:00000006', kind: 'remove_watched_folder', ok: true, problem: null, message: '', result: null } as any);
     await p;
     expect(calls.find(([n]) => n === 'removal_preview')?.[1]).toEqual([2]);
     expect(calls.find(([n]) => n === 'remove_watched_folder')?.[1]).toEqual([2]);

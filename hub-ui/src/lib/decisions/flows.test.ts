@@ -65,7 +65,7 @@ describe('UpgradeBatchFlow', () => {
     const flow = new UpgradeBatchFlow();
     flow.know(items.map((i) => [i.track_id, name(i)]));
     const start = await f.upgrade(items.map((i) => i.track_id), 'swap');
-    const job_id = (start as { job_id: number }).job_id;
+    const job_id = (start as { job_id: string }).job_id;
     const last = { batch_id: 1, done: 1, total: items.length, track_id: items[1].track_id, name: `${items[1].artist} - ${items[1].title}` };
     // a job for one track (track_id set) is that track's own panel's; a sync is no batch; neither is adopted
     flow.adopt(snap({ id: job_id, track_id: items[0].track_id, last: { BatchProgress: last } }));
@@ -98,7 +98,7 @@ describe('UpgradeBatchFlow', () => {
     const flow = new UpgradeBatchFlow();
     const seen: { track_id: string | null; name: string | null }[] = [];
     const off = onEvent((e) => { if (e.type === 'BatchProgress' && e.track_id) seen.push(e); });
-    const { job_id } = (await f.upgrade_all()) as { job_id: number };
+    const { job_id } = (await f.upgrade_all()) as { job_id: string };
     await until(() => seen.length >= 2);
     off();
     const last = seen.at(-1)!;
@@ -115,7 +115,7 @@ describe('UpgradeBatchFlow', () => {
     const { f, ready } = setup();
     const items = await ready();
     const flow = new UpgradeBatchFlow();
-    const { job_id } = (await f.upgrade_all()) as { job_id: number }; // another write holds the engine
+    const { job_id } = (await f.upgrade_all()) as { job_id: string }; // another write holds the engine
     await flow.start('swap', items, false, name);
     expect(flow.view).toBeNull();
     expect(get(toasts)).toMatchObject([{ tone: 'problem' }]);
@@ -225,7 +225,7 @@ describe('ChecksFlow', () => {
     const env = setup();
     const items = (await env.ready()).slice(0, 2);
     const done = await env.f.upgrade(items.map((i) => i.track_id), 'swap');
-    await waitForJob((done as { job_id: number }).job_id);
+    await waitForJob((done as { job_id: string }).job_id);
     const checks = (await env.group('rekordbox_check'))!.items.flatMap((i) => (i as any).batch?.tracks ?? [i]) as TodoItem[];
     return { ...env, checks };
   }
@@ -451,7 +451,7 @@ describe('AiffBatchFlow (Make all lossless files AIFF, a selection\'s Convert, t
   it('a refusal before it started clears the view and says why in a toast', async () => {
     const { f } = setup('library:aiff-view', 1000);
     const flow = new AiffBatchFlow();
-    const { job_id } = (await f.make_aiff(VIEW)) as { job_id: number }; // another write holds the engine
+    const { job_id } = (await f.make_aiff(VIEW)) as { job_id: string }; // another write holds the engine
     await flow.start(VIEW, [], false);
     expect(flow.view).toBeNull();
     expect(get(toasts)).toMatchObject([{ tone: 'problem' }]);
@@ -462,16 +462,16 @@ describe('AiffBatchFlow (Make all lossless files AIFF, a selection\'s Convert, t
     const { f } = setup('library:aiff-panel-stopped', 1000);
     const flow = new AiffBatchFlow();
     const ups = new UpgradeBatchFlow();
-    flow.adopt(snap({ id: 9, kind: 'aiff_batch', track_id: 'own:1' }));
-    flow.adopt(snap({ id: 9, kind: 'aiff_batch', running: false }));
-    flow.adopt(snap({ id: 9, kind: 'batch_resume', batch_kind: 'convert', track_id: 'own:1' }));
+    flow.adopt(snap({ id: 'job:00000009', kind: 'aiff_batch', track_id: 'own:1' }));
+    flow.adopt(snap({ id: 'job:00000009', kind: 'aiff_batch', running: false }));
+    flow.adopt(snap({ id: 'job:00000009', kind: 'batch_resume', batch_kind: 'convert', track_id: 'own:1' }));
     expect(flow.view).toBeNull();
     // a Resume this flow starts is its own, on the live job and on a reload alike: the upgrade flow, asked to follow
     // the hub's job (its snapshot says `convert`), leaves it alone
     const batch = (await f.library('folder', '/Volumes/Example Drive/Music', '', 'all', null) as { aiff_stopped: { batch_id: number } }).aiff_stopped;
     const resume = vi.spyOn(api, 'batch_resume');
     const run = flow.resume(batch.batch_id);
-    const jobId = ((await resume.mock.results[0].value) as { job_id: number }).job_id;
+    const jobId = ((await resume.mock.results[0].value) as { job_id: string }).job_id;
     const live = ((await f.job_status()) as { job: JobSnap }).job;
     expect(live).toMatchObject({ id: jobId, kind: 'batch_resume', batch_kind: 'convert' });
     ups.adopt(live);
@@ -480,7 +480,7 @@ describe('AiffBatchFlow (Make all lossless files AIFF, a selection\'s Convert, t
     // a running aiff_batch the window didn't start is followed to its end
     const start = await f.make_aiff(VIEW);
     flow.clear();
-    flow.adopt(snap({ id: (start as { job_id: number }).job_id, kind: 'aiff_batch' }));
+    flow.adopt(snap({ id: (start as { job_id: string }).job_id, kind: 'aiff_batch' }));
     expect(flow.view).toMatchObject({ phase: 'running', scope: null });
     await until(() => flow.view?.phase === 'ended');
     expect(flow.view!.end).toMatchObject({ kind: 'done' });
@@ -490,10 +490,10 @@ describe('AiffBatchFlow (Make all lossless files AIFF, a selection\'s Convert, t
 describe('a resumed batch is followed by its batch kind after a reload', () => {
   const resumed = async (scenario: string): Promise<{ f: ReturnType<typeof setup>['f']; snap: JobSnap }> => {
     const { f, ready } = setup(scenario, scenario === 'upgrade-multi' ? 60 : 1000);
-    let id: number;
+    let id: string;
     if (scenario === 'upgrade-multi') {
       const ids = (await ready()).map((i) => i.track_id).slice(0, 3);
-      const start = (await f.upgrade(ids, 'swap')) as { job_id: number };
+      const start = (await f.upgrade(ids, 'swap')) as { job_id: string };
       let progressed = false;
       const off = onEvent((e) => { if (e.type === 'BatchProgress') progressed = true; });
       await until(() => progressed);
@@ -502,10 +502,10 @@ describe('a resumed batch is followed by its batch kind after a reload', () => {
       await waitForJob(start.job_id);
       const t = (await f.todo('all', false)) as Todo & { ok: true };
       const stopped = t.groups.find((g) => g.key === 'upgrade_ready')!.stopped!;
-      id = ((await f.batch_resume(stopped.batch_id)) as { job_id: number }).job_id;
+      id = ((await f.batch_resume(stopped.batch_id)) as { job_id: string }).job_id;
     } else {
       const batch = (await f.library('folder', '/Volumes/Example Drive/Music', '', 'all', null) as { aiff_stopped: { batch_id: number } }).aiff_stopped;
-      id = ((await f.batch_resume(batch.batch_id)) as { job_id: number }).job_id;
+      id = ((await f.batch_resume(batch.batch_id)) as { job_id: string }).job_id;
     }
     const job = ((await f.job_status()) as { job: JobSnap }).job;
     expect(job).toMatchObject({ id, kind: 'batch_resume', running: true });
@@ -540,15 +540,15 @@ describe('a resumed batch is followed by its batch kind after a reload', () => {
     const aiff = new AiffBatchFlow();
     const ups = new UpgradeBatchFlow();
     for (const batch_kind of [null, undefined]) {
-      const job = snap({ id: 9, kind: 'batch_resume', batch_kind });
+      const job = snap({ id: 'job:00000009', kind: 'batch_resume', batch_kind });
       aiff.adopt(job);
       ups.adopt(job);
     }
     expect([aiff.view, ups.view]).toEqual([null, null]);
-    ups.adopt(snap({ id: 9, kind: 'batch_resume', batch_kind: 'mixed' }));
+    ups.adopt(snap({ id: 'job:00000009', kind: 'batch_resume', batch_kind: 'mixed' }));
     expect(ups.view).toBeNull();
     // the job kinds that say whose they are need no batch kind
-    ups.adopt(snap({ id: 9, kind: 'upgrade_discard', batch_kind: null }));
+    ups.adopt(snap({ id: 'job:00000009', kind: 'upgrade_discard', batch_kind: null }));
     expect(ups.view).toMatchObject({ phase: 'running', mode: 'discard' });
   });
 });

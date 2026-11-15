@@ -8,7 +8,7 @@ import { isBatch, type AiffBatchResult, type Todo, type TodoItem, type UndoResul
 function setup(scenario = 'upgrade-multi') {
   const evs: HubEvent[] = [];
   const f = createFakeBridge(scenario, { speed: 400, emit: (e) => evs.push(e) });
-  const finished = async (id: number) => {
+  const finished = async (id: string) => {
     for (let i = 0; i < 400; i++) {
       const e = evs.find((x) => x.type === 'JobFinished' && x.job_id === id);
       if (e) return e as Extract<HubEvent, { type: 'JobFinished' }>;
@@ -16,7 +16,7 @@ function setup(scenario = 'upgrade-multi') {
     }
     throw new Error('the job did not finish');
   };
-  const run = async (start: Promise<{ ok: boolean; job_id?: number }>) => {
+  const run = async (start: Promise<{ ok: boolean; job_id?: string }>) => {
     const r = await start;
     if (!r.ok) throw new Error(JSON.stringify(r));
     return finished(r.job_id!);

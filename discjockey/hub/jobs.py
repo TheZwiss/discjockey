@@ -6,7 +6,6 @@ Events: `HubEvents.emit` only puts the event on a queue; it never blocks and nev
 from __future__ import annotations
 
 import fcntl
-import itertools
 import json
 import logging
 import os
@@ -28,13 +27,14 @@ from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
 from ..problem import Problem
+from . import registry
 
 log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class JobStarted:
-    job_id: int
+    job_id: str  # `job:<8 hex>` (registry.new_job_id)
     kind: str  # see Jobs.start
     track_id: str | None
     batch_kind: str | None = None  # an AIFF batch job's kind ("upgrade" | "convert" | "mixed"), as the snapshot's (A10)
@@ -42,7 +42,7 @@ class JobStarted:
 
 @dataclass(frozen=True)
 class JobFinished:
-    job_id: int
+    job_id: str
     kind: str
     ok: bool
     problem: str | None  # None when ok; else a problem kind (bridge contract)
@@ -296,7 +296,7 @@ def service_of(e: BaseException) -> str | None:
 
 @dataclass
 class JobContext:
-    job_id: int
+    job_id: str
     kind: str
     token: CancelToken
     emit: Emit  # records into the snapshot and sends to the window
@@ -306,7 +306,7 @@ class JobContext:
 
 @dataclass
 class Job:
-    id: int
+    id: str
     kind: str
     track_id: str | None
     token: CancelToken
@@ -341,7 +341,6 @@ class Jobs:
         only waits for the hub's other jobs, as there is no library to share with a terminal run."""
         self.lock, self.emit, self.keep_awake, self.now = lock, emit, keep_awake, now
         self._mutex = threading.Lock()
-        self._ids = itertools.count(1)
         self.current: Job | None = None  # the running (or last) write job
         self.refresh: Job | None = None
         self.sign_in: Job | None = None  # a sign-in waiting for the browser (its own slot: it changes no library)
@@ -426,7 +425,7 @@ class Jobs:
             self._scanning = self._brief = False
 
     def _new(self, kind: str, track_id: str | None, batch_kind: str | None = None) -> Job:
-        return Job(next(self._ids), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"), batch_kind)
+        return Job(registry.new_job_id(), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"), batch_kind)
 
     def start(self, kind: str, work: Callable[[JobContext], dict | None], track_id: str | None = None,
               batch_kind: str | None = None) -> Job:

@@ -205,9 +205,9 @@ export function _resetBridge(): void {
 }
 
 export type JobOutcome<R> =
-  | { ok: true; job_id: number; result: R }
+  | { ok: true; job_id: string; result: R }
   /** `result`: what a job that ended with a problem still carries (a stopped move batch: the moves it made), else null */
-  | { ok: false; job_id: number | null; kind: ProblemKind; message: string; result?: R | null };
+  | { ok: false; job_id: string | null; kind: ProblemKind; message: string; result?: R | null };
 
 function problemToast(kind: ProblemKind, message: string): void {
   toasts.show({ tone: 'problem', title: problemCopy(kind).title, body: message || undefined });

@@ -8,7 +8,7 @@ no catalogue entry and have no `HubApi` method; `catalog.HOUSEKEEPING` lists the
   for one noun or one command; `help where`, `help call` and `help app open` describe these words. A command
   that is not built yet (`planned`) is in no answer.
 - `where` prints the folders the way the window finds them (`library.resolve_paths`), the absolute path of this
-  program and its version, so an agent can check it works on the intended library before any write.
+  program and its version, and `jobs_running` (the jobs of this music folder the registry says run now), so an agent can check it works on the intended library before any write.
 - `app open` opens the window (the one thing here that is not an answer): the same as the app started from the Finder.
 - `call <method> [--args <json|->] [--password-stdin]` (plan v2 D4) sends the window's exact payload to a bridge method
   through the entry it names (`call.run_method`)."""
@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 from .. import REPO, __version__, tools
-from ..hub import catalog
+from ..hub import catalog, registry
 from ..hub.api import LIBRARY_METHODS
 from ..hub.catalog import Entry
 from ..hub.outcomes import REASONS
@@ -188,7 +188,8 @@ def run_where(parsed: Parsed) -> dict:
     return envelope.envelope("where", "ok", message="Where Discjockey keeps its things.", data={
         "music": music, "not_lossless": str(buy_list) if buy_list is not None and buy_list.is_file() else None,
         "support": str(here.support), "rekordbox": str(place.db) if place is not None else None,
-        "command": command_path(), "version": __version__, "sandbox": None})
+        "command": command_path(), "version": __version__, "sandbox": None,
+        "jobs_running": registry.Registry(here.support).running(music["path"])})
 
 
 # --- app open ---

@@ -33,7 +33,7 @@ function setup() {
   const f = createFakeBridge('normal', { speed: 400, emit: (e) => evs.push(e) });
   const s: FakeState = (f as any)._ctx.s;
   s.tracks = s.tracks.filter((t) => t.source !== 'manual');           // only the files this test sets up are own
-  const finished = async (id: number) => {
+  const finished = async (id: string) => {
     for (let i = 0; i < 400; i++) {
       const e = evs.find((x) => x.type === 'JobFinished' && x.job_id === id);
       if (e) return e as Extract<HubEvent, { type: 'JobFinished' }>;
@@ -41,7 +41,7 @@ function setup() {
     }
     throw new Error('the job did not finish');
   };
-  const run = async (start: Promise<{ ok: boolean; job_id?: number }>) => {
+  const run = async (start: Promise<{ ok: boolean; job_id?: string }>) => {
     const r = await start;
     if (!r.ok) throw new Error(JSON.stringify(r));
     return finished(r.job_id!);

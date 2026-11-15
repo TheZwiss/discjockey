@@ -323,7 +323,7 @@ export class UpgradeBatchFlow {
     const out = await runJob<AiffBatchResult>(call(), { quiet: true, success: false });
     this.#end(mode, out, () => void this.#run(mode, tracks, rows.map((r) => ({ ...r, state: 'waiting', text: null })), call));
   }
-  async #follow(job_id: number): Promise<void> {
+  async #follow(job_id: string): Promise<void> {
     const fin = await waitForJob(job_id);
     const mode = this.view?.mode ?? 'swap';
     this.#end(mode, fin.ok ? { ok: true, job_id, result: fin.result as AiffBatchResult }
@@ -464,7 +464,7 @@ export class AiffBatchFlow {
     const out = await runJob<AiffBatchResult>(call(), { quiet: true, success: false });
     this.#end(out, () => void this.#run(scope, rows.map((r) => ({ ...r, state: 'waiting', text: null })), renames, call));
   }
-  async #follow(job_id: number): Promise<void> {
+  async #follow(job_id: string): Promise<void> {
     const fin = await waitForJob(job_id);
     this.#end(fin.ok ? { ok: true, job_id, result: fin.result as AiffBatchResult }
       : { ok: false, job_id, kind: fin.problem ?? 'crashed', message: fin.message, result: (fin.result ?? null) as AiffBatchResult | null }, null);
