@@ -693,6 +693,15 @@ Results:
     the lock file, a reader holds nothing, so the first writer doesn't wait (fix idea: create the lock file at
     setup/app start, or keep it under an allowed path). `prepare` dry-run writes not hit yet (sync group).
     Merged + main → dc538714, pushed. Issue 39 ~7.67M.
+    V1.11 split in two (plan 185k; record put it ~300k). Part a fa88baf2 + 4b54d0f6 + 22e05375: Sonnet **359k** (est.
+    190-260k; cut by the 5-hour limit once, resumed by message; full 5290 passed, vitest 1592). Mode enum
+    same_track|new_track|discard (window keeps Way swap|add_new, BRIDGE_MODE name map at the two api.upgrade calls;
+    job kinds/result `action` strings unchanged); `upgrade apply` built (`--way`, `--all`, `--plan`, partial exit 6,
+    needs_person); `batches.RekordboxOpen` is a Problem; `CliApi.result_words` hook; CLI-only `_resume_first`
+    (Upgrade all refused while a stopped batch waits; window still starts a new one); planned ceiling 100; 11 legacy
+    apply tests retired, unique ones ported; rehearsal step 5 now reads envelope data (untested). FOR V1.11 REVIEW:
+    `next: batch resume aiff:<n>` unparsable until the new `batch resume` (V1.12); upgrade_preview rows say
+    `add_new` while the request says `new_track`; plan bound before the library lock. Issue 39 ~8.03M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
