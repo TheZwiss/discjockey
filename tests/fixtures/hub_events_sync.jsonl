@@ -1,9 +1,9 @@
-{"type": "JobStarted", "job_id": 1, "kind": "refresh", "track_id": null, "batch_kind": null}
+{"type": "JobStarted", "job_id": "job:00000001", "kind": "refresh", "track_id": null, "batch_kind": null}
 {"type": "Message", "level": "info", "text": "Reading your playlists..."}
 {"type": "ReadingPlaylist", "index": 1, "total": 2, "folder": "Hard_Bounce"}
 {"type": "ReadingPlaylist", "index": 2, "total": 2, "folder": "Powertrance"}
-{"type": "JobFinished", "job_id": 1, "kind": "refresh", "ok": true, "problem": null, "message": "", "result": {"actions": 5}, "service": null}
-{"type": "JobStarted", "job_id": 2, "kind": "sync", "track_id": null, "batch_kind": null}
+{"type": "JobFinished", "job_id": "job:00000001", "kind": "refresh", "ok": true, "problem": null, "message": "", "result": {"actions": 5}, "service": null}
+{"type": "JobStarted", "job_id": "job:00000002", "kind": "sync", "track_id": null, "batch_kind": null}
 {"type": "Message", "level": "info", "text": "Reading your playlists..."}
 {"type": "ReadingPlaylist", "index": 1, "total": 2, "folder": "Hard_Bounce"}
 {"type": "ReadingPlaylist", "index": 2, "total": 2, "folder": "Powertrance"}
@@ -142,4 +142,4 @@
 {"type": "StepChanged", "track_id": "7ouMYWpwJ422jRcDASZB7P", "step": "compare"}
 {"type": "ActionFinished", "action": {"kind": "upgrade", "track_id": "7ouMYWpwJ422jRcDASZB7P", "folder": "Hard_Bounce", "track": {"id": "7ouMYWpwJ422jRcDASZB7P", "title": "Get Naughty", "artists": ["Armin Hermann"], "album": "Album", "image_url": null, "duration_ms": 31000, "isrc": "DEXX12600001", "service": "spotify", "link": "https://open.spotify.com/track/7ouMYWpwJ422jRcDASZB7P", "streamable": true, "account_only": false}, "order": [0, 2], "src": null, "dest_dir": null, "aliases": [], "reason": "", "qobuz_id": null, "upload": null}, "result": {"section": "upgrade_ready", "folder": "Hard_Bounce", "artist": "Armin Hermann", "title": "Get Naughty", "track_id": "7ouMYWpwJ422jRcDASZB7P", "note": "matches exactly \u00b7 waiting in Upgrades ready/Hard_Bounce/Armin Hermann - Get Naughty.aiff", "status": "not_lossless", "source": "qobuz", "cutoff_hz": null, "path": "Upgrades ready/Hard_Bounce/Armin Hermann - Get Naughty.aiff", "error_kind": null, "found_status": "lossless"}}
 {"type": "RunFinished", "exit_code": 1, "report_path": "/Users/you/Music/Discjockey/.discjockey/reports/2026-10-31_061933.md"}
-{"type": "JobFinished", "job_id": 2, "kind": "sync", "ok": true, "problem": null, "message": "", "result": {"exit_code": 1, "report": "/Users/you/Music/Discjockey/.discjockey/reports/2026-10-31_061933.md", "actions": 5, "new_since_preview": 0}, "service": null}
+{"type": "JobFinished", "job_id": "job:00000002", "kind": "sync", "ok": true, "problem": null, "message": "", "result": {"exit_code": 1, "report": "/Users/you/Music/Discjockey/.discjockey/reports/2026-10-31_061933.md", "actions": 5, "new_since_preview": 0}, "service": null}

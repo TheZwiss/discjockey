@@ -22,7 +22,7 @@ describe('reduceRun with the recorded sync', () => {
     expect(s.qobuz).toEqual({ used: 2, allowance: 80 });
     expect(s.run_finished?.exit_code).toBe(1);
     expect(s.phase).toBe('finished');
-    expect(s.job_id).toBe(2);
+    expect(s.job_id).toBe('job:00000002');
     expect(s.planned).toHaveLength(5);
     expect(planned).toHaveLength(5);
   });
@@ -69,12 +69,12 @@ describe('reduceRun with the recorded sync', () => {
     expect(s2.progress?.rate).toBeCloseTo(0.3 * 180346 + 0.7 * 90173, 0);
   });
   it('events of another job are ignored', () => {
-    const fin = reduceRun(feed(sync.slice(0, 65)), { type: 'JobFinished', job_id: 99, kind: 'hide', ok: true,
+    const fin = reduceRun(feed(sync.slice(0, 65)), { type: 'JobFinished', job_id: 'job:00000063', kind: 'hide', ok: true,
       problem: null, message: '', result: null }, 1);
     expect(fin.phase).toBe('running');
   });
   it('a failed job ends in failed with its problem', () => {
-    const f = reduceRun(feed(sync.slice(0, 65)), { type: 'JobFinished', job_id: 2, kind: 'sync', ok: false,
+    const f = reduceRun(feed(sync.slice(0, 65)), { type: 'JobFinished', job_id: 'job:00000002', kind: 'sync', ok: false,
       problem: 'crashed', message: 'x', result: null }, 1);
     expect(f.phase).toBe('failed');
     expect(f.job_finished?.problem).toBe('crashed');
@@ -144,7 +144,7 @@ describe('the sync\'s Auto-upgrade phase (issue 33 stage C)', () => {
   it('is part of the active phases and ignores the batch events of any other job', () => {
     expect(ACTIVE_PHASES).toContain('upgrading');
     expect(reduceRun(EMPTY_RUN, batch(0, 2, 'x'), 1)).toBe(EMPTY_RUN);
-    const other = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 9, kind: 'use_candidate', track_id: 't1', batch_kind: null }, 1);
+    const other = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 'job:00000009', kind: 'use_candidate', track_id: 't1', batch_kind: null }, 1);
     expect(reduceRun(other, batch(0, 2, 'x'), 2).upgrade).toBeNull();
   });
   it('comes back from a reload with the same state', () => {

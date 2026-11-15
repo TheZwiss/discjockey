@@ -130,9 +130,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   opts.prepare?.(s);
   const speed = opts.speed ?? 1;
   const emitRaw = opts.emit ?? (() => {});
-  let nextId = 1;
+  let nextJob = 1;
+  const newJobId = (): string => `job:${(nextJob++).toString(16).padStart(8, '0')}`; // the same form the engine's ids have
   let job: JobRecord | null = null;
-  let refreshJob: { id: number; timer: ReturnType<typeof setTimeout> } | null = null;
+  let refreshJob: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
   let replay: Replay | null = null;
   let pendingFinish: Finish | null = null;   // a job that only ends by itself or with stop() (Spotify login)
   let signIn: JobRecord | null = null;         // the sign-in slot (beside the write jobs, as Jobs.start_sign_in)
@@ -144,7 +145,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   const emit = (e: HubEvent) => {
     if (job?.running && e.type !== 'ConsoleBusy' && e.type !== 'FileDropped') {
       if (e.type !== 'JobStarted' && e.type !== 'JobFinished') job.record(e);
-      else if ((e as { job_id: number }).job_id === job.id) job.record(e);
+      else if ((e as { job_id: string }).job_id === job.id) job.record(e);
     }
     emitRaw(e);
   };
@@ -195,7 +196,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   function startJob(kind: string, track_id: string | null, body: (finish: Finish) => void, batch_kind: JobSnap['batch_kind'] = null): JobStart {
     if (s.console_running) return fail('console', MSG.console);
     if (job?.running) return fail('busy', job.kind === 'import' ? IMPORTING_BUSY : MSG.busy);
-    const id = nextId++;
+    const id = newJobId();
     job = new JobRecord(id, kind, track_id, isoLocal(new Date()), batch_kind);
     const me = job;
     let finished = false;
@@ -546,7 +547,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     preRun?: number; phase?: PhasePlan | null; phaseFrom?: number | null } = {}): JobStart {
     if (s.console_running) return fail('console', MSG.console);
     if (job?.running) return fail('busy', MSG.busy);
-    const id = nextId++;
+    const id = newJobId();
     const events = opts2.events ?? STREAMS.sync;
     job = new JobRecord(id, 'sync', null, isoLocal(new Date()));
     const rid = runId(new Date());
@@ -756,7 +757,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       // only a service playlists.txt uses must be logged in (plan stage 3, D1)
       const off = readStatus(s).services.find((x) => !x.connected);
       if (off) return fail('not_set_up', `Connect ${off.name} first.`, off.service);
-      const id = nextId++;
+      const id = newJobId();
       s.read_status = { ...s.read_status, reading: true, auto_read: s.read_status.auto_read || auto };
       const [, msg] = STREAMS.sync;
       const folders = s.playlists.filter((p) => p.enabled).map((p) => p.folder);
@@ -907,7 +908,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (signIn?.running) return fail('busy', 'A sign-in is already waiting for the browser.');
       const b = (s.browsers?.[service] ?? defaultBrowsers()).find((x) => x.id === browser);
       if (!b) return fail('refused', `${BROWSER_NAMES[browser]} isn't installed on this Mac.`);
-      const id = nextId++;
+      const id = newJobId();
       const me = signIn = new JobRecord(id, 'account_sign_in', null, isoLocal(new Date()));
       const send = (e: HubEvent) => { if (me.running) me.record(e); emitRaw(e); };
       const timers: ReturnType<typeof setTimeout>[] = [];

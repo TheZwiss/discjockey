@@ -171,15 +171,15 @@ describe('cardState when stopping or failing', () => {
     expect(stopped).toHaveLength(third + 2);
   });
   it('fails on a JobFinished with a problem', () => {
-    let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 7, kind: 'sync', track_id: null, batch_kind: null }, 0);
-    s = reduceRun(s, { type: 'JobFinished', job_id: 7, kind: 'sync', ok: false, problem: 'login_expired',
+    let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 'job:00000007', kind: 'sync', track_id: null, batch_kind: null }, 0);
+    s = reduceRun(s, { type: 'JobFinished', job_id: 'job:00000007', kind: 'sync', ok: false, problem: 'login_expired',
       message: 'Your Spotify login has expired.', result: null }, 10);
     expect(cardState(s, 20)).toEqual({ kind: 'failed', problem: 'login_expired',
       message: 'Your Spotify login has expired.', service: null });
   });
   it("carries the finished job's service, so the card names it", () => {
-    let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 8, kind: 'sync', track_id: null, batch_kind: null }, 0);
-    s = reduceRun(s, { type: 'JobFinished', job_id: 8, kind: 'sync', ok: false, problem: 'not_set_up',
+    let s = reduceRun(EMPTY_RUN, { type: 'JobStarted', job_id: 'job:00000008', kind: 'sync', track_id: null, batch_kind: null }, 0);
+    s = reduceRun(s, { type: 'JobFinished', job_id: 'job:00000008', kind: 'sync', ok: false, problem: 'not_set_up',
       message: 'Connect Qobuz first.', result: null, service: 'qobuz' }, 10);
     expect(cardState(s, 20)).toEqual({ kind: 'failed', problem: 'not_set_up', message: 'Connect Qobuz first.',
       service: 'qobuz' });

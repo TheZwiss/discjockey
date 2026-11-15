@@ -13,7 +13,7 @@ export const readingLine = (r: { index: number; total: number; folder: string })
   `${READING} · ${r.index} of ${r.total} · ${r.folder}`;
 
 export type RunState = {
-  job_id: number | null; job_kind: string | null;
+  job_id: string | null; job_kind: string | null;
   /** the job's own track (use_candidate / use_link have no ActionStarted); null for a sync */
   job_track_id: string | null;
   /** `upgrading`: a sync's last phase, Auto-upgrade (issue 33 stage C), once its AIFF batch sends BatchProgress; `upgrade`

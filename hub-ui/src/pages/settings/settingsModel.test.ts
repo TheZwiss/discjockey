@@ -2,15 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { DownloadTool, JobSnap } from '$lib/bridge/types';
 import { cardJob, needsReopen, reopenNote, toolsCard, updateLines, updateOutcome } from './settingsModel';
 
-const snap = (kind: string, running: boolean, finished: unknown = null): JobSnap => ({ id: 4, kind, track_id: null,
+const snap = (kind: string, running: boolean, finished: unknown = null): JobSnap => ({ id: 'job:00000004', kind, track_id: null,
   started: '', running, stopping: false, last: {}, results: [], finished, actions: [] });
 
 describe('a card picks up its job', () => {
   it('its own kind: the id while it runs, how it ended after; another kind or none: nothing', () => {
-    expect(cardJob(snap('update_tools', true), 'update_tools')).toEqual({ id: 4, running: true });
+    expect(cardJob(snap('update_tools', true), 'update_tools')).toEqual({ id: 'job:00000004', running: true });
     const fin = { ok: true, problem: null, message: '', result: { before: {}, after: {} } };
-    expect(cardJob(snap('update_tools', false, fin), 'update_tools')).toEqual({ id: 4, running: false, finished: fin });
-    expect(cardJob(snap('setup_spotify_login', true), 'setup_spotify_login')).toEqual({ id: 4, running: true });
+    expect(cardJob(snap('update_tools', false, fin), 'update_tools')).toEqual({ id: 'job:00000004', running: false, finished: fin });
+    expect(cardJob(snap('setup_spotify_login', true), 'setup_spotify_login')).toEqual({ id: 'job:00000004', running: true });
     expect(cardJob(snap('sync', true), 'update_tools')).toBeNull();
     expect(cardJob(null, 'setup_spotify_login')).toBeNull();
   });
@@ -218,7 +218,7 @@ describe('settings list', () => {
     expect(firstAttention(ctx({ folders: wf([lib, moved]) }))).toBe('qobuz');
     // an offline drive waits; it is no reason to open Settings at the watched folders
     expect(firstAttention(ctx({ folders: wf([lib, old]) }))).toBe('qobuz');
-    const job = { id: 9, kind: 'import', track_id: null, started: '', running: true, stopping: false, results: [],
+    const job = { id: 'job:00000009', kind: 'import', track_id: null, started: '', running: true, stopping: false, results: [],
       finished: null, actions: [], last: { ImportProgress: { type: 'ImportProgress', phase: 'tags', done: 340, total: 1500,
         unreadable: 0 } } };
     expect(rowLine('folders', ctx({ folders: wf([lib, old]), job }))).toEqual({ tone: null, text: 'Reading tags · 340 of 1,500' });
@@ -259,7 +259,7 @@ describe('the Download tools card', () => {
     expect(toolsCard(null)).toEqual({ rows: [], waiting: null, back: null });
   });
   it('a rollback job is the card\'s own too', () => {
-    expect(cardJob(snap('rollback_tools', true), 'rollback_tools')).toEqual({ id: 4, running: true });
+    expect(cardJob(snap('rollback_tools', true), 'rollback_tools')).toEqual({ id: 'job:00000004', running: true });
   });
 });
 

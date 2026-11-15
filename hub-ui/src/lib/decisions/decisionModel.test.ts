@@ -51,7 +51,7 @@ describe('the decision a track waits for', () => {
 });
 
 describe('the fake backend answers the decisions made from the Library', () => {
-  const finished = (evs: HubEvent[], job_id: number, ms = 4000) => new Promise<void>((resolve, reject) => {
+  const finished = (evs: HubEvent[], job_id: string, ms = 4000) => new Promise<void>((resolve, reject) => {
     const t0 = Date.now();
     const tick = () => {
       if (evs.some((e) => e.type === 'JobFinished' && e.job_id === job_id)) return resolve();
@@ -78,7 +78,7 @@ describe('the fake backend answers the decisions made from the Library', () => {
     if (!key) throw new Error('no same-song group');
     return key;
   };
-  const job = async (evs: HubEvent[], start: Promise<{ ok: boolean; job_id?: number }>) => {
+  const job = async (evs: HubEvent[], start: Promise<{ ok: boolean; job_id?: string }>) => {
     const r = await start;
     if (!r.ok || r.job_id === undefined) throw new Error(JSON.stringify(r));
     await finished(evs, r.job_id);

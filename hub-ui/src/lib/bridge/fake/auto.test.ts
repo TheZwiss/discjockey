@@ -7,7 +7,7 @@ import { AUTO_REFUSED_SHORT } from '$lib/decisions/decisionModel';
 import { isBatch } from '../types';
 import type { Fail, RekordboxStatus, RunDetail, SetupStatus, SyncPreview, Todo, TodoItem } from '../types';
 
-const until = (evs: HubEvent[], jobId: number, ms = 3000) => new Promise<HubEvent>((resolve, reject) => {
+const until = (evs: HubEvent[], jobId: string, ms = 3000) => new Promise<HubEvent>((resolve, reject) => {
   const t0 = Date.now();
   const tick = () => {
     const hit = evs.find((e) => e.type === 'JobFinished' && e.job_id === jobId);
@@ -21,7 +21,7 @@ function make(scenario: string) {
   const evs: HubEvent[] = [];
   const f = createFakeBridge(scenario, { speed: 50, emit: (e) => evs.push(e) });
   const run = async (start: Promise<unknown>) => {
-    const s = (await start) as { ok: boolean; job_id?: number };
+    const s = (await start) as { ok: boolean; job_id?: string };
     return s.ok ? until(evs, s.job_id!) : (s as unknown as Fail);
   };
   const status = async () => (await f.setup_status()) as SetupStatus & { ok: true };

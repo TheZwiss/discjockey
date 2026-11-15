@@ -11,7 +11,8 @@ library (lists cut to 2 items, `data` cut).
   resolves (never rejects) to `{"ok": true, ...fields}` or `{"ok": false, "kind": <problem>, "message": <plain English>}`.
   A problem with a playlist service (a `SourceError`: Spotify, Qobuz, SoundCloud or YouTube Music) also carries `"service": "spotify" | "qobuz" | "soundcloud" | "youtube_music"`;
   for every other problem the key is absent. The page names that service in its card.
-- Write methods return `{"ok": true, "job_id": <int>}` at once; the outcome arrives as a `JobFinished` event with the
+- Write methods return `{"ok": true, "job_id": "job:<8 hex>"}` at once (every job id is this string, the window's jobs
+  and the terminal's alike: `JobStarted.job_id`, `JobFinished.job_id`, `job_status().job.id` and `.sign_in.id`); the outcome arrives as a `JobFinished` event with the
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
   (a terminal run holds the lock). **The exception: brief saves** (`set_favourites`, `set_crate_shown`,
   `set_crates_shown`, plus `setup_skip_import`) answer their result at once (`{favourites}` / `{path, shown}` /
@@ -1724,7 +1725,7 @@ them). The single operations check that the track still looks as the page last s
 ```json
 {
  "type": "JobFinished",
- "job_id": 2,
+ "job_id": "job:0f3a9c21",
  "kind": "hide",
  "ok": true,
  "problem": null,
@@ -1990,7 +1991,7 @@ the third action).
 
 | type | fields |
 |---|---|
-| `JobStarted` | `job_id` int, `kind` str, `track_id` str\|null, `batch_kind` `"upgrade"\|"convert"\|"mixed"`\|null (an AIFF batch job's kind as the snapshot's; null for any other job) |
+| `JobStarted` | `job_id` str (`job:<8 hex>`), `kind` str, `track_id` str\|null, `batch_kind` `"upgrade"\|"convert"\|"mixed"`\|null (an AIFF batch job's kind as the snapshot's; null for any other job) |
 | `JobFinished` | `job_id`, `kind`, `ok` bool, `problem` kind\|null, `message` str, `result` object\|null, `service` `spotify\|qobuz\|soundcloud\|youtube_music`\|null (the playlist service a failed job's problem is about — a sync or read that stops at a missing login, a rejected login, an unreadable playlist, a service not answering; null for everything else and for success) |
 | `ConsoleBusy` | `running` bool (terminal run started/ended → banner, read-only) |
 | `FileDropped` | `track_id` str\|null, `name` str, `readable` bool, `message` str ("macOS didn't let Discjockey read this file…" / "Select the track…") |

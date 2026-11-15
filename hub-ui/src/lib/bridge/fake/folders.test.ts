@@ -13,7 +13,7 @@ const until = (evs: HubEvent[], pred: (e: HubEvent) => boolean, ms = 4000) => ne
   };
   tick();
 });
-const finished = (evs: HubEvent[], job_id: number) =>
+const finished = (evs: HubEvent[], job_id: string) =>
   until(evs, (e) => e.type === 'JobFinished' && e.job_id === job_id) as Promise<Extract<HubEvent, { type: 'JobFinished' }>>;
 const fake = (scenario: string, speed = 200) => {
   const evs: HubEvent[] = [];

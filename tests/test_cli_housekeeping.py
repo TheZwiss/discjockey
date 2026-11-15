@@ -111,7 +111,8 @@ def test_where_resolves_exactly_as_the_window_does(tmp_path, monkeypatch, capsys
     assert code == 0 and env["command"] == "where"
     assert env["data"] == {"music": {"path": str(paths.root), "state": "ok"}, "not_lossless": None,
                            "support": str(resolved.support), "rekordbox": str(box / "master.db"),
-                           "command": housekeeping.command_path(), "version": __version__, "sandbox": None}
+                           "command": housekeeping.command_path(), "version": __version__, "sandbox": None,
+                           "jobs_running": 0}
     assert resolved.support == paths.support  # DISCJOCKEY_SUPPORT honoured
     paths.not_lossless_md.parent.mkdir(parents=True, exist_ok=True)
     paths.not_lossless_md.write_text("buy these")
