@@ -483,7 +483,7 @@ Results:
     changed anything after its last full run; `git worktree remove`, then in cli1-live `git merge --no-ff feat/cli-1-N`
     + `git merge --no-ff main`, check_public, push; log size here; next group. Dispatch prompt pattern = V1.8's (brief
     path, worktree, D3/D4/D10/D11 note, earlier groups' decisions, no real data, full pytest at end, report <10 lines).
-    Merged: V1.1-V1.10 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.11.
+    Merged: V1.1-V1.11 (+ V1.11 review/fix) + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.12.
     Next: V1.9, V1.10 (no own review); V1.11-V1.15 each: build → Sonnet review (findings file in phase1/) → fix-round
     agent that also runs the rehearsal on a copy (V1.11+V1.12 share one `rehearse`; made-up data only, never the
     user's support folder/library); then Opus phase review + fix, `npm run verify` once on the phase branch (bg), CI
@@ -714,6 +714,10 @@ Results:
     window logic. Decisions taken by the outcome rules (not product): all items failed and none done = `failed`, not
     partial; `check done <ids>` with nothing open = ok total 0 with skipped rows (brief: "skipped, not an error").
     Fix round (fix-round agent, Sonnet, est. 130-200k) running. Issue 39 ~8.52M.
+    V1.11 fix 946ce524: fix-round **148k** (est. 130-200k; 64 calls; full 5325 passed): all 10 + decision fixed (5 left
+    by the review's own "otherwise leave"); finding-9 tests checked by mutation. FOR PHASE REVIEW: `check done` with
+    nothing open ends `ok` on the CLI's api but `changed` in the window's job (same method, two outcomes).
+    Merged + main → 90cc0afe, pushed. Issue 39 ~8.67M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
