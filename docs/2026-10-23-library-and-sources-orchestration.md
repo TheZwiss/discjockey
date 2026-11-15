@@ -606,6 +606,30 @@ Results:
     message}; state.json += `method`, `wait_busy`; prune at each job start (client); stderr → log.txt. For V1.6: a
     lock race lost under `--wait-busy` writes `JobFinished(console)` before the retry → the follower ends on
     result.json, not that event. Issue 39 ~5.61M.
+    V1.6 done fc906cb5: Sonnet **215k** (est. 195k; 50 calls); its final full pytest 5054 passed, 4 skipped, nothing
+    changed after (it started a sleep-loop watcher, stopped it itself; I checked: none left). Merged + main →
+    1502ccca, pushed. `cli/follow.py`: follower ends on status + result.json (pinned). Decisions: `job list|show|
+    follow|stop` are housekeeping words; window entries job_status/stop/stop_refresh/stop_sign_in keep T1 coverage, no
+    command (`call stop` → "use `job stop`"); `current` = running write-entry or window job; show/wait on `current`
+    fall back to newest, `job stop current` → not_running; Ctrl-C leaves the job running; `--jsonl` brackets events
+    with Job started/ended. Phase review: a read job (RJ) can be stopped only with `--now` (its method never reads the
+    stop file); the worker writes `status: running` itself for RJ. Issue 39 ~5.83M.
+    V1.7 done f341c4f5: Sonnet **272k** (est. 185k; 131 calls); its full pytest 5089 passed. Support lock around
+    settings.json (`settings.update_settings`), config.json, the login files (Spotify app/token, streamrip config),
+    tools/ update+rollback (`Jobs.start(hold_library=False)`); `reader_lock(support)`; `library.SupportBusy` → busy;
+    rekordbox_status adds `writing`/`as_of` while a writer holds the lock; `_planned` skips master.db then. Open:
+    CLAUDE.md says setup_skip_import takes no library lock, code takes it briefly (T10 pins {library, support}).
+    Rehearsal folder (made-up default settings.json, no logins, nothing of the user's) at .claude/issue39/
+    rehearsal-v1.7/support. V1.7 review (Sonnet, est. 130-200k, material 50k) → .claude/issue39/phase1/
+    review-V1.7.md; rehearsal in the review if no findings, else in the fix agent. Issue 39 ~6.10M.
+    V1.7 review: Sonnet **163k** (est. 130-200k; 44 calls): 0 Critical, 3 Important, 6 Minor; no deadlocks/stuck
+    locks; window computes nothing new. My decisions (technical): #2 A (shared rekordbox hold only while master.db is
+    open: lookups into a dict, close, then plan; the 2 s stays); #5 B (tools update/rollback lock only around the
+    steps that change tools/, download unlocked). #9 → CARRY into later dispatch prompts: convert_cmd `_plan` and
+    batch_cmd `_rekordbox_status` take `reader_lock` and answer `writing` (whoever replaces aiff/batch: V1.12/V1.13);
+    terminal `update` must go through `_support_job`'s registry check (whoever builds `tools update`). Fix round
+    (fix-round agent, est. 150-240k) fixes 1-8 + runs the rehearsal (a-d) on the made-up settings folder.
+    Issue 39 ~6.26M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
