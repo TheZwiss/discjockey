@@ -733,7 +733,8 @@ export type UndoResult = { batch: number | null; total: number; undone: number; 
   results: UndoItem[]; recovered: [string, boolean][];
   /** stage D: what the undo says when it worked ("Conversion undone. Your old file is back."); only on success */
   words?: string };
-export type CheckedResult = { results: Result[]; checked: string[]; not_checked: string[]; recovered: [string, boolean][] };
+export type CheckedResult = { results: Result[]; checked: string[]; not_checked: string[]; recovered: [string, boolean][];
+  /** only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`) */ batch?: number };
 
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };

@@ -297,7 +297,7 @@ def parse(argv: list[str]) -> Parsed:
     for key, attr in (("_dry_run", "dry_run"), ("_yes", "yes")):
         if ns.pop(key, False):
             setattr(flags, attr, True)
-    selected = False
+    selected = ns.get("batch_id") is not None  # `--batch` says which songs: the batch's
     for key, attr in (("_sel_all", "all"), ("_sel_rows", "rows"), ("_sel_where", "where"), ("_sel_todo", "todo"),
                       ("_sel_search", "search"), ("_sel_quality", "quality")):
         if (value := ns.pop(key, None)):

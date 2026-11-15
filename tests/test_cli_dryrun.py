@@ -349,6 +349,8 @@ def test_prepare_decides_the_scan_from_dry_run_unless_told(lib, monkeypatch):
 
 import dataclasses  # noqa: E402
 
+from discjockey.hub import api as api_module  # noqa: E402
+
 from batch_helpers import make_lib, needs_ffmpeg, use  # noqa: E402
 from convert_helpers import EXACT  # noqa: E402
 from discjockey import align  # noqa: E402
@@ -427,7 +429,8 @@ def test_upgrade_preview_asks_for_songs_or_all_but_not_both_and_all_is_same_trac
     for kwargs in ({"track_ids": upgrades.tracks, "all": True}, {"all": True, "mode": "new_track"}):
         answer = api.upgrade_preview(**kwargs)
         assert (answer["kind"], answer["reason"]) == ("bad_args", "conflicting_flags"), kwargs
-    assert api.upgrade_preview(upgrades.tracks, "discard")["reason"] == "usage"
+    assert api.upgrade_preview(upgrades.tracks, "swap")["reason"] == "usage"
+    assert api.upgrade_preview(upgrades.tracks, all=True, mode="discard")["reason"] == "conflicting_flags"
 
 
 @needs_ffmpeg
@@ -446,6 +449,8 @@ def snapshot(folder: Path, skip: tuple[Path, ...]) -> dict[str, str]:
 
 T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "upgrade apply": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
+    "upgrade discard": [({"track_ids": "all-tracks"}, {})],
+    "track undo": [({"track_ids": "all-tracks"}, {})],
 }
 
 
@@ -468,7 +473,10 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_and_cache(upgrades, command,
     assert env["outcome"] == "ok", env
     after = [snapshot(f, skip) for f in (support, music, rekordbox)]
     assert after == before  # every byte and every file outside plans/ and cache/, library.db and rekordbox included
-    assert [p.name for p in (support / "plans").iterdir()] == [f"{env['data']['plan_id'][5:]}.json"]
+    if command in api_module.NO_PLAN_COMMANDS:  # Discard and Undo run on what is there when --yes comes: no plan, no file
+        assert "plan_id" not in env["data"] and not (support / "plans").exists()
+    else:
+        assert [p.name for p in (support / "plans").iterdir()] == [f"{env['data']['plan_id'][5:]}.json"]
 
 
 def test_t9_covers_every_built_entry_with_a_dry_run():

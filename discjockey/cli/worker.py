@@ -218,7 +218,8 @@ def _finished_envelope(command: str, files: registry.JobFiles, job, api=None, me
     words = words if words.get("ok") else {}  # words are an extra: a failure to find them leaves the answer as it is
     entry = catalog.entry_of(method, command) if method else None
     if done.get("ok"):
-        outcome = outcomes.run_outcome(result.get("results"), entry.partial if entry else ())
+        rows = (words.get("data") or {}).get("results", result.get("results"))  # the words' rows carry `state` where the engine's do not
+        outcome = outcomes.run_outcome(rows, entry.partial if entry else ())
         return envelope.envelope(command, outcome, message=done.get("message") or words.get("message") or None,
                                  data={**result, **(words.get("data") or {})}, next=words.get("next") or (),
                                  person_steps=words.get("person_steps") or (), job=files.id)

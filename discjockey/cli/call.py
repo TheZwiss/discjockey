@@ -90,6 +90,7 @@ def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool,
 
 NOTHING_LEFT = {"total": 0, "done": 0, "skipped": 0, "failed": 0, "results": []}  # the data of a run of no songs
 SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all or --rows."
+BATCH_SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all, --rows or --batch <aiff:n>."
 
 
 def _listing(entry: Entry, command: str, flags: Flags) -> tuple[dict | None, dict | None]:
@@ -115,16 +116,22 @@ def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> 
     `HubApi.select_listing`, the engine's one rule for which rows a listing shows; the ids go to the method as they
     are. Returns the arguments with `track_ids` filled, or the envelope of why not."""
     typed = bool(args.get("track_ids"))
-    forms = [name for name, on in (("the song ids", typed), ("--all", flags.all), ("--rows", flags.rows)) if on]
+    batchable = "batch_id" in parameters_of(entry.method)  # `check done --batch aiff:n`: a batch names its own songs
+    batch = args.get("batch_id") is not None
+    words = BATCH_SELECTION_WORDS if batchable else SELECTION_WORDS
+    forms = [name for name, on in (("the song ids", typed), ("--all", flags.all), ("--rows", flags.rows),
+                                   ("--batch", batch)) if on]
     narrowing = any((flags.where, flags.todo, flags.search, flags.quality))
     if len(forms) > 1:
-        return {}, envelope.usage(command, f"{' and '.join(forms)} say different things: choose one. {SELECTION_WORDS}",
+        return {}, envelope.usage(command, f"{' and '.join(forms)} say different things: choose one. {words}",
                                   "conflicting_flags")
     if not forms:
-        return {}, envelope.usage(command, SELECTION_WORDS)
+        return {}, envelope.usage(command, words)
     if narrowing and not flags.rows:
         return {}, envelope.usage(command, "--in, --todo, --search and --quality narrow --rows; they mean nothing "
                                            "without it.", "conflicting_flags")
+    if batch:
+        return {**args, "track_ids": []}, None
     if typed:
         return dict(args), None
     listing, failed = _listing(entry, command, flags)
@@ -185,7 +192,7 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
         args, failed = _selection(entry, args, flags, command, api)
         if failed is not None:
             return failed
-        chosen = ("track_ids",) if flags.all or flags.rows else ()
+        chosen = ("track_ids",) if flags.all or flags.rows or args.get("batch_id") is not None else ()
     elif any((flags.all, flags.rows, flags.where, flags.todo, flags.search, flags.quality)):
         return envelope.usage(command, f"{command} takes no selection words (--all, --rows, --in, --todo, --search, "
                                        "--quality).")

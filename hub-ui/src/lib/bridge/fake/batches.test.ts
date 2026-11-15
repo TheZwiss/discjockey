@@ -105,6 +105,20 @@ describe('the fake bridge: Same track batches', () => {
     expect(done).toMatchObject({ kind: 'rekordbox_checked', ok: false, problem: 'changed' });
   });
 
+  it('Done for a batch (the command line\'s --batch) checks that batch\'s tracks; none of it for the window', async () => {
+    const { f, run, group } = setup();
+    const id = (await group('upgrade_ready'))!.items.find((i) => i.same_track === null)!.track_id;
+    const made = await run(f.upgrade([id], 'same_track'));
+    const batch = (made.result as AiffBatchResult).batch!;
+    expect(await f.rekordbox_checked([id], batch)).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.rekordbox_checked([], 999)).toMatchObject({ ok: false, kind: 'refused' });
+    const done = await run(f.rekordbox_checked([], batch));
+    expect(done).toMatchObject({ kind: 'rekordbox_checked', ok: true });
+    expect(done.result).toMatchObject({ checked: [id], not_checked: [], batch });
+    const again = await run(f.rekordbox_checked([], batch)); // all checked already: a finished job with nothing in it
+    expect(again).toMatchObject({ ok: true, result: { checked: [], batch } });
+  });
+
   it('Upgrade all of one track is a batch of no track; the same one by hand is a batch of one', async () => {
     const { evs, f, run, group } = setup();
     const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id);

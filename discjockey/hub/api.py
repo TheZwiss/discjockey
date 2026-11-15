@@ -79,6 +79,10 @@ NO_AIFF_BATCH = "Discjockey has no record of this batch."
 NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
 UNDO_NONE = batches.NOTHING_UNDONE
 NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
+NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
+CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
+BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
+NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -2206,25 +2210,38 @@ class HubApi:
         return work
 
     @bridge
-    def rekordbox_checked(self, track_ids: list[str]) -> dict:
+    def rekordbox_checked(self, track_ids: list[str], batch_id: int | None = None) -> dict:
         """"Done, checked in rekordbox" for tracks (a batch card sends its done tracks): the reminders and with them
         the undo end. A write job (kind "rekordbox_checked"); the result lists the `checked` tracks, those with
-        nothing to check (`not_checked`) and the engine's `results`."""
-        ids = self._track_list(track_ids)
+        nothing to check (`not_checked`) and the engine's `results`. `batch_id` (the command line's `--batch`; then
+        `track_ids` is empty): the tracks that AIFF batch did. A batch whose tracks were all checked already is a
+        finished job with nothing in it (`batch` says which); named tracks with nothing to check end `changed`."""
+        if batch_id is not None:
+            if track_ids:
+                raise ValueError(BATCH_OR_TRACKS)
+            self._stopped_aiff(batch_id)
+            ids = None
+        else:
+            ids = self._track_list(track_ids)
 
         def work(ctx) -> dict:
             state, recovered = self._begin()
-            before = {t: state["tracks"].get(t) for t in ids}
-            done = batches.checked(self._paths, ids, state=state, now=self._svc.now)
+            wanted = ids if ids is not None else batches.tracks_of(self._paths, batch_id)
+            before = {t: state["tracks"].get(t) for t in wanted}
+            done = batches.checked(self._paths, wanted, state=state, now=self._svc.now)
             checked = [r.track_id for r in done]
-            if not checked:
+            body = {"results": [asdict(r) for r in done], "checked": checked,
+                    "not_checked": [] if ids is None else [t for t in ids if t not in checked], "recovered": recovered,
+                    **({} if ids is not None else {"batch": batch_id})}
+            if not checked and ids is not None:
+                ctx.failed_result = body  # the skipped rows still say which tracks had nothing to check
                 raise OpProblem(NOTHING_TO_CHECK, "changed")
             for t in checked:
                 ops.log_operation(self._paths, self._svc.now(), t, before[t], "rekordbox_checked", "done",
                                   "checked in rekordbox")
-            return {"results": [asdict(r) for r in done], "checked": checked,
-                    "not_checked": [t for t in ids if t not in checked], "recovered": recovered}
-        return {"job_id": self._jobs.start("rekordbox_checked", work, track_id=ids[0] if len(ids) == 1 else None).id}
+            return body
+        return {"job_id": self._jobs.start("rekordbox_checked", work,
+                                           track_id=ids[0] if ids is not None and len(ids) == 1 else None).id}
 
     def _plan_run(self, plan_id: str, mode: str, ids: list[str], state: dict
                   ) -> tuple[list[str], list[batches.ItemResult], dict]:
@@ -2938,7 +2955,7 @@ class CliApi(HubApi):
     pywebview exposes every public name of the object it is given, and the window sees exactly the contract
     (tests/test_hub_api.py): the window's `HubApi` has none of these."""
 
-    RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way"}  # kind -> the method that makes it (grows per group)
+    RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
 
     # --- plans (design §7.1): the command line's call path saves a dry run's plan (`save_plan`) and says when its scan
@@ -2951,7 +2968,7 @@ class CliApi(HubApi):
         what-if or a question is not a plan). `command` is the command line of the dry run, which an expired plan
         says to repeat."""
         items = plan_store.items_of(answer)
-        if items is None:
+        if items is None or kind in NO_PLAN_COMMANDS:
             return None
         extra = {**(answer.get("plan_extra") or {}), "command": command}
         return plan_store.save(self._support.support, kind, self._plan_root(), items, extra)
@@ -2959,12 +2976,21 @@ class CliApi(HubApi):
     @cli_first
     def result_words(self, method: str, result: dict) -> dict:
         """What the command line says beside a finished write's `result` (design §4.4, §8.3): `{message, data, next,
-        person_steps}`, each left out when there is nothing to add. Upgrade's results (Same track, New track, Upgrade
-        all) name their batch as `aiff:<n>`, give each done song the steps only a person can do in rekordbox
+        person_steps}`, each left out when there is nothing to add. Upgrade's results (Same track, New track, Discard,
+        Upgrade all) name their batch as `aiff:<n>`, give each done song the steps only a person can do in rekordbox
         (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
-        for the whole run. Read only: it looks at the records after the job. A method with no words says nothing."""
-        if method not in ("upgrade", "upgrade_all") or not isinstance(result.get("results"), list):
-            return {}
+        for the whole run. An undo says how many tracks went back; "Done, checked" gives each track a row, `done` or
+        `skipped` (nothing to check), and says that the undo ended. Read only: it looks at the records after the job. A
+        method with no words says nothing."""
+        if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
+            return self._upgrade_words(result)
+        if method == "undo_upgrade" and isinstance(result.get("results"), list):
+            return self._undo_words(result)
+        if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
+            return self._checked_words(result)
+        return {}
+
+    def _upgrade_words(self, result: dict) -> dict:
         out: dict = {}
         results = result["results"]
         if isinstance(result.get("batch"), int):
@@ -2977,11 +3003,11 @@ class CliApi(HubApi):
         parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed"))) if n]
         out["message"] = ", ".join(parts) + "."
         tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
-            r.get("state") == "done" for r in results) else {}
+            r.get("state") == "done" and r.get("action") != "discard" for r in results) else {}
         steps, reload, rows = [], [], []
         for r in results:
             mine = []
-            if r.get("state") == "done":
+            if r.get("state") == "done" and r.get("action") != "discard":  # a discard changes no file, so nothing to check
                 new_file = str(self._paths.root / r["path"]) if r.get("action") == "add_new" and r.get("path") else None
                 mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
                 for step in mine:
@@ -2995,6 +3021,37 @@ class CliApi(HubApi):
         if steps:
             out["person_steps"] = steps
         return out
+
+    def _undo_words(self, result: dict) -> dict:
+        """`track undo`: how many tracks went back; each track that now has its better version waiting again is
+        `upgrade list`'s."""
+        undone = [r["track"] for r in result["results"] if r.get("state") == "undone"]
+        out: dict = {"message": f"{len(undone)} of {len(result['results'])} tracks undone."}
+        tracks = library.load_state(self._paths)["tracks"] if self._paths and undone else {}
+        if any((tracks.get(t) or {}).get("upgrade") for t in undone):
+            out["next"] = [{"run": "upgrade list", "why": "the better versions wait there again"}]
+        return out
+
+    def _checked_words(self, result: dict) -> dict:
+        """`check done`: a row per track (`done`, or `skipped` when it had nothing to check), what the answer says:
+        the reminder and the undo of these tracks are over."""
+        notes = {r["track_id"]: r.get("note") for r in result.get("results") or ()}
+        rows = [{"track": t, "action": "check", "state": "done", "reason": None, "message": notes.get(t)}
+                for t in result["checked"]]
+        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "nothing_to_check",
+                  "message": NOTHING_TO_CHECK_ONE} for t in result.get("not_checked") or ()]
+        checked, skipped = len(result["checked"]), len(result.get("not_checked") or ())
+        if not rows:
+            message = NOTHING_TO_CHECK
+        else:
+            message = f"{checked} of {len(rows)} tracks checked in rekordbox." if skipped else \
+                f"{checked} {'track' if checked == 1 else 'tracks'} checked in rekordbox."
+            if checked:
+                message += CHECK_ENDS_UNDO
+            if skipped:
+                message += f" {skipped} had nothing to check."
+        return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
+                                             "failed": 0}}
 
     def scan_next(self) -> list[dict]:
         """The `next` of a dry run that planned on the last scan: `library scan` when Library/ or a watched folder was
@@ -3054,6 +3111,16 @@ class CliApi(HubApi):
         if key is None:
             raise BadId("unknown_id", f"Your library has no track with the file {text}.")
         return key
+
+    def _resolve_aiff(self, text: str) -> int:
+        """`--batch`: the AIFF batch `aiff:<n>` as its number. A bare number or a move batch is `bad_id_kind`, a batch
+        that was never made `unknown_id`."""
+        found = parse_id(text, ("aiff",))
+        with self._move_log() as conn:
+            row = db.aiff_batch(conn, found.value) if conn is not None else None
+        if row is None:
+            raise BadId("unknown_id", f"There is no AIFF batch {found.value}.")
+        return int(found.value)
 
     def _resolve_upgrade_way(self, text: str) -> str:
         """`--way`: `same-track` or `new-track` (the snake_case spellings too) as the bridge's mode."""
@@ -3187,10 +3254,11 @@ class CliApi(HubApi):
         all would start): `{mode, total, planned, skipped, items, space, rekordbox}` (`batches.upgrade_preview`). One
         item per song, `{key, action, state: planned | skipped, reason, file, new_file, superseded}`; `space` is what the
         new files need per drive; `rekordbox.needs_rekordbox_closed` says a Same track must wait for rekordbox to be
-        quit. `mode` `same_track` or `new_track`; `all` the songs Upgrade all would run (Same track
+        quit. `mode` `same_track`, `new_track` or `discard` (Discard's items: the current file that stays and the parked
+        download that is deleted); `all` the songs Upgrade all would run (Same track
         only), instead of `track_ids`. Reads only: no file is decoded, nothing is stored."""
-        if mode not in batches.PREVIEW_MODES:
-            raise BadId("usage", f"mode must be one of {', '.join(batches.PREVIEW_MODES)}.")
+        if mode not in (*batches.PREVIEW_MODES, "discard"):
+            raise BadId("usage", f"mode must be one of {', '.join((*batches.PREVIEW_MODES, 'discard'))}.")
         if all and track_ids:
             raise BadId("conflicting_flags", "Name the songs, or ask for all of them: not both.")
         if all and mode != "same_track":
@@ -3202,7 +3270,18 @@ class CliApi(HubApi):
             raise BadId("usage", "Name the songs, or ask for all of them.")  # `[]` is a list that picked none
         else:
             ids = self._track_list(track_ids) if track_ids else []  # no songs (a selection that found none): total 0
+        if mode == "discard":
+            return batches.discard_preview(self._paths, state, ids)
         return batches.upgrade_preview(self._paths, state, ids, mode, self._rekordbox_status())
+
+    @cli_first
+    def undo_upgrade_preview(self, track_ids: list[str]) -> dict:
+        """What `undo_upgrade` of these songs would do, before it runs (design §7.4: the dry run of `track undo`):
+        `{total, planned, skipped, items, rekordbox}` (`batches.track_undo_preview`). One item per song, `{key, action:
+        "undo", state: planned | skipped, reason, message, file, step}`: a song `upgrades.can_undo` says no to is
+        `skipped` with its reason and words. Reads only; whether a file changed since is only known when the undo runs."""
+        ids = self._track_list(track_ids)
+        return batches.track_undo_preview(self._state(), ids, self._svc.rekordbox_running(), self._paths.root)
 
     @cli_first
     def batches(self, kind: str | None = None, limit: int = 20) -> dict:

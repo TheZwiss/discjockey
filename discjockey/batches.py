@@ -384,6 +384,44 @@ def upgrade_preview(paths, state: dict, tracks: Sequence[str], mode: str, rb: re
             "rekordbox": {"state": rb.state, "running": rb.running, "needs_rekordbox_closed": needs_closed}}
 
 
+def discard_preview(paths, state: dict, tracks: Sequence[str]) -> dict:
+    """What Discard of `tracks` would do: `{mode: "discard", total, planned, skipped, items}`. One item per song,
+    `{key, action: "discard", state: planned | skipped, reason, file, parked}`: `file` is the current file (it stays),
+    `parked` the downloaded better version that is deleted for good and not offered again. Reads only."""
+    rows = []
+    for key in dict.fromkeys(tracks):
+        e = state["tracks"].get(key)
+        up = (e or {}).get("upgrade")
+        reason = None if up else "no_upgrade"
+        rows.append({"key": key, "action": "discard", "state": "skipped" if reason else "planned", "reason": reason,
+                     "file": str(paths.root / e["path"]) if e and e.get("path") else None,
+                     "parked": str(paths.root / up["file"]) if up else None})
+    planned = sum(1 for r in rows if r["state"] == "planned")
+    return {"mode": "discard", "total": len(rows), "planned": planned, "skipped": len(rows) - planned, "items": rows}
+
+
+def track_undo_preview(state: dict, tracks: Sequence[str], rekordbox_running: bool, root) -> dict:
+    """What `undo_upgrade` of `tracks` would do: `{total, planned, skipped, items, rekordbox}`. One item per song,
+    `{key, action: "undo", state: planned | skipped, reason, message, file, step}`: a track that `upgrades.can_undo`
+    skips with `reason` and its words (`upgrades.UNDO_BLOCKED`); `step` is the kind of file step an undo would put back
+    (`swap`, `add_new`, `convert`, `rename`). `rekordbox.needs_rekordbox_closed`: a step that wrote rekordbox can only be
+    undone with rekordbox quit. Whether the files changed since is only known when the undo runs."""
+    rows = []
+    for key in dict.fromkeys(tracks):
+        e = state["tracks"].get(key)
+        blocked = upgrades.undo_blocker(e)
+        u = upgrades.upgrade_undo(e)
+        rows.append({"key": key, "action": "undo", "state": "skipped" if blocked else "planned", "reason": blocked,
+                     "message": upgrades.UNDO_BLOCKED[blocked] if blocked else None,
+                     "file": str(root / e["path"]) if e and e.get("path") else None,
+                     "step": None if blocked else u["kind"]})
+    planned = [r for r in rows if r["state"] == "planned"]
+    needs_closed = rekordbox_running and any((upgrades.upgrade_undo(state["tracks"][r["key"]]) or {}).get("repoint")
+                                             for r in planned)
+    return {"total": len(rows), "planned": len(planned), "skipped": len(rows) - len(planned), "items": rows,
+            "rekordbox": {"running": rekordbox_running, "needs_rekordbox_closed": needs_closed}}
+
+
 def _needs_write(paths, state: dict, items: Sequence[tuple[str, str]]) -> Callable:
     """Session's start question: whether any of `items` ((track, action) pairs) needs a rekordbox write (plan §0.7,
     §1.6): a Same track item whose file isn't an AIFF and is in rekordbox's library, a Convert or Rename item whose

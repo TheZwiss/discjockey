@@ -42,9 +42,10 @@ def make(tmp_path, monkeypatch, kinds: list[str], sub: str | None = None) -> Lib
 
 
 def run(argv: list[str], capsys) -> tuple[int, str, str]:
-    """`upgrade apply` is the new command line's now (tests/test_cli_upgrade.py); this file pins the old handler, which
-    stays until V1.12 deletes it with `batch_cmd.py`, so that word goes through the old parser here."""
-    code = legacy.main(argv) if argv[:2] == ["upgrade", "apply"] else cli.main(argv)
+    """`upgrade apply` and `upgrade discard` are the new command line's now (tests/test_cli_upgrade.py); this file pins
+    the old handler, which stays until V1.12 deletes it with `batch_cmd.py`, so those words go through the old parser
+    here."""
+    code = legacy.main(argv) if argv[:2] in (["upgrade", "apply"], ["upgrade", "discard"]) else cli.main(argv)
     out = capsys.readouterr()
     return code, out.out, out.err
 

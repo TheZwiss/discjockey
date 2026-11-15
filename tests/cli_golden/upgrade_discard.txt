@@ -1,0 +1,16 @@
+1 of 1 songs done.
+
+Batch        none
+State        done
+Stop reason  none
+Total        1
+Done         1
+Skipped      0
+Failed       0
+Backup       none
+Recovered    none
+
+Results
+Track      Action   State  Reason  Message                                 Path  Rekordbox  Person steps
+t1aaaaaaa  discard  done   none    this Qobuz file won't be offered again  none  none       none
+1 of 1 shown

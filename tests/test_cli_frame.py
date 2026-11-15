@@ -67,7 +67,9 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
 @pytest.mark.parametrize("argv,where", [
     ([], "legacy"), (["--dry-run"], "legacy"), (["--json"], "legacy"), (["--limit", "3"], "legacy"),
     (["setup"], "legacy"), (["upgrade", "list", "--json"], "new"), (["--json", "upgrade", "list"], "new"),
-    (["upgrade", "apply", "--all"], "new"), (["upgrade", "discard", "t1"], "legacy"),
+    (["upgrade", "apply", "--all"], "new"), (["upgrade", "discard", "t1"], "new"),
+    (["upgrade", "undo", "t1"], "legacy"), (["rekordbox", "checked", "t1"], "legacy"), (["track", "undo", "t1"], "new"),
+    (["check", "done", "--all"], "new"),
     (["batch", "list"], "new"), (["batch", "show", "aiff:1"], "new"), (["batch", "resume", "1"], "legacy"),
     (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
     (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "legacy"), (["settings", "auto-upgrade"], "legacy"),

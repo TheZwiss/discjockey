@@ -1,0 +1,14 @@
+1 of 1 tracks undone.
+
+Batch      none
+Total      1
+Undone     1
+Refused    0
+Failed     0
+Recovered  none
+Words      Upgrade undone. Your old file is back.
+
+Results
+Track      State   Reason  Message
+t0aaaaaaa  undone  none    the old file is back at Library/A/Old 0.mp3; the lossless version waits in Upgrades ready/A/Artist - Song 0.aiff again
+1 of 1 shown
