@@ -1,8 +1,8 @@
 # Discjockey's command line for agents and people (issue 39, design)
 
 Status: design, 2026-11-14; revised 2026-11-15 after the adversarial and coverage reviews (step 4a: §6, §7.1, §7.5,
-§8, §9.2, §10.3, §13, §15 and §16 redesigned; the "Fix status" table at the end of
-`docs/2026-11-14-agent-cli-design-review.md` says which findings are done and which a later fix round applies).
+§8, §9.2, §10.3, §13, §15 and §16 redesigned), then step 4b applied the stated fixes in the sections the "Fix status"
+table at the end of `docs/2026-11-14-agent-cli-design-review.md` names for each finding.
 Input: the six audit files `docs/2026-11-14-cli-audit-{library,todo,app,supplement-a,supplement-b,supplement-c}.md` (cited as **L**, **T**, **A**, **SA**, **SB**, **SC** with their row ids, e.g. L D15,
 T §5.4), today's commands (`CONTRIBUTING.md` › "Commands for scripts and agents"), `docs/issues.md` › 39, `CLAUDE.md`
 › "Agent-ready". A later Opus agent turns this into a build plan for Sonnet groups; this file fixes the decisions,
@@ -32,13 +32,13 @@ the interfaces and the behaviours tests pin, not the code.
    network unless they say so, and work while the window runs. Every write is an explicit verb with `--dry-run` where
    anything moves or changes, and a `--yes` where the window asks a question first.
 3. **Nouns first, then verbs** (`gh`, `kubectl`): `discjockey <noun> <verb> [ids] [flags]`. One noun per concept the
-   user knows (track, playlist, folder, todo, run, batch, rekordbox, settings, login, limits). An agent that knows the
+   user knows (track, playlist, folder, todo, report, batch, rekordbox, settings, login, limits). An agent that knows the
    nouns can guess the commands; `discjockey help --json` lists them all.
 4. **Porcelain = plumbing.** Unlike git, there is one layer: the same command serves a person (text) and an agent
    (`--json`). The JSON is the contract (versioned, documented per command); the text may change freely.
 5. **Long work is a job with an id**, detachable and followable from any process (§6). A command never needs to stay
    attached for hours.
-6. **Ids are stable and typed** (`track:…`, `file:…`, `batch:…`, `moves:…`, `run:…`), never bare integers that mean
+6. **Ids are stable and typed** (`track:…`, `file:…`, `aiff:…`, `moves:…`, `report:…`), never bare integers that mean
    different things in different tables (§3).
 7. **Every outcome has one shape and one exit code table** across all commands (§4.3).
 8. **A command never prompts.** What the window asks a person (confirm Discard, Undo, Remove folder) is a `--yes`
@@ -67,14 +67,18 @@ the interfaces and the behaviours tests pin, not the code.
 
 - **One program, two homes.** In a checkout: `bin/discjockey`. In the installed app:
   `/Applications/Discjockey.app/Contents/MacOS/Discjockey`. Both run `cli.main`.
-- **Routing in the app (change).** `app_main` opens the window only when there is **no argument** (or the single word
-  `app open`); `--self-test` and `--check-tools` keep their places; **anything else goes to `cli.main`**. Today only
+- **Routing in the app (change).** `app_main` opens the window only for `app open` (from anywhere, a shell included) and for **no argument when
+  LaunchServices started the process** (parent pid 1, or the single argument `-psn_…` that macOS passes when the app is
+  opened from the Finder); `--self-test` and `--check-tools` keep their places; **anything else goes to `cli.main`**. Today only
   `CLI_COMMANDS` words reach the CLI and `Discjockey --yes --json` opens the window (L finding 7, T §0.7). The list
-  `CLI_COMMANDS` and its test are dropped: the parser is the one list. macOS may pass a `-psn_…` argument when the app
-  is opened from the Finder: that one argument still opens the window (test pins it).
+  `CLI_COMMANDS` and its test are dropped: the parser is the one list. **From a shell** (the parent is not launchd) no
+  argument prints the short help (§2.3 step 1) and exits 0 instead of opening a window, so an agent's first probe never
+  blocks on a window it opened on the user's screen (R20). T12 pins both starts.
 - **A short name for people.** `discjockey app install-command [--dir ~/.local/bin] [--dry-run]` writes a two-line
-  shell script `discjockey` that execs the app's binary; it refuses to overwrite a file that is not its own. Agents
-  never need it: `where` prints the absolute command path.
+  shell script `discjockey` that execs the app's binary; it refuses to overwrite a file that is not its own. The answer
+  says whether the folder is on `PATH` (`~/.local/bin` is not on macOS's default for zsh); when it isn't, the answer
+  carries the person step `step:add_to_path` with the exact line for `~/.zprofile` (R32). Agents never need it: `where`
+  prints the absolute command path.
 - **Long jobs keep the Mac awake** inside the job worker (`caffeinate -i -w <worker pid>`), no longer only through
   `bin/discjockey` (A §5.1: the .app had none).
 
@@ -82,16 +86,21 @@ the interfaces and the behaviours tests pin, not the code.
 
 ```
 discjockey <noun> <verb> [ids…] [flags]          ids: typed (§3); "-" reads ids from stdin
-discjockey <noun>                                 = the noun's read verb (list or show)
+discjockey <noun>                                 = the noun's read verb (list or show); a noun without a read verb
+                                                    (tidy, aiff, version) prints the noun's help
 global flags (anywhere on the line): --json | --jsonl   --sandbox <dir>   --wait <s> | --detach
                                      --wait-busy <s>     --verbose        --no-color
 write flags (each write that has them): --dry-run   --plan <plan id>   --yes   --if-rev <rev>
 selection flags (bulk writes, §7.3):  <ids…> | --all | --rows   with --in <collection> | --todo <group>,
-                                      --search <words>, --quality <q>
+                                      --search <words>, --quality <q>;  `check done` also --batch <aiff:n>
 ```
 
 - Global flags are parsed **once, wherever they stand** (today `discjockey --json upgrade list` silently drops
   `--json`, T §5.4). A flag a command doesn't take is a usage error (`bad_args`), never ignored.
+- Two words, `<noun> <verb>`, except three groups that take an object, `<noun> <verb> <object>`: `library favourites
+  add|remove|move`, `folder crates show|hide|default`, `sync scope show|on|off`. No other command has three words.
+- `--limit N` and `--offset` always mean rows of a list; how many songs a sync downloads is `--how-many N` on `sync
+  run` (`0` is not a count there: leave it out for no cap).
 - Every noun has `help`: `discjockey <noun> --help`, `discjockey help <noun> <verb> [--json]`.
 - Words on the command line are the window's words, hyphenated: `same-track`, `new-track`, `read-liked-music`.
   In JSON the same values are snake_case (`same_track`). The parser accepts both spellings.
@@ -100,10 +109,10 @@ selection flags (bulk writes, §7.3):  <ids…> | --all | --rows   with --in <co
 
 | Step | Command | What it gives |
 |---|---|---|
-| 1 | `Discjockey --help` (or no TTY and no args: still the window; any `help` word reaches the CLI) | First line: "AI agents: run `<path> help agents` first." Then the nouns with one line each |
+| 1 | `Discjockey --help`, or no argument from a shell (parent not launchd: the short help, exit 0; the window opens only for a Finder start or `app open`); any `help` word reaches the CLI | First line: "AI agents: run `<path> help agents` first." Then the nouns with one line each |
 | 2 | `discjockey help agents` | The agent guide (§14.2): what Discjockey is, the concepts, the safety rules, the workflow (look → dry run → ask the user → apply → follow → report the person's steps), ids, outcomes |
-| 3 | `discjockey where --json` | `music` (path, state `ok`/`missing`/`not_chosen`), `support`, `rekordbox` (library path or null), `command` (absolute path of this program), `version`, `sandbox` (null or its dir), `windows_open` (count of live windows on this music folder, from the window files of §6.4; never by probing the window's lock), `jobs_running` |
-| 4 | `discjockey status --json` | The cross-screen overview (Dashboard + counts + running jobs + problems + what needs a person), §11 |
+| 3 | `discjockey where --json` | `music` (path, state `ok`/`missing`/`not_chosen`), `not_lossless` (path of `.discjockey/not_lossless.md`, the buy list, or null; `open file not-lossless` opens it), `support`, `rekordbox` (library path or null), `command` (absolute path of this program), `version`, `sandbox` (null or its dir), `windows_open` (count of live windows on this music folder, from the window files of §6.4; never by probing the window's lock), `jobs_running` |
+| 4 | `discjockey status --json` | The cross-screen overview (the Dashboard and the nav's counts, running jobs, what needs a person), §11; the problems themselves are `doctor`'s (§5.3) |
 | 5 | `discjockey help --json` | The machine index: every command with its args, flags, whether it writes, its job kind, its outcome reasons, the name of its data schema; `help <cmd> --json` adds the schema (JSON Schema) |
 | 6 | `discjockey help concepts` / `help glossary` | The model of the app (§14.2) and every badge, colour, tone and tooltip word with its meaning (the extracted word catalogue `words.json`, §8.3) |
 
@@ -131,7 +140,7 @@ file's path) the command accepts that too and prints the id it resolved to.
 | Crate | `folder:<path>` (a crate is a folder) | path | yes |
 | AIFF batch | `aiff:<n>` | `aiff:<n>` (a bare number is `bad_args`: "say aiff:12 or moves:12") | yes |
 | Move batch | `moves:<n>` | `moves:<n>` | yes |
-| Run (sync report) | `run:<YYYY-MM-DD_HHMMSS>` | that, or `last` | yes |
+| Report (a past sync) | `report:<YYYY-MM-DD_HHMMSS>` | that, or `last` | yes |
 | Job | `job:<8 hex>`, for window jobs too (a contract change: today the window's ids are integers) | that, or `current` (the one running write job on this music folder) | yes (registry, §6) |
 | Duplicate group | `dup:<sorted file ids>` (`models.group_id`) | the same | changes when its files change, by design (asked again); a stale one is `refused`/`changed` with `next: duplicate list` |
 | Same-song question | `same:<song key>~<own key>` | the same | yes while the question stands |
@@ -144,7 +153,10 @@ file's path) the command accepts that too and prints the id it resolved to.
 | Person step | `step:<name>` (§10.1) | n/a | yes |
 
 - **Finding ids without knowing them:** `track find <words>` (artist/title, folded like the window's search) and
-  `track find --path <file>` print `track_id`s; every list prints ids; every result names the ids it touched.
+  `track find --path <file>` print `track_id`s; every list prints ids; every result names the ids it touched. A search with no hit
+  answers `ok` with `data.total: 0`, `as_of.read_at` and `next: sync read` when the read is older than the playlists'
+  last change or a day: a song added to a playlist after the last read is in no record yet, which is where "why didn't
+  X download?" starts (R28).
 - **`rev` replaces `_shown`.** Today single-track writes (`hide`, `use_candidate`, `use_link`, `reject_current`,
   `add_bought_file`, one-track New track / Discard) are refused `changed` unless *this window process* showed the
   track (`ops.run_single`). New: every read of a record prints its `rev`; the bridge and the CLI take an optional
@@ -184,6 +196,9 @@ prints argparse text even with `--json`, L §5). Shape:
   (one user, rule H5): a bump changes the docs and tests in the same commit. Each payload has a JSON Schema generated
   from the typed shapes of `hub/shapes.py` (§8.2); `help <cmd> --json` prints it; a test pins that every command's real
   output validates against its schema.
+- **Paths are absolute.** Every `path` in a payload is absolute (`cover_path`, `upgrade.path`, a file's `path`); where
+  the window shows the relative form (`Library/Hard_Bounce/A - B.aiff`), the payload also carries `rel_path`, relative
+  to the music folder (C2). A command accepts both forms (§3).
 - **Window URLs become paths.** Payloads carry `cover_path`, `path`, `upgrade.path`; the hub adapter alone turns
   them into `cover_url` / `audio_url` (a declared transform list, pinned by a test). An agent reads files, a person
   opens them (§4.5).
@@ -192,9 +207,13 @@ prints argparse text even with `--json`, L §5). Shape:
 
 - Default output. Rendered **from the same payload** by one renderer per schema (`discjockey/cli/render/`), using the
   words the payload carries (§8). The rule a test pins: every field of the payload whose schema says `shown: true` is
-  printed in text mode (as its words where it has words, else its value). The window's dimming, colours and badges
+  placed in text mode (as its words where it has words, else its value). The window's dimming, colours and badges
   are printed as their words (`FAKE · 16.0 kHz`, "dimmed: not in any playlist any more"); with a colour terminal the
   quality words also get their colour (`--no-color`, `NO_COLOR`).
+- **A page, not a field dump (R30).** Each schema's renderer declares a layout: a headline (the verdict or the state
+  sentence), sections that carry the window's headings, labels from the word catalogue, and values as their words.
+  Ids, `rev` and raw numbers that have words (`cutoff_hz` beside its sentence) appear only with `--verbose`. T7 checks
+  that the layout places every `shown` field; its golden text per schema (§13) lets a reviewer see the page.
 - Lists are tables with the window's columns and order, then a count line ("12 of 340 shown · --limit 0 for all").
   Long lists page by `--limit N` (default 200 rows, `0` = all) and `--offset`; JSON carries `total` and `next_offset`
   (`library()` has no paging today, SC `library-big`).
@@ -203,19 +222,40 @@ prints argparse text even with `--json`, L §5). Shape:
 
 ### 4.3 Outcomes, reasons and exit codes (one table for every command)
 
-| Exit | `outcome` | Meaning | Typical `reason`s |
+| Exit | `outcome` | Meaning | `reason`s (the closed list, below) |
 |---|---|---|---|
-| 0 | `ok` | Done for everything asked; a read; a dry run; a job started with `--detach` | — |
-| 1 | `failed` | Something broke: nothing or only part was done, the rest stays as it was (journal) | `crashed`, `offline`, `ffmpeg`, `service_error`, `qobuz_login_failed`, `config_invalid` |
+| 0 | `ok` | Done for everything asked, or nothing to do (`data.total: 0` and a `message`); a read; a dry run; a job started with `--detach`; no hit of a search | — |
+| 1 | `failed` | Something broke: nothing or only part was done, the rest stays as it was (journal) | `crashed`, `offline`, `ffmpeg`, `service_error`, `qobuz_login_failed`, `login_failed`, `playlist_unreadable`, `config_invalid`, `worker_lost`, `failed` |
 | 2 | `bad_args` | The command line is wrong; nothing was looked at | `usage`, `unknown_id`, `bad_id_kind`, `conflicting_flags` |
-| 3 | `busy` | Another writer holds what this needs; nothing done. `data.holder` names it (`job`, `via` window/terminal, `kind`) | `library_lock`, `rekordbox_lock`, `import_running`, `sync_running` |
-| 4 | `needs_person` | Only a person can unblock it; `person_steps` says what to tell the user | `rekordbox_open`, `login_needed`, `login_expired`, `keychain`, `full_disk_access`, `drive_missing`, `browser_sign_in` |
+| 3 | `busy` | Another writer holds what this needs; nothing done. `data.holder` names it (`job`, `via` window/terminal, `kind`) | `library_lock`, `rekordbox_lock`, `support_lock`, `import_running`, `sync_running`, `console` |
+| 4 | `needs_person` | Only a person can unblock it; `person_steps` says what to tell the user | `rekordbox_open`, `login_needed`, `login_expired`, `keychain`, `folder_access`, `full_disk_access`, `drive_missing`, `browser_sign_in` |
 | 5 | `stopped` | Stopped by Ctrl-C or `job stop`; finished steps stay; `next` says how to carry on | `stop`, `stop_now` |
-| 6 | `partial` | Ran to its end; some items were skipped or failed, each with its reason | — (per item) |
-| 7 | `refused` | The rules say no; nothing done | `no_library`, `not_set_up`, `needs_yes`, `nothing_to_do`, `changed`, `not_stopped`, `setting_off`, `exists`, `protected`, `sandbox_required`, `outside_sandbox`, the `eligible.REASONS` keys for one item |
+| 6 | `partial` | Ran to its end; some items ended in a state the command's catalogue entry counts as `partial` (below), each with its reason | — (per item) |
+| 7 | `refused` | The rules say no; nothing done | `no_library`, `not_set_up`, `needs_yes`, `changed`, `not_stopped`, `not_running`, `plan_expired`, `setting_off`, `facts_missing`, `window_job`, `exists`, `protected`, `pending_steps`, `no_clone`, `not_sandbox_content`, `outside_sandbox`, `sandbox_required`, `sandbox_no_accounts`, `refused`, the `eligible.REASONS` keys for one item |
 | 8 | `running` | `--wait` (also on `job wait`) ran out; the job goes on: `job` holds its id | `still_running` |
 
-- Every bridge `ProblemKind` (`types.ts:3`) maps to one row: `busy`, `console`, `sync_running` → `busy`;
+- **The reason list is closed and generated (R35).** The table above is the current state of the reasons that
+  `discjockey/hub/outcomes.py` holds, each under its outcome, with its words; `help --json` prints the same list, and T8
+  fails for a reason a command raises that is not in it. `not_running` (a stop for a job that has ended) and
+  `plan_expired` (a `--plan` older than 24 h or for another music folder, `next`: the dry run again) are the two the
+  first draft lacked; an unknown plan id stays `bad_args`, `unknown_id`. `nothing_to_do` is gone (next bullets).
+- **One order when several outcomes apply (R25).** `bad_args` > `busy` > `refused` > `needs_person` > `stopped` >
+  `failed` (nothing done) > `partial` > `ok`: the first that applies sets the outcome and the exit code. The order is
+  one list in `discjockey/hub/outcomes.py`, pinned by T8; the other facts stay visible in `data.results`.
+- **Which items make a command `partial` (R24).** Not "everything not done": each catalogue entry's `partial` column
+  (§8.1) names the per-item states that count. For `sync run` only `failed` items do (a network, service or crash error
+  on that song). Songs not found ("next try in 3 days"), left out by `--how-many`, queued for later and songs that stay
+  lossy are `ok`, with their counts in `data`. Otherwise every normal sync would exit 6.
+- **Nothing to do is `ok` (R29).** `upgrade apply --all` run a second time or `check done --all` with nothing open
+  answers `ok` with `data.total: 0` and a `message` in the window's words, never `refused`: a script with `set -e` and
+  an agent both read a finished job as done.
+- **macOS privacy rights (R23).** A `PermissionError` on a root (the music folder, a watched folder, rekordbox's
+  folder) or on a browser's cookie file is `needs_person`, `reason: "folder_access"` (a folder) or `"full_disk_access"`
+  (a cookie file, or a folder macOS protects), with the person step of §10.1. macOS charges a command started from
+  Terminal, iTerm or an agent's shell to that app, not to Discjockey, so the step's words name the app the command runs
+  in. `doctor` checks that every root can be read (§5.3).
+
+- Every bridge `ProblemKind` (`types.ts:3`) maps to one row, and is that row's `reason`: `busy`, `console`, `sync_running` → `busy`;
   `not_set_up`, `no_library`, `setting_off`, `exists`, `changed`, `refused`, `protected` → `refused`;
   `login_expired`, `rekordbox_open` → `needs_person`; `offline`, `playlist_unreadable`, `config_invalid`,
   `qobuz_login_failed`, `login_failed`, `failed`, `crashed` → `failed`; `stopped` → `stopped`. The map lives in one
@@ -237,18 +277,19 @@ prints argparse text even with `--json`, L §5). Shape:
 Every bulk write's `data` holds `results: [{"track_id" | "file_id" | "id", "artist", "title", "action", "state":
 "done" | "skipped" | "failed" | "planned" | "waiting" | "undone", "reason", "message", "path", "rekordbox": null |
 {"entries", "kept"}, "person_steps": […]}]` plus the counts `total`, `done`, `skipped`, `failed`. A finished batch
-with skips is `partial` (exit 6), never `ok` with exit 1.
+with skips is `partial` (exit 6), never `ok` with exit 1; the states that count are the catalogue's per command, and for
+`sync run` only `failed` ones (§4.3, R24).
 
 ### 4.5 Pictures and sound
 
 | Picture in the window | `--json` data | Text mode | For a person or a vision agent |
 |---|---|---|---|
-| Spectrum (track, Now/New, sync card) | `track spectrum <id> [--which current\|upgrade]`: `cols`, `bands`, `max_hz`, `floor_db`, `duration_s`, `matrix` (base64 8-bit dB, as today) or `--matrix list` (nested lists), `cutoff_hz`, `verdict` {quality, label, words} | the verdict line, the cutoff sentence, and a 12×64 character sketch (shade per dB step, the cutoff marked `│`) | `--png <file>` writes the picture as the window draws it (colour map, cutoff line, axis label); `--open` opens it in Preview |
+| Spectrum (track, Now/New, sync card) | `track spectrum <id> [--which current\|upgrade]`: `cols`, `bands`, `max_hz`, `floor_db`, `duration_s`, `matrix` (base64 8-bit dB, as today) or `--matrix list` (nested lists), `cutoff_hz`, `verdict` {quality, label, quality_text} | the verdict line, the cutoff sentence, and a 22×64 character sketch (one row per kHz, shade per dB step, the cutoff row labelled with its number, `─ 16.0 kHz cutoff`, the axis in kHz) | `--png <file>` writes the picture as the window draws it (colour map, cutoff line, axis label); `--open` opens it in Preview |
 | Waveform (mini player, compare player) | `waveform` (base64 peaks) in the same answer, or `--waveform list` | a one-line sparkline | in the `--png` |
 | Covers | `cover_path` in every row and track | the path | `open file <path>` |
 | Quality bar, share strips, day bar | the counts and labels (`by_quality`, `parts[]` with `n`, `share`, `label`) | "9 lossless · 2 weak · 5 waiting" | — |
 | 14-day usage chart, risk scale | `days[]` (date, used, zone), `zones[]` (name, from, to, tone), `limit`, `draft` | a bar per day with its zone word | `limits show <svc> --png <file>` |
-| Quality colour, dimming, StatusMark tone | `quality`, `tone` (`good`/`warn`/`problem`/`none`), `dim` + `dim_why` | the word, coloured on a colour terminal | — |
+| Quality colour, dimming, StatusMark tone | `quality`, `tone` (`good`/`warn`/`problem`/`none`), `dim` + `dim_text` | the word, coloured on a colour terminal | — |
 | Sound (players, 20-s clips, A/B compare) | `path` of each file; `version preview` writes the clip and gives its `path` | the paths | `open file <path>` plays it in the Mac's player; listening is a person step (§10.1) |
 
 PNG writing uses the standard library (`zlib` + `struct`, no new dependency); the colour map is the one the
@@ -262,9 +303,9 @@ window's canvas uses, exported once from the engine (§8) so both draw the same 
 
 | Noun | What it is to the user | Verbs |
 |---|---|---|
-| `help`, `where`, `status`, `doctor`, `history` | finding one's way; the whole picture; health; what changed | (§2.3, §11) |
+| `help`, `where`, `status`, `doctor`, `history` | finding one's way; the Dashboard's picture; everything wrong; what changed | (§2.3, §5.3, §11) |
 | `library` | the Library page's collections and table | `list`, `collections`, `scan`, `facts`, `favourites`, `superseded` |
-| `track` | one song and its file | `show`, `find`, `spectrum`, `hide`, `unhide`, `undo` |
+| `track` | one song and its file | `show`, `find`, `spectrum`, `hide`, `unhide`, `never`, `download`, `undo` |
 | `todo` | the To-do page | `list` |
 | `upgrade` | parked better versions | `list`, `apply`, `discard` |
 | `aiff` | Convert to AIFF / Give it its clean name / Make AIFF / Convert all | `convert`, `rename` |
@@ -273,9 +314,9 @@ window's canvas uses, exported once from the engine (§8) so both draw the same 
 | `version` | Find a version / Wrong song? / a bought file | `search`, `preview`, `use`, `reject`, `add-file` |
 | `batch` | every undoable change the user started (AIFF and move batches) | `list`, `show`, `resume`, `undo` |
 | `tidy` | Tidy up files | `run` |
-| `sync` | read the playlists, the plan, the run | `read`, `plan`, `run`, `scope`, `never`, `again` |
-| `run` | past syncs (reports) | `list`, `show` |
-| `playlist` | playlists.txt | `list`, `check`, `add`, `remove`, `rename`, `move`, `enable`, `disable`, `add-liked` |
+| `sync` | read the playlists, the plan, the run | `read`, `plan`, `run`, `scope` |
+| `report` | past syncs (their reports) | `list`, `show` |
+| `playlist` | playlists.txt | `list`, `check`, `add`, `remove`, `rename`, `move`, `edit`, `enable`, `disable`, `add-liked` |
 | `folder`, `import` | watched folders and the import | `list`, `check`, `add`, `remove`, `crates` / `status`, `run` |
 | `limits` | Download limits | `show`, `set`, `seen` |
 | `login` | download and playlist accounts | `list`, `find`, `use`, `sign-in`, `check`, `sign-out`, `skip`, `qobuz`, `spotify` |
@@ -289,16 +330,17 @@ window's canvas uses, exported once from the engine (§8) so both draw the same 
 
 ### 5.2 Every bridge method → its command
 
-Kinds: **R** read (no lock, never writes), **RJ** a read that can take minutes and runs as a read job (§6.1: no
+Kinds: **R** read (no lock; writes nothing but caches under `<support>/cache/` (`version search`'s candidates, `version
+preview`'s clip, spectra, covers), the one folder besides `<support>/plans/` that T9 allows, §13), **RJ** a read that can take minutes and runs as a read job (§6.1: no
 lock, same `--wait` rules as a write), **J** write job (§6), **B** brief save (no library lock, answers at once),
 **W** window only. Which locks each J takes is the catalogue's `locks` column (§6.1). "New args" names bridge
 signature changes the design needs (contract changes, §16).
 
 | Bridge method | Command | Kind | Notes |
 |---|---|---|---|
-| `library(view,key,query,filter,sort)` | `library list [--in C] [--search W] [--quality Q] [--sort S] [--limit N]` | R | rows incl. `also`, chips, summary, subtitle, songs, empty (six states, words), `as_of`; `file_state` incl. `file_missing` per row (§9 L-D, SC) |
+| `library(view,key,query,filter,sort)` | `library list [--in C] [--search W] [--quality Q] [--sort S] [--limit N]` | R | rows incl. `also`, chips, summary, subtitle, songs, empty (six states, words), `as_of`; `file_state` incl. `file_missing` per row (§9 L-D, SC); the view's own `actions[]` (Make AIFF…, Resume · k left, §9.3 L D7) |
 | `track(id)` | `track show <track>` | R | the whole details payload + `decision`, `actions[]`, `why` (§11), `rev`; valid for a song still waiting (D21) |
-| `todo(filter,show_hidden)` | `todo list [--group G…] [--hidden]` | R | all groups incl. checks, questions, duplicates, chips, `check_tracks`, `hidden_count`, `empty`, each item's `id`, `actions[]` |
+| `todo(filter,show_hidden)` | `todo list [--group G…] [--hidden] [--links]` | R | all groups incl. checks, questions, duplicates, chips, `check_tracks`, `hidden_count`, `empty`, each item's `id`, `actions[]`; `--links` also prints each item's buy links, free downloads and `bought_name` (the buy list's data, C6) |
 | `sidebar()` | `library collections` | R | the collections list as the browser draws it (sections, order, counts, away marks), and the nav counts |
 | `watched_folders()` | `folder list` | R | rows, unreadable files, `waiting`, import `state` (`stopped` now on disk, §9) |
 | `removal_preview(id)` | `folder remove <folder> --dry-run` | R | |
@@ -307,27 +349,27 @@ signature changes the design needs (contract changes, §16).
 | `tidy_preview()` | `tidy run --dry-run` | R | |
 | `move_batches()` | `batch list [--kind moves]` | R | one list for both batch kinds, typed ids |
 | `undo_preview(batch)` | `batch undo moves:<n> --dry-run` | R | |
-| `rekordbox_status()` | `rekordbox status` | R | the console's richer answer becomes the bridge's too (problem, version) |
+| `rekordbox_status()` | `rekordbox status` | R | the console's richer answer becomes the bridge's too (problem, version); gains `modified_at` and `size` of master.db beside `db_version`, so "master.db untouched meanwhile" (§15 B 9b) can be checked (C7) |
 | `job_status()` | `job list`, `job show <job>`, `status` | R | from the job registry: window and terminal jobs alike (§6) |
 | `spectrum(id,which)` | `track spectrum <track> [--which current\|upgrade] [--png F]` | R | §4.5 |
 | `media_url(id,which)` | — | dropped | no UI caller (L, T); paths are in the payloads |
-| `dashboard()` | `status` | R | plus counts, jobs, problems, `--ready` (§11) |
-| `runs()` | `run list [--since T] [--limit N]` | R | |
-| `run(run_id)` | `run show <run\|last>` | R | the end screen's whole data, one engine definition of "what a run did" (§9 U14) |
-| `open_report(run)` | `open report <run>` | R (person) | prints the `.md` path; opens it unless `--print` |
+| `dashboard()` | `status` | R | the Dashboard and the nav's counts, running jobs; `--ready` filters `doctor`'s problems (§5.3, §11) |
+| `runs()` | `report list [--since T] [--limit N]` | R | `--since` formats: §5.3 `history` |
+| `run(run_id)` | `report show <report\|last>` | R | the end screen's whole data, one engine definition of "what a run did" (§9 U14) |
+| `open_report(run)` | `open report <report>` | R (person) | prints the `.md` path; opens it unless `--print`; `open report` also names `.discjockey/not_lossless.md`, the list of songs to buy with their links, and `open file not-lossless` opens it (C6) |
 | `sync_preview()` | `sync plan [--search W]` | R | the plan derived from the stored read (§9.2), with scope, presets, next-sync set, estimate, folds; `plan_id` |
 | `refresh(auto)` | `sync read` | J | reads playlists (network) without a lock, scans when the library lock is free, stores the read in library.db (§9.2) |
 | `stop_refresh()` | `job stop <job>` | J-control | |
-| `start_sync(selected)` | `sync run [selection] [--plan P] [--limit N] [--auto-upgrade-only] [--dry-run]` | J | §7.3; `--auto-upgrade-only` runs only the last phase without reading the playlists (T J11 C; its dry run gives the phase's before-start line); new arg `plan_id`: the window's Start binds to the plan it showed like `--plan` (§9.2) |
+| `start_sync(selected)` | `sync run [selection] [--plan P] [--how-many N] [--auto-upgrade-only] [--dry-run]` | J | §7.3; `--how-many` is the window's "how many" chip; `--auto-upgrade-only` runs only the last phase without reading the playlists (T J11 C; its dry run gives the phase's before-start line); with the switch off it answers `ok`, `data.auto_upgrade: null`, `message` "Auto-upgrade is off, so nothing was moved." (R38); new arg `plan_id`: the window's Start binds to the plan it showed like `--plan` (§9.2) |
 | `stop()` | `job stop <job\|current> [--now]` | J-control | reaches a window job too (stop file, §6.4); new arg `job_id` (a string) |
-| `never_download(id,never)` | `sync never <track…>`, `sync again <track…>` | J | |
+| `never_download(id,never)` | `track never <track…>`, `track download <track…>` | J | beside `track hide` / `unhide`: one noun for what happens to a song |
 | `setup_status()` | `setup status` | R | six steps incl. "Your existing music" (§9 U32) |
-| `app_update()` | `app info` | R | |
+| `app_update()` | `app info [--check]` | R | without `--check` the cached answer with its age in `as_of` (the engine's `_update.status()` never asks the network, and only the window's hourly thread refreshes it, so with the window closed it can be old); `--check` runs `Checker.check()` (network, the same once-a-day cap) and says so (C8) |
 | `rescan_library()` | `library scan` | J | |
 | `quit()` | — | **W** | closes the window; a command has no window to close. When a change needs the window reopened, the command says so as a person step |
 | `open_external(url)` | `open url <url>` | R (person) | prints the URL; opens it unless `--print` |
 | `reveal(rel_path)` | `open folder <path\|collection>` | R (person) | same place check as today |
-| `show_in_finder(id,which)` | `open file <track> [--upgrade]` | R (person) | |
+| `show_in_finder(id,which)` | `open file <track> [--upgrade]` | R (person) | `open file not-lossless` opens the buy list (C6) |
 | `select(id)` | — | dropped | only told the hub where a drop goes; the drop's path now travels in `FileDropped` and back in `add_bought_file` |
 | `hide(id,hidden)` | `track hide <tracks>`, `track unhide <tracks>` | J | selection of several (issue 41), `--if-rev` |
 | `limits(service)` | `limits show [<service>] [--png F]` | R | cards, usage, days, signals, zones, `suggestion` (§9 U21) |
@@ -337,7 +379,7 @@ signature changes the design needs (contract changes, §16).
 | `playlists()` | `playlist list` | R | names/covers from the stored read (§9), overlaps, tidy waiting |
 | `add_playlist(url)` | `playlist check <url>` | RJ (network) | the found card; `suggested_folder`; duplicates by `sources.recognise` |
 | `preview_playlist_change(lines)` | `--dry-run` of every `playlist` write | R | new arg `op` (the engine applies the edit, §9 U25) |
-| `save_playlists(lines,ver,files)` | `playlist add <url> [--folder F] [--at N]`, `remove`, `rename`, `move --to N`, `enable`, `disable`, `edit --file <playlists.txt>` | J | `--files move\|leave`, `--no-rename` answer the save question; `--if-version` |
+| `save_playlists(lines,ver,files)` | `playlist add <url> [--folder F] [--at N]`, `remove`, `rename`, `move --to N`, `enable`, `disable`, `edit --file <playlists.txt>` | J | `--files move\|leave` answer the save question for all moves; the window's single choices have forms too (C1): `--rename <old>=<new>` (repeatable; default every offered rename, `--no-rename` none) and `--move <file>…` / `--no-move <file>…` (default every offered move); the dry run lists each rename and each move with an id, so `--plan` binds a subset (§7.1); `--if-version` |
 | `set_read_liked_music(on)` | `settings set read-liked-music on\|off` | J | |
 | `add_liked_music()` | `playlist add-liked` | J | |
 | `tidy_up(moves)` | `tidy run [<file>… \| --all] [--with-yours] [--plan P]` | J | `--all` = the rows the engine ticks; `--with-yours` = "Put these in playlist order too" |
@@ -381,8 +423,8 @@ signature changes the design needs (contract changes, §16).
 | `batch_resume(b)` | `batch resume aiff:<n>` | J | |
 | `batch_undo(b)` | `batch undo aiff:<n> --yes` | J | the window's "Undo all" uses it too (today it sends track ids, T §1.2) |
 | `undo_upgrade(ids)` | `track undo <tracks> --yes` | J | undoes the last file step of each track (replace, Same track, Convert, clean name) |
-| `upgrade(ids,mode)` | `upgrade apply <tracks> --way same-track\|new-track`, `upgrade discard <tracks> --yes` | J | mode enum becomes `same_track\|new_track\|discard` |
-| `upgrade_all()` | `upgrade apply --all` | J | refused while a stopped upgrade batch waits (`not_stopped` → `next: batch resume`), as the window hides it |
+| `upgrade(ids,mode)` | `upgrade apply <tracks> --way same-track\|new-track`, `upgrade discard <tracks> --yes` | J | mode enum becomes `same_track\|new_track\|discard`; `--way` omitted = each track's `recommended` way from `upgrade.ways[]` (the only way when there is no choice), as the window's Replace does (C5) |
+| `upgrade_all()` | `upgrade apply --all` | J | Upgrade all, Same track only: `--all --way new-track` is `bad_args` with the window's reason (C5); refused while a stopped upgrade batch waits (`not_stopped` → `next: batch resume`), as the window hides it |
 | `rekordbox_checked(ids)` | `check done <tracks> \| --batch aiff:<n> \| --all` | J | |
 | `add_bought_file(id)` | `version add-file <track> <path>` | J | new arg `path` (T §1.3) |
 | `search_candidates(id)` | `version search <track>` | RJ (network) | refused `busy`/`sync_running` while a sync of any process runs (the registry, §6); Qobuz searches go through the shared pacer and skip a paused Qobuz (§7.5) |
@@ -399,9 +441,10 @@ signature changes the design needs (contract changes, §16).
 | Command | Why |
 |---|---|
 | `help …`, `where` | discovery (§2.3) |
-| `status [--ready]` | one cross-screen answer; `--ready` is the gig check (§11) |
-| `doctor` | health: folder, tools, logins, rekordbox readable/unclean, a stale lock, lost jobs, pending journal steps, drives away, Qobuz paused, files out of place, `Superseded/` size, rekordbox tracks on missing or superseded files |
-| `history [--since T]` | runs, batches and logged operations, newest first (§11) |
+| `status [--ready]` | what the window's Dashboard and nav show (counts, running jobs, what needs a person). `--ready` is the gig check: a filter of `doctor`'s problems that matter for playing a set (open rekordbox checks, CDJ problems, files missing or superseded, drives away), never its own computation (R47) |
+| `doctor` | everything wrong, each problem with its `next`: folder, tools, logins, every root readable (`folder_access`), rekordbox readable/unclean, a stale lock, lost jobs, pending journal steps, drives away, Qobuz paused, files out of place, `Superseded/` size, rekordbox tracks on missing or superseded files, stopped batches |
+| `history [--since T]` | runs, batches and logged operations, newest first (§11); each entry carries `undo` or `cant_text` (§7.4); `--since` takes an ISO date or time, `today`, `yesterday`, `<n>d` or `<n>h`, as do `report list` and `batch list` (R26) |
+| `app info --check` | the update check on demand (the window runs it only while open); plain `app info` prints the cached answer's age in `as_of` (C8) |
 | `track find` | ids from words or a path |
 | `library superseded` | what sits in `Superseded/`, its size, and which files rekordbox still points at (L J16) |
 | `rekordbox match [--in C]` | rekordbox tracks whose file is missing, moved to `Superseded/`, or not in the library; library files rekordbox lacks |
@@ -411,7 +454,7 @@ signature changes the design needs (contract changes, §16).
 | `job …`, `sandbox …`, `app install-command` | §6, §10.3, §2.1 |
 
 `rekordbox preview` gains `folder_path`, `content_file` and `updated_at` per entry (T J11 B 9b: no command showed
-them).
+them), and `rekordbox status` gains `modified_at` and `size` of master.db beside `db_version` (C7).
 
 ---
 
@@ -425,7 +468,7 @@ declares the locks it takes.
 
 | Kind (catalogue) | Library lock (`<music>/.discjockey/.lock`) | Support lock (`<support>/.support.lock`, new) | `rekordbox.lock` | Commands |
 |---|---|---|---|---|
-| **write job** (J) | the whole job; held → `busy`, or retried under `--wait-busy` | only around a settings, config or login save inside it | exclusive, as today, only inside a rekordbox session (AIFF batch, undo, restore) | `sync run`, `upgrade …`, `aiff …`, `track hide/undo`, `tidy run`, `folder add/remove`, `import run`, `duplicate keep`, `question answer`, `version use/reject/add-file`, `check done`, `batch resume/undo`, `library scan`, `library facts`, `sync never/again`, `playlist` writes |
+| **write job** (J) | the whole job; held → `busy`, or retried under `--wait-busy` | only around a settings, config or login save inside it | exclusive, as today, only inside a rekordbox session (AIFF batch, undo, restore) | `sync run`, `upgrade …`, `aiff …`, `track hide/never/download/undo`, `tidy run`, `folder add/remove`, `import run`, `duplicate keep`, `question answer`, `version use/reject/add-file`, `check done`, `batch resume/undo`, `library scan`, `library facts`, `playlist` writes |
 | **playlist read** | only for its scan, and only when free (today's `scan_lock`); otherwise it plans on the last scan | — | — | `sync read` |
 | **read job** (RJ) | — | — | shared, non-blocking (below) | the RJ rows of §5.2, `rekordbox match`, `status --ready`, `doctor`, `track spectrum` |
 | **person job** | — | at its save only | — | `login sign-in`, `login use` (it may wait for the Keychain question) |
@@ -588,7 +631,9 @@ during a (fake) write never opens master.db.
   answers, and for a sync the read id and records generation it was derived from (§9.2). `<write> --plan <id>` runs
   **only the items of that plan**: each item is asked again as it runs (the engine's per-item checks stay), an item
   whose answer changed is skipped with `reason: "changed"`, an item that is new since the plan is left out and listed
-  under `data.new_since_plan`. This is the window's sync rule (`run.select_actions` with `new_since_preview`) made
+  under `data.new_since_plan`. **Every item of a plan is individually addressable**: the dry run lists each one with its
+  id (for the playlist save question: each folder rename and each file move), so `--plan` binds a subset, which is how
+  `--rename`, `--move` and `--no-move` bind (§5.2, C1). This is the window's sync rule (`run.select_actions` with `new_since_preview`) made
   general; the window's own Start sends the plan id it showed (`start_sync(plan_id, selected)`). An unknown plan id is
   `bad_args`, `unknown_id`; one older than 24 h or for another music folder is `refused`, `plan_expired`, with the dry
   run in `next`. Without `--plan` a write plans fresh, as the window does when the person presses a button without a
@@ -609,18 +654,21 @@ Without `--yes`: `refused`, `reason: "needs_yes"`, `message` = the window's ques
 
 ### 7.3 Selection: one, several, all
 
-Every bulk write takes exactly one of three forms (a usage error otherwise):
+Every bulk write takes exactly one of three forms; `check done` has a fourth (a usage error otherwise):
 
 | Form | Means | Window equivalent |
 |---|---|---|
 | `<ids…>` or `-` | these items (ids, paths, or ids read from stdin: one per line or a JSON array, so `… list --json \| jq` pipes in) | click, ⌘-click, ⇧-click |
-| `--all` | the verb's own "all" button where it is used: `upgrade apply --all` = Upgrade all; `aiff convert --all --in C` = Make all lossless files AIFF in that view; `aiff convert --all --todo cdj` = Convert all; `aiff rename --all [--in C]`; `check done --all`; `tidy run --all` = the rows the engine ticks | the group head's "… all" |
+| `--all` | the verb's own "all" button where it is used: `upgrade apply --all` = Upgrade all (Same track only; `--all --way new-track` is `bad_args`, §5.2); `aiff convert --all --in C` = Make all lossless files AIFF in that view; `aiff convert --all --todo cdj` = Convert all; `aiff rename --all [--in C]`; `check done --all`; `tidy run --all` = the rows the engine ticks | the group head's "… all" |
 | `--rows` with `--in C` or `--todo G`, and `--search`, `--quality` | **every row that listing shows**, as `library list` / `todo list` with the same flags prints it: filter and search applied, a playlist's `also` rows included, rows without a file left out | ⌘A on the screen with that search and filter |
+| `--batch <aiff:n>` (`check done` only) | every track of that AIFF batch | "Done, checked" on a batch's check card |
 
-- One engine function answers "which ids does this listing select" (`HubApi.select(listing)`, §8.1), used by `--rows` and
-  by the window's ⌘A, which sends the listing instead of the ids (bridge: every bulk write accepts
-  `{"tracks": [...]} | {"listing": {view, key, query, filter} | {todo, show_hidden}}`). So the window's "all" and
-  the command's "all" are the same answer by construction (L D15).
+- One engine function answers "which ids does this listing select" (`HubApi.select(listing)`, §8.1), used by `--rows`
+  and by the window's ⌘A. **The window keeps sending ids (R11):** its ⌘A asks `select(listing)` for the ids and sends
+  exactly those, so rows that arrive meanwhile (the 60 s rescan, an import) are never acted on unseen: the protection
+  `rev` keeps for single writes (§3). The bridge's bulk writes take ids only, no listing. The command's `--rows` binds
+  to what was seen through `--dry-run` → `--plan` (§7.1). The window's "all" and the command's "all" are still the same
+  answer by construction (L D15); T4 pins window ⌘A ids == `select(listing)` on the same payload.
 - Each item a selection names that the verb can't act on is a `skipped` result with its reason (today's engine rule);
   `--all` never includes them.
 
@@ -630,9 +678,15 @@ Every bulk write takes exactly one of three forms (a usage error otherwise):
 |---|---|---|
 | A whole batch (AIFF or moves), newest step first | `batch undo <aiff:n\|moves:n> --yes` | `--dry-run`: per item whether it can be undone and why not (`upgrades.can_undo`, `undo_preview`) |
 | The last file step of tracks (replace, Same track, Convert, clean name) | `track undo <tracks> --yes` | `--dry-run` |
-| A setting, a never-download, a hide, a crate switch, a favourite | the opposite verb (`settings set`, `sync again`, `track unhide`, …) | n/a |
+| A setting, a never-download, a hide, a crate switch, a favourite, a playlist edit | the opposite verb (`settings set`, `track download`, `track unhide`, `playlist edit`, …) | n/a |
 | rekordbox's whole library | `rekordbox restore <backup> --yes` (rekordbox closed) | `--dry-run`: `missing_after` |
-| "Undo yesterday's work" | `history --since yesterday --json` lists the batches; undo each newest first | each `--dry-run` |
+| "Undo yesterday's work" | `history --since yesterday --json`: each entry's `undo` command, newest first; entries with `undo: null` carry their `cant_text` and are told to the user, never reported as undone | each `--dry-run` |
+
+**`history` says what can be undone (R26).** Every entry (a report, a batch, a logged operation) carries `undo`: the
+command that undoes it (run its `--dry-run` first), or `null` with `cant_text` saying why not (a download, `duplicate
+keep`, a track after `check done`). Playlist edits and setting changes are written to the operations log
+(`ops.log_operation`) with the old value, so they appear in `history` with the opposite command as their `undo`.
+`--since` takes an ISO date or time, `today`, `yesterday`, `<n>d` or `<n>h`.
 
 What can't be undone is said before: `check done` ends the undo of those tracks (its answer's `message`), `upgrade
 discard` deletes a parked download for good, `duplicate keep` moves files to `Superseded/` without an undo (today's
@@ -759,7 +813,9 @@ The shape:
   `REASON_WORDS` in the engine and `SAME_TRACK_WHY`/`WHY_NOT_LINE` in the UI, two size-word functions: T §0.4, L D36).
 - **State words are data words.** A fixed word the window shows *because of* data (a badge, a chip label, an
   empty-state sentence, a status word, a reason, "Resume · k left", a tone's word) travels in the payload as
-  `<fact>_text` next to its fact. The window never picks a word by a condition it computes.
+  `<fact>_text` next to its fact. The window never picks a word by a condition it computes. **One naming rule (R39):** every word field is `<fact>_text`
+  (`quality_text`, `dim_text`, `cutoff_text`, `next_try_text`, `blocked_text`), so the renderer and T7 pair a fact with
+  its words by name.
 - **Fixed words stay in the window's source.** Headings, column names, button labels, static explanations and
   tooltips that the window shows whatever the data stay literals in Svelte markup, or constants in `*.words.ts`
   modules (string constants only). A build step extracts them.
@@ -923,36 +979,36 @@ Ids: **L D1–D37** (library audit §2), **U1–U39** (app audit §2), **T:`fn`*
 | L D1 | a route name is a playlist or a Library folder | `HubApi.resolve_collection(name)`; `--in` uses it |
 | L D5, T:`decisionFor`, SA `TrackDetails` decision choice | which decision a track waits for (check > duplicate > upgrade) | `track().decision` {kind, item id} |
 | L D6, SA `rowInTodo`/`inTodo` | "is it on the To-do list" (today it **diverges** from `views._group`/`todo_listed`) | row and track field `in_todo`, from the engine's one rule |
-| L D7, D34, T:`actionsFor`/`IMPROVABLE`, SA `footAction`, `aiffShown`, `aiffVariant`, T `Details.aiff` | which actions an item/row offers, which one is the filled button, which menu items exist | `actions[]` {id, label, primary, blocked, blocked_text, command} on rows, tracks, to-do items |
+| L D7, D34, T:`actionsFor`/`IMPROVABLE`, SA `footAction`, `aiffShown`, `aiffVariant`, T `Details.aiff`, `libraryModel.ts:aiffHeader` | which actions an item/row offers, which one is the filled button, which menu items exist, what the Library view's header offers (Make AIFF…; "Resume · k left" with its tooltip; hidden when the view has no files, is empty or is gone) | `actions[]` {id, label, primary, blocked, blocked_text, command} on rows, tracks, to-do items and on the `library list` view itself (C3) |
 | L D8, T:`canSwap`/`upgradeWays`/`defaultWay`/`UpgradeFlow.way`, `goes`/`NOWHERE`, `selectionWays`/`beforeLine`, SA `UpgradeCards` | the ways an upgrade offers, the default, the mode Replace sends with no choice, each way's outcomes, which selected items a way reaches, the n/m/k counts | `upgrade.ways[]` {way, recommended, outcomes[] {tone,text}, why_not_text}; `upgrade apply --dry-run` summary |
 | L D9, T:`undoAsk`/`undoManyConfirm`, SB `ConfirmHost` callers | which actions confirm and their words | catalogue `needs_yes`; `confirm` {title, body, label} in the dry run |
 | L D10, T:`groupIdOf` + `DuplicateFlow.#keepOne`, SA `DuplicateFoot` | "keep this file" as N−1 jobs with the group id recomputed in JS | one engine op `folders.keep_file(group, file_id, expect)` in one job; answer names the track holding the kept file (L D4 data part) |
-| L D11, T:`keepWords`/`fileWords`/`fileFormat`/`lastFolder`/`keepLabel` | the duplicate's button and file words | `pair.files[].words`, `pair.keep_label` |
+| L D11, T:`keepWords`/`fileWords`/`fileFormat`/`lastFolder`/`keepLabel` | the duplicate's button and file words | `pair.files[].file_text`, `pair.keep_label` |
 | L D12, D13, D14 (except `panelPhase`, `listShape` fold), T `aiffModel.*`, `aiffBatchModel.*`, SA `AiffCard`/`AiffFoot` | why Convert/Rename/Make is off (space, rekordbox open), button words, rows Now/Becomes/Name/Space, outcomes, notes, "Left as they are", drive names ("this Mac") | `aiff` card fields and `AiffPlan` gain `blocked`, `blocked_text`, `label`, `rows[]`, `outcomes[]`, `notes[]`, `left[]`, `space[].drive_name` |
 | L D15, T:`cdjAllKeys`/`cdjReachable`/`wholeCdjGroup`/`upgradeAllKeys`/`wholeUpgradeGroup`/`multiScope`/`MULTI_GROUPS`, T `AiffBatchFlow.start` | what "all", ⌘A and a whole group select; which groups allow several | `HubApi.select(listing)` (§7.3); `groups[].multi`, `groups[].all` |
-| L D19, D20, D21, D22, SA `noFileNote`, `waitWords`, `notFoundTip`, `cutoffStat`, `qualityWords`, `fileAwayWords`, `titleNote`, `placeLine`, SA `TrackHead` line | empty states (six), "next try in N days", the no-file note, quality and cutoff words, away words, place words | `empty` + `empty_text`; `next_try_text`; `why` (§11); `quality_word`, `cutoff_text`; `file_state_text`; `place_text` |
+| L D19, D20, D21, D22, SA `noFileNote`, `waitWords`, `notFoundTip`, `cutoffStat`, `qualityWords`, `fileAwayWords`, `titleNote`, `placeLine`, SA `TrackHead` line | empty states (six), "next try in N days", the no-file note, quality and cutoff words, away words, place words | `empty` + `empty_text`; `next_try_text`; `why` (§11); `quality_text`, `cutoff_text`; `file_state_text`; `place_text` |
 | L D23, D25, SA `RowLead` | the collections list as drawn: "Not in a playlist" only when > 0, one row per folder path, playlists in playlists.txt order, away marks, which can be shown in Finder | `library collections` sections; `reveal_path` per collection (A–Z order stays a view pref) |
 | L D24, U34, SB `cratesModel`, `CrateSwitches` | a crate's default visibility and what override to store | `folder crates` takes the wanted state; the engine stores the override or `null` |
 | L D26 | favourites add/remove/move | engine list ops |
 | L D29, U33, SA `ImportCard`, `WatchedFolderList`, `watchedFoldersModel.*` | import card state, phase words, "Continue import" offered, folder state lines and marks | `import status` {state, phase, phase_text, can_continue, waiting}; folder rows `state_text`, `tone` |
-| L D31, D32, D33, U27, SB `TidyList`, `tidyModel.*` | tidy ticks, the save question's payload, count line, result words, undo target | `tidy run` / `playlist … --files move\|leave --no-rename`; rows' `group` (main/yours/skipped), `count_text`, result `headline` |
+| L D31, D32, D33, U27, SB `TidyList`, `tidyModel.*` | tidy ticks, the save question's payload, count line, result words, undo target | `tidy run` / `playlist … --files move\|leave`, `--rename <old>=<new>`, `--no-rename`, `--move` / `--no-move` (C1); rows' `group` (main/yours/skipped), `count_text`, result `headline` |
 | L D17 | which rows play (`file_state == here`) | row `playable` (the queue itself stays window) |
 | L D36, U39, SB `ToastHost` | size words; problem and success sentences | `words.py` |
 | T:`sameTrackWhy`/`WHY_NOT_LINE` vs `REASON_WORDS` | two word lists for one reason set | one list in `words.py` |
 | T:`checkCard`/`batchCheckCard`/`USB_STEP`/`RELOCATE_NEW`/`BEATGRID`/`keptLine`/`inRekordbox`/`isOwnCheck`, SA `CheckCards`, `BatchCheckCards` | the numbered rekordbox steps after a replace or convert, per track and per batch | `check.steps[]` = `person_steps` (§10.1) + `check.summary`, `in_rekordbox` |
 | T:`replacedCard`/`undoTitle`/`undoLabel`/`doneLabel`/`undoneToast`/`undoFoot`, SA `CheckFoot`, `BatchCheckFoot` | what was replaced where, Undo/Done words, which tracks Undo offers, "k can't be undone" | `check.replaced` {rows, since_text, undo_text}; `can_undo` per item; batch `undo` {tracks, label, cant} |
 | T:`batchEnd`/`endRows`/`endNote`/`canTryAgain`/`endWords`/`progressRows`/`runLabel`, SA/SB batch panels | a running and ended batch's words, Resume vs Try again | batch result `headline`, `notes[]`, `next` |
-| T:`checkTracks`/`batchRowName`/`batchRowSub`/`batchListTitle`, `headerSub`, `segOptions`/`FILTER_LABEL`/`FILTER_DOT`/`FILTER_ORDER`, `itemKey`, `rowOff`/`rowWaits`/`rowDim`/`rowBadge`, `compareLines`/`filePlace`/`linkService`, `qobuzText`/`freeHint`/`filedAs` | to-do row names and sub-lines, page sub-line, chip labels/order/tone, item ids, dimming and badges, the same-song comparison, Qobuz and free-download lines, the bought file's name | to-do payload fields `name`, `sub`, `chips[]` {group, label, n, tone}, `id`, `dim`/`dim_why`, `badge`, `pair.lines[]`, `qobuz_text`, `free_text`, `bought_name` (with the real extension, T §0.6) |
+| T:`checkTracks`/`batchRowName`/`batchRowSub`/`batchListTitle`, `headerSub`, `segOptions`/`FILTER_LABEL`/`FILTER_DOT`/`FILTER_ORDER`, `itemKey`, `rowOff`/`rowWaits`/`rowDim`/`rowBadge`, `compareLines`/`filePlace`/`linkService`, `qobuzText`/`freeHint`/`filedAs` | to-do row names and sub-lines, page sub-line, chip labels/order/tone, item ids, dimming and badges, the same-song comparison, Qobuz and free-download lines, the bought file's name | to-do payload fields `name`, `sub`, `chips[]` {group, label, n, tone}, `id`, `dim`/`dim_text`, `badge`, `pair.lines[]`, `qobuz_text`, `free_text`, `bought_name` (with the real extension, T §0.6) |
 | T `Page.svelte:headResume`/`groupAction`, `Details` | "Upgrade all · n" vs "Resume · k left" | `groups[].head_action` |
 | T `WrongSongDialog` `blocked`, `candidates.ts:lengthTone`/`matchTone`/`previewOffer`/`canUse` | candidate tones (UI thresholds ignore the engine's `length_ok`/`matches`) and offers | candidate `tone_length`, `tone_match`, `can_preview`, `can_use` from the engine |
-| T `hub.ts:writeBlockedReason`/`networkReadsAllowed`, U9, SB `WriteButton`, `AccountPanel` blocked | why buttons are off | `status.blocked` {writes, network_reads} with words |
+| T `hub.ts:writeBlockedReason`/`networkReadsAllowed`, U9, SB `WriteButton`, `AccountPanel` blocked | why buttons are off | `status.blocked` {writes, writes_text, network_reads, network_reads_text} |
 | U2, U3, U6, U7, U8, U10, U16-search-excluded, SB `KindStrip`, `RunPanel`, `PlanRows`, `PlanFolds`, `WhyMark`, `NextDot`, `WaitingAnswersNote`, `DayBar`/`dayBarModel` | plan kinds and counts per collection, presets, the next-sync set, today/later/days, per-account use, minutes left (two rules today), the start note, why tags, day-bar labels | `sync plan` fields `kinds[]`, `presets[]`, `next_sync[]`, `day_bar`, `accounts[]`, `minutes`, `start_note`, rows' `why`/`why_text` |
 | U1 | the scope switches | settings (§9.2) and `sync scope` |
 | U12, SB `SyncCard`, `StepBar`, `SyncPart`/`activity.ts`, `RunList`, `results.ts` | the live run state, from line, length check line, step list, pause text, foot activity line, result chips and badges | the job registry's reduced state (`job show`), events carry `text`; result `badge`. The window's TS reducer may stay for motion only; a test feeds recorded event logs to both and compares the facts |
 | U13 | weak = cutoff ≤ 17 kHz (third copy) | `views.quality_class` only |
-| U14, U15, U20, SB `EndScreen`/`endModel`, `UpToDatePanel`, `RunRow`, `RunsPage` | "what a run did" (two definitions of "added"), titles, notes, Auto-upgrade split, run status, totals | one `report.outcome(run)` used by `run show`, `run list`, Dashboard, end screen |
-| U17, U18, U19, SB `SummaryStrip`/`summaryStripModel`, `QualityBar` words | next-sync panel state, limit gate, needs-you rows, strip words | `status` fields; `summary.words` |
-| U21, U22, U23, U24, SB `UsageChart`, `RiskScale` | limit suggestion, warning rows and order, zone/level of a limit or a day, bounds and extra options | `limits show` fields `suggestion`, `signals_by_kind[]`, `zone` per day and draft, `bounds`, `extra_options` |
+| U14, U15, U20, SB `EndScreen`/`endModel`, `UpToDatePanel`, `RunRow`, `RunsPage` | "what a run did" (two definitions of "added"), titles, notes, Auto-upgrade split, run status, totals | one `report.outcome(run)` used by `report show`, `report list`, Dashboard, end screen |
+| U17, U18, U19, SB `SummaryStrip`/`summaryStripModel`, `QualityBar` words | next-sync panel state, limit gate, needs-you rows, strip words | `status` fields; `summary_text` |
+| U21, U22, U23, U24, SB `UsageChart`, `RiskScale` | limit suggestion, warning rows and order, zone/level of a limit or a day, bounds and extra options | `limits show` fields `suggestion`, `signals_by_kind[]`, `zone` per day and draft, `bounds`, `extra_options`. **One zone table (C9):** `zones(service)` is the only source (today's `ZONE_TOPS` for the slider and day colours and `ASSESSMENT_TOPS` for the verdict word merge, so 79 and 80 can't give two answers to one question); `assessment` is derived from it (the label of the zone that holds the limit); a test pins `assessment(s, n).label == zone_of(s, n).name` for every n in 1..500 |
 | U25, U26, SB `AddRow`/`addRowModel` | playlist edits, folder-name rules, "already listed" (a copy of `sources.recognise`) | `playlists_file.apply(lines, op)` + `validate`; `preview_playlist_change(lines, op)` returns the new lines |
 | U28, SB `PlaylistLine`/`changeModel.infoLine/setupLine` | overlap cards, folder deltas, row lines | `playlist list` / preview fields with words |
 | U29, U30, U31, SB `AccountPanel`/`accountModel`, `SourceLadder`/`ladderModel`, `RowPanel`, `YouTubeMusicPanel` | Settings row lines and attention, account phase and the browser offered first, Spotify state, tools card, Liked music panel, the ladder (re-derives `download_accounts`) | `login list` (states, `state_text`, `ladder`), `login find` `offer`, `setup status` rows, `tools status` |
@@ -988,10 +1044,12 @@ engine names each one; a command never pretends to do it.
 | `step:listen` | an upgrade marked different or unsure; a fake verdict the user doubts | "Listen to both: <now path> and <new path>." | `upgrade apply …` or `upgrade discard …` |
 | `step:sign_in` | `login sign-in`, `login_expired` | "Sign in to <service> in <browser>; the window that just opened. I'll notice it." | `job wait <job>` |
 | `step:keychain` | first cookie read of a Chromium browser | "macOS will ask about “Chrome Safe Storage”. Click Always Allow." | `job wait` |
-| `step:full_disk_access` | Safari cookies unreadable | "Turn on Discjockey in System Settings › Privacy & Security › Full Disk Access." | `login find <service>` |
+| `step:full_disk_access` | Safari cookies unreadable, or a folder macOS protects | "Turn on <app> in System Settings › Privacy & Security › Full Disk Access." <app> is the app the command runs in: macOS charges a command started from Terminal, iTerm or an agent's shell to that app, not to Discjockey. The name comes from the client's `__CFBundleIdentifier` or `TERM_PROGRAM`, else "the app you run this command in" (R23) | `login find <service>`, or the same command |
+| `step:folder_access` | `PermissionError` on the music folder, a watched folder, rekordbox's folder or a drive's folder (a drive, Documents, Downloads, Desktop) | "Allow <app> to open <folder>: answer the macOS question, or turn it on in System Settings › Privacy & Security › Files and Folders." <app> named as above | the same command |
 | `step:spotify_app`, `step:qobuz_password` | setup | the window's numbered setup words | `login spotify --client-id …`, `login qobuz …` |
 | `step:install_tools` | a program missing | "Paste `brew install ffmpeg` into the Terminal." (an agent may run it if the user agrees) | `tools status` |
 | `step:connect_drive` | files or the music folder on a drive that isn't connected | "Connect the drive <name>." | the same command |
+| `step:add_to_path` | `app install-command` put the short name in a folder that is not on `PATH` | "Add this line to ~/.zprofile, then open a new Terminal tab: `export PATH="<folder>:$PATH"`." | `where` |
 | `step:reopen_window` | music folder or tools changed while the window is open | "Quit Discjockey and open it again." | — |
 | `step:delete_superseded` | the user wants space back | "Discjockey never deletes music. You can delete these files in the Finder." + the list | — |
 | `step:decide` | a choice that is the user's (which file of a duplicate stays, Same vs New track when not recommended, a risky limit) | the options with their outcomes | the command for each option |
@@ -1001,7 +1059,7 @@ rule: tell the user `say` word for word, wait for their answer, then run `then`.
 
 ### 10.2 The app binary is the command
 
-Covered in §2.1: no argument opens the window, any argument is a command, `where` prints the path, `app
+Covered in §2.1: no argument opens the window only when launchd started the app (from a shell it prints the short help), any other argument is a command, `where` prints the path, `app
 install-command` makes a short name. The self-test (`--self-test`) gains one CLI round trip (`help --json` and
 `where --json` in a scratch support folder) so a built app proves its command works.
 
@@ -1077,13 +1135,13 @@ when a file is replaced.
 | The best version | "Why didn't X download?" "Why is X only 130 kbps?" | `track show X`: `why[]` (engine-composed reasons in order: playlist switched off / scope off / never-download / not found last time + `next_try_text` / Qobuz paused or used up / waiting for the limit / rejected sources / last run's result for it with its note) + `next` (e.g. `version search X`); `login list` (the ladder sentence) |
 | Real quality | "Is my library lossless?" "Which files are fake?" "Is this upgrade real?" | `status` (lossless share); `todo list --group fake,weak`; `upgrade list`, `track show X` (`upgrade` block: alignment, both cutoffs, ways), `track spectrum X --which current\|upgrade --png …`, then `step:listen` |
 | rekordbox keeps working | "Does rekordbox match my files?" "What do I still have to do in rekordbox?" | `rekordbox match`; `check list` (steps per track); `rekordbox status` |
-| Ready for a gig | "Is my library ready for Saturday's gig?" | `status --ready`: open rekordbox checks (USB stick stale), CDJ problems (`todo` group cdj), rekordbox tracks with missing or superseded files, playlist songs without a file, stopped batches, drives away, upgrades waiting; each with `next` |
+| Ready for a gig | "Is my library ready for Saturday's gig?" | `status --ready` (a filter of `doctor`'s problems): open rekordbox checks (USB stick stale), CDJ problems (`todo` group cdj), rekordbox tracks with missing or superseded files, playlist songs without a file, stopped batches, drives away, upgrades waiting; each with `next` |
 | Upgrades | "Swap in all the better versions that keep my cues." | `upgrade apply --all --dry-run` → user → `upgrade apply --all --plan P --detach`; `check list` → person steps → `check done --all` |
 | Files that play everywhere | "Make my Hard_Bounce folder AIFF." "Which files won't play on CDJs?" | `aiff convert --all --in playlist:Hard_Bounce --dry-run` / apply; `todo list --group cdj`, `aiff convert --all --todo cdj` |
 | Own music | "Add my old crates." "What couldn't be read?" "Answer the same-song questions." | `folder check/add`, `import status`, `folder list` (unreadable); `question list`, `duplicate list`, `question answer`, `duplicate keep` |
 | Order | "Tidy my folders." "Rename the playlist and move its folder." | `tidy run --dry-run` / `--plan`; `playlist rename X Y --files move --dry-run` |
-| Time | "What changed since yesterday?" "What's waiting and why?" "When does Qobuz look again?" | `history --since yesterday`; `sync plan` (`next_sync`, `why`), `todo list`, `job list`; `track show X` `next_qobuz_check`; `status` `next_checks` |
-| History and recovery | "What did the last sync do?" "Undo yesterday's work." "Something broke." | `run show last`; `history --since yesterday` → `batch undo … --dry-run` → `--yes`; `doctor`, `job show <job> --log`, `rekordbox backups`, `rekordbox restore` |
+| Time | "What changed since yesterday?" "What's waiting and why?" "When does Qobuz look again?" | `history --since yesterday` (each entry with its `undo` or `cant_text`); `sync plan` (`next_sync`, `why`), `todo list`, `job list`; `track show X` `next_qobuz_check`; `status` `next_checks` |
+| History and recovery | "What did the last sync do?" "Undo yesterday's work." "Something broke." | `report show last`; `history --since yesterday` → each entry's `undo` (`--dry-run` first, then `--yes`) and what it says can't be undone (`cant_text`); `doctor`, `job show <job> --log`, `rekordbox backups`, `rekordbox restore` |
 | Limits and account risk | "Can I download more today?" "Is my account at risk?" | `limits show qobuz` (signals, zone, `suggestion`), `limits set qobuz 60 --extra-today 10 --dry-run` |
 | Health | "Is everything set up?" | `setup status`, `doctor`, `tools status`, `login list` |
 
@@ -1110,19 +1168,19 @@ The model of the app's concepts an agent needs is part of the agent guide (§14.
 | interactive `setup`, `upgrades` | **drop** → `setup status`, `login …`, `upgrade …` | prompts can't be driven by an agent; the window is the guided form for a person |
 | `update` | **change** → `tools update` (+ `tools rollback`, `--json`, no music folder, no library lock) | it only touches the support folder |
 | `hub` | **change** → `app open` | noun grammar |
-| bare `discjockey [--yes] [--dry-run] [--limit] [--extra] [--verbose]` sync | **change** → `sync run [selection] [--plan] [--limit] [--auto-upgrade-only]`, `sync read`, `sync plan`; `--extra` → `limits set --extra-today` | selection, plan binding, runs from the app binary |
-| `--limit N` | **keep** on `sync run` | the "how many" chip in words |
+| bare `discjockey [--yes] [--dry-run] [--limit] [--extra] [--verbose]` sync | **change** → `sync run [selection] [--plan] [--how-many] [--auto-upgrade-only]`, `sync read`, `sync plan`; `--extra` → `limits set --extra-today` | selection, plan binding, runs from the app binary |
+| `--limit N` on the sync | **change** → `--how-many N` on `sync run`; `--limit` stays for the rows of a list | one flag, one meaning; the "how many" chip in words |
 | `CLI_COMMANDS` routing in `app_main` | **drop** | any argument is a command (§2.1) |
 | song keys as ids | **keep**; paths accepted too | stable, already everywhere |
 | `track` (console JSON) vs `track_id` (bridge) | **change** → `track_id` everywhere | one payload |
 | bare integer batch ids in two tables | **change** → `aiff:<n>`, `moves:<n>` in one `batch` noun | the same number meant two batches |
-| `--batch ID` flag vs positional `<id>` | **change** → positional typed ids | one style |
+| `--batch ID` flag vs positional `<id>` | **change** → positional typed ids; `check done --batch aiff:<n>` stays as that command's fourth selection form (§7.3) | one style |
 | `--way same-track\|new-track` vs bridge `swap\|add_new` | **keep** the CLI words; **change** the bridge enum to `same_track\|new_track` | the window's words win |
 | `--all lossless\|cdj` vs `--all` flag | **change** → `--all` + `--in` / `--todo` (§7.3) | one selection grammar |
 | `--in playlist:<name>\|folder:<path>\|unlisted` | **keep** the form, widen it to every listing; playlist named by its folder | readable and typed |
 | `upgrade undo` (also undoes conversions) | **change** → `track undo` | it undoes any file step |
 | `rekordbox checked` | **change** → `check done` | checks are a To-do group of their own |
-| `rekordbox status`, `preview`, `backups`, `restore` | **keep** (status gains nothing, preview gains entry columns) | already the reference read commands |
+| `rekordbox status`, `preview`, `backups`, `restore` | **keep** (status gains `modified_at` and `size` of master.db, C7; preview gains entry columns) | already the reference read commands |
 | `upgrade list`, `batch list/show/resume/undo` | **keep** names; outputs move to the shared payloads | |
 | `settings auto-upgrade [on\|off]` | **change** → `settings show`, `settings set auto-upgrade on\|off`; reads need no music folder | one group for all switches |
 | batch scope `console` | **drop** → `via` + the real scope | the window's Resume never showed terminal batches |
@@ -1145,15 +1203,15 @@ The model of the app's concepts an agent needs is part of the agent guide (§14.
 | T1 catalogue ↔ bridge | a `@bridge` method of `HubApi` is missing from `hub/catalog.py`, or an entry names no method; a parameter of a bridge method, or a key of a dict parameter's `TypedDict`, has no flag or positional in its entry (`inspect.signature` against the entry's map, R40); a `WINDOW_ONLY` reason is outside `{native_dialog, closes_window}` |
 | T2 catalogue ↔ parser | an entry's command path doesn't parse, or a parser command has no entry (the housekeeping commands are their own table in the catalogue); once the last replacement group has landed, a route to a legacy command module remains |
 | T3 the CLI computes nothing | a CLI handler calls anything but the `HubApi` methods its entry names (or the housekeeping modules of §8.1), or builds data instead of rendering the answer (import and AST check) |
-| T4 screen states ↔ reads; parity | a `shots.json` entry has neither `reads` nor a `view` reason (vitest); on the Python hub fixtures, a catalogue read's bridge answer minus the URL keys differs from its command's `--json` `data` (R16) |
+| T4 screen states ↔ reads; parity | a `shots.json` entry has neither `reads` nor a `view` reason (vitest); on the Python hub fixtures, a catalogue read's bridge answer minus the URL keys differs from its command's `--json` `data` (R16); the window's ⌘A ids differ from `HubApi.select(listing)` on the same payload (R11) |
 | T5 the window adds nothing | static (§8.4, 1–2): `derive` finds an expression outside the allowed forms, `flows` a handler with two bridge writes, the allow file gains a `debt` entry or holds a reason outside the closed set; `words.json` is stale against a fresh extraction; the `fill()` fixture renders differently in Python and TypeScript. Rendered (T5b, §8.4, 3–4): in a shot, a visible string, `data-tone`, `data-dim`, `data-badge` or list order is not backed by the shot's payloads in scope or the word catalogue; a component mounted in no shot |
 | T6 schemas | a payload field lacks its `F(shown, doc)`; a command's real output or a fake payload doesn't validate against its schema; `types.ts` is stale against `shapes.py` |
 | T7 text shows everything | a field marked `shown` is not placed by its schema's text layout, on the real fixture outputs and on a generated sample with every optional field set (R43); the golden text of a schema changes without its file (a review aid, R30) |
-| T8 outcomes | a command exits with a code not matching its `outcome`; a `ProblemKind` has no row in the outcome map; `--json` prints anything but one object (also for usage errors and crashes) |
+| T8 outcomes | a command exits with a code not matching its `outcome`; a `ProblemKind` has no row in the outcome map; a reason a command raises is not in the closed list of `hub/outcomes.py` (§4.3); the precedence `bad_args` > `busy` > `refused` > `needs_person` > `stopped` > `failed` > `partial` > `ok` is not what `outcomes.py` applies when several outcomes apply; a repeated "nothing to do" run is not `ok`; `--json` prints anything but one object (also for usage errors and crashes) |
 | T9 safety | a dry run writes a byte outside `<support>/plans/` and `<support>/cache/` (every command's `--dry-run` on a fixture library: all files, library.db and the rekordbox fixture compared); a `needs_yes` command acts without `--yes`; any of the sandbox cases of §10.3 |
 | T10 jobs and locks | any of the cases of §6.6 (stop files, killed clients, lost workers, `--now` safety, the locks table, two writers, window and terminal seeing each other, rekordbox readers during a write) |
 | T11 docs | `docs/agent-commands.md` differs from `discjockey help --markdown`; a catalogue entry has no example in it |
-| T12 app binary | a built app with any argument but `-psn_…` doesn't reach the CLI (self-test round trip) |
+| T12 app binary | a built app with any argument but `-psn_…` or `app open` doesn't reach the CLI (self-test round trip); no argument from a shell (parent not launchd) opens a window instead of printing the short help with exit 0; no argument from a Finder start (`-psn_…`) doesn't open it |
 | T13 shared protection | any of the cases of §7.5 (the pause across processes, the pacing gap between back-to-back commands, the reset at a sync's start, searches spaced, the window waiting for a terminal's slot) |
 
 The CLAUDE.md "Agent-ready" rule is rewritten to point at T1–T13: a new bridge method, parameter, payload field, word,
@@ -1253,7 +1311,7 @@ moved, and ends with `library scan` in `next`. The Trash is not a deletion: the 
 | 7b quit, undo again; old files with cues | **P** quits and looks; agent | `batch undo aiff:<n> --yes` |
 | 8 relocate tries by hand | **P** | — |
 | 9a leave rekordbox closed a minute | **P** | — |
-| 9b master.db untouched meanwhile, `contentFile` accepted | agent; **P** for the prompt | `rekordbox status` (modified time), `rekordbox preview --path <new>` (`content_file`, `folder_path`, `updated_at`) |
+| 9b master.db untouched meanwhile, `contentFile` accepted | agent; **P** for the prompt | `rekordbox status` (`modified_at`, `size`; C7), `rekordbox preview --path <new>` (`content_file`, `folder_path`, `updated_at`) |
 
 **Stage C**
 
@@ -1264,12 +1322,12 @@ moved, and ends with `library scan` in `next`. The Trash is not a deletion: the 
 | 1b sync: "… wait for rekordbox to be closed" | agent | `sync run --auto-upgrade-only --wait 90` + `job wait` (no downloads needed) → `auto_upgrade.waiting`, rows `rekordbox_open` |
 | 1c To-do marks them; nothing changed | agent; **P** may look | `todo list --group upgrade_ready` (`sub`: "Waits for rekordbox to be closed") |
 | 2a quit rekordbox | **P** | — |
-| 2b sync again: upgraded, end screen lists | agent | `sync run --auto-upgrade-only --wait 90` + `job wait`; `run show last` |
+| 2b sync again: upgraded, end screen lists | agent | `sync run --auto-upgrade-only --wait 90` + `job wait`; `report show last` |
 | 2c AIFF with cues in rekordbox | **P** | agent: `rekordbox preview --path <new>` |
 | 2d "Undo all from this sync" offered | agent | `check list` (batch `undo.label`) |
 | 3 undo; back with cues | agent; **P** looks | `batch undo aiff:<n> --yes` |
 | 4a switch off | agent | `settings set auto-upgrade off` |
-| 4b nothing moves | agent | `sync run --auto-upgrade-only` → `auto_upgrade: null`; `upgrade list` still lists them |
+| 4b nothing moves | agent | `sync run --auto-upgrade-only` → `ok`, `auto_upgrade: null`, message "Auto-upgrade is off, so nothing was moved."; `upgrade list` still lists them |
 
 **Stage D**
 
@@ -1320,7 +1378,7 @@ Phase 1, the live-test slice (decision on R46: the CLI the live tests need comes
 | 1.2 | Job registry and worker (§6.2–§6.5): files, `alive`, liveness, the worker, inline `Jobs`, signals, the `CancelToken` stop file and sleep, `job …`, the wait defaults, live `person_steps`, the events writer | Opus | ~300k |
 | 1.3 | Locks (§6.1): the support lock, `locks` per catalogue entry, rekordbox shared readers, `tools` refusal | Sonnet | ~180k |
 | 1.4 | The window on the registry: window jobs registered, string job ids (contract), the registry watch, `JobFinished` for terminal jobs, the window files | Opus | ~260k |
-| 1.5 | Live-test reads: `rekordbox status` / `preview`, `todo list`, `check list`, `track show`, `track find`, `upgrade list`, `batch list` / `show`, `run show`, with their text layouts | Sonnet | ~220k |
+| 1.5 | Live-test reads: `rekordbox status` (with `modified_at`, `size`) / `preview`, `todo list`, `check list`, `track show`, `track find`, `upgrade list`, `batch list` / `show`, `report show`, with their text layouts | Sonnet | ~220k |
 | 1.6 | Live-test writes A: `upgrade apply` / `discard` (with the upgrade dry run), `batch resume` / `undo`, `track undo`, `check done`; the plan store, `--plan`, `--yes` | Sonnet | ~230k |
 | 1.7 | Live-test writes B: `aiff convert` / `rename`, `library facts`, `folder add` / `remove`, `library scan`, `settings set auto-upgrade`, `sync run --auto-upgrade-only`; the test scripts' marker and `--clean` | Sonnet | ~230k |
 | — | **The A–D live tests of §15** with the user (an agent at the commands, the user at the **P** steps) | — | ~300k |

@@ -711,7 +711,7 @@ The four redesigned parts go to an Opus design pass. The rest is design text a S
 ## Fix status
 
 Step 4a (Opus, 2026-11-15) redesigned the four parts of the Verdict, took R15 and the three decisions, and rebuilt the
-completeness guarantee; step 4b applies the stated fixes marked `for 4b`, in the design's current wording (no `surface/`
+completeness guarantee; step 4b (2026-11-15, Sonnet) applied the stated fixes, now marked `done 4b`, in the design's current wording (no `surface/`
 or `present/`: the layer is `HubApi`, §8.1; data words in `discjockey/words.py`, fixed words extracted into
 `words.json`, §8.3). Sections are the design's.
 
@@ -727,35 +727,35 @@ or `present/`: the layer is `HubApi`, §8.1; data words in `discjockey/words.py`
 | R8 | done 4a | §10.3 "The root guard" |
 | R9 | done 4a | §10.3 (`create --from real`: library lock, SQLite backup API, refuses with `pending` steps) |
 | R10 | done 4a | §10.3 "rekordbox in a sandbox" |
-| R11 | for 4b | §7.3: the window keeps sending ids; `HubApi.select(listing)` (`hub/select.py`) gives its ⌘A ids; test window ⌘A ids == `select(listing)` |
+| R11 | done 4b (§7.3, §13 T4) | §7.3: the window keeps sending ids; `HubApi.select(listing)` (`hub/select.py`) gives its ⌘A ids; test window ⌘A ids == `select(listing)` |
 | R12 | done 4a | §7.1 (a dry run writes only its plan, in `<support>/plans/`; no scan, no stored facts, no settings; reads `?mode=ro`) |
-| R13 | for 4b | §5.2 kinds: R "writes nothing but caches under `<support>/cache/`" (T9 already allows that folder, §13) |
+| R13 | done 4b (§5.2 kinds) | §5.2 kinds: R "writes nothing but caches under `<support>/cache/`" (T9 already allows that folder, §13) |
 | R14 | done 4a | §9.2 (store the read, derive the plan) |
 | R15 | done 4a | §8.1 (headless `HubApi`; carried through §1.1, §1.2, §4.3, §9, §13 T3, §16) |
 | R16 | done 4a | §8.2 (fake payloads validated against the schemas), §8.4, §13 T4 (parity on the Python hub fixtures) |
 | R17 | done 4a | §6.2 `events.jsonl` (writer thread, coalescing, cap) |
 | R18 | done 4a | §6.4 (`CancelToken.sleep` in ≤ 0.5 s steps, `check()` on `cancelled`) |
 | R19 | done 4a | §6.6 "Which windows are open", §2.3 `windows_open` |
-| R20 | for 4b | §2.1 and §2.3 step 1: no arguments open the window only when launchd started the process (parent pid 1 or `-psn_`); from a shell, the short help and exit 0; `app open` from a shell; test pins both |
+| R20 | done 4b (§2.1, §2.3, §10.2, §13 T12) | §2.1 and §2.3 step 1: no arguments open the window only when launchd started the process (parent pid 1 or `-psn_`); from a shell, the short help and exit 0; `app open` from a shell; test pins both |
 | R21 | done 4a | §6.5 (non-TTY default `--wait 90`, first stderr line, `--detach` after `running`), §14.2, §15 |
 | R22 | done 4a | §6.5 (live `person_steps` in `state.json`) |
-| R23 | for 4b | §4.3 reasons `folder_access` / `full_disk_access` for a `PermissionError` on a root, a watched folder or a cookie file; §10.1 words naming the app the command runs in; `doctor` checks every root is readable |
-| R24 | for 4b | §4.3 and §4.4: the catalogue's `partial` states (the column exists, §8.1); for `sync run` only `failed` items |
-| R25 | for 4b | §4.3: the precedence `bad_args` > `busy` > `refused` > `needs_person` > `stopped` > `failed` > `partial` > `ok` in `hub/outcomes.py`, pinned by T8 |
-| R26 | for 4b | §7.4 and §11: `history` entries carry `undo` or `cant_text`; playlist edits and setting changes in the operations log; the `--since` formats |
+| R23 | done 4b (§4.3, §10.1, §5.3) | §4.3 reasons `folder_access` / `full_disk_access` for a `PermissionError` on a root, a watched folder or a cookie file; §10.1 words naming the app the command runs in; `doctor` checks every root is readable |
+| R24 | done 4b (§4.3, §4.4) | §4.3 and §4.4: the catalogue's `partial` states (the column exists, §8.1); for `sync run` only `failed` items |
+| R25 | done 4b (§4.3, §13 T8) | §4.3: the precedence `bad_args` > `busy` > `refused` > `needs_person` > `stopped` > `failed` > `partial` > `ok` in `hub/outcomes.py`, pinned by T8 |
+| R26 | done 4b (§7.4, §5.3, §11) | §7.4 and §11: `history` entries carry `undo` or `cant_text`; playlist edits and setting changes in the operations log; the `--since` formats |
 | R27 | done 4a | §5.2 kind RJ, §5.3 `library facts`, §6.1 read jobs, §7.1 `facts_missing` |
-| R28 | for 4b | §3 "Finding ids": no hit is `ok`, `total: 0`, `as_of.read_at`, `next: sync read` when the read is old |
-| R29 | for 4b | §4.3: nothing to do is `ok` with `data.total: 0` and a `message`; drop `nothing_to_do` from `refused` |
-| R30 | for 4b | §4.2: each schema's renderer declares a layout (headline, sections with the window's headings, labels, values as words); ids, `rev` and raw numbers only with `--verbose` (T7's golden text is in §13 already) |
-| R31 | for 4b | §4.5: 22 rows, one per kHz, the cutoff row labelled, axis in kHz |
-| R32 | for 4b | §2.1 `app install-command`: say whether the folder is on `PATH`, else a person step with the `~/.zprofile` line |
+| R28 | done 4b (§3) | §3 "Finding ids": no hit is `ok`, `total: 0`, `as_of.read_at`, `next: sync read` when the read is old |
+| R29 | done 4b (§4.3, §13 T8) | §4.3: nothing to do is `ok` with `data.total: 0` and a `message`; drop `nothing_to_do` from `refused` |
+| R30 | done 4b (§4.2) | §4.2: each schema's renderer declares a layout (headline, sections with the window's headings, labels, values as words); ids, `rev` and raw numbers only with `--verbose` (T7's golden text is in §13 already) |
+| R31 | done 4b (§4.5) | §4.5: 22 rows, one per kHz, the cutoff row labelled, axis in kHz |
+| R32 | done 4b (§2.1, §10.1) | §2.1 `app install-command`: say whether the folder is on `PATH`, else a person step with the `~/.zprofile` line |
 | R33 | done 4a | §8.1 (one name: `HubApi`, `hub/catalog.py`, `hub/outcomes.py`, `hub/select.py`) |
-| R34 | for 4b | §2.2, §5: noun `run` → `report`; the sync's `--limit` → `--how-many`; three-word verbs listed; `track never` / `track download`; `--batch` as a fourth selection form in §7.3; `playlist edit` in §5.1; a bare noun without a read verb prints its help (`job wait --wait` is done in §6.5) |
-| R35 | for 4b | §4.3 as the closed, generated reason list, adding `not_running`, `plan_expired` and 4a's new reasons: `support_lock`, `worker_lost`, `window_job`, `facts_missing`, `sandbox_no_accounts`, `pending_steps`, `no_clone`, `not_sandbox_content`, `outside_sandbox`, `sandbox_required`, `protected`, `exists` |
+| R34 | done 4b (§2.2, §5.1, §5.2, §7.3, §12) | §2.2, §5: noun `run` → `report`; the sync's `--limit` → `--how-many`; three-word verbs listed; `track never` / `track download`; `--batch` as a fourth selection form in §7.3; `playlist edit` in §5.1; a bare noun without a read verb prints its help (`job wait --wait` is done in §6.5) |
+| R35 | done 4b (§4.3, §13 T8) | §4.3 as the closed, generated reason list, adding `not_running`, `plan_expired` and 4a's new reasons: `support_lock`, `worker_lost`, `window_job`, `facts_missing`, `sandbox_no_accounts`, `pending_steps`, `no_clone`, `not_sandbox_content`, `outside_sandbox`, `sandbox_required`, `protected`, `exists` |
 | R36 | done 4a | §8.2 (in-repo generator, `Annotated[…, F(shown, doc)]`, generated `types.ts`, the contract doc reduced), string job ids in §16's contract changes |
 | R37 | done 4a | §8.3 (one template syntax, `fill()` in both languages, `parts[]`) |
-| R38 | for 4b | §5.2 and §15 C 4b: `ok`, `data.auto_upgrade: null`, message "Auto-upgrade is off, so nothing was moved." |
-| R39 | for 4b | rename the remaining word fields to `<fact>_text` in §3–§11 (`quality_word`, `dim_why`, `cutoff_text` stays, …); 4a's new text already uses `_text` |
+| R38 | done 4b (§5.2, §15) | §5.2 and §15 C 4b: `ok`, `data.auto_upgrade: null`, message "Auto-upgrade is off, so nothing was moved." |
+| R39 | done 4b (§4.5, §8.3, §9.3) | rename the remaining word fields to `<fact>_text` in §3–§11 (`quality_word`, `dim_why`, `cutoff_text` stays, …); 4a's new text already uses `_text` |
 | R40 | done 4a | §8.1 catalogue parameter map, §13 T1 |
 | R41 | done 4a | §8.4 check 3 (the rendered check, T5b) |
 | R42 | done 4a | §8.4 check 2 (`flows`) |
@@ -763,16 +763,18 @@ or `present/`: the layer is `HubApi`, §8.1; data words in `discjockey/words.py`
 | R44 | done 4a | §8.3 (decision: data and state words from the engine, fixed words extracted at build) |
 | R45 | done 4a | §16 (37 groups, Sonnet ≤ 250k, Opus ≤ 300k, about 17 M tokens in all) |
 | R46 | done 4a | §15 "When", §16 phase 1 (the live-test slice first, then the A–D tests) |
-| R47 | for 4b | §5.3 and §11: `status` = Dashboard and nav; `doctor` = every problem with `next`; `status --ready` = a filter of `doctor`'s problems that matter for a set |
+| R47 | done 4b (§5.3, §11) | §5.3 and §11: `status` = Dashboard and nav; `doctor` = every problem with `next`; `status --ready` = a filter of `doctor`'s problems that matter for a set |
 | R48 | done 4a | §15 "Clean-up", §10.1 `step:remove_test_tracks` (marked test files moved to the Trash by the test script; no `track forget`) |
-| C1 | for 4b | §5.2 `save_playlists` and §7.1: `--rename <old>=<new>` (repeatable), `--no-rename`, `--move <file>…` / `--no-move <file>…`; the dry run lists each rename and move with an id so `--plan` binds a subset |
-| C2 | for 4b | §4.1: every `path` in a payload is absolute; `rel_path` where the window shows the relative form |
-| C3 | for 4b | §9.3 D7 row: add `libraryModel.ts:aiffHeader`; `library list` gets the view's `actions[]` |
+| C1 | done 4b (§5.2, §7.1, §9.3) | §5.2 `save_playlists` and §7.1: `--rename <old>=<new>` (repeatable), `--no-rename`, `--move <file>…` / `--no-move <file>…`; the dry run lists each rename and move with an id so `--plan` binds a subset |
+| C2 | done 4b (§4.1) | §4.1: every `path` in a payload is absolute; `rel_path` where the window shows the relative form |
+| C3 | done 4b (§5.2, §9.3 L D7) | §9.3 D7 row: add `libraryModel.ts:aiffHeader`; `library list` gets the view's `actions[]` |
 | C4 | done 4a | §8.4 check 1 (`derive`, type-aware, with the closed-reason allow file and its ratchet) |
-| C5 | for 4b | §5.2 / §7.3: `--way` omitted = each track's `recommended` way; `--all` = Upgrade all (Same track only); `--all --way new-track` is `bad_args` with the window's reason |
-| C6 | for 4b | `where` and `open report` name `.discjockey/not_lossless.md` (`open file not-lossless`); `todo list --links` prints buy links, free downloads and `bought_name` |
-| C7 | for 4b | §5.2 / §12 / schema: `rekordbox status` gains `modified_at` and `size` beside `db_version`; correct §12's "gains nothing" (§15 B 9b and §16 group 1.5 rely on it) |
-| C8 | for 4b | §5.2 / §5.3: `app info [--check]` runs `Checker.check()` (network, once-a-day cap); `app info` prints the cached answer's age in `as_of` |
-| C9 | for 4b | §9.3 U23: `zones(service)` is the one table, `assessment` derived from it; test `assessment(s, n).label == zone_of(s, n).name` for n in 1..500 |
+| C5 | done 4b (§5.2, §7.3) | §5.2 / §7.3: `--way` omitted = each track's `recommended` way; `--all` = Upgrade all (Same track only); `--all --way new-track` is `bad_args` with the window's reason |
+| C6 | done 4b (§2.3, §5.2) | `where` and `open report` name `.discjockey/not_lossless.md` (`open file not-lossless`); `todo list --links` prints buy links, free downloads and `bought_name` |
+| C7 | done 4b (§5.2, §5.3, §12, §15, §16) | §5.2 / §12 / schema: `rekordbox status` gains `modified_at` and `size` beside `db_version`; correct §12's "gains nothing" (§15 B 9b and §16 group 1.5 rely on it) |
+| C8 | done 4b (§5.2, §5.3) | §5.2 / §5.3: `app info [--check]` runs `Checker.check()` (network, once-a-day cap); `app info` prints the cached answer's age in `as_of` |
+| C9 | done 4b (§9.3 U21–U24) | §9.3 U23: `zones(service)` is the one table, `assessment` derived from it; test `assessment(s, n).label == zone_of(s, n).name` for n in 1..500 |
 
-Totals: 32 done in 4a (31 R, 1 C), 25 for 4b (17 R, 8 C), none dropped.
+Totals: 32 done in 4a (31 R, 1 C), 25 done in 4b (17 R, 8 C), no conflicts, none dropped. 4b followed each fix's stated
+wording; two consequences of it are named here: the id kind of a past sync became `report:<…>` with its noun (§3), and
+R23 and R32 each added a person step to §10.1 (`step:folder_access`, `step:add_to_path`).
