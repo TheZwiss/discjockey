@@ -2,7 +2,8 @@
 `discjockey.hub.catalog.ENTRIES`, its flags made from the `HubApi` method's signature (`catalog.effective_params`),
 plus `call`. Global flags stand anywhere on the line and are read once (`split_globals`); a flag a command does not
 take is a usage error, never ignored. `route` decides whether a line belongs to the new commands or to the old ones in
-`legacy.py`, which keep their words until their replacements are built.
+`legacy.py`, which keep their words until their replacements are built. The command line's own words (`help`, `where`,
+`app open`, `call`) are parsed here too but run no entry.
 
 Not offered in phase 1: `--sandbox`, `--if-rev`, `--if-version`; `--jsonl`, `--wait`, `--detach` and `--wait-busy` are
 read but only job commands act on them."""
@@ -10,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 from ..hub import catalog
@@ -17,12 +19,16 @@ from ..hub.api import CliApi
 from ..hub.catalog import Entry
 
 LEGACY_WORDS = frozenset(("setup", "update", "upgrades", "upgrade", "batch", "convert", "rename", "rekordbox",
-                          "settings", "hub"))
+                          "settings"))
 GLOBAL_BOOL = {"--json": "json", "--jsonl": "jsonl", "--detach": "detach", "--verbose": "verbose",
                "--no-color": "no_color"}
 GLOBAL_VALUE = {"--wait": "wait", "--wait-busy": "wait_busy"}
 DEFAULT_LIMIT = 200
 CALL = ("call",)
+HELP, WHERE, APP_OPEN = ("help",), ("where",), ("app", "open")
+# The command line's own words (`catalog.HOUSEKEEPING`) that are built: they run no catalogue entry (`housekeeping.py`).
+# `job wait` joins with the job client.
+HOUSEKEEPING = (HELP, WHERE, APP_OPEN, CALL)
 
 
 class UsageError(Exception):
@@ -154,6 +160,20 @@ def _option_type(arg: catalog.Arg):
     return {"int": int, "float": float}.get(arg.type, str)
 
 
+def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
+    """The flags a command has beside its method's own: `--dry-run` when an entry answers it, `--yes` when an entry
+    needs it, `--limit` and `--offset` on a read (unless the method's own flags took the word). The parser and
+    `help --json` both read this."""
+    flags = []
+    if any(e.dry_run for e in entries):
+        flags.append("--dry-run")
+    if any(e.needs_yes for e in entries):
+        flags.append("--yes")
+    if all(e.kind == "R" for e in entries):
+        flags += [f"--{word}" for word in ("limit", "offset") if f"--{word}" not in taken]
+    return flags
+
+
 def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
     primary = next((e for e in entries if e.kind != "R"), entries[0])
     signature = signature_of(primary.method)
@@ -170,14 +190,11 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
             else:
                 leaf.add_argument(arg.flag, dest=name, type=_option_type(arg), default=argparse.SUPPRESS,
                                   action="append" if arg.many else "store")
-    if any(e.dry_run for e in entries):
-        leaf.add_argument("--dry-run", dest="_dry_run", action="store_true", default=argparse.SUPPRESS)
-    if any(e.needs_yes for e in entries):
-        leaf.add_argument("--yes", dest="_yes", action="store_true", default=argparse.SUPPRESS)
-    if all(e.kind == "R" for e in entries):
-        for word in ("limit", "offset"):
-            if f"--{word}" not in taken:
-                leaf.add_argument(f"--{word}", dest=f"_{word}", type=int, default=argparse.SUPPRESS)
+    for flag in extra_flags(entries, taken):
+        if flag in ("--dry-run", "--yes"):
+            leaf.add_argument(flag, dest=f"_{flag[2:].replace('-', '_')}", action="store_true", default=argparse.SUPPRESS)
+        else:
+            leaf.add_argument(flag, dest=f"_{flag[2:]}", type=int, default=argparse.SUPPRESS)
 
 
 def build() -> _Parser:
@@ -186,14 +203,18 @@ def build() -> _Parser:
     nouns = root.add_subparsers(dest="_noun", parser_class=_Parser, required=True)
     nodes: dict[tuple[str, ...], argparse.ArgumentParser] = {}
     levels: dict[tuple[str, ...], argparse._SubParsersAction] = {(): nouns}
-    for cmd, entries in commands().items():
+    own = {cmd: [] for cmd in HOUSEKEEPING if cmd != CALL}
+    for cmd, entries in {**commands(), **own}.items():
         for depth in range(1, len(cmd)):
             path = cmd[:depth]
             if path not in nodes:
                 nodes[path] = levels[path[:-1]].add_parser(path[-1], add_help=False, allow_abbrev=False)
                 levels[path] = nodes[path].add_subparsers(dest=f"_word{depth}", parser_class=_Parser, required=True)
         leaf = levels[cmd[:-1]].add_parser(cmd[-1], add_help=False, allow_abbrev=False)
-        _add_arguments(leaf, entries)
+        if entries:
+            _add_arguments(leaf, entries)
+        elif cmd == HELP:
+            leaf.add_argument("topic", nargs="*", metavar="WORD", default=argparse.SUPPRESS)
         leaf.set_defaults(_command=cmd)
     call = nouns.add_parser(CALL[0], add_help=False, allow_abbrev=False)
     call.add_argument("method")
@@ -207,14 +228,14 @@ def build() -> _Parser:
 
 def _check_words(words: list[str]) -> None:
     """A friendly usage error for a word that is not a command (argparse's own would list its internals)."""
-    known = commands()
-    nouns = sorted({c[0] for c in known} | {CALL[0]})
+    known = [*commands(), *HOUSEKEEPING]
+    nouns = sorted({c[0] for c in known})
     if not words:
         raise UsageError("Say what to do: " + ", ".join(nouns) + ".")
     if words[0] not in nouns:
         raise UsageError(f"{words[0]} is not a command. The commands so far: {', '.join(nouns)}.")
     verbs = sorted({" ".join(c[1:2]) for c in known if c[0] == words[0]} - {""})
-    if words[0] != CALL[0] and (len(words) < 2 or words[1] not in verbs):
+    if (words[0],) not in known and (len(words) < 2 or words[1] not in verbs):
         raise UsageError(f"Say what to do with {words[0]}: {', '.join(verbs)}.")
 
 
@@ -235,7 +256,7 @@ def parse(argv: list[str]) -> Parsed:
             if value < 0:
                 raise UsageError(f"--{key} cannot be negative.")
             setattr(flags, key, value)
-    if command == CALL:
+    if command in HOUSEKEEPING:
         return Parsed(command, [], ns, flags, words)
     entries = commands()[command]
     primary = next((e for e in entries if e.kind != "R"), entries[0])

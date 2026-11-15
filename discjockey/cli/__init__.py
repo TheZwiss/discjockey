@@ -12,9 +12,9 @@ import sys
 import traceback
 
 from ..hub.outcomes import REASONS
-from . import call, call_method, envelope, parser
+from . import call, envelope, housekeeping, parser
 from .legacy import parse_args  # noqa: F401 - the old parser's entry, for the callers that pin its words
-from .parser import CALL, Flags, UsageError
+from .parser import APP_OPEN, HOUSEKEEPING, Flags, UsageError
 from .render import generic, layout
 
 
@@ -58,8 +58,10 @@ def _run(argv: list[str]) -> int:
     try:
         parsed = parser.parse(argv)
         flags, command = parsed.flags, " ".join(parsed.command)
-        if parsed.command == CALL:
-            env = call_method.run(parsed)
+        if parsed.command == APP_OPEN:
+            return housekeeping.open_app()  # the window is the answer; nothing is printed
+        if parsed.command in HOUSEKEEPING:
+            env = housekeeping.run(parsed)
         else:
             env = call.run(call.choose(parsed.entries, flags), parsed.args, flags)
     except UsageError as e:
@@ -73,6 +75,8 @@ def _run(argv: list[str]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if [a for a in argv if a != "--json"] in (["--help"], ["-h"]):  # the usual first probe: the short list
+        argv = ["help", *(a for a in argv if a == "--json")]
     if parser.route(argv) == "legacy":
         from . import legacy
         return legacy.main(argv)

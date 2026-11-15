@@ -65,7 +65,7 @@ WINDOW_ONLY_REASONS = frozenset(("native_dialog", "closes_window"))
 DROPPED = frozenset(("media_url", "select", "setup_check_account"))
 
 # Commands that run no engine method of their own: the command line's own words.
-HOUSEKEEPING = (("help",), ("call",), ("job", "wait"))
+HOUSEKEEPING = (("help",), ("where",), ("app", "open"), ("call",), ("job", "wait"))
 
 PHASE = "phase 1"
 
@@ -247,7 +247,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("use_link", "version use", "J", params={"track_id": TRACK, "url": Arg("--link")}),
     _e("reject_current", "version reject", "J", params={"track_id": TRACK}, needs_yes=True),
     # --- methods the command line needs and the window has not (their shapes belong to the group that builds them)
-    _e("freshness", "", "R", cli_first=True),
+    _e("freshness", "", "R", cli_first=True, built=True),
     _e("resolve", "", "R", cli_first=True, built=True),
     _e("find_tracks", "", "R", cli_first=True),
     _e("rekordbox_preview", "rekordbox preview", "R", cli_first=True),

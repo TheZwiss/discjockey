@@ -465,15 +465,15 @@ def run_json(argv, capsys):
 
 def test_the_legacy_words_still_parse():
     for argv in (["setup"], ["upgrade", "list"], ["batch", "list"], ["convert", "--all", "lossless"],
-                 ["rekordbox", "preview", "x"], ["settings", "auto-upgrade"], ["hub"]):
+                 ["rekordbox", "preview", "x"], ["settings", "auto-upgrade"]):
         assert cli.parse_args(argv).command == argv[0]
 
 
 def test_the_sync_flags_work_before_and_after_a_command():
     assert cli.parse_args(["--yes", "upgrades"]).yes is True
     assert cli.parse_args(["upgrades", "--yes"]).yes is True
-    assert cli.parse_args(["--limit", "3", "hub"]).limit == 3
-    assert cli.parse_args(["hub", "--limit", "4"]).limit == 4
+    assert cli.parse_args(["--limit", "3", "upgrades"]).limit == 3
+    assert cli.parse_args(["upgrades", "--limit", "4"]).limit == 4
     assert cli.parse_args(["--dry-run"]).command is None
     assert cli.parse_args(["update"]).yes is False
 
@@ -794,10 +794,17 @@ def test_a_crash_in_the_phase_is_json_too(tmp_path, monkeypatch, capsys):
 
 
 def test_json_belongs_to_the_sync(capsys):
-    for command in ("setup", "update", "upgrades", "hub"):
+    for command in ("setup", "update", "upgrades"):
         with pytest.raises(SystemExit):
             cli.parse_args(["--json", command])
     assert cli.parse_args(["--yes", "--json"]).json is True
+
+
+def test_hub_is_no_legacy_word_any_more(capsys):
+    with pytest.raises(SystemExit):
+        cli.parse_args(["hub"])
+    import discjockey.cli as the_command_line
+    assert the_command_line.main(["hub"]) == 2 and "hub is not a command" in capsys.readouterr().err
 
 
 # --- discjockey settings auto-upgrade ---

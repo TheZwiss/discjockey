@@ -10,6 +10,8 @@ activates, then checks:
 - the built UI (hub/static/index.html) is there with every file it loads;
 - the built-in yt-dlp passes the update check in a process of its own (`--check-tools`), and tool_updates sees its
   version (proves the plain-file copy is found; phase 3 review).
+- the command line works through this program: `help --json` and `where --json` run in a process of their own, in the
+  scratch support folder, and answer an envelope (`v`, `outcome`, `data.command`; issue 39, design §10.2).
 - in the app, the licences folder (Contents/Resources/licenses) has INDEX.txt and every text it names.
 Prints `FAIL <problem>` per problem and `self-test passed` at the end; exit 0 only when nothing failed."""
 from __future__ import annotations
@@ -27,7 +29,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import discjockey
-from . import tools
+from . import REPO, tools
 
 THIRD_PARTY = ("streamrip", "streamrip.client", "streamrip.config", "mutagen", "numpy", "certifi", "requests",
                "bottle", "sqlcipher3", "webview", "webview.platforms.cocoa", "objc", "AppKit", "Foundation", "WebKit",
@@ -218,6 +220,38 @@ def check_download_tools(support: Path, work: Path, run: Runner = subprocess.run
     return problems
 
 
+def cli_command(args: list[str]) -> tuple[list[str], Path | None]:
+    """How to run this program's command line in a fresh process: (command, working folder), like `check_command`."""
+    if tools.is_frozen():
+        return [sys.executable, *args], None
+    return [sys.executable, "-m", "discjockey", *args], REPO
+
+
+def check_cli(support: Path, run: Runner = subprocess.run) -> list[str]:
+    """The command line works through this program (a built app proves it): `help --json` and `where --json` each
+    answer one envelope (`v` 1, `outcome` ok) and `where` names a command path, in the scratch support folder and with
+    no rekordbox library."""
+    env = {**os.environ, "DISCJOCKEY_SUPPORT": str(support), "DISCJOCKEY_REKORDBOX": ""}
+    problems = []
+    for word in ("help", "where"):
+        cmd, cwd = cli_command([word, "--json"])
+        try:
+            r = run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=TIMEOUT)
+        except (OSError, subprocess.SubprocessError) as e:
+            problems.append(f"command line `{word} --json`: {type(e).__name__}: {e}")
+            continue
+        try:
+            answer = json.loads((r.stdout or "").strip())
+        except ValueError:
+            answer = None
+        data = answer.get("data") if isinstance(answer, dict) else None
+        if (r.returncode != 0 or not isinstance(answer, dict) or answer.get("v") != 1 or answer.get("outcome") != "ok"
+                or not isinstance(data, dict) or not isinstance(data.get("command"), str) or not data["command"]):
+            problems.append(f"command line `{word} --json` failed ({r.returncode}): "
+                            f"{(r.stderr or r.stdout or '').strip()[-300:]}")
+    return problems
+
+
 def run_checks(work: Path, support: Path, bin_dir: Path | None, frozen: bool,
                run: Runner = subprocess.run) -> list[str]:
     problems = ["the app has no Contents/Resources/bin"] if frozen and bin_dir is None else []
@@ -229,6 +263,7 @@ def run_checks(work: Path, support: Path, bin_dir: Path | None, frozen: bool,
     from .hub import app as hub_app  # only for STATIC; importing it starts nothing
     problems += check_ui(hub_app.STATIC)
     problems += check_download_tools(support, work, run)
+    problems += check_cli(support, run)
     if frozen:
         problems += check_licenses(tools.licenses_dir())
     return problems

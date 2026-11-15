@@ -59,16 +59,19 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
         assert entry.example, f"{entry.command} has no example"
         parsed = parser.parse(shlex.split(entry.example))
         assert parsed.command == entry.command and entry.method in {e.method for e in parsed.entries}
-    assert leaf_commands(parser.build()) == {e.command for e in built} | {("call",)}
+    assert leaf_commands(parser.build()) == {e.command for e in built} | set(parser.HOUSEKEEPING)
+    # the command line's own words are the catalogue's housekeeping list, less `job wait` (the job client's, 1.4)
+    assert set(parser.HOUSEKEEPING) == set(catalog.HOUSEKEEPING) - {("job", "wait")}
 
 
 @pytest.mark.parametrize("argv,where", [
     ([], "legacy"), (["--dry-run"], "legacy"), (["--json"], "legacy"), (["--limit", "3"], "legacy"),
     (["setup"], "legacy"), (["upgrade", "list", "--json"], "legacy"), (["--json", "upgrade", "list"], "legacy"),
-    (["batch", "list"], "legacy"), (["convert", "--all", "lossless"], "legacy"), (["hub"], "legacy"),
+    (["batch", "list"], "legacy"), (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
     (["rekordbox", "preview", "x"], "legacy"), (["settings", "auto-upgrade"], "legacy"),
     (["rekordbox", "status"], "new"), (["--json", "rekordbox", "status"], "new"), (["call", "quit"], "new"),
-    (["nonsense"], "new"), (["--wait", "5", "setup"], "legacy"),
+    (["nonsense"], "new"), (["--wait", "5", "setup"], "legacy"), (["help"], "new"), (["help", "setup"], "new"),
+    (["where", "--json"], "new"), (["app", "open"], "new"),
 ])
 def test_t2_the_route_of_a_line(argv, where):
     assert parser.route(argv) == where
@@ -81,6 +84,7 @@ BANNED_IMPORTS = {"sqlite3", "views", "db", "planner", "library", "run"}
 
 def test_t3_a_cli_module_calls_only_what_its_entries_name():
     allowed = {e.method for e in catalog.ENTRIES} | {"resolve"}
+    assert (CLI_DIR / "housekeeping.py").is_file()  # the command line's own words are checked like every module
     checked = 0
     for path in sorted(CLI_DIR.rglob("*.py")):
         if path.name == "legacy.py":
