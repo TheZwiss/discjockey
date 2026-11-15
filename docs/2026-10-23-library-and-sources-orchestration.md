@@ -513,6 +513,10 @@ Results:
     ~3.48M. Step 5 scoped (G2, told the user in chat): phase 1 (CLI slice + A-D live tests) planned in full, later phases
     as a costed outline only, because the ~17M budget is the user's call and a 37-group full plan is over the planner
     record (227k/288k). Detail of later phases = a later run after the user's go. Opus planner, brief-39-plan.md.
+    Step 5 done e9daae2f: Opus **314k** (est. 260k; plan 869 lines; every group <=245k by script). Build est. 24.4M
+    (21-31M; 8 phases, 62 groups; phase 1 = 15 groups 5.3M, 5.6M with the A-D live tests); cost notes C-1..C-7 (~5.5M
+    of possible cuts). Issue 39 design work ~3.79M. **NIGHT RUN DONE, STOPPED: waiting for the user's go** on the
+    budget/phase 1 and the cost notes; also tell: Qobuz pause from a sync now also holds for "Use this" (4a).
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
