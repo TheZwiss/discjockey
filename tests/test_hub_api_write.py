@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder, make_api, make_root, music_root,
-                         refreshed, wait_job, write)
+                         refreshed, wait_job, write, window)
 
 from discjockey import db, importer, library, run
 from discjockey.sources import spotify
@@ -80,7 +80,7 @@ def test_only_one_change_at_a_time_and_none_during_a_console_run(root):
     api.todo()
     with run_lock(root.lock):
         answer = api.hide("t2", True)
-    assert answer == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
+    assert window(answer) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
     release = threading.Event()
     api._jobs.start("sync", lambda ctx: release.wait(5) and None)
     assert api.hide("t2", True)["kind"] == "busy"
@@ -134,10 +134,10 @@ def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):
 def test_rescan_library_answers_busy_and_console_at_once(root):
     api, rec = make_api(root)
     with run_lock(root.lock):
-        assert api.rescan_library() == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
+        assert window(api.rescan_library()) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
     release = threading.Event()
     api._jobs.start("sync", lambda ctx: release.wait(5) and None)
-    assert api.rescan_library() == {"ok": False, "kind": "busy", "message": jobs.BUSY_TEXT}
+    assert window(api.rescan_library()) == {"ok": False, "kind": "busy", "message": jobs.BUSY_TEXT}
     release.set()
     api._jobs.wait(5)
 
@@ -152,7 +152,7 @@ def test_a_change_while_a_scan_runs_hears_that_the_library_is_being_checked(root
         release.wait(5)
     api._jobs.start("scan", slow)
     assert running.wait(5)
-    assert api.hide("t2", True) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
+    assert window(api.hide("t2", True)) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
     release.set()
     api._jobs.wait(5)
     entered, done = threading.Event(), threading.Event()
@@ -165,7 +165,7 @@ def test_a_change_while_a_scan_runs_hears_that_the_library_is_being_checked(root
     t = threading.Thread(target=preview_scan)
     t.start()
     assert entered.wait(5)
-    assert api.hide("t2", True) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
+    assert window(api.hide("t2", True)) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
     done.set()
     t.join(5)
 
@@ -398,7 +398,7 @@ def test_preview_through_the_media_server(root, monkeypatch):
     row = api.search_candidates("t2")["candidates"][1]
     url = api.preview("t2", row)["url"]
     assert "/cache/previews/youtube_music_abc.aiff?v=" in url
-    assert api.preview("t2", {**row, "source": "qobuz"}) == {"ok": False, "kind": "refused",
+    assert window(api.preview("t2", {**row, "source": "qobuz"})) == {"ok": False, "kind": "refused",
                                                              "message": "Qobuz versions have no preview."}
 
 
@@ -625,7 +625,7 @@ def test_limits_of_a_service_that_is_not_set_up(root):
     api, _ = make_api(root)
     answer = api.limits("youtube")
     assert answer["ok"] and answer["usage"] is None and [c["set_up"] for c in answer["cards"]] == [True, False, False]
-    assert api.save_limits("youtube", 30, 0) == {"ok": False, "kind": "refused",
+    assert window(api.save_limits("youtube", 30, 0)) == {"ok": False, "kind": "refused",
                                                  "message": "Set up YouTube Premium first."}
     assert api.limits("tidal")["ok"] is False
 

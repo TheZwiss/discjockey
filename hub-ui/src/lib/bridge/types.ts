@@ -16,7 +16,14 @@ export type PlaylistService = 'spotify' | 'qobuz' | 'soundcloud' | 'youtube_musi
 export type SettingKey = 'read_liked_music';
 /** `service`: set when a playlist service caused the problem (a `SourceError`), absent for every other. `setting`:
  *  only with kind `setting_off` (add_playlist for a link that needs a Settings choice that is off). */
-export type Fail = { ok: false; kind: ProblemKind; message: string; service?: PlaylistService; setting?: SettingKey };
+export type Fail = {
+  ok: false; kind: ProblemKind; message: string; service?: PlaylistService; setting?: SettingKey;
+  /** The command line's view of the same problem (issue 39, `discjockey/hub/outcomes.py`); the window ignores it.
+   *  Always present on an answer of the engine, optional here so the fake bridge needs no change. */
+  outcome?: Outcome; reason?: string; next?: { run: string; why: string }[];
+  person_steps?: { id: string; say: string; then: string }[]; data?: Record<string, unknown> | null;
+};
+export type Outcome = 'ok' | 'failed' | 'bad_args' | 'busy' | 'needs_person' | 'stopped' | 'partial' | 'refused' | 'running';
 export type Res<T> = ({ ok: true } & T) | Fail;
 export type JobStart = Res<{ job_id: number }>;
 export type ActionKey = [string, string, string];          // sent back unchanged to start_sync

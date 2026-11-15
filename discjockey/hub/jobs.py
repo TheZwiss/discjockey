@@ -13,6 +13,7 @@ import os
 import threading
 import traceback
 from collections import deque
+from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -26,6 +27,7 @@ from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
+from ..problem import Problem
 
 log = logging.getLogger(__name__)
 
@@ -180,11 +182,13 @@ BUSY_WORDS = {"scan": SCANNING_TEXT, "import": IMPORTING_TEXT}  # what a write a
 ACTIVITY_OPTIONS = 0x00FFFFFF | (1 << 20)  # NSActivityUserInitiated, idle system sleep disabled
 
 
-class Busy(Exception):
-    """A job could not start. kind: busy (the hub's own job runs) | console (a terminal run holds the lock)."""
+class Busy(Problem):
+    """A job could not start. kind: busy (the hub's own job runs) | console (a terminal run holds the lock) |
+    sync_running. `reason`, `next`, `person_steps` and `data` are `Problem`'s (`data.holder` names who holds it)."""
 
-    def __init__(self, message: str, kind: str):
-        super().__init__(message)
+    def __init__(self, message: str, kind: str, *, reason: str | None = None, next: Iterable[Mapping] = (),
+                 person_steps: Iterable[Mapping] = (), data: Mapping | None = None):
+        super().__init__(message, reason=reason, next=next, person_steps=person_steps, data=data)
         self.kind = kind
 
 

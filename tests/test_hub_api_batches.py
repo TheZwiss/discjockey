@@ -11,7 +11,7 @@ from convert_helpers import EXACT
 from discjockey import db, rekordbox
 from discjockey.events import BatchProgress
 from discjockey.library import load_state
-from hub_helpers import make_api, wait_job
+from hub_helpers import window, make_api, wait_job
 
 pytestmark = needs_ffmpeg
 
@@ -131,7 +131,7 @@ def test_upgrade_all_takes_what_the_list_counts_and_starts_as_upgrade_all(hub):
     with db.connect(lib.paths.db_file) as conn:
         assert db.aiff_batch(conn, f.result["batch"]).started_by == "upgrade_all"
     assert group(api, "upgrade_ready")["all"] == {"n": 0, "m": 1, "k": 0}
-    assert api.upgrade_all() == {"ok": False, "kind": "refused", "message": "None of these can be upgraded right now."}
+    assert window(api.upgrade_all()) == {"ok": False, "kind": "refused", "message": "None of these can be upgraded right now."}
 
 
 def test_the_checks_of_a_batch_are_one_item_and_batch_undo_puts_them_back(hub):

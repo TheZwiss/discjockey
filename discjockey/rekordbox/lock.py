@@ -6,19 +6,22 @@ from __future__ import annotations
 
 import fcntl
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
+
+from ..problem import Problem
 
 BUSY = "Discjockey is already changing your rekordbox library in another window or the Terminal."
 LOCK_NAME = "rekordbox.lock"
 
 
-class Busy(Exception):
-    """Another Discjockey process holds `rekordbox.lock`."""
+class Busy(Problem):
+    """Another Discjockey process holds `rekordbox.lock` (`reason` rekordbox_lock; `Problem`'s fields)."""
 
-    def __init__(self):
-        super().__init__(BUSY)
+    def __init__(self, *, next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (),
+                 data: Mapping | None = None):
+        super().__init__(BUSY, reason="rekordbox_lock", next=next, person_steps=person_steps, data=data)
 
 
 @contextmanager

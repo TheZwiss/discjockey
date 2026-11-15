@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import yt_dlp
-from hub_helpers import fake_spotify, make_api, make_root, refreshed, wait_job
+from hub_helpers import fake_spotify, make_api, make_root, refreshed, wait_job, window
 
 from discjockey import library, pacing, pending_signs
 from discjockey.library import Resolved
@@ -187,7 +187,7 @@ def test_pasting_liked_music_while_it_is_off_answers_a_needs_a_setting_form(root
     api, _ = make_api(root)
     for on, account in ((False, True), (True, False)):
         settings(root, on=on, account=account)
-        assert api.add_playlist(LM_LINK) == {
+        assert window(api.add_playlist(LM_LINK)) == {
             "ok": False, "kind": "setting_off", "setting": "read_liked_music", "service": "youtube_music",
             "message": SETTING_OFF}
     assert LikedYDL.created[:0] == [] and LikedYDL.requested == [] and api._infos == {} and api._extra_tracks == {}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -31,6 +32,7 @@ from .models import Action, Candidate, FileAudio, Protected, SourceTrack, track_
 from .names import expected_stem, split_name, strip_id_suffix
 from .pacing import NoPacer
 from .planner import replacement_dir, superseded_dir
+from .problem import Problem
 
 CURRENT_VERSION = "This is the version you have now."
 NOT_THERE = ("Your current file is not where Discjockey expects it. Run a sync first, so it can find the file "
@@ -46,11 +48,13 @@ NO_ACCESS = ("macOS didn't let Discjockey read this file. Move it to Downloads, 
              "Privacy & Security → Files and Folders.")
 
 
-class OpProblem(Exception):
-    """The operation was not done; the message is for the user. kind: changed | refused | failed."""
+class OpProblem(Problem):
+    """The operation was not done; the message is for the user. kind: changed | refused | failed | busy (a problem
+    kind of the bridge contract). `reason`, `next`, `person_steps` and `data` are `Problem`'s (design §4.3)."""
 
-    def __init__(self, message: str, kind: str = "refused"):
-        super().__init__(message)
+    def __init__(self, message: str, kind: str = "refused", *, reason: str | None = None,
+                 next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (), data: Mapping | None = None):
+        super().__init__(message, reason=reason, next=next, person_steps=person_steps, data=data)
         self.kind = kind
 
 

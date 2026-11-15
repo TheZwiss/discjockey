@@ -17,7 +17,7 @@ import stat
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,6 +28,7 @@ from .content_key import content_key
 from .events import Emit, Message, no_emit
 from .models import FileAudio, ScanSummary
 from .names import fold, id_tags
+from .problem import Problem
 
 log = logging.getLogger(__name__)
 
@@ -196,8 +197,12 @@ def resolve_paths(environ: Mapping[str, str] | None = None, home: Path | None = 
     return resolve_in(support_dir(environ, home))
 
 
-class LockHeld(Exception):
-    pass
+class LockHeld(Problem):
+    """The engine lock is held by another run (`Problem`'s fields; the bridge answers it as console)."""
+
+    def __init__(self, message: str = "", *, reason: str | None = None, next: Iterable[Mapping] = (),
+                 person_steps: Iterable[Mapping] = (), data: Mapping | None = None):
+        super().__init__(message, reason=reason, next=next, person_steps=person_steps, data=data)
 
 
 LOCK_PROBE = threading.Lock()

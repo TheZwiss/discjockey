@@ -5,7 +5,7 @@ import time
 
 import pytest
 from hub_helpers import (ID1, LOSSLESS, LOSSY, PLAYLISTS, QOBUZ_LINK, fake_qobuz, fake_spotify, make_api, make_root,
-                         refreshed, wait_job, write)
+                         refreshed, wait_job, write, window)
 
 from discjockey.hub import jobs
 from discjockey.hub.api import HubApi
@@ -86,7 +86,7 @@ def test_errors_are_plain_json_never_a_traceback(root):
     api, _ = make_api(root)
     root.db_file.write_bytes(b"not a database, just some bytes" * 100)
     answer = api.dashboard()
-    assert answer == {"ok": False, "kind": "config_invalid", "message": answer["message"]}
+    assert window(answer) == {"ok": False, "kind": "config_invalid", "message": answer["message"]}
     assert "library.db" in answer["message"] and "Traceback" not in answer["message"]
 
 
