@@ -622,6 +622,14 @@ Results:
     Rehearsal folder (made-up default settings.json, no logins, nothing of the user's) at .claude/issue39/
     rehearsal-v1.7/support. V1.7 review (Sonnet, est. 130-200k, material 50k) → .claude/issue39/phase1/
     review-V1.7.md; rehearsal in the review if no findings, else in the fix agent. Issue 39 ~6.10M.
+    V1.7 review: Sonnet **163k** (est. 130-200k; 44 calls): 0 Critical, 3 Important, 6 Minor; no deadlocks/stuck
+    locks; window computes nothing new. My decisions (technical): #2 A (shared rekordbox hold only while master.db is
+    open: lookups into a dict, close, then plan; the 2 s stays); #5 B (tools update/rollback lock only around the
+    steps that change tools/, download unlocked). #9 → CARRY into later dispatch prompts: convert_cmd `_plan` and
+    batch_cmd `_rekordbox_status` take `reader_lock` and answer `writing` (whoever replaces aiff/batch: V1.12/V1.13);
+    terminal `update` must go through `_support_job`'s registry check (whoever builds `tools update`). Fix round
+    (fix-round agent, est. 150-240k) fixes 1-8 + runs the rehearsal (a-d) on the made-up settings folder.
+    Issue 39 ~6.26M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
