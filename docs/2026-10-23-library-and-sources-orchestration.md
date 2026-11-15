@@ -483,7 +483,7 @@ Results:
     changed anything after its last full run; `git worktree remove`, then in cli1-live `git merge --no-ff feat/cli-1-N`
     + `git merge --no-ff main`, check_public, push; log size here; next group. Dispatch prompt pattern = V1.8's (brief
     path, worktree, D3/D4/D10/D11 note, earlier groups' decisions, no real data, full pytest at end, report <10 lines).
-    Merged: V1.1-V1.8 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.9.
+    Merged: V1.1-V1.9 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.10.
     Next: V1.9, V1.10 (no own review); V1.11-V1.15 each: build → Sonnet review (findings file in phase1/) → fix-round
     agent that also runs the rehearsal on a copy (V1.11+V1.12 share one `rehearse`; made-up data only, never the
     user's support folder/library); then Opus phase review + fix, `npm run verify` once on the phase branch (bg), CI
@@ -667,6 +667,22 @@ Results:
     accent-insensitive for `track find` (FOR PHASE REVIEW: Library search still misses accent variants). Legacy
     `upgrade list` removed from batch_cmd, tests ported; catalogue ceiling 109. No `todo --links` (not in catalogue).
     Merged + main → 77b3eae6, pushed. Issue 39 ~6.81M.
+    V1.9 done 894d6674 + ecf78637: Sonnet **351k** (plan 180k, est. 200-300k; 127 calls; full 5183 passed). Engine:
+    rekordbox_status `state_text`/`problem_text`/`modified_at`/`size`; preview `<fact>_text` words + per-entry
+    `folder_path`/`content_file`/`updated_at` (master.Entry gained them; READ_COLUMNS already had them); batch AIFF
+    item `name`, skipped move `text`. Batch row: `kind` = aiff|moves, old console kind → `what` (V1.12 ports resume/
+    undo onto it); `batch list` → `batches`, `move_batches` no own command; ceiling 104; `--limit 0` = all; preview
+    holds reader_lock only while open, `rekordbox.writing` under a writer; `unknown_track` → reason `refused`.
+    FOR PHASE REVIEW: preview golden/T4/locks driver fail (not skip) without ffmpeg. Merged + main → b88aa52d,
+    pushed. Issue 39 ~7.16M.
+    V1.10 split in two (record put it ~290-350k > 250k; split costs ~40-60k extra). Part a b3d2d921: Sonnet **244k**
+    (est. 160-230k; 82 calls; full 5222 passed; one earlier full run failed test_rekordbox_timing 6 s assert, load
+    flake). Plan store (24 h valid, files kept 7 d → plan_expired not unknown_id), `--plan` via `_bind_plan`,
+    `needs_yes` with `catalog.CONFIRM` (empty, each group adds rows), dry runs store no scan (`jobs.refresh_work`
+    passes scan=True). READ-ONLY CAME OUT DIFFERENTLY: `mode=ro` on WAL without -wal/-shm creates them, so
+    `db.connect(read_only=True)` tidies with a RW open+close (removed only as last connection), `immutable=1` when the
+    folder is unwritable. FOR PHASE REVIEW: that RW tidy open on the real library.db while the window runs; `prepare`
+    dry run still writes record_reads/signs/pending_signs/extra settings (part b's T9). Issue 39 ~7.40M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
