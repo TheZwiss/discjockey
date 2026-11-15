@@ -258,6 +258,8 @@ def test_job_follow_from_end_starts_at_the_tail(env, jobs, capsys):
 
 
 def test_a_follower_reads_the_head_then_the_rolling_tail_through_a_compaction(tmp_path):
+    """The follower keeps up event by event (it waits for each one), so the compaction never outruns it; a burst larger
+    than the tail would lose events by design (the next two tests force the interleavings that must not)."""
     folder = tmp_path / "job"
     folder.mkdir()
     writer = registry.EventsWriter(folder, head=3, tail=5)
@@ -267,15 +269,72 @@ def test_a_follower_reads_the_head_then_the_rolling_tail_through_a_compaction(tm
     def emit_and_read(first, last):
         for n in range(first, last):
             writer.emit(ev.Message("info", f"m{n}"))
-        wait_for(lambda: seen.extend(json.loads(line)["text"] for line in reader.read()) or
-                 len(seen) >= last)
+            wait_for(lambda: seen.extend(json.loads(line)["text"] for line in reader.read()) or len(seen) > n)
 
     emit_and_read(0, 6)  # 3 in the head, 3 in the tail
-    emit_and_read(6, 16)  # the tail reaches 13 lines, past 2 x 5: compacted to the last 5
+    emit_and_read(6, 16)  # the tail reaches 10 lines, 2 x 5: compacted to the last 5, twice over
     emit_and_read(16, 20)
     writer.close()
     seen.extend(json.loads(line)["text"] for line in reader.read())
     assert seen == [f"m{n}" for n in range(20)]
+
+
+def _line(n: int) -> str:
+    return json.dumps({"type": "Message", "level": "info", "text": f"m{n}"}) + "\n"
+
+
+def test_the_head_is_read_after_the_tail_so_a_line_flushed_in_between_keeps_its_place(tmp_path, monkeypatch):
+    """The writer flushes the head, then the tail. A reader that took the head first and the tail second could get the
+    head's empty state and the tail's lines after the writer's flush: m3..m5 before m0..m2. Forced here: the writer's
+    flush happens right before the reader's second file is opened."""
+    folder = tmp_path / "job"
+    folder.mkdir()
+    (folder / "events.jsonl").write_text("")
+    reader = follow.EventReader(folder)
+    opened = []
+    real_open = open
+
+    def flush_before_the_second_file(path, *args, **kwargs):
+        opened.append(path)
+        if len(opened) == 2:  # the writer's flush: the head, then the tail
+            (folder / "events.jsonl").write_text("".join(_line(n) for n in range(3)))
+            (folder / "events.tail.jsonl").write_text("".join(_line(n) for n in range(3, 6)))
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(follow, "open", flush_before_the_second_file, raising=False)
+    first = [json.loads(line)["text"] for line in reader.read()]
+    monkeypatch.undo()
+    second = [json.loads(line)["text"] for line in reader.read()]
+    assert first + second == [f"m{n}" for n in range(6)]
+
+
+def test_the_writer_flushes_the_head_before_the_tail_file_exists(tmp_path):
+    """What the reader's order relies on: a buffered head line is on disk when the first tail line is written."""
+    folder = tmp_path / "job"
+    folder.mkdir()
+    writer = registry.EventsWriter(folder, head=2, tail=5)
+    try:
+        writer._write(_line(0).rstrip("\n"))
+        writer._write(_line(1).rstrip("\n"))
+        assert (folder / "events.jsonl").read_text() == ""  # buffered, not flushed
+        writer._write(_line(2).rstrip("\n"))  # the first line of the tail
+        assert (folder / "events.jsonl").read_text() == _line(0) + _line(1)
+    finally:
+        writer.close()
+
+
+def test_a_compacted_tail_that_is_longer_than_before_is_not_read_from_the_old_offset(tmp_path):
+    """The tail replaced by a compaction can be as long as, or longer than, the one the reader stopped in (and a file
+    system may give it the old inode): the reader goes on only where the last line it saw still ends."""
+    folder = tmp_path / "job"
+    folder.mkdir()
+    tail = folder / "events.tail.jsonl"
+    tail.write_text("".join(_line(n) for n in range(3, 6)))
+    reader = follow.EventReader(folder)
+    assert [json.loads(line)["text"] for line in reader.read()] == ["m3", "m4", "m5"]
+    with open(tail, "r+") as f:  # the same file, rewritten in place: m5 is in it, not where the reader stopped
+        f.write("".join(_line(n) for n in range(5, 12)))
+    assert [json.loads(line)["text"] for line in reader.read()] == [f"m{n}" for n in range(6, 12)]
 
 
 def test_follow_ends_on_the_result_never_on_the_first_job_finished(env, jobs, capsys):
