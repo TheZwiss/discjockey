@@ -483,7 +483,7 @@ Results:
     changed anything after its last full run; `git worktree remove`, then in cli1-live `git merge --no-ff feat/cli-1-N`
     + `git merge --no-ff main`, check_public, push; log size here; next group. Dispatch prompt pattern = V1.8's (brief
     path, worktree, D3/D4/D10/D11 note, earlier groups' decisions, no real data, full pytest at end, report <10 lines).
-    Merged: V1.1-V1.9 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.10.
+    Merged: V1.1-V1.10 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.11.
     Next: V1.9, V1.10 (no own review); V1.11-V1.15 each: build → Sonnet review (findings file in phase1/) → fix-round
     agent that also runs the rehearsal on a copy (V1.11+V1.12 share one `rehearse`; made-up data only, never the
     user's support folder/library); then Opus phase review + fix, `npm run verify` once on the phase branch (bg), CI
@@ -683,6 +683,37 @@ Results:
     `db.connect(read_only=True)` tidies with a RW open+close (removed only as last connection), `immutable=1` when the
     folder is unwritable. FOR PHASE REVIEW: that RW tidy open on the real library.db while the window runs; `prepare`
     dry run still writes record_reads/signs/pending_signs/extra settings (part b's T9). Issue 39 ~7.40M.
+    Part b c062b331: Sonnet **268k** (est. 180-250k; 87 calls; full 5283 passed). V1.10 total 512k vs plan 205k.
+    `CliApi.select_listing` (window's `select(track_id)` untouched, DROPPED); `select.py` holds the Upgrade-all set
+    + "rows you can act on" (shared by library()/upgrade_all/upgrade_preview/select_listing); `upgrade_preview` +
+    helpers moved batch_cmd → batches.py. `upgrade apply` rows stay planned (legacy handler pinned by
+    test_batch_cmd; V1.11 builds it); `catalog.ALL_OF` names `upgrade apply` + `check done` (V1.11/V1.13 confirm);
+    To-do `--rows` keeps file-less songs; empty Upgrade all = ok total 0; planned ceiling 102. T9 found reader_lock
+    creating `rekordbox.lock` → readers no longer create it. FOR PHASE REVIEW (Important?): before any writer made
+    the lock file, a reader holds nothing, so the first writer doesn't wait (fix idea: create the lock file at
+    setup/app start, or keep it under an allowed path). `prepare` dry-run writes not hit yet (sync group).
+    Merged + main → dc538714, pushed. Issue 39 ~7.67M.
+    V1.11 split in two (plan 185k; record put it ~300k). Part a fa88baf2 + 4b54d0f6 + 22e05375: Sonnet **359k** (est.
+    190-260k; cut by the 5-hour limit once, resumed by message; full 5290 passed, vitest 1592). Mode enum
+    same_track|new_track|discard (window keeps Way swap|add_new, BRIDGE_MODE name map at the two api.upgrade calls;
+    job kinds/result `action` strings unchanged); `upgrade apply` built (`--way`, `--all`, `--plan`, partial exit 6,
+    needs_person); `batches.RekordboxOpen` is a Problem; `CliApi.result_words` hook; CLI-only `_resume_first`
+    (Upgrade all refused while a stopped batch waits; window still starts a new one); planned ceiling 100; 11 legacy
+    apply tests retired, unique ones ported; rehearsal step 5 now reads envelope data (untested). FOR V1.11 REVIEW:
+    `next: batch resume aiff:<n>` unparsable until the new `batch resume` (V1.12); upgrade_preview rows say
+    `add_new` while the request says `new_track`; plan bound before the library lock. Issue 39 ~8.03M.
+    Part b 5170eb65: Sonnet **281k** (est. 170-240k; 94 calls; full 5319 passed). V1.11 total 640k vs plan 185k.
+    `upgrade discard`, `track undo` (`upgrades.undo_blocker` reasons, `undo_upgrade_preview`), `check done`
+    (`rekordbox_checked(track_ids, batch_id=None)` contract change; `aiff` resolver). No plan for discard/undo;
+    named tracks all without a check = refused/changed exit 7, mix = partial; worker takes the outcome from the
+    engine's word rows; ceiling 97. FOR REVIEW: `check done` with no args says "track ids is missing." without
+    naming --batch/--all/--rows. Issue 39 ~8.31M.
+    V1.11 review (review-V1.11.md): Sonnet **212k** (est. 150-210k; 46 calls): 0 Critical, 2 Important (plan items
+    a subset run didn't name reported skipped/changed → false partial; track undo question always says "new versions
+    wait again", wrong for Convert/clean-name undo), 8 Minor. No --yes bypass, no file moves outside the engine, no
+    window logic. Decisions taken by the outcome rules (not product): all items failed and none done = `failed`, not
+    partial; `check done <ids>` with nothing open = ok total 0 with skipped rows (brief: "skipped, not an error").
+    Fix round (fix-round agent, Sonnet, est. 130-200k) running. Issue 39 ~8.52M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
