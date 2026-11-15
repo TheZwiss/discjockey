@@ -383,7 +383,8 @@ export function checkView(c: RekordboxCheck, batchSize = 1): RekordboxCheckView 
   return { reason: c.reason, since: c.since, match: c.match ?? null, offset_ms: c.offset_ms ?? null, moved: !!c.moved,
     aligned: !!c.aligned, reload_tag: c.reload_tag !== false, batch: c.batch ? { id: c.batch, size: batchSize } : null,
     rekordbox: c.rekordbox ?? null, text: checkText(c), old_path: c.reason === 'renamed' ? null : c.old_path ?? null,
-    old_name: c.reason === 'renamed' ? c.oldName ?? null : null };
+    old_name: c.reason === 'renamed' ? c.oldName ?? null : null,
+    person_steps: [] }; // the engine words them (words.person_steps) for the command line; the window ignores them
 }
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues, exactly
  *  when the new file was rendered lined up (`aligned`). */

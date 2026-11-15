@@ -80,12 +80,26 @@ def _columns(rows: Sequence[Mapping], verbose: bool) -> list[tuple[str, str]]:
             for k in shown]
 
 
-def _table(rows: Sequence[Mapping], *, verbose: bool, limit: int, offset: int) -> Table:
+def _table(rows: Sequence[Mapping], *, verbose: bool, limit: int, offset: int,
+           columns: Sequence[tuple[str, str]] | None = None) -> Table:
     page = list(rows[offset:] if limit == 0 else rows[offset:offset + limit])
-    columns = _columns(rows, verbose)
+    columns = list(columns) if columns is not None else _columns(rows, verbose)
     note = f"{len(page)} of {len(rows)} shown" + (" · --limit 0 for all" if len(page) < len(rows) else "")
     return Table([header for _, header in columns], [[cell(r.get(k)) if k in r else "" for k, _ in columns] for r in page],
                  note)
+
+
+def table(rows: Sequence[Mapping], *, verbose: bool = False, limit: int = DEFAULT_LIMIT, offset: int = 0,
+          columns: Sequence[tuple[str, str]] | None = None) -> Table:
+    """A list of objects as a table, paged: all the keys in payload order, or `columns` ((key, header) pairs) when a
+    hand page chooses them. The count line is the generic one."""
+    return _table(rows, verbose=verbose, limit=limit, offset=offset, columns=columns)
+
+
+def scalar_rows(payload: Mapping, skip: Collection[str] = (), *, verbose: bool = False) -> list[Row]:
+    """The scalar fields of `payload` as label/value rows, in payload order (what the generic page prints under a
+    heading); a hand page uses it for the fields it does not word itself."""
+    return _rows(payload, skip, verbose)
 
 
 def _rows(payload: Mapping, skip: Collection[str], verbose: bool) -> list[Row]:

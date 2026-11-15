@@ -23,7 +23,7 @@ import unicodedata
 import webbrowser
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 import time
 from typing import Callable
@@ -46,7 +46,7 @@ from ..events import BatchProgress, Cancelled, CancelToken, Result
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatchRow, BatchResult, BatchRow, Candidate,
                       PlaylistLine,
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
-from ..names import fold
+from ..names import fold, search_fold
 from ..ops import OpProblem, snapshot
 from .. import pending_signs
 from ..pacing import Budget
@@ -669,7 +669,7 @@ class HubApi:
                           views.stopped_batch(rows, kinds=("upgrade",)), self._auto_upgrade_on(),
                           {i: r.started_by for i, r in checked.items()}, cdj_all,
                           views.stopped_batch(rows, scope="todo:"), {i: r.kind for i, r in checked.items()},
-                          cdj_plan.waits if cdj_plan else None, decided)
+                          cdj_plan.waits if cdj_plan else None, decided, self._paths.root)
 
     def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str]) -> plans.AiffPlan:
         """The `cdj` scope's plan for To-do, remembered on the records' generation (every write of songs, files or
@@ -987,6 +987,9 @@ class HubApi:
 
     @bridge
     def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
+        if filter not in ("all", None, *views.TODO_GROUP_KEYS):
+            raise BadId("unknown_id", f"There is no to-do group called {filter}. The groups are "
+                                      f"{', '.join(views.TODO_GROUP_KEYS)}.")
         state = self._state()
         out = self._todo(state, filter, bool(show_hidden))
         # a question or a duplicate group is not a track the page can act on (hide, upgrade, …): nothing to remember
@@ -2875,10 +2878,71 @@ class CliApi(HubApi):
             return str(found.value)
         if found.kind != "path":
             raise BadId("unknown_id", "A song key is missing: say a key or the path of a file of your library.")
+        key = self._song_holding(text)
+        if key is None:
+            raise BadId("unknown_id", f"Your library has no track with the file {text}.")
+        return key
+
+    def _song_holding(self, text: str, state: dict | None = None) -> str | None:
+        """The song key whose file is the path `text` (absolute, or relative to the music folder), else None."""
         root = self._paths.root
         typed = Path(os.path.expanduser(text))
         wanted = os.path.normpath(typed if typed.is_absolute() else root / typed)
-        for key, e in self._state()["tracks"].items():
+        for key, e in (state or self._state())["tracks"].items():
             if e.get("path") and os.path.normpath(root / e["path"]) == wanted:
                 return key
-        raise BadId("unknown_id", f"Your library has no track with the file {text}.")
+        return None
+
+    @cli_first
+    def find_tracks(self, words: str | list[str] | None = None, path: str | None = None) -> dict:
+        """Finds songs without knowing their ids (design §3, R28): `{rows: [{track_id, artist, title, rel_path, path}],
+        total}`, in artist then title order. `words` (one text, or the words of one) match the artist and title
+        together, every word somewhere in them, ignoring case and accents ("Beyonce" finds "Beyoncé"; the Library's
+        own search ignores case only, this one is a superset of it). `path` (absolute, or relative to the music
+        folder) finds the song that holds that file. Songs without a file are found too (`path` and `rel_path`
+        null); `path` is absolute, `rel_path` relative to the music folder (null for a file of an import folder, whose
+        path is not under it). With no hit, the answer says so (`total` 0) and, when the playlists were read before
+        the last change of playlists.txt or more than a day ago (or never), carries `next: sync read`: a song added
+        to a playlist since is in no record yet, which is where "why didn't X download?" starts."""
+        if isinstance(words, (list, tuple)):
+            words = " ".join(words)
+        wanted = (words or "").split()
+        if not wanted and not path:
+            raise BadId("unknown_id", "Say some words of the artist or title, or --path <file>.")
+        root = self._paths.root
+        state = self._state()
+        tracks = state["tracks"]
+        keys = list(tracks)
+        if path:
+            held = self._song_holding(path, state)
+            keys = [held] if held is not None else []
+        needles = [search_fold(w) for w in wanted]
+        rows = []
+        for key in keys:
+            e = tracks[key]
+            haystack = search_fold(f"{e['artist']} {e['title']}")
+            if all(n in haystack for n in needles):
+                absolute = None if not e.get("path") else str(root / e["path"])
+                rows.append({"track_id": key, "artist": e["artist"], "title": e["title"],
+                             "rel_path": e["path"] if e.get("path") and not PurePosixPath(e["path"]).is_absolute() else None,
+                             "path": absolute})
+        rows.sort(key=lambda r: (search_fold(r["artist"]), search_fold(r["title"]), r["track_id"]))
+        answer: dict = {"rows": rows, "total": len(rows)}
+        if not rows and self._read_is_old():
+            answer["next"] = [{"run": "sync read", "why": "the playlists were read before their last change, or more "
+                                                          "than a day ago: a song added to one since is in no record yet"}]
+        return answer
+
+    def _read_is_old(self) -> bool:
+        """Whether the last read of the playlists is older than a day or than playlists.txt's last change (or there was
+        none)."""
+        read_at = self.freshness()["read_at"]
+        if read_at is None:
+            return True
+        read = datetime.fromisoformat(read_at)
+        if self._svc.now() - read > timedelta(days=1):
+            return True
+        try:
+            return datetime.fromtimestamp(self._paths.playlists_file.stat().st_mtime) > read
+        except OSError:
+            return False

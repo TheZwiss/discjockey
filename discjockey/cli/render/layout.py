@@ -29,6 +29,7 @@ class Section:
     heading: str | None
     rows: list[Row] = field(default_factory=list)
     table: Table | None = None
+    lead: str | None = None  # a line under the heading (a group's hint)
 
 
 @dataclass
@@ -62,6 +63,8 @@ def render(page: Page, *, color: bool = False) -> str:
         blocks.append([f"{BOLD}{page.headline}{RESET}" if color else page.headline])
     for section in page.sections:
         lines = [section.heading] if section.heading else []
+        if section.lead:
+            lines.append(section.lead)
         if section.rows:
             width = max(len(r.label) for r in section.rows)
             lines += [f"{r.label.ljust(width)}  {r.value}".rstrip() for r in section.rows]

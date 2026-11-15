@@ -1,5 +1,5 @@
-"""The console commands of issue 33's stage B (discjockey/batch_cmd.py; plan stage B §2, §5.2 B6): `upgrade list |
-apply | discard | undo`, `batch list | show | resume | undo` and `rekordbox checked | backups | restore`, through
+"""The console commands of issue 33's stage B (discjockey/batch_cmd.py; plan stage B §2, §5.2 B6): `upgrade apply |
+discard | undo`, `batch list | show | resume | undo` and `rekordbox checked | backups | restore`, through
 `cli.main` on a library and a fixture rekordbox built in tmp_path. Exit codes 0-5, the JSON shapes, `--dry-run`
 writing nothing, `restore` needing `--yes`, Busy, rekordbox open and Stop. Nothing real is read: the music folder and
 rekordbox come from `DISCJOCKEY_SUPPORT` / `DISCJOCKEY_REKORDBOX`, which `make_lib` and `use` set."""
@@ -66,7 +66,7 @@ def untouched(lib: Lib):
 
 # --- no music folder ---
 
-COMMANDS = [["upgrade", "list"], ["upgrade", "apply", "--all", *SAME], ["upgrade", "apply", "--all", *SAME, "--dry-run"],
+COMMANDS = [["upgrade", "apply", "--all", *SAME], ["upgrade", "apply", "--all", *SAME, "--dry-run"],
             ["upgrade", "apply", "t1", "--way", "new-track"], ["upgrade", "discard", "t1"], ["upgrade", "undo", "t1"],
             ["batch", "list"], ["batch", "show", "1"], ["batch", "resume", "1"], ["batch", "undo", "1"],
             ["rekordbox", "checked", "t1"], ["rekordbox", "backups"], ["rekordbox", "restore", "x", "--yes"]]
@@ -88,7 +88,14 @@ def test_a_music_folder_that_is_gone_says_so(tmp_path, monkeypatch, capsys):
     gone.rename(lib.paths.root)
 
 
-# --- upgrade list ---
+# --- upgrade list (the command line's `todo` read: discjockey/cli/render/todo.py, tests/test_cli_reads.py) ---
+
+def listed(capsys, *argv: str) -> list[dict]:
+    """The items `upgrade list` answers, in its one group."""
+    code, env = run_json(["upgrade", "list", *argv], capsys)
+    assert code == OK and env["outcome"] == "ok"
+    return [item for g in env["data"]["groups"] for item in g["items"]]
+
 
 def test_list_shows_what_waits_and_why_same_track_cannot_run(tmp_path, monkeypatch, capsys):
     lib = make(tmp_path, monkeypatch, ["mp3", "stale", "aiff", "mp3"])
@@ -97,21 +104,14 @@ def test_list_shows_what_waits_and_why_same_track_cannot_run(tmp_path, monkeypat
     save_state(lib.paths, state)
     before = untouched(lib)
     with library.run_lock(lib.paths.lock):                              # a read takes no lock: busy doesn't matter
-        code, data = run_json(["upgrade", "list"], capsys)
-    assert code == OK and data["ok"] is True and data["count"] == 3
-    assert [r["track"] for r in data["upgrades"]] == lib.tracks[:3]
-    first, stale, third = data["upgrades"]
-    assert set(first) == {"track", "artist", "title", "folder", "file", "parked", "now", "new", "alignment",
-                          "same_track", "auto_refused", "auto_waits"}
-    assert (first["artist"], first["title"], first["folder"], first["file"]) == ("Artist", "Song 0", "A", lib.olds[0])
-    assert first["parked"] == "Upgrades ready/A/Artist - Song 0.aiff" and first["new"].startswith("Qobuz FLAC")
-    assert (first["alignment"], first["same_track"], first["auto_refused"], first["auto_waits"]) == (
-        "exact", None, None, False)
-    assert (stale["alignment"], stale["same_track"]) == ("different", "needs_choice")
-    assert third["same_track"] is None
+        items = listed(capsys)
+    assert [i["track_id"] for i in items] == lib.tracks[:3]
+    first, stale, third = items
+    assert (first["artist"], first["title"], first["folder"], first["path"]) == ("Artist", "Song 0", "A", lib.olds[0])
+    assert first["upgrade_ready"] is True and first["same_track"] is None and third["same_track"] is None
+    assert (stale["same_track"], stale["detail"]) == ("needs_choice", "Lossless ready · different edit")
     code, out, _ = run(["upgrade", "list"], capsys)
-    assert code == OK and "Artist - Song 0" in out and "Same track: possible" in out
-    assert "Same track: not now (it's a different edit, so you choose)" in out
+    assert code == OK and "Artist" in out and "Song 0" in out and "Upgrade ready" in out
     assert untouched(lib) == before
 
 
@@ -121,11 +121,11 @@ def test_the_waiting_mark_is_listed_only_while_same_track_can_run(tmp_path, monk
     for key in lib.tracks:
         state["tracks"][key]["upgrade"]["auto_waits"] = "2026-11-09T10:00:00"
     save_state(lib.paths, state)
-    code, data = run_json(["upgrade", "list"], capsys)
-    assert code == OK and [(r["same_track"], r["auto_waits"]) for r in data["upgrades"]] == [
+    items = listed(capsys)
+    assert [(i["same_track"], i["detail"] == "Waits for rekordbox to be closed") for i in items] == [
         (None, True), ("needs_choice", False)]               # the hub's To-do shows no "waits" over it either
     code, out, _ = run(["upgrade", "list"], capsys)
-    assert out.count("Waited for rekordbox to be closed at your last sync") == 1
+    assert out.count("Waits for rekordbox to be closed") == 1
 
 
 def test_list_shows_the_syncs_refusal_and_the_waiting_mark_while_the_switch_is_on(tmp_path, monkeypatch, capsys):
@@ -139,29 +139,25 @@ def test_list_shows_the_syncs_refusal_and_the_waiting_mark_while_the_switch_is_o
     state["tracks"][lib.tracks[0]]["upgrade"]["auto_refused"] = record
     state["tracks"][lib.tracks[1]]["upgrade"]["auto_waits"] = "2026-11-09T10:00:00"
     save_state(lib.paths, state)
-    code, data = run_json(["upgrade", "list"], capsys)
-    first, second, third = data["upgrades"]
-    assert code == OK and first["auto_refused"] == {k: record[k] for k in ("reason", "message", "at")}
-    assert (first["auto_waits"], second["auto_waits"], second["auto_refused"]) == (False, True, None)
-    assert (third["auto_refused"], third["auto_waits"]) == (None, False)
+    first, second, third = listed(capsys)
+    assert first["detail"] == "Not analysed in rekordbox · not upgraded at your sync"
+    assert second["detail"] == "Waits for rekordbox to be closed" and third["detail"] != second["detail"]
     code, out, _ = run(["upgrade", "list"], capsys)
-    assert "    Not upgraded at your sync: rekordbox hasn't analysed this track yet." in out
-    assert "    Waited for rekordbox to be closed at your last sync; it is upgraded at your next sync." in out
+    assert "Not analysed in rekordbox · not upgraded at your sync" in out
+    assert "Waits for rekordbox to be closed" in out
     save_settings(lib.paths.settings_file, replace(load_settings(lib.paths.settings_file), auto_upgrade=False))
-    code, data = run_json(["upgrade", "list"], capsys)                  # switch off: the waiting mark is hidden
-    assert [r["auto_waits"] for r in data["upgrades"]] == [False, False, False]
-    assert data["upgrades"][0]["auto_refused"]["reason"] == "not_analysed"
-    lib.paths.settings_file.write_text('{"auto_upgrade": 3}')           # a broken settings file is said, not guessed
-    code, data = run_json(["upgrade", "list"], capsys)
-    assert code == FAILED and (data["ok"], data["reason"]) == (False, "settings_invalid")
+    first, second, third = listed(capsys)                               # switch off: the waiting mark is hidden
+    assert second["detail"] != "Waits for rekordbox to be closed"
+    assert first["detail"] == "Not analysed in rekordbox · not upgraded at your sync"
 
 
 def test_list_with_nothing_waiting(tmp_path, monkeypatch, capsys):
     lib = make(tmp_path, monkeypatch, ["mp3"])
     assert run(["upgrade", "discard", lib.tracks[0]], capsys)[0] == OK
+    code, env = run_json(["upgrade", "list"], capsys)
+    assert code == OK and env["outcome"] == "ok" and env["data"]["groups"] == []
     code, out, _ = run(["upgrade", "list"], capsys)
-    assert (code, out.strip()) == (OK, "No better versions are waiting.")
-    assert run_json(["upgrade", "list"], capsys) == (OK, {"ok": True, "upgrades": [], "count": 0})
+    assert code == OK and "Upgrade ready" not in out
 
 
 # --- upgrade apply: Same track ---
@@ -801,6 +797,6 @@ def test_reads_do_not_wait_for_a_running_job(tmp_path, monkeypatch, capsys):
     lib = make(tmp_path, monkeypatch, ["mp3"])
     code, applied = run_json(["upgrade", "apply", "--all", *SAME], capsys)
     with library.run_lock(lib.paths.lock), rbsession.writer_lock(lib.paths.support):
-        for argv in (["upgrade", "list"], ["batch", "list"], ["batch", "show", str(applied["batch"])],
+        for argv in (["batch", "list"], ["batch", "show", str(applied["batch"])],
                      ["rekordbox", "backups"]):
             assert run_json(argv, capsys)[0] == OK, argv

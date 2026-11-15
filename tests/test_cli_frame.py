@@ -66,7 +66,8 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
 
 @pytest.mark.parametrize("argv,where", [
     ([], "legacy"), (["--dry-run"], "legacy"), (["--json"], "legacy"), (["--limit", "3"], "legacy"),
-    (["setup"], "legacy"), (["upgrade", "list", "--json"], "legacy"), (["--json", "upgrade", "list"], "legacy"),
+    (["setup"], "legacy"), (["upgrade", "list", "--json"], "new"), (["--json", "upgrade", "list"], "new"),
+    (["upgrade", "apply", "--all"], "legacy"),
     (["batch", "list"], "legacy"), (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
     (["rekordbox", "preview", "x"], "legacy"), (["settings", "auto-upgrade"], "legacy"),
     (["rekordbox", "status"], "new"), (["--json", "rekordbox", "status"], "new"), (["call", "quit"], "new"),
@@ -334,7 +335,7 @@ def test_the_old_commands_still_answer_with_their_old_shapes(tmp_path, monkeypat
     code, out, err = run(["batch", "list", "--json"], capsys)
     data = json.loads(out)
     assert code == 0 and data["ok"] is True and "outcome" not in data
-    code, out, err = run(["--json", "upgrade", "list"], capsys)  # as today: the old parser drops this --json
+    code, out, err = run(["--json", "batch", "list"], capsys)  # as today: the old parser drops this --json
     assert code == 0 and not out.lstrip().startswith("{")
     code, out, err = run(["convert", "--all", "lossless", "--dry-run", "--json"], capsys)
     data = json.loads(out)

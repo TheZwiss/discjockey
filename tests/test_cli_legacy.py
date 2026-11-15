@@ -464,7 +464,7 @@ def run_json(argv, capsys):
 
 
 def test_the_legacy_words_still_parse():
-    for argv in (["setup"], ["upgrade", "list"], ["batch", "list"], ["convert", "--all", "lossless"],
+    for argv in (["setup"], ["upgrade", "discard", "x"], ["batch", "list"], ["convert", "--all", "lossless"],
                  ["rekordbox", "preview", "x"], ["settings", "auto-upgrade"]):
         assert cli.parse_args(argv).command == argv[0]
 

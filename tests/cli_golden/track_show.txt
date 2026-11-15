@@ -1,0 +1,72 @@
+Armin Hermann - Get Naughty
+
+Id       t2
+Rating   16.0 kHz
+Verdict  YouTube OPUS · cutoff 16.0 kHz
+Cutoff   16.0 kHz · where the highs end · lossless reaches about 22 kHz
+
+Current file
+Format      AIFF · 16-bit
+Source      YouTube
+Made from   Opus
+Added       2026-10-13T22:15:00
+Folder      Hard_Bounce
+File        Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff
+File state  here
+
+More
+Folder             Hard_Bounce
+Duration s         268.0
+In playlists       yes
+Own                no
+Hidden             no
+Upgrade ready      yes
+Cover url          none
+Sound checked      yes
+Isrc               none
+In playlist count  none
+Source url         https://www.youtube.com/watch?v=abcdefghijk
+Next qobuz check   none
+Rejected sources   none
+Free downloads     none
+Bought name        Library/Hard_Bounce/Armin Hermann - Get Naughty.wav
+Audio url          none
+Aiff               none
+
+More › Track link
+Url      https://open.spotify.com/track/t2
+Label    Open in Spotify
+Service  spotify
+
+More › Buy links
+Beatport  https://www.beatport.com/search?q=Armin+Hermann+Get+Naughty
+Bandcamp  https://bandcamp.com/search?q=Armin+Hermann+Get+Naughty
+
+More › Upgrade
+File           Upgrades ready/Hard_Bounce/Armin Hermann - Get Naughty.aiff
+Source         qobuz
+Source name    Qobuz
+Source id      q2
+Found          2026-10-18
+What           lossless version
+Quality line   Qobuz FLAC · verified lossless
+Format line    FLAC · lossless
+Cue text       matches exactly, cues stay
+Swap safe      yes
+Swap possible  yes
+Swap how       in_place
+Why not        none
+Auto refused   none
+Auto waits     yes
+Audio url      none
+
+More › Upgrade › Alignment
+Drift ms        0.0
+Offset ms       0.0
+Offset samples  0
+Result          exact
+Text            matches exactly
+
+More › Upgrade › Rekordbox
+State    ready
+Running  no
