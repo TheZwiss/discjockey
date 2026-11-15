@@ -18,7 +18,7 @@ import pytest
 
 from batch_helpers import make_lib, needs_ffmpeg, use
 from convert_helpers import EXACT
-from discjockey import db
+from discjockey import db, library
 from discjockey.cli import bind, call, worker
 import discjockey.cli as cli
 from discjockey.hub import catalog, select
@@ -30,14 +30,24 @@ OK, FAILED, BAD_ARGS, NEEDS_PERSON, PARTIAL, REFUSED = 0, 1, 2, 4, 6, 7
 SAME, NEW = ["--way", "same-track"], ["--way", "new-track"]
 
 
+STOP: dict = {"after": None, "seen": 0}
+
+
 @pytest.fixture
 def inline_workers(monkeypatch):
     """Every job a command starts runs in this process, through the real `worker.main`."""
     real = bind.headless
+    STOP.update(after=None, seen=0)
 
     def headless(resolved, **kw):
         api = real(resolved, **kw)
-        api._svc.compare = lambda a, b: EXACT
+
+        def compare(a, b):  # a Stop pressed while the song `STOP["after"]` is being measured
+            STOP["seen"] += 1
+            if STOP["seen"] == STOP["after"]:
+                api._jobs.inline_token.cancel()
+            return EXACT
+        api._svc.compare = compare
         return api
 
     def spawn(files, argv=None):
@@ -209,6 +219,44 @@ def test_rekordbox_open_midway_leaves_a_stopped_batch_and_the_step_says_to_resum
     assert env["next"][0]["run"] == "batch resume aiff:1" and len(batches_of(found)) == 1
 
 
+def test_an_unknown_song_is_skipped_and_a_batch_of_skips_is_refused(lib, capsys):
+    found = lib(["mp3", "stale"])
+    code, env = run_json(["upgrade", "apply", "nope", found.tracks[0], *SAME], capsys)
+    assert (code, env["outcome"]) == (PARTIAL, "partial")
+    assert [(r["state"], r["reason"]) for r in env["data"]["results"]] == [("skipped", "no_upgrade"), ("done", None)]
+    code, env = run_json(["upgrade", "apply", found.tracks[1], *SAME], capsys)  # only a song that needs a choice
+    assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "refused")
+    assert env["data"]["results"][0]["reason"] == "needs_choice" and found.entry(1)["upgrade"]
+
+
+def test_the_library_lock_held_is_busy_exit_3_and_nothing_starts(lib, capsys):
+    found = lib(["mp3"])
+    for argv in (["upgrade", "apply", "--all"], ["upgrade", "apply", found.tracks[0], *NEW]):
+        with library.run_lock(found.paths.lock):
+            code, env = run_json(argv, capsys)
+        assert (code, env["outcome"]) == (3, "busy"), argv
+    assert batches_of(found) == [] and found.entry(0)["upgrade"]
+
+
+def test_stop_between_tracks_is_exit_5_keeps_what_is_done_and_leaves_the_batch_to_resume(lib, capsys):
+    found = lib(["mp3", "mp3", "mp3"])
+    STOP["after"] = 1
+    code, env = run_json(["upgrade", "apply", "--all"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (5, "stopped", "stop")
+    assert env["message"] == "Stopped after 1 of 3."
+    data = env["data"]
+    assert (data["state"], data["done"], [r["state"] for r in data["results"]]) == ("stopped", 1, ["done", "planned", "planned"])
+    assert found.entry(0)["path"].endswith("Song 0.aiff") and found.entry(1)["path"] == found.olds[1]
+    [row] = batches_of(found)
+    assert row.state == "stopped"
+
+
+def test_no_music_folder_is_refused_before_anything_starts(tmp_path, monkeypatch, capsys, inline_workers):
+    monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(tmp_path / "empty-support"))
+    code, env = run_json(["upgrade", "apply", "--all"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "no_library")
+
+
 # --- the bridge's mode enum ---
 
 def test_the_bridge_takes_same_track_new_track_and_discard_and_refuses_swap_and_add_new(lib):
@@ -234,12 +282,9 @@ def test_a_window_still_gets_the_old_results_and_none_of_the_command_lines_words
 # --- the text page ---
 
 def test_golden_the_page_of_a_new_track_apply(lib, capsys, tmp_path):
-    from pathlib import Path
+    from test_cli_golden import WRITES, check_golden
     found = lib(["mp3", "aiff"])
     code, out, err = run(["upgrade", "apply", *found.tracks, *NEW], capsys)
-    text = out.replace(str(tmp_path), "<tmp>")
-    path = Path(__file__).parent / "cli_golden" / "upgrade_apply.txt"
-    if os.environ.get("UPDATE_GOLDEN"):
-        path.write_text(text)
-    assert code == OK and text == path.read_text()
+    assert code == OK and "upgrade_apply" in WRITES
+    check_golden("upgrade_apply", out.replace(str(tmp_path), "<tmp>"))
     assert "Your turn: " in err and "relocate" in err and "Then: check done t1aaaaaaa" in err

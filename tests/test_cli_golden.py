@@ -70,6 +70,16 @@ def fixture(tmp_path, monkeypatch, request, utc):
     return tmp_path
 
 
+def check_golden(name: str, text: str) -> None:
+    """The one golden compare: `text` equals `tests/cli_golden/<name>.txt` (`UPDATE_GOLDEN=1` writes it). A write's page
+    is checked here too, by the test that runs the write (`WRITES` names its file)."""
+    path = GOLDEN / f"{name}.txt"
+    if os.environ.get("UPDATE_GOLDEN"):
+        path.write_text(text)
+    assert path.exists(), f"no golden text for {name}: run with UPDATE_GOLDEN=1 and read it"
+    assert text == path.read_text()
+
+
 def run(argv, capsys):
     code = cli.main(argv)
     out = capsys.readouterr()
@@ -84,12 +94,7 @@ def words(entry) -> list[str]:
 def test_golden_text(entry, fixture, capsys):
     code, out, err = run(words(entry), capsys)
     assert code == 0 and err == ""
-    text = out.replace(str(fixture), "<tmp>")
-    path = GOLDEN / f"{'_'.join(entry.command)}.txt"
-    if os.environ.get("UPDATE_GOLDEN"):
-        path.write_text(text)
-    assert path.exists(), f"no golden text for {entry.command}: run with UPDATE_GOLDEN=1 and read it"
-    assert text == path.read_text()
+    check_golden("_".join(entry.command), out.replace(str(fixture), "<tmp>"))
 
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))

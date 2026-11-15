@@ -207,7 +207,9 @@ def test_all_is_the_verb_s_own_all_where_the_catalogue_names_it(lib, monkeypatch
     assert (env["outcome"], env["reason"]) == ("bad_args", "usage") and "no --all" in env["message"] and SEEN == []
     monkeypatch.setitem(catalog.ALL_OF, "demo bulk", "check_done")
     env = go(bulk_entry(), {}, api, all=True)
-    assert env["outcome"] == "ok" and SEEN == [api.select_listing({"verb_all": "check_done"})["ids"]]
+    ids = api.select_listing({"verb_all": "check_done"})["ids"]
+    assert env["outcome"] == "ok" and SEEN == ([ids] if ids else [])  # a verb's "all" of nothing runs nothing (R29)
+    assert ids or (env["data"]["total"], env["message"]) == (0, "There is nothing to check for these tracks any more.")
     env = go(bulk_entry(), {}, api, all=True, search="x")  # --all is the verb's list: nothing narrows it
     assert env["reason"] == "conflicting_flags"
 
