@@ -533,6 +533,17 @@ Results:
     false (~3k). Phase 1 = 5.1M + live tests 300k. Drift guard: rule text V1.3, `derive`/`flows`/ratchet in phase 5
     (V5.2); gap: agent defs (ui-build, fix-round) and the review checklist question are not in the plan (I add them
     after the go). Issue 39 ~4.09M. STOPPED for the user's go.
+    2026-11-15 afternoon: USER GO on plan v2 ("approved if you say it's good to go"). My checks before saying yes:
+    `call` runs the same entry as noun-verb (needs_yes, planned entries refused until their write group) → G5 holds;
+    v1's own-review groups 1.7, 1.11-1.15 keep review + rehearsal in v2; v2 departs from the design on D3, D4, D10,
+    D11 (every brief and reviewer prompt says "plan v2 §2 wins there"); E1 word catalogue counts as base (G3 needs the
+    tooltips) → total ~20.3M; correction to what I told the user: 2.58M moved to extras (not 1.7M), 2.65M real
+    savings, +0.91M added. Qobuz "Use this" pause = V2.6 (phase 2), still to tell the user before phase 2. Go scope:
+    V1.0-V1.15 + their reviews + phase review; STOP before the A-D live tests (they meet the "never touch my app /
+    rekordbox" rule). Extras E2-E9: user ticks before phase 2+ are detailed. Gate after V1.0 (script): seven parts,
+    files exist, <=8k tokens, every cited design § + v1 §2 interface present in each brief. V1.0 Sonnet dispatched
+    (material 39k, est. 210k) → `.claude/issue39/phase1/V1.x.md`. To do with V1.3 (the G4 rule): add the rule to the
+    ui-build + fix-round agent definitions and the review checklist; check whether the ratchet can move before phase 5.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
