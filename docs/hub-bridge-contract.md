@@ -56,6 +56,15 @@ library (lists cut to 2 items, `data` cut).
 
 Use the kind for the card/headline; always show `message` as the detail.
 
+Beside `ok`, `kind`, `message` (and `service`, `setting`) every ok:false answer also carries what the command line reads
+(issue 39; additive, the page ignores it, `Fail` has them as optional keys): `outcome` (`failed` | `bad_args` | `busy` |
+`needs_person` | `stopped` | `refused`, the row of `kind` in `discjockey/hub/outcomes.py` `KIND_OUTCOME`: `busy`,
+`console`, `sync_running` are `busy`; `not_set_up`, `no_library`, `setting_off`, `exists`, `changed`, `refused`,
+`protected` are `refused`; `login_expired`, `rekordbox_open` are `needs_person`; `stopped` is `stopped`; the rest are
+`failed`), `reason` (a key of `REASONS` in the same module: the engine's own where the raiser named one, else the
+kind's), `next` (`[{run, why}]`: commands that move on), `person_steps` (`[{id, say, then}]`: what only a person can do;
+`rekordbox_open` carries `step:quit_rekordbox`) and `data` (object or null). An ok:true answer is unchanged.
+
 ## Shared shapes
 
 **TrackRow** (library rows, to-do items, change moves; to-do items add `group`, `detail`; moves add `from`, `to`, `to_not_lossless`;

@@ -19,7 +19,7 @@ from discjockey.library import load_state, save_state
 from discjockey.models import Question, SourceTrack
 from discjockey.rekordbox.locate import Place
 from discjockey.settings import Settings, load_settings, save_settings
-from hub_helpers import fake_spotify, make_api, make_root, make_unbound_api, wait_job
+from hub_helpers import window, fake_spotify, make_api, make_root, make_unbound_api, wait_job
 
 NOW = datetime(2026, 11, 9, 21, 4)
 
@@ -91,7 +91,7 @@ def test_the_switch_changes_nothing_else_in_settings(tmp_path):
 def test_the_switch_must_be_true_or_false(tmp_path, bad):
     api, _ = make_api(make_root(tmp_path))
     answer = api.set_auto_upgrade(bad)
-    assert answer == {"ok": False, "kind": "refused", "message": "on must be true or false."}
+    assert window(answer) == {"ok": False, "kind": "refused", "message": "on must be true or false."}
 
 
 def test_a_settings_file_the_sync_cannot_read_shows_the_switch_off(tmp_path):

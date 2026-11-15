@@ -305,3 +305,12 @@ def music_root(tmp_path, **kw) -> Paths:
     """make_root in a `music` folder of tmp_path, so folders beside it can be watched."""
     (tmp_path / "music").mkdir(exist_ok=True)
     return make_root(tmp_path / "music", **kw)
+
+
+COMMAND_LINE_KEYS = ("outcome", "reason", "next", "person_steps", "data")
+
+
+def window(answer: dict) -> dict:
+    """A bridge answer as the window reads it: without the keys a problem carries for the command line (outcome, reason,
+    next, person_steps, data; `discjockey/hub/outcomes.py`). Tests of the window's words compare through this."""
+    return {k: v for k, v in answer.items() if k not in COMMAND_LINE_KEYS}

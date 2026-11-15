@@ -55,6 +55,7 @@ from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import media as media_mod, spectrum as spec, views
+from .outcomes import problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Jobs, PreviewStore, SignInPhase,
                    import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
 
@@ -165,8 +166,11 @@ LIKED_LISTED = "Liked music is in your playlists already."
 
 
 def bridge(fn):
-    """{"ok": true, **result} or {"ok": false, "kind", "message"}; never raises into pywebview. A problem with a
-    playlist service (a SourceError) also carries "service"."""
+    """{"ok": true, **result} or {"ok": false, "kind", "message", "outcome", "reason", "next", "person_steps",
+    "data"}; never raises into pywebview. The window reads `kind` and `message`; the command line reads the rest
+    (`outcomes.problem_fields`: the outcome row of the kind, the reason, the commands that move on, the steps only a
+    person can do). A problem with a playlist service (a SourceError) also carries "service", a setting_off one
+    "setting"."""
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
         try:
@@ -174,12 +178,12 @@ def bridge(fn):
                 self._need_library()  # NoLibrary -> no_library before anything starts
             return {"ok": True, **(fn(self, *args, **kwargs) or {})}
         except Busy as e:
-            return {"ok": False, "kind": e.kind, "message": str(e)}
+            return {"ok": False, "kind": e.kind, "message": str(e), **problem_fields(e.kind, e)}
         except StateError as e:
-            return {"ok": False, "kind": "config_invalid", "message": str(e)}
+            return {"ok": False, "kind": "config_invalid", "message": str(e), **problem_fields("config_invalid", e)}
         except TypeError as e:  # the page called with wrong arguments
             traceback.print_exc()
-            return {"ok": False, "kind": "crashed", "message": UNEXPECTED}
+            return {"ok": False, "kind": "crashed", "message": UNEXPECTED, **problem_fields("crashed")}
         except BaseException as e:  # noqa: BLE001 - nothing may reach the page as a traceback
             kind, message = problem_of(e)
             if kind == "crashed":  # for whoever looks at the terminal; the page gets the plain message
@@ -187,9 +191,10 @@ def bridge(fn):
             service = service_of(e)
             setting = getattr(e, "setting", None)  # setting_off: the choice in Settings that is off
             return {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {}),
-                    **({"setting": setting} if setting else {})}
+                    **({"setting": setting} if setting else {}), **problem_fields(kind, e)}
 
     call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it
+    call.is_bridge = True  # the catalogue and its test find the bridge methods by this
     return call
 
 
