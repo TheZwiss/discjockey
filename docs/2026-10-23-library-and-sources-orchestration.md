@@ -549,6 +549,9 @@ Results:
     test tracks only, dry run first, rekordbox backup before writes) without stopping for a go between steps. The P
     steps (rekordbox clicks, cues, listening, USB export) need the user at the Mac: ping them only there. Still stop
     for: a real bug that needs a product decision, the Qobuz "Use this" note before phase 2, extras E2-E9 ticks.
+    V1.0 CUT by the Sonnet WEEKLY LIMIT (resets 2026-11-20 02:00 Berlin) before writing any brief (folder empty;
+    size not reported). Every phase 1 group is Sonnet, so the queue waits for the reset. RESUME: after the reset,
+    SendMessage the V1.0 agent to continue (its context is saved), else dispatch it fresh with the same prompt.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
