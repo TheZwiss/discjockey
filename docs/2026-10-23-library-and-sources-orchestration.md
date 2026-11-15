@@ -708,6 +708,12 @@ Results:
     named tracks all without a check = refused/changed exit 7, mix = partial; worker takes the outcome from the
     engine's word rows; ceiling 97. FOR REVIEW: `check done` with no args says "track ids is missing." without
     naming --batch/--all/--rows. Issue 39 ~8.31M.
+    V1.11 review (review-V1.11.md): Sonnet **212k** (est. 150-210k; 46 calls): 0 Critical, 2 Important (plan items
+    a subset run didn't name reported skipped/changed → false partial; track undo question always says "new versions
+    wait again", wrong for Convert/clean-name undo), 8 Minor. No --yes bypass, no file moves outside the engine, no
+    window logic. Decisions taken by the outcome rules (not product): all items failed and none done = `failed`, not
+    partial; `check done <ids>` with nothing open = ok total 0 with skipped rows (brief: "skipped, not an error").
+    Fix round (fix-round agent, Sonnet, est. 130-200k) running. Issue 39 ~8.52M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
