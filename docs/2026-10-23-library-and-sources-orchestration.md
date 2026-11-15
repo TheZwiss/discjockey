@@ -503,6 +503,12 @@ Results:
     R46/R48). Verdict: ready after fixes, redesign 4 parts (cross-process Qobuz/account protection, §6 jobs, §9.2,
     §10.3 sandbox) + R15 headless HubApi vs surface/. Issue 39 ~3.02M. Step 4 split by kind: 4a Opus redesign parts +
     decisions (writes a Fix status table into the review), then 4b Sonnet all remaining stated fixes (R + C).
+    4a done 6616dce4: Opus **278k** (est. 280k; 65 calls; design 1368 lines): headless HubApi (no surface/), data words
+    from the engine + fixed words extracted at build, CLI live-test slice first (phase 1, 7 groups) then A-D tests,
+    agent never deletes (marked files to Trash, rekordbox removal = person step), Qobuz streak/pause in library.db +
+    shared pacer, jobs alive by flock, sandbox roots-guarded w/o accounts, §8.4 derive/flows/rendered checks. Build est.
+    37 groups ~17M (14-20M) incl. reviews: TELL THE USER in the morning (budget). 4b Sonnet (brief-39-fix-b.md,
+    25 stated fixes, material ~66k, est. ~180k) next. Issue 39 ~3.30M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
