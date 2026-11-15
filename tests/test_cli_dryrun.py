@@ -349,6 +349,8 @@ def test_prepare_decides_the_scan_from_dry_run_unless_told(lib, monkeypatch):
 
 import dataclasses  # noqa: E402
 
+from discjockey.hub import api as api_module  # noqa: E402
+
 from batch_helpers import make_lib, needs_ffmpeg, use  # noqa: E402
 from convert_helpers import EXACT  # noqa: E402
 from discjockey import align  # noqa: E402
@@ -358,11 +360,10 @@ KINDS = ["mp3", "stale", "aiff", "mp3_plain"]
 
 
 def upgrade_row() -> Entry:
-    """The catalogue's `upgrade apply` row that answers the command, as if its command were built (V1.11 builds it: until
-    then it stays planned, which keeps `upgrade apply` on the old handler)."""
+    """The catalogue's `upgrade apply` row that answers the command and its `--dry-run`."""
     [row] = [e for e in catalog.ENTRIES if e.method == "upgrade" and e.command == ("upgrade", "apply")]
-    assert row.dry_run == "upgrade_preview" and row.planned
-    return dataclasses.replace(row, planned=None)
+    assert row.dry_run == "upgrade_preview" and not row.planned
+    return row
 
 
 @pytest.fixture
@@ -390,7 +391,7 @@ def test_upgrade_apply_all_dry_run_lists_what_upgrade_all_would_run(upgrades):
     assert env["outcome"] == "ok", env
     data = env["data"]
     assert [r["key"] for r in data["items"]] == wanted == [lib.tracks[0], lib.tracks[2], lib.tracks[3]]
-    assert (data["mode"], data["total"], data["planned"], data["skipped"]) == ("swap", 3, 3, 0)
+    assert (data["mode"], data["total"], data["planned"], data["skipped"]) == ("same_track", 3, 3, 0)
     first = data["items"][0]
     root = lib.paths.root
     assert (first["state"], first["action"], first["file"], first["new_file"], first["superseded"]) == (
@@ -413,7 +414,7 @@ def test_upgrade_apply_dry_run_of_named_songs_says_why_each_is_skipped(upgrades,
         (lib.tracks[0], "planned", None), (lib.tracks[1], "skipped", "needs_choice")]  # each song once
     assert data["rekordbox"] == {"state": "ready", "running": True, "needs_rekordbox_closed": True}
     plan = plan_store.load(lib.paths.support, data["plan_id"], str(lib.paths.root))
-    assert set(plan.items) == {lib.tracks[0], lib.tracks[1]} and plan.kind == "upgrade apply"
+    assert set(plan.items) == {lib.tracks[0], lib.tracks[1]} and plan.kind == "upgrade apply same_track"
     api = bind.default()
     nobody = api.upgrade_preview(["nope"])
     assert [(r["state"], r["reason"]) for r in nobody["items"]] == [("skipped", "no_upgrade")]
@@ -425,16 +426,17 @@ def test_upgrade_preview_asks_for_songs_or_all_but_not_both_and_all_is_same_trac
     answer = api.upgrade_preview()
     assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "bad_args", "usage")
     assert api.upgrade_preview(["", 3])["kind"] == "refused"  # the window's own rule for a list that is no songs
-    for kwargs in ({"track_ids": upgrades.tracks, "all": True}, {"all": True, "mode": "add_new"}):
+    for kwargs in ({"track_ids": upgrades.tracks, "all": True}, {"all": True, "mode": "new_track"}):
         answer = api.upgrade_preview(**kwargs)
         assert (answer["kind"], answer["reason"]) == ("bad_args", "conflicting_flags"), kwargs
-    assert api.upgrade_preview(upgrades.tracks, "discard")["reason"] == "usage"
+    assert api.upgrade_preview(upgrades.tracks, "swap")["reason"] == "usage"
+    assert api.upgrade_preview(upgrades.tracks, all=True, mode="discard")["reason"] == "conflicting_flags"
 
 
 @needs_ffmpeg
 def test_the_new_track_preview_names_the_files_it_would_add(upgrades):
-    answer = bind.default().upgrade_preview(upgrades.tracks[:3:2], "add_new")
-    assert answer["ok"] and answer["mode"] == "add_new" and answer["planned"] == 2
+    answer = bind.default().upgrade_preview(upgrades.tracks[:3:2], "new_track")
+    assert answer["ok"] and answer["mode"] == "new_track" and answer["planned"] == 2
     assert {r["action"] for r in answer["items"]} == {"add_new"} and all(r["new_file"] for r in answer["items"])
     assert answer["rekordbox"]["needs_rekordbox_closed"] is False  # New track never writes rekordbox
 
@@ -447,6 +449,8 @@ def snapshot(folder: Path, skip: tuple[Path, ...]) -> dict[str, str]:
 
 T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "upgrade apply": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
+    "upgrade discard": [({"track_ids": "all-tracks"}, {})],
+    "track undo": [({"track_ids": "all-tracks"}, {})],
 }
 
 
@@ -469,7 +473,10 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_and_cache(upgrades, command,
     assert env["outcome"] == "ok", env
     after = [snapshot(f, skip) for f in (support, music, rekordbox)]
     assert after == before  # every byte and every file outside plans/ and cache/, library.db and rekordbox included
-    assert [p.name for p in (support / "plans").iterdir()] == [f"{env['data']['plan_id'][5:]}.json"]
+    if command in api_module.NO_PLAN_COMMANDS:  # Discard and Undo run on what is there when --yes comes: no plan, no file
+        assert "plan_id" not in env["data"] and not (support / "plans").exists()
+    else:
+        assert [p.name for p in (support / "plans").iterdir()] == [f"{env['data']['plan_id'][5:]}.json"]
 
 
 def test_t9_covers_every_built_entry_with_a_dry_run():

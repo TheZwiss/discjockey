@@ -77,13 +77,31 @@ PHASE = "phase 1"
 # command line that is run without `--yes` answers `refused`, `needs_yes` with these words as `message`; a command
 # without a row says the reason's own words. The group that builds a `needs_yes` command adds its row (phase 6 moves
 # the words into the entry's own `confirm`).
-CONFIRM: dict[str, str] = {}
+CONFIRM: dict[str, str] = {
+    "upgrade discard": "Throw away the new versions? Your current files stay. These versions are not offered again.",
+    "track undo": "Undo the last step of these tracks? Your old files go back where they were.",
+}
 
 
 # The verb's own "all" (design §7.3): what `--all` of a command selects, `<command> -> verb` as `select.VERB_ALL` names it.
 # A bulk command without a row has no `--all` (the parser does not offer it). The groups that build the other verbs add
 # theirs (`aiff convert --all` is a scope, not a list of songs: it is not here).
 ALL_OF: dict[str, str] = {"upgrade apply": select.UPGRADE_ALL, "check done": select.CHECK_DONE}
+
+
+# The method that runs a verb's `--all` when it has one of its own (the window's button: `upgrade_all`), `<command> ->
+# method`. Every other verb's `--all` is the songs `ALL_OF` selects, given to the verb's ordinary method.
+ALL_METHOD: dict[str, str] = {"upgrade apply": "upgrade_all"}
+
+# The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
+UPGRADE_PARTIAL = ("skipped", "failed")
+# ... of an undo: a track whose undo was refused (a file changed since, nothing to undo) or failed
+UNDO_PARTIAL = ("refused", "failed")
+
+
+def entry_of(method: str, command: str) -> "Entry | None":
+    """The entry of `method` whose command is `command` (a method that serves several commands has several entries)."""
+    return next((e for e in by_method(method) if " ".join(e.command) == command), None)
 
 
 def confirm_words(entry: "Entry") -> str | None:
@@ -93,10 +111,12 @@ def confirm_words(entry: "Entry") -> str | None:
 
 def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapping[str, Arg] | None = None,
        fixed: Mapping[str, object] | None = None, needs_yes: bool = False, dry_run: str | None = None,
-       cli_first: bool = False, built: bool = False, locks: Iterable[str] = ()) -> Entry:
-    """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command."""
+       cli_first: bool = False, built: bool = False, locks: Iterable[str] = (), partial: Iterable[str] = ()) -> Entry:
+    """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command.
+    `partial`: the per-item states that end a finished run `partial` (design §4.3, R24)."""
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
                  params=params or {}, fixed=fixed or {}, cli_first=cli_first, locks=frozenset(locks),
+                 partial=frozenset(partial),
                  planned=None if built or kind in ("W", "dropped") else PHASE, example=example)
 
 
@@ -255,12 +275,20 @@ ENTRIES: tuple[Entry, ...] = (
     _e("make_aiff", "aiff convert", "J", params=SCOPE, dry_run="aiff_plan"),
     _e("batch_resume", "batch resume", "J", params={"batch_id": _positional("aiff", type="int")}),
     _e("batch_undo", "batch undo", "J", params={"batch_id": _positional("aiff", type="int")}, needs_yes=True),
-    _e("undo_upgrade", "track undo", "J", params={"track_ids": TRACKS}, needs_yes=True),
-    _e("upgrade", "upgrade apply", "J", params={"track_ids": TRACKS, "mode": Arg("--way", resolve="upgrade_way")},
-       dry_run="upgrade_preview"),
-    _e("upgrade", "upgrade discard", "J", params={"track_ids": TRACKS}, fixed={"mode": "discard"}, needs_yes=True),
-    _e("upgrade_all", "upgrade apply", "J"),
-    _e("rekordbox_checked", "check done", "J", params={"track_ids": _positional("track_or_batch", many=True)}),
+    _e("undo_upgrade", "track undo", "J", "track undo t1aaaaaaa --dry-run", params={"track_ids": TRACKS}, needs_yes=True,
+       dry_run="undo_upgrade_preview", built=True, locks={"library", "rekordbox_w"}, partial=UNDO_PARTIAL),
+    _e("upgrade", "upgrade apply", "J",
+       "upgrade apply \"Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff\" --way same-track --dry-run",
+       params={"track_ids": TRACKS, "mode": Arg("--way", resolve="upgrade_way")}, dry_run="upgrade_preview", built=True,
+       locks={"library", "rekordbox_r", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
+    _e("upgrade", "upgrade discard", "J", "upgrade discard t1aaaaaaa --dry-run", params={"track_ids": TRACKS},
+       fixed={"mode": "discard"}, needs_yes=True, dry_run="upgrade_preview", built=True, locks={"library"},
+       partial=UPGRADE_PARTIAL),
+    _e("upgrade_all", "upgrade apply", "J", "upgrade apply --all --dry-run", built=True,
+       locks={"library", "rekordbox_r", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
+    _e("rekordbox_checked", "check done", "J", "check done --batch aiff:1",
+       params={"track_ids": TRACKS, "batch_id": Arg("--batch", resolve="aiff")}, built=True, locks={"library"},
+       partial=UPGRADE_PARTIAL),
     _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK}),
     _e("search_candidates", "version search", "RJ", params={"track_id": TRACK}),
     _e("preview", "version preview", "RJ", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),
@@ -280,6 +308,8 @@ ENTRIES: tuple[Entry, ...] = (
        built=True),
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("upgrade_preview", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
+    _e("undo_upgrade_preview", "", "R", cli_first=True, built=True),
+    _e("result_words", "", "R", cli_first=True, built=True),
     _e("fill_facts", "", "J", cli_first=True),
     _e("auto_upgrade_preview", "", "R", cli_first=True),
     _e("auto_upgrade_run", "", "J", cli_first=True),

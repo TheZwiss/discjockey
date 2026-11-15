@@ -38,6 +38,15 @@ JOB_ARGS = {JOB_LIST: {"all": "--all"}, JOB_SHOW: {"job": None, "log": "--log"},
             JOB_STOP: {"job": None, "now": "--now"}}
 
 
+SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all or --rows."
+BATCH_SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all, --rows or --batch <aiff:n>."
+
+
+def _selection_words(batchable: bool) -> str:
+    """What a write on songs says when none were named (`--batch` too where the command takes a batch's songs)."""
+    return BATCH_SELECTION_WORDS if batchable else SELECTION_WORDS
+
+
 class UsageError(Exception):
     """The line is not right (`bad_args`, exit 2): `reason` is `usage` or `conflicting_flags`."""
 
@@ -297,7 +306,7 @@ def parse(argv: list[str]) -> Parsed:
     for key, attr in (("_dry_run", "dry_run"), ("_yes", "yes")):
         if ns.pop(key, False):
             setattr(flags, attr, True)
-    selected = False
+    selected = ns.get("batch_id") is not None  # `--batch` says which songs: the batch's
     for key, attr in (("_sel_all", "all"), ("_sel_rows", "rows"), ("_sel_where", "where"), ("_sel_todo", "todo"),
                       ("_sel_search", "search"), ("_sel_quality", "quality")):
         if (value := ns.pop(key, None)):
@@ -319,5 +328,9 @@ def parse(argv: list[str]) -> Parsed:
                 del ns[name]
         if (arg.positional and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
                 and not (selected and name == "track_ids")):  # --all / --rows say which songs instead
-            raise UsageError(f"{name.replace('_', ' ')} is missing.")
+            raise UsageError(_selection_words("batch_id" in signature.parameters) if name == "track_ids"
+                             else f"{name.replace('_', ' ')} is missing.")
+        if (arg.flag and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
+                and not flags.all):  # a flag the method cannot do without; the verb's own --all has its meaning without it
+            raise UsageError(f"{arg.flag} is missing.")
     return Parsed(command, entries, ns, flags, words)

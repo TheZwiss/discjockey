@@ -60,8 +60,8 @@ absolute path of the program.
 - **Scratch folders:** a command run by hand always sets `DISCJOCKEY_SUPPORT=<scratch folder>` and
   `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real
   library and the real rekordbox library. `where` prints what a process resolved.
-- **Not rebuilt yet:** the sync (no command), `setup`, `update`, `upgrades`, `upgrade`, `batch`, `convert`,
-  `rename`, `settings`, `batch resume | undo` and `rekordbox checked | backups | restore` still run the old command line
+- **Not rebuilt yet:** the sync (no command), `setup`, `update`, `upgrades`, `upgrade undo` (its replacement is `track undo`), `batch`, `convert`,
+  `rename`, `settings`, `batch resume | undo` and `rekordbox checked | backups | restore` (`rekordbox checked`'s replacement is `check done`) still run the old command line
   (`cli/legacy.py`; `discjockey <word> --help` prints their flags and exit codes). The sync takes `--dry-run` (changes
   nothing), `--yes` (no question), `--limit N` (at most N downloads), `--extra N` (N more Qobuz downloads today),
   `--verbose` and `--json` (needs `--yes` or `--dry-run`; one object `{"ok", "exit_code", "dry_run", "report",

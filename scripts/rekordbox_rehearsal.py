@@ -790,7 +790,8 @@ def rehearse(work: Path, edit_title: str | None) -> int:
 
     print("Step 5: upgrade apply --all --way same-track")
     t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    code, run = discjockey(work, "upgrade", "apply", "--all", "--way", "same-track", "--json")
+    code, envelope = discjockey(work, "upgrade", "apply", "--all", "--way", "same-track", "--wait", "3600", "--json")
+    run = envelope.get("data") or {}  # the batch's own result is the envelope's data (a job: the command waits for it)
     t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
     checks.add("step 5 apply exit code 0", code == 0, f"exit {code}, batch {run.get('batch')}, state "
                f"{run.get('state')}, done {run.get('done')}/{run.get('total')}")

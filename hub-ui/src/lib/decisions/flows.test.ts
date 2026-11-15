@@ -64,7 +64,7 @@ describe('UpgradeBatchFlow', () => {
     const items = await ready();
     const flow = new UpgradeBatchFlow();
     flow.know(items.map((i) => [i.track_id, name(i)]));
-    const start = await f.upgrade(items.map((i) => i.track_id), 'swap');
+    const start = await f.upgrade(items.map((i) => i.track_id), 'same_track');
     const job_id = (start as { job_id: string }).job_id;
     const last = { batch_id: 1, done: 1, total: items.length, track_id: items[1].track_id, name: `${items[1].artist} - ${items[1].title}` };
     // a job for one track (track_id set) is that track's own panel's; a sync is no batch; neither is adopted
@@ -224,7 +224,7 @@ describe('ChecksFlow', () => {
   async function withChecks() {
     const env = setup();
     const items = (await env.ready()).slice(0, 2);
-    const done = await env.f.upgrade(items.map((i) => i.track_id), 'swap');
+    const done = await env.f.upgrade(items.map((i) => i.track_id), 'same_track');
     await waitForJob((done as { job_id: string }).job_id);
     const checks = (await env.group('rekordbox_check'))!.items.flatMap((i) => (i as any).batch?.tracks ?? [i]) as TodoItem[];
     return { ...env, checks };
@@ -493,7 +493,7 @@ describe('a resumed batch is followed by its batch kind after a reload', () => {
     let id: string;
     if (scenario === 'upgrade-multi') {
       const ids = (await ready()).map((i) => i.track_id).slice(0, 3);
-      const start = (await f.upgrade(ids, 'swap')) as { job_id: string };
+      const start = (await f.upgrade(ids, 'same_track')) as { job_id: string };
       let progressed = false;
       const off = onEvent((e) => { if (e.type === 'BatchProgress') progressed = true; });
       await until(() => progressed);

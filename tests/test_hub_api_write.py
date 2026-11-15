@@ -173,7 +173,7 @@ def test_a_change_while_a_scan_runs_hears_that_the_library_is_being_checked(root
 def test_swap_through_the_bridge(root):
     api, rec = make_api(root, compare=lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly"))
     api.track("t2")
-    f = wait_job(api, rec, api.upgrade(["t2"], "swap"))
+    f = wait_job(api, rec, api.upgrade(["t2"], "same_track"))
     assert f.ok and f.kind == "upgrade_batch" and (f.result["done"], f.result["state"]) == (1, "done")
     e = load_state(root)["tracks"]["t2"]
     assert e["status"] == "lossless" and e["path"] == "Library/Hard_Bounce/Armin Hermann - Get Naughty.aiff"
@@ -186,7 +186,7 @@ def test_swap_through_the_bridge(root):
 def test_swap_refused_when_the_versions_do_not_line_up(root):
     api, rec = make_api(root, compare=lambda cur, new: Alignment("different", text="doesn't line up"))
     api.track("t2")
-    f = wait_job(api, rec, api.upgrade(["t2"], "swap"))
+    f = wait_job(api, rec, api.upgrade(["t2"], "same_track"))
     assert (f.ok, f.problem) == (False, "refused") and "Not swapped" in f.message
     assert (root.root / LOSSY).read_bytes() == b"lossy audio"
 
@@ -197,7 +197,7 @@ def test_an_upgrade_no_longer_waiting_is_called_a_better_version(tmp_path, monke
     root = make_root(tmp_path)
     api, rec = make_api(root)
     api.track("t2")
-    f = wait_job(api, rec, api.upgrade(["t2"], "swap"))
+    f = wait_job(api, rec, api.upgrade(["t2"], "same_track"))
     assert (f.ok, f.problem) == (False, "refused")                  # a batch of one skips it with the reason
     assert f.result["results"][0]["reason"] == "no_upgrade" and "better version" in f.message
 
@@ -219,7 +219,7 @@ def test_add_new_measures_and_asks_rekordbox_through_the_services(root):
     api, rec = make_api(root, compare=lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly"),
                         timeline_offset=lambda old: seen.append(old) or SimpleNamespace(samples=0))
     api.track("t2")
-    assert wait_job(api, rec, api.upgrade(["t2"], "add_new")).ok
+    assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
     assert seen == [root.root / LOSSY]
     check = load_state(root)["tracks"]["t2"]["rekordbox_check"]
     assert (check["match"], check["aligned"]) == ("exact", True)
@@ -228,7 +228,7 @@ def test_add_new_measures_and_asks_rekordbox_through_the_services(root):
 def test_undo_upgrade_through_the_bridge(root):
     api, rec = make_api(root)
     api.track("t2")
-    assert wait_job(api, rec, api.upgrade(["t2"], "add_new")).ok
+    assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
     [item] = [g for g in api.todo()["groups"] if g["key"] == "rekordbox_check"][0]["items"]
     assert item["track_id"] == "t2" and item["can_undo"] is True
     f = wait_job(api, rec, api.undo_upgrade(["t2"]))
@@ -246,7 +246,7 @@ def test_undo_upgrade_through_the_bridge(root):
 def test_undo_upgrade_refused_when_the_new_file_changed(root):
     api, rec = make_api(root)
     api.track("t2")
-    assert wait_job(api, rec, api.upgrade(["t2"], "add_new")).ok
+    assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
     new = load_state(root)["tracks"]["t2"]["path"]
     (root.root / new).write_bytes(b"edited elsewhere")
     api.todo()

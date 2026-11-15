@@ -1257,25 +1257,34 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           { path: `Superseded/${t.folder}/${t.artist} - ${t.title}.aiff` }));
       }, 500 / speed));
     },
-    async rekordbox_checked(track_ids: string[]) {
-      const ids = listOf(track_ids);
+    async rekordbox_checked(track_ids: string[], batch_id?: number | null) {
+      // the command line's `--batch`: that AIFF batch's done tracks (the window sends none)
+      const batch = batch_id == null ? null : aiff.find((x) => x.id === batch_id);
+      if (batch_id != null) {
+        if (track_ids.length) return fail('refused', 'Name the tracks or a batch, not both.');
+        if (!batch) return fail('refused', 'Discjockey has no record of this batch.');
+      }
+      const ids = batch ? batch.items.filter((i) => i.state === 'done').map((i) => i.track) : listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
       const have = ids.filter((id) => track(id)?.rekordbox_check);
-      // like the engine: nothing to check is a job that ends `changed`, not a refusal at the call
-      if (!have.length) return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() =>
+      // like the engine: nothing to check is a job that ends `changed`, not a refusal at the call (a batch's own tracks
+      // all checked already is a finished job with nothing in it)
+      if (!have.length && !batch) return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() =>
         finish(false, null, 'changed', 'There is nothing to check for these tracks any more.'), 300 / speed));
-      return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() => {
+      return startJob('rekordbox_checked', ids.length === 1 && !batch ? ids[0] : null, (finish) => setTimeout(() => {
         const results = have.map((id) => { const t = track(id)!; t.rekordbox_check = null;
           return opResult(t, 'rekordbox_checked', 'checked in rekordbox').result; });
         for (const b of aiff) if (b.state === 'stopped' && !b.items.some((i) => i.state === 'planned')) b.state = 'done';
-        finish(true, { results, checked: have, not_checked: ids.filter((id) => !have.includes(id)), recovered: [] });
+        finish(true, { results, checked: have, not_checked: batch ? [] : ids.filter((id) => !have.includes(id)), recovered: [],
+          ...(batch ? { batch: batch.id } : {}) });
       }, 300 / speed));
     },
-    async upgrade(track_ids: string[], mode: 'swap' | 'add_new' | 'discard') {
+    async upgrade(track_ids: string[], way: 'same_track' | 'new_track' | 'discard') {
       const ids = listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
-      if (!['swap', 'add_new', 'discard'].includes(mode)) return fail('refused', 'Pick swap, add as new or discard.');
-      if (mode === 'swap') return runAiff('user', ids);
+      if (!['same_track', 'new_track', 'discard'].includes(way)) return fail('refused', 'Pick Same track, New track or discard.');
+      if (way === 'same_track') return runAiff('user', ids);
+      const mode = way === 'new_track' ? 'add_new' : 'discard'; // the engine's action: the job kind and the results keep it
       return startJob(`upgrade_${mode}`, ids.length === 1 ? ids[0] : null, (finish) => {
         const results: AiffItemResult[] = [];
         const stop = batchStop = { stopped: false };

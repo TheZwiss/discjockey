@@ -13,11 +13,12 @@ from discjockey.hub.catalog import Arg, Entry
 # command lowers the number; nothing may raise it. 1.1 plans them all; 1.2 builds `rekordbox status` and `resolve`; 1.3 builds `freshness`; 1.8 builds `track show`, `todo list`, `upgrade list`,
 # `check list` and `track find`; 1.9 builds `rekordbox preview`, `batch list`, `batch show`, `report show`
 # and takes `move_batches` out of the plan (it has no command: `batches` is `batch list`); 1.10 builds the two methods
-# its dry runs and selections need (`select_listing`, `upgrade_preview`: no command of their own).
-PHASE_1_CEILING = 102
+# its dry runs and selections need (`select_listing`, `upgrade_preview`: no command of their own); 1.11 builds `upgrade apply`
+# and `upgrade_all` (part a), `upgrade discard`, `track undo` and `check done` (part b) and `undo_upgrade_preview`.
+PHASE_1_CEILING = 97
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
-             "upgrade_preview", "fill_facts", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
+             "upgrade_preview", "undo_upgrade_preview", "result_words", "fill_facts", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
              "rekordbox_backups", "rekordbox_restore"}
 
 

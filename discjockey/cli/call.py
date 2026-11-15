@@ -16,11 +16,11 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 
 from .. import tools
-from ..hub import catalog, registry
+from ..hub import catalog, registry, select
 from ..hub.catalog import Entry
 from ..rekordbox.locate import locate
 from . import bind, envelope, follow, worker
-from .parser import Flags, parameters_of, selects, signature_of
+from .parser import BATCH_SELECTION_WORDS, SELECTION_WORDS, Flags, parameters_of, selects, signature_of
 
 NOT_BUILT = "{command} is not built yet."
 START_WAIT_S = 15.0  # how long the client waits for a worker to leave `queued` (with --wait-busy: that much more)
@@ -88,7 +88,7 @@ def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool,
     return kwargs, None
 
 
-SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all or --rows."
+NOTHING_LEFT = {"total": 0, "done": 0, "skipped": 0, "failed": 0, "results": []}  # the data of a run of no songs
 
 
 def _listing(entry: Entry, command: str, flags: Flags) -> tuple[dict | None, dict | None]:
@@ -114,16 +114,22 @@ def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> 
     `HubApi.select_listing`, the engine's one rule for which rows a listing shows; the ids go to the method as they
     are. Returns the arguments with `track_ids` filled, or the envelope of why not."""
     typed = bool(args.get("track_ids"))
-    forms = [name for name, on in (("the song ids", typed), ("--all", flags.all), ("--rows", flags.rows)) if on]
+    batchable = "batch_id" in parameters_of(entry.method)  # `check done --batch aiff:n`: a batch names its own songs
+    batch = args.get("batch_id") is not None
+    words = BATCH_SELECTION_WORDS if batchable else SELECTION_WORDS
+    forms = [name for name, on in (("the song ids", typed), ("--all", flags.all), ("--rows", flags.rows),
+                                   ("--batch", batch)) if on]
     narrowing = any((flags.where, flags.todo, flags.search, flags.quality))
     if len(forms) > 1:
-        return {}, envelope.usage(command, f"{' and '.join(forms)} say different things: choose one. {SELECTION_WORDS}",
+        return {}, envelope.usage(command, f"{' and '.join(forms)} say different things: choose one. {words}",
                                   "conflicting_flags")
     if not forms:
-        return {}, envelope.usage(command, SELECTION_WORDS)
+        return {}, envelope.usage(command, words)
     if narrowing and not flags.rows:
         return {}, envelope.usage(command, "--in, --todo, --search and --quality narrow --rows; they mean nothing "
                                            "without it.", "conflicting_flags")
+    if batch:
+        return {**args, "track_ids": []}, None
     if typed:
         return dict(args), None
     listing, failed = _listing(entry, command, flags)
@@ -132,6 +138,8 @@ def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> 
     answer = api.select_listing(listing)
     if not answer.get("ok"):
         return {}, envelope.from_answer(command, answer)
+    if not answer["ids"] and answer.get("message") and not flags.dry_run:  # a verb's "all" with nothing left is done (R29)
+        return {}, envelope.envelope(command, "ok", message=answer["message"], data=NOTHING_LEFT)
     return {**args, "track_ids": answer["ids"]}, None
 
 
@@ -182,13 +190,19 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
         args, failed = _selection(entry, args, flags, command, api)
         if failed is not None:
             return failed
-        chosen = ("track_ids",) if flags.all or flags.rows else ()
+        chosen = ("track_ids",) if flags.all or flags.rows or args.get("batch_id") is not None else ()
     elif any((flags.all, flags.rows, flags.where, flags.todo, flags.search, flags.quality)):
         return envelope.usage(command, f"{command} takes no selection words (--all, --rows, --in, --todo, --search, "
                                        "--quality).")
     kwargs, failed = _arguments(entry, args, command, api, exact, chosen)
     if failed is not None:
         return failed
+    if flags.all and not exact and command in catalog.ALL_METHOD:  # the verb's own `--all` (the window's button)
+        if kwargs.get("mode") not in (None, "same_track"):
+            return envelope.usage(command, select.ALL_IS_SAME_TRACK, "conflicting_flags")
+        if not flags.dry_run:
+            entry = catalog.entry_of(catalog.ALL_METHOD[command], command)
+            kwargs = {k: v for k, v in kwargs.items() if k in parameters_of(entry.method)}
     if flags.dry_run:
         if entry.dry_run == entry.method and entry.kind in ("J", "RJ"):  # the read is the job (`aiff_plan`): a worker runs it
             return start_job(entry, kwargs, command, flags)

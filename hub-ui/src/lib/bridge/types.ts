@@ -692,7 +692,7 @@ export type OpResult = { track_id: string; result: Result; recovered: [string, b
 export type ItemResult = { track: string; action: string; state: 'planned' | 'done' | 'skipped' | 'failed' | 'undone';
   reason: string | null; message: string | null; path: string | null;
   rekordbox: { entries: string[]; kept: string[] } | null };
-/** The result of `upgrade(…, 'swap')`, `upgrade_all`, `batch_resume` and, in stage D, `convert`, `rename` and `make_aiff`
+/** The result of `upgrade(…, 'same_track')`, `upgrade_all`, `batch_resume` and, in stage D, `convert`, `rename` and `make_aiff`
  *  (job `aiff_batch`); New track and Discard lists have the same shape
  *  with `batch` null (and a job also carries it when it ends `stopped`, `rekordbox_open`, `busy` or `refused`). */
 export type AiffBatchResult = { batch: number | null; state: 'running' | 'stopped' | 'done';
@@ -733,7 +733,8 @@ export type UndoResult = { batch: number | null; total: number; undone: number; 
   results: UndoItem[]; recovered: [string, boolean][];
   /** stage D: what the undo says when it worked ("Conversion undone. Your old file is back."); only on success */
   words?: string };
-export type CheckedResult = { results: Result[]; checked: string[]; not_checked: string[]; recovered: [string, boolean][] };
+export type CheckedResult = { results: Result[]; checked: string[]; not_checked: string[]; recovered: [string, boolean][];
+  /** only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`) */ batch?: number };
 
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };

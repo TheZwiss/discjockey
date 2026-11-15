@@ -43,7 +43,7 @@ describe('the fake bridge: Same track batches', () => {
   it('bad input is refused like the real bridge', async () => {
     const { f } = setup();
     for (const bad of ['t1', [], [3], null]) {
-      expect(await f.upgrade(bad as never, 'swap')).toMatchObject({ ok: false, kind: 'refused' });
+      expect(await f.upgrade(bad as never, 'same_track')).toMatchObject({ ok: false, kind: 'refused' });
     }
     expect(await f.batch_resume(99)).toMatchObject({ ok: false, kind: 'refused' });
   });
@@ -76,7 +76,7 @@ describe('the fake bridge: Same track batches', () => {
   it('rekordbox open stops a batch with a file that needs a write, before anything changed', async () => {
     const { f, run, group } = setup('upgrade-rekordbox-open');
     const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id);
-    const done = await run(f.upgrade(ids, 'swap'));
+    const done = await run(f.upgrade(ids, 'same_track'));
     expect(done).toMatchObject({ ok: false, problem: 'rekordbox_open' });
     expect((done.result as AiffBatchResult).stop_reason).toBe('rekordbox_open');
     expect((await group('upgrade_ready'))!.stopped).toMatchObject({ left: ids.length });
@@ -85,7 +85,7 @@ describe('the fake bridge: Same track batches', () => {
   it('Stop leaves the rest planned and Resume does it; rekordbox open stops with its own problem', async () => {
     const { evs, f, run, group } = setup();
     const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id).slice(0, 3);
-    const start = f.upgrade(ids, 'swap');
+    const start = f.upgrade(ids, 'same_track');
     for (let i = 0; i < 400 && !evs.some((e) => e.type === 'BatchProgress'); i++) await new Promise((r) => setTimeout(r, 2));
     await f.stop();
     const stopped = await run(start);
@@ -105,6 +105,20 @@ describe('the fake bridge: Same track batches', () => {
     expect(done).toMatchObject({ kind: 'rekordbox_checked', ok: false, problem: 'changed' });
   });
 
+  it('Done for a batch (the command line\'s --batch) checks that batch\'s tracks; none of it for the window', async () => {
+    const { f, run, group } = setup();
+    const id = (await group('upgrade_ready'))!.items.find((i) => i.same_track === null)!.track_id;
+    const made = await run(f.upgrade([id], 'same_track'));
+    const batch = (made.result as AiffBatchResult).batch!;
+    expect(await f.rekordbox_checked([id], batch)).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.rekordbox_checked([], 999)).toMatchObject({ ok: false, kind: 'refused' });
+    const done = await run(f.rekordbox_checked([], batch));
+    expect(done).toMatchObject({ kind: 'rekordbox_checked', ok: true });
+    expect(done.result).toMatchObject({ checked: [id], not_checked: [], batch });
+    const again = await run(f.rekordbox_checked([], batch)); // all checked already: a finished job with nothing in it
+    expect(again).toMatchObject({ ok: true, result: { checked: [], batch } });
+  });
+
   it('Upgrade all of one track is a batch of no track; the same one by hand is a batch of one', async () => {
     const { evs, f, run, group } = setup();
     const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id);
@@ -115,7 +129,7 @@ describe('the fake bridge: Same track batches', () => {
     const started = evs.filter((e) => e.type === 'JobStarted' && e.kind === 'upgrade_batch');
     expect(started).toMatchObject([{ track_id: null }]);
     await run(f.undo_upgrade([keep]));
-    await run(f.upgrade([keep], 'swap'));
+    await run(f.upgrade([keep], 'same_track'));
     expect(evs.filter((e) => e.type === 'JobStarted' && e.kind === 'upgrade_batch').at(-1)).toMatchObject({ track_id: keep });
   });
 
@@ -123,17 +137,24 @@ describe('the fake bridge: Same track batches', () => {
     const { f, s, run, group } = setup();
     const id = (await group('upgrade_ready'))!.items.find((i) => i.same_track === null)!.track_id;
     s.batchSkip = { [id]: 'timing' };
-    const done = await run(f.upgrade([id], 'swap'));
+    const done = await run(f.upgrade([id], 'same_track'));
     expect(done).toMatchObject({ ok: false, problem: 'refused' });
     expect(done.message).toMatch(/line the new file up/);
     s.batchSkip = {};
     const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id);
     s.batchSkip = Object.fromEntries(ids.map((i) => [i, 'timing']));
-    expect((await run(f.upgrade(ids, 'swap'))).message).toBe('None of these can be upgraded right now.');
+    expect((await run(f.upgrade(ids, 'same_track'))).message).toBe('None of these can be upgraded right now.');
+  });
+
+  it('takes the mode same_track | new_track | discard and refuses the old swap and add_new', async () => {
+    const { f } = setup();
+    for (const old of ['swap', 'add_new']) {
+      expect(await f.upgrade(['x'], old as never)).toMatchObject({ ok: false, kind: 'refused' });
+    }
   });
 
   it('Stop ends a New track or Discard list between tracks, the rest planned', async () => {
-    for (const mode of ['add_new', 'discard'] as const) {
+    for (const mode of ['new_track', 'discard'] as const) {
       const { evs, f, run, group } = setup();
       const ids = (await group('upgrade_ready'))!.items.filter((i) => i.same_track === null).map((i) => i.track_id);
       const start = f.upgrade(ids, mode);

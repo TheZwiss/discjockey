@@ -87,7 +87,7 @@ describe('the fake backend answers the decisions made from the Library', () => {
   it('replace → the check with its undo → undo → the upgrade again', async () => {
     const { evs, f } = fake('todo:upgrade-aiff-same');
     expect((await at(f, 't2')).d).toEqual({ kind: 'upgrade' });
-    await job(evs, f.upgrade(['t2'], 'swap'));
+    await job(evs, f.upgrade(['t2'], 'same_track'));
     const after = await at(f, 't2');
     expect(after.t.upgrade).toBeNull();
     expect(after.d?.kind).toBe('check');

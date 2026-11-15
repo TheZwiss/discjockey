@@ -60,6 +60,7 @@ def box(tmp_path, fake_locks):
     hub_helpers._MADE.append(api)  # conftest stops its jobs at teardown
     api._attach(paths)
     api._jobs.keep_awake = hub_helpers._no_awake
+    api.lock_recorder = fake_locks  # a driver that sets something up first clears it before the call it measures
     return api, events, fake_locks
 
 
@@ -83,6 +84,59 @@ def _preview(api, rec):
     assert answer["ok"], answer
 
 
+def _parked(api, rec, *, all_of_them: bool = False):
+    """`upgrade` / `upgrade_all` on a song with a parked upgrade, against a fixture rekordbox library that does not hold the
+    song (the batch opens it for writing: its master.db is the one thing a Same track changes there)."""
+    from pathlib import Path
+    from unittest import mock
+
+    from rekordbox_helpers import make_master
+    from discjockey.align import Alignment
+    hub_helpers.make_root(api._paths.root, upgrade=True)
+    folder = api._paths.root / "rekordbox"
+    make_master(folder, [])
+    api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
+    api._svc.rekordbox_place = lambda: locate_in(folder)
+    if all_of_them:
+        answer = api.upgrade_all()
+    else:  # with the plan of its dry run, as `--plan` runs it: that also reads rekordbox's state (`rekordbox_r`)
+        plan_id = api.save_plan("upgrade apply", api.upgrade_preview(["t2"], "same_track"), "upgrade apply t2 --dry-run")
+        answer = api.upgrade(["t2"], "same_track", plan_id)
+    assert wait_job(api, rec, answer).ok
+
+
+def _after_new_track(api, rec):
+    """A song whose upgrade was added as a new track (library lock only), then the recorder cleared: what follows is
+    only the call a driver measures."""
+    from discjockey.align import Alignment
+    api._check_shown = False
+    hub_helpers.make_root(api._paths.root, upgrade=True)
+    api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
+    assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
+    api.lock_recorder.words.clear()
+
+
+def _undo(api, rec):
+    _after_new_track(api, rec)
+    assert wait_job(api, rec, api.undo_upgrade(["t2"])).ok
+
+
+def _checked(api, rec):
+    _after_new_track(api, rec)
+    assert wait_job(api, rec, api.rekordbox_checked(["t2"])).ok
+
+
+def _discard(api, rec):
+    api._check_shown = False  # the command line has no page whose picture of the track could be out of date
+    hub_helpers.make_root(api._paths.root, upgrade=True)
+    assert wait_job(api, rec, api.upgrade(["t2"], "discard")).ok
+
+
+def locate_in(folder):
+    from discjockey.rekordbox.locate import Place
+    return Place(folder / "master.db", folder / "share", "override", None)
+
+
 # one driver per built entry's method: it does what the command's method does, once
 DRIVERS = {
     "rekordbox_preview": _preview,
@@ -103,6 +157,13 @@ DRIVERS = {
     "find_tracks": lambda api, rec: api.find_tracks("naughty"),
     "select_listing": lambda api, rec: api.select_listing({"group": "all"}),  # a library listing takes no lock at all
     "upgrade_preview": lambda api, rec: api.upgrade_preview(["t2"]),
+    "result_words": lambda api, rec: api.result_words("upgrade", {"results": [], "total": 0, "done": 0}),
+    "upgrade": lambda api, rec: _parked(api, rec),
+    "upgrade:upgrade discard": _discard,  # a driver per command where two entries of one method take different locks
+    "upgrade_all": lambda api, rec: _parked(api, rec, all_of_them=True),
+    "undo_upgrade": _undo,
+    "undo_upgrade_preview": lambda api, rec: api.undo_upgrade_preview(["t2"]),
+    "rekordbox_checked": _checked,
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 
@@ -112,12 +173,14 @@ def test_the_locks_a_built_entry_takes_are_its_locks_column(entry, box):
     if entry.kind in ("W", "dropped"):  # no command: nothing to take
         assert entry.locks == frozenset()
         return
-    assert entry.method in DRIVERS, f"{entry.method} is built: add its driver to DRIVERS and its `locks` to the entry"
-    assert taken_by(box, DRIVERS[entry.method]) == entry.locks
+    own = f"{entry.method}:{' '.join(entry.command)}"
+    driver = DRIVERS.get(own) or DRIVERS.get(entry.method)
+    assert driver, f"{entry.method} is built: add its driver to DRIVERS and its `locks` to the entry"
+    assert taken_by(box, driver) == entry.locks
 
 
 def test_a_driver_exists_only_for_a_built_entry():
-    assert set(DRIVERS) <= {e.method for e in BUILT}
+    assert {d.split(":")[0] for d in DRIVERS} <= {e.method for e in BUILT}
 
 
 # --- the design's table, for the kinds of job that exist in the engine today ---

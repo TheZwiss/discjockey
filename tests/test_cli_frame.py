@@ -67,7 +67,9 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
 @pytest.mark.parametrize("argv,where", [
     ([], "legacy"), (["--dry-run"], "legacy"), (["--json"], "legacy"), (["--limit", "3"], "legacy"),
     (["setup"], "legacy"), (["upgrade", "list", "--json"], "new"), (["--json", "upgrade", "list"], "new"),
-    (["upgrade", "apply", "--all"], "legacy"),
+    (["upgrade", "apply", "--all"], "new"), (["upgrade", "discard", "t1"], "new"),
+    (["upgrade", "undo", "t1"], "legacy"), (["rekordbox", "checked", "t1"], "legacy"), (["track", "undo", "t1"], "new"),
+    (["check", "done", "--all"], "new"),
     (["batch", "list"], "new"), (["batch", "show", "aiff:1"], "new"), (["batch", "resume", "1"], "legacy"),
     (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
     (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "legacy"), (["settings", "auto-upgrade"], "legacy"),
@@ -269,7 +271,7 @@ def test_call_reads_its_arguments_from_stdin(monkeypatch, capsys):
     (["call", "quit"], "closes the window"),
     (["call", "pick_folder"], "dialog"),
     (["call", "media_url"], "not offered"),
-    (["call", "upgrade_all"], "not built yet"),
+    (["call", "batch_resume"], "not built yet"),
     (["call", "no_such_method"], "no method"),
     (["call", "rekordbox_status", "--args", "{\"nope\": 1}"], "no argument nope"),
     (["call", "rekordbox_status", "--args", "not json"], "not JSON"),
@@ -285,9 +287,9 @@ def test_call_refuses_what_is_not_offered_as_bad_args(argv, message, capsys, mon
 
 
 def test_call_names_the_entry_its_arguments_pick(capsys):
-    code, env = run_json(["call", "upgrade", "--args", "{\"track_ids\": [\"a\"], \"mode\": \"same_track\"}", "--json"],
-                         capsys)
-    assert env["command"] == "upgrade apply" and env["message"].endswith("not built yet.")
+    from discjockey.cli import call as call_mod
+    from discjockey.hub import catalog
+    assert call_mod.command_of(call_mod._pick(catalog.by_method("upgrade"), {"mode": "same_track"})) == "upgrade apply"
     code, env = run_json(["call", "upgrade", "--args", "{\"track_ids\": [\"a\"], \"mode\": \"discard\"}", "--json"],
                          capsys)
     assert env["command"] == "upgrade discard"

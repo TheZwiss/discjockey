@@ -302,7 +302,7 @@ def test_the_checks_of_an_auto_upgrade_batch_are_named_for_the_sync(hub):
 @needs_ffmpeg
 def test_the_checks_of_a_batch_started_by_hand_still_say_same_track(hub):
     lib, rb, api, rec = hub(["mp3", "aiff"])
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert f.ok
     item = next(i for i in group(api, "rekordbox_check")["items"] if i.get("batch"))
     assert item["batch"]["started_by"] == "user" and item["detail"].endswith(" · Same track")

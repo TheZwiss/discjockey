@@ -27,6 +27,7 @@ from discjockey.hub import catalog
 
 GOLDEN = Path(__file__).parent / "cli_golden"
 READS = [e for e in parser.built() if e.kind == "R"]
+WRITES = ["upgrade_apply", "upgrade_discard", "track_undo", "check_done"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
 
 
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
@@ -69,6 +70,16 @@ def fixture(tmp_path, monkeypatch, request, utc):
     return tmp_path
 
 
+def check_golden(name: str, text: str) -> None:
+    """The one golden compare: `text` equals `tests/cli_golden/<name>.txt` (`UPDATE_GOLDEN=1` writes it). A write's page
+    is checked here too, by the test that runs the write (`WRITES` names its file)."""
+    path = GOLDEN / f"{name}.txt"
+    if os.environ.get("UPDATE_GOLDEN"):
+        path.write_text(text)
+    assert path.exists(), f"no golden text for {name}: run with UPDATE_GOLDEN=1 and read it"
+    assert text == path.read_text()
+
+
 def run(argv, capsys):
     code = cli.main(argv)
     out = capsys.readouterr()
@@ -83,12 +94,7 @@ def words(entry) -> list[str]:
 def test_golden_text(entry, fixture, capsys):
     code, out, err = run(words(entry), capsys)
     assert code == 0 and err == ""
-    text = out.replace(str(fixture), "<tmp>")
-    path = GOLDEN / f"{'_'.join(entry.command)}.txt"
-    if os.environ.get("UPDATE_GOLDEN"):
-        path.write_text(text)
-    assert path.exists(), f"no golden text for {entry.command}: run with UPDATE_GOLDEN=1 and read it"
-    assert text == path.read_text()
+    check_golden("_".join(entry.command), out.replace(str(fixture), "<tmp>"))
 
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
@@ -119,5 +125,5 @@ def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
 
 
 def test_every_built_read_has_a_golden_file_and_no_golden_file_is_left_over():
-    wanted = {f"{'_'.join(e.command)}.txt" for e in READS}
+    wanted = {f"{'_'.join(e.command)}.txt" for e in READS} | {f"{name}.txt" for name in WRITES}
     assert {p.name for p in GOLDEN.glob("*.txt")} == wanted
