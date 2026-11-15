@@ -544,6 +544,11 @@ Results:
     files exist, <=8k tokens, every cited design § + v1 §2 interface present in each brief. V1.0 Sonnet dispatched
     (material 39k, est. 210k) → `.claude/issue39/phase1/V1.x.md`. To do with V1.3 (the G4 rule): add the rule to the
     ui-build + fix-round agent definitions and the review checklist; check whether the ratchet can move before phase 5.
+    USER GO (2026-11-15, later): "do the live tests and everything with an agent and just keep going, you're the
+    orchestrator". Standing go: phase 1 build -> reviews -> phase review -> merge -> A-D live tests (v1 §7 runbook:
+    test tracks only, dry run first, rekordbox backup before writes) without stopping for a go between steps. The P
+    steps (rekordbox clicks, cues, listening, USB export) need the user at the Mac: ping them only there. Still stop
+    for: a real bug that needs a product decision, the Qobuz "Use this" note before phase 2, extras E2-E9 ticks.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
