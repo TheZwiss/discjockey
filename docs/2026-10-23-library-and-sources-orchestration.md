@@ -563,6 +563,15 @@ Results:
     lib/decisions). V1.7 rehearsal: NOT a copy of the real settings.json; coordinator prepares a made-up one.
     Branch feat/cli-1-live-slice from main 177fa59e; V1.1 worktree .claude/worktrees/cli1-1 on feat/cli-1-1.
     Issue 39 ~4.50M.
+    V1.1 done 98c92d88: Sonnet **186k** (est. 205k; 62 calls). My full pytest on the branch: 4866 passed, 4 skipped.
+    Merged into feat/cli-1-live-slice (ab5ffa44) + main (cddf446a), pushed. Builder's decisions: `discjockey/
+    problem.py` base `Problem` (OpProblem, jobs.Busy, lock.Busy, LockHeld); HOUSEKEEPING = help, call, job wait;
+    bare path → Ident("path"); default reason = kind (busy→library_lock, stopped→stop); catalogue 128 entries, 123
+    commands all `planned = "phase 1"` (pinned ceiling). For the phase review: `select` is both a DROPPED method and
+    the cli_first `select(listing)`; `setup_check_account` DROPPED but design §5.2 maps it to `login check`; several
+    methods share one command (`setup status`, `job stop`, `status`). For V1.8/V3.1: `open url|folder|file|...`
+    would launch apps for real: tests must stub the opener. V1.1's brief wrongly said envelope.py/select.py were on
+    the branch (made by V1.2/V1.10). Issue 39 ~4.69M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
