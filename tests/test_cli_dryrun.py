@@ -343,3 +343,160 @@ def test_prepare_decides_the_scan_from_dry_run_unless_told(lib, monkeypatch):
         except run_mod.SetupProblem:
             pass  # the playlists cannot be read in a test: the scan decision came first
     assert seen == [(False, True), (True, False), (True, True)]
+
+
+# --- the dry run of `upgrade apply` (part b): the engine's preview, through the real catalogue rows ---
+
+import dataclasses  # noqa: E402
+
+from batch_helpers import make_lib, needs_ffmpeg, use  # noqa: E402
+from convert_helpers import EXACT  # noqa: E402
+from discjockey import align  # noqa: E402
+from discjockey.rekordbox import process  # noqa: E402
+
+KINDS = ["mp3", "stale", "aiff", "mp3_plain"]
+
+
+def upgrade_row() -> Entry:
+    """The catalogue's `upgrade apply` row that answers the command, as if its command were built (V1.11 builds it: until
+    then it stays planned, which keeps `upgrade apply` on the old handler)."""
+    [row] = [e for e in catalog.ENTRIES if e.method == "upgrade" and e.command == ("upgrade", "apply")]
+    assert row.dry_run == "upgrade_preview" and row.planned
+    return dataclasses.replace(row, planned=None)
+
+
+@pytest.fixture
+def upgrades(tmp_path, monkeypatch):
+    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, text: text)  # the fixture's keys are not real song keys
+    lib = make_lib(tmp_path, monkeypatch, KINDS)
+    use(lib, monkeypatch)
+    monkeypatch.setattr(align, "compare_files", lambda a, b: EXACT)
+    return lib
+
+
+def preview(lib, args: dict | None = None, **flags) -> dict:
+    return call.run(upgrade_row(), args if args is not None else {"track_ids": lib.tracks}, Flags(dry_run=True, **flags),
+                    api=bind.default())
+
+
+@needs_ffmpeg
+def test_upgrade_apply_all_dry_run_lists_what_upgrade_all_would_run(upgrades):
+    lib = upgrades
+    api = bind.default()
+    group = next(g for g in api.todo("upgrade_ready")["groups"])
+    wanted = [i["track_id"] for i in group["items"] if i["same_track"] is None]
+    assert lib.tracks[1] not in wanted and len(wanted) == 3  # `stale`: the edit differs, so the person chooses
+    env = preview(lib, {}, all=True)
+    assert env["outcome"] == "ok", env
+    data = env["data"]
+    assert [r["key"] for r in data["items"]] == wanted == [lib.tracks[0], lib.tracks[2], lib.tracks[3]]
+    assert (data["mode"], data["total"], data["planned"], data["skipped"]) == ("swap", 3, 3, 0)
+    first = data["items"][0]
+    root = lib.paths.root
+    assert (first["state"], first["action"], first["file"], first["new_file"], first["superseded"]) == (
+        "planned", "same_track", str(root / lib.olds[0]), str(root / "Library/A/Artist - Song 0.aiff"),
+        str(root / "Superseded/A/Old 0.mp3"))
+    assert set(first) == {"key", "action", "state", "reason", "file", "new_file", "superseded"}
+    [place] = data["space"]
+    assert set(place) == {"drive", "needed", "free", "enough"} and place["needed"] > 0 and place["enough"] is True
+    assert data["rekordbox"] == {"state": "ready", "running": False, "needs_rekordbox_closed": False}
+    assert env["data"]["plan_id"].startswith("plan:") and env["as_of"]["scanned_at"] is None
+
+
+@needs_ffmpeg
+def test_upgrade_apply_dry_run_of_named_songs_says_why_each_is_skipped(upgrades, monkeypatch):
+    lib = upgrades
+    monkeypatch.setattr(process, "running", lambda: True)
+    env = preview(lib, {"track_ids": [lib.tracks[0], lib.tracks[1], lib.tracks[0]]})
+    data = env["data"]
+    assert [(r["key"], r["state"], r["reason"]) for r in data["items"]] == [
+        (lib.tracks[0], "planned", None), (lib.tracks[1], "skipped", "needs_choice")]  # each song once
+    assert data["rekordbox"] == {"state": "ready", "running": True, "needs_rekordbox_closed": True}
+    plan = plan_store.load(lib.paths.support, data["plan_id"], str(lib.paths.root))
+    assert set(plan.items) == {lib.tracks[0], lib.tracks[1]} and plan.kind == "upgrade apply"
+    api = bind.default()
+    nobody = api.upgrade_preview(["nope"])
+    assert [(r["state"], r["reason"]) for r in nobody["items"]] == [("skipped", "no_upgrade")]
+
+
+@needs_ffmpeg
+def test_upgrade_preview_asks_for_songs_or_all_but_not_both_and_all_is_same_track_only(upgrades):
+    api = bind.default()
+    answer = api.upgrade_preview()
+    assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "bad_args", "usage")
+    assert api.upgrade_preview(["", 3])["kind"] == "refused"  # the window's own rule for a list that is no songs
+    for kwargs in ({"track_ids": upgrades.tracks, "all": True}, {"all": True, "mode": "add_new"}):
+        answer = api.upgrade_preview(**kwargs)
+        assert (answer["kind"], answer["reason"]) == ("bad_args", "conflicting_flags"), kwargs
+    assert api.upgrade_preview(upgrades.tracks, "discard")["reason"] == "usage"
+
+
+@needs_ffmpeg
+def test_the_new_track_preview_names_the_files_it_would_add(upgrades):
+    answer = bind.default().upgrade_preview(upgrades.tracks[:3:2], "add_new")
+    assert answer["ok"] and answer["mode"] == "add_new" and answer["planned"] == 2
+    assert {r["action"] for r in answer["items"]} == {"add_new"} and all(r["new_file"] for r in answer["items"])
+    assert answer["rekordbox"]["needs_rekordbox_closed"] is False  # New track never writes rekordbox
+
+
+# --- T9: a dry run writes exactly one file, its plan ---
+
+def snapshot(folder: Path, skip: tuple[Path, ...]) -> dict[str, str]:
+    return tree(folder, skip)
+
+
+T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
+    "upgrade apply": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
+}
+
+
+def t9_cases():
+    return [(command, args, flags) for command, runs in T9.items() for args, flags in runs]
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("command,args,flags", t9_cases(), ids=lambda v: str(v) if isinstance(v, str) else "")
+def test_t9_a_dry_run_changes_no_byte_outside_plans_and_cache(upgrades, command, args, flags):
+    lib = upgrades
+    (entry,) = [dataclasses.replace(e, planned=None) for e in catalog.ENTRIES
+                if " ".join(e.command) == command and e.dry_run]
+    args = {k: (lib.tracks if v == "all-tracks" else v) for k, v in args.items()}
+    support, music, rekordbox = lib.paths.support, lib.paths.root, lib.folder
+    skip = (support / "plans", support / "cache")
+    before = [snapshot(f, skip) for f in (support, music, rekordbox)]
+    assert not (support / "plans").exists()
+    env = call.run(entry, args, Flags(dry_run=True, **flags), api=bind.default())
+    assert env["outcome"] == "ok", env
+    after = [snapshot(f, skip) for f in (support, music, rekordbox)]
+    assert after == before  # every byte and every file outside plans/ and cache/, library.db and rekordbox included
+    assert [p.name for p in (support / "plans").iterdir()] == [f"{env['data']['plan_id'][5:]}.json"]
+
+
+def test_t9_covers_every_built_entry_with_a_dry_run():
+    """A group that builds a command with a `--dry-run` adds its row to `T9`: until then the command is not covered."""
+    built = {" ".join(e.command) for e in catalog.ENTRIES if e.dry_run and e.planned is None and e.command}
+    assert built <= set(T9), f"add the dry run of {sorted(built - set(T9))} to T9"
+    planned_with_cases = {c for c in T9 if any(" ".join(e.command) == c and e.dry_run for e in catalog.ENTRIES)}
+    assert planned_with_cases == set(T9)
+
+
+def test_a_rekordbox_reader_makes_no_lock_file_and_still_sees_a_writer(tmp_path):
+    from discjockey.rekordbox import lock
+    with lock.reader_lock(tmp_path) as free:
+        assert free is True
+    assert list(tmp_path.iterdir()) == []  # a read, and a dry run that is one, writes nothing
+    with lock.writer_lock(tmp_path):
+        with lock.reader_lock(tmp_path) as free:
+            assert free is False
+    with lock.reader_lock(tmp_path) as free:
+        assert free is True
+
+
+def test_upgrade_all_with_nothing_parked_is_a_dry_run_of_nothing_on_both_paths(lib):
+    """No parked upgrade (the common state): `--all` selects no song, the preview of none answers ok with total 0, and
+    `upgrade_preview(all=True)` says the same."""
+    api = bind.default()
+    for answer in (api.upgrade_preview(all=True), api.upgrade_preview([])):
+        assert answer["ok"] and (answer["total"], answer["planned"], answer["items"], answer["space"]) == (0, 0, [], [])
+    env = call.run(upgrade_row(), {}, Flags(dry_run=True, all=True), api=api)
+    assert env["outcome"] == "ok" and env["data"]["total"] == 0 and "plan_id" in env["data"]

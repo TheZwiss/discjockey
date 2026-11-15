@@ -26,14 +26,13 @@ import time
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from datetime import datetime
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 
 from . import align, batches, convert, db, library, ops, rbstep, rekordbox, report as rep, upgrades
 from .events import CTRL_C_REPEAT_S, BatchProgress, Cancelled, CancelToken, Result
-from .library import LockHeld, NameReserver, NoLibrary, Paths, StateError
+from .library import LockHeld, NoLibrary, Paths, StateError
 from .hub import views
-from .rekordbox import backup as rbbackup, eligible
-from .rekordbox.eligible import Skip
+from .rekordbox import backup as rbbackup
 from .rekordbox.preview import REASON_WORDS
 from .cli.legacy_out import failed, no_library, say
 from .upgrades import UpgradeProblem
@@ -341,53 +340,17 @@ def _folder_order(paths: Paths) -> list[str]:
 
 def _quick(paths: Paths, e: dict | None, rb: rekordbox.Status) -> str | None:
     """Same track's quick answer for an entry: None when it can run, else the reason."""
-    verdict = Skip("no_upgrade") if e is None else eligible.same_track_quick(e, rb, batches.present(paths, e))
-    return verdict.reason if isinstance(verdict, Skip) else None
+    return batches.quick_reason(paths, e, rb)
 
 
 # --- upgrade apply ---
 
-def _plan_row(paths: Paths, state: dict, key: str, e: dict | None, way: str, reason: str | None) -> dict:
-    """One track of a dry run: `planned` or `skipped`, with the files it would make."""
-    row = {"track": key, "action": WAYS[way], "state": "skipped" if reason else "planned", "reason": reason,
-           "file": str(paths.root / e["path"]) if e and e.get("path") else None, "new_file": None, "superseded": None}
-    if reason or e is None:
-        return row
-    try:
-        if way == "new-track":
-            new, old = upgrades.add_new_names(paths, state, key, e, e["upgrade"].get("status", "lossless"))
-        elif upgrades.swap_possible(e):
-            new = e["path"]
-            old = upgrades.swap_backup_name(paths, NameReserver(paths.root, state), key, e["path"])
-        else:
-            new, old = convert.plan_names(paths, state, key, e, e["upgrade"])
-    except (FileExistsError, KeyError, ValueError):  # no free name now: the run finds out
-        return row
-    row["new_file"], row["superseded"] = str(paths.root / new), str(paths.root / old)
-    return row
-
-
-def _space(paths: Paths, state: dict, planned: list[dict]) -> list[dict]:
-    """What the new AIFF files need, per drive: the sum over the tracks that become a new file (a swap writes into
-    the file it replaces and renders in .discjockey/.tmp)."""
-    need: dict[int, list] = {}
-    for row in planned:
-        e = state["tracks"][row["track"]]
-        if row["action"] == "same_track" and upgrades.swap_possible(e) or not row["new_file"]:
-            continue
-        try:
-            places = convert.space_needed(paths, paths.root / e["upgrade"]["file"],
-                                          Path(row["new_file"]).relative_to(paths.root).as_posix())
-        except (RuntimeError, OSError):  # the download can't be probed: the run says so for that track
-            continue
-        for folder, nbytes in places:
-            entry = need.setdefault(library.device(folder), [folder, 0])
-            entry[1] += nbytes
-    return [{"drive": str(folder), "needed": n, "free": (free := convert.free_space(folder)), "enough": free >= n}
-            for folder, n in need.values()]
+MODES = {"same-track": "swap", "new-track": "add_new"}  # --way -> the engine's mode
 
 
 def _dry_run(args: argparse.Namespace, paths: Paths, tracks: list[str] | None) -> int:
+    """`upgrade apply --dry-run`: the engine's preview (`batches.upgrade_preview`, the same answer the new command line
+    and a plan are made from) in this command's pinned shape."""
     way = args.way
     try:
         state = library.load_state(paths)
@@ -396,19 +359,11 @@ def _dry_run(args: argparse.Namespace, paths: Paths, tracks: list[str] | None) -
     rb = _rekordbox_status()
     if tracks is None:
         tracks = [k for k, e in _listed(state, _folder_order(paths)) if _quick(paths, e, rb) is None]
-    rows = []
-    for key in dict.fromkeys(tracks):
-        e = state["tracks"].get(key)
-        if way == "same-track":
-            reason = _quick(paths, e, rb)
-        else:
-            reason = "no_upgrade" if not e or not e.get("upgrade") else \
-                {"away": "away", "missing": "file_missing"}.get(batches.present(paths, e))
-        rows.append(_plan_row(paths, state, key, e, way, reason))
+    answer = batches.upgrade_preview(paths, state, tracks, MODES[way], rb)
+    rows = [{"track": r["key"], **{k: v for k, v in r.items() if k != "key"}} for r in answer["items"]]
     planned = [r for r in rows if r["state"] == "planned"]
-    space = _space(paths, state, planned)
-    needs_closed = rb.running and way == "same-track" and any(
-        not upgrades.swap_possible(state["tracks"][r["track"]]) for r in planned)
+    space = answer["space"]
+    needs_closed = answer["rekordbox"]["needs_rekordbox_closed"]
     lines = []
     for r in rows:
         name = _name(state, r["track"])
@@ -423,10 +378,8 @@ def _dry_run(args: argparse.Namespace, paths: Paths, tracks: list[str] | None) -
     if needs_closed:
         lines.append(convert.REKORDBOX_OPEN)
     lines.append("Dry run: nothing was changed. The real run checks each track again.")
-    say(args, {"ok": True, "dry_run": True, "way": way, "total": len(rows), "planned": len(planned),
-               "skipped": len(rows) - len(planned), "results": rows, "space": space,
-               "rekordbox": {"state": rb.state, "running": rb.running, "needs_rekordbox_closed": needs_closed}},
-        lines)
+    say(args, {"ok": True, "dry_run": True, "way": way, "total": answer["total"], "planned": answer["planned"],
+               "skipped": answer["skipped"], "results": rows, "space": space, "rekordbox": answer["rekordbox"]}, lines)
     return OK
 
 

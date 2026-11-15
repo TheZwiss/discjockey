@@ -7,6 +7,7 @@ picks the entry the method's arguments name and runs it through `run`, so `call`
 refusals (`needs_yes`, `--dry-run`, the locks)."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -19,7 +20,7 @@ from ..hub import catalog, registry
 from ..hub.catalog import Entry
 from ..rekordbox.locate import locate
 from . import bind, envelope, follow, worker
-from .parser import Flags, parameters_of, signature_of
+from .parser import Flags, parameters_of, selects, signature_of
 
 NOT_BUILT = "{command} is not built yet."
 START_WAIT_S = 15.0  # how long the client waits for a worker to leave `queued` (with --wait-busy: that much more)
@@ -33,15 +34,36 @@ def command_of(entry: Entry) -> str:
     return " ".join(entry.command) or entry.method
 
 
+class StdinProblem(Exception):
+    """What came on stdin is not a list of ids."""
+
+
 def _stdin_lines() -> list[str]:
-    return [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+    """The ids `-` stands for: one per line, or one JSON array of texts (`… list --json | jq '[.data.rows[].track_id]'`)."""
+    text = sys.stdin.read().strip()
+    if text.startswith("["):
+        try:
+            values = json.loads(text)
+        except ValueError:
+            raise StdinProblem("Standard input starts like a JSON list but is not one.") from None
+        if not isinstance(values, list) or not all(isinstance(v, str) and v.strip() for v in values):
+            raise StdinProblem("A JSON list on standard input holds ids, as texts.")
+        found = [v.strip() for v in values]
+    else:
+        found = [line.strip() for line in text.splitlines() if line.strip()]
+    if not found:
+        raise StdinProblem("Nothing came on standard input: `-` reads the ids from it.")
+    return found
 
 
 def _resolved(api, command: str, arg: catalog.Arg, value: object) -> tuple[object, dict | None]:
     """What `HubApi.resolve` makes of the typed `value`, or the envelope of why not."""
     values = list(value) if isinstance(value, (list, tuple)) else [value]
     if values == ["-"] and arg.many:
-        values = _stdin_lines()  # "-" reads the ids from stdin
+        try:
+            values = _stdin_lines()  # "-" reads the ids from stdin
+        except StdinProblem as e:
+            return None, envelope.usage(command, str(e))
     answer = api.resolve(arg.resolve, [str(v) for v in values])
     if not answer.get("ok"):
         return None, envelope.from_answer(command, answer)
@@ -49,19 +71,68 @@ def _resolved(api, command: str, arg: catalog.Arg, value: object) -> tuple[objec
     return (resolved if arg.many else resolved[0]), None
 
 
-def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool) -> tuple[dict, dict | None]:
+def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool,
+               chosen: tuple[str, ...] = ()) -> tuple[dict, dict | None]:
     """The method's arguments from what the person typed (resolved through `HubApi.resolve`, the entry's `fixed` values
-    added), or the envelope of why not."""
+    added), or the envelope of why not. `chosen` names the arguments the engine already answered (the songs a selection
+    picked): they are ids and are not resolved again."""
     kwargs = dict(args)
     if not exact:
         for name, arg in catalog.effective_params(entry, signature_of(entry.method)).items():
-            if arg.resolve and name in kwargs:
+            if arg.resolve and name in kwargs and name not in chosen:
                 value, failed = _resolved(api, command, arg, kwargs[name])
                 if failed is not None:
                     return {}, failed
                 kwargs[name] = value
     kwargs.update(entry.fixed)
     return kwargs, None
+
+
+SELECTION_WORDS = "Say which songs: their ids, `-` (ids on standard input), --all or --rows."
+
+
+def _listing(entry: Entry, command: str, flags: Flags) -> tuple[dict | None, dict | None]:
+    """The listing `--all` or `--rows` names (`select.parse`'s words), or the envelope of why the flags are wrong."""
+    if flags.all:
+        verb = catalog.ALL_OF.get(command)
+        if verb is None:
+            return None, envelope.usage(command, f"{command} has no --all. Name the songs, or use --rows.")
+        if (clash := [w for w, v in (("--in", flags.where), ("--todo", flags.todo), ("--search", flags.search),
+                                     ("--quality", flags.quality)) if v]):
+            return None, envelope.usage(command, f"{clash[0]} narrows --rows; --all is the verb's own list.",
+                                        "conflicting_flags")
+        return {"verb_all": verb}, None
+    if flags.todo and flags.where:
+        return None, envelope.usage(command, "--in and --todo name two different lists: choose one.", "conflicting_flags")
+    listing = {"in": flags.where, "search": flags.search, "quality": flags.quality, "group": flags.todo}
+    return {k: v for k, v in listing.items() if v is not None}, None
+
+
+def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> tuple[dict, dict | None]:
+    """The songs of a bulk write (design §7.3): exactly one of the ids typed (or `-`), `--all` and `--rows`, with
+    `--rows` narrowed by `--in` / `--todo` and `--search` / `--quality`. `--all` and `--rows` are answered by
+    `HubApi.select_listing`, the engine's one rule for which rows a listing shows; the ids go to the method as they
+    are. Returns the arguments with `track_ids` filled, or the envelope of why not."""
+    typed = bool(args.get("track_ids"))
+    forms = [name for name, on in (("the song ids", typed), ("--all", flags.all), ("--rows", flags.rows)) if on]
+    narrowing = any((flags.where, flags.todo, flags.search, flags.quality))
+    if len(forms) > 1:
+        return {}, envelope.usage(command, f"{' and '.join(forms)} say different things: choose one. {SELECTION_WORDS}",
+                                  "conflicting_flags")
+    if not forms:
+        return {}, envelope.usage(command, SELECTION_WORDS)
+    if narrowing and not flags.rows:
+        return {}, envelope.usage(command, "--in, --todo, --search and --quality narrow --rows; they mean nothing "
+                                           "without it.", "conflicting_flags")
+    if typed:
+        return dict(args), None
+    listing, failed = _listing(entry, command, flags)
+    if failed is not None:
+        return {}, failed
+    answer = api.select_listing(listing)
+    if not answer.get("ok"):
+        return {}, envelope.from_answer(command, answer)
+    return {**args, "track_ids": answer["ids"]}, None
 
 
 def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
@@ -106,7 +177,16 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     if entry.needs_yes and not flags.yes and not flags.dry_run and not entry.dry_run:
         return _needs_yes(entry, command)  # nothing to show: refused before anything is looked up
     api = api or bind.default()
-    kwargs, failed = _arguments(entry, args, command, api, exact)
+    chosen: tuple[str, ...] = ()
+    if not exact and selects(entry):
+        args, failed = _selection(entry, args, flags, command, api)
+        if failed is not None:
+            return failed
+        chosen = ("track_ids",) if flags.all or flags.rows else ()
+    elif any((flags.all, flags.rows, flags.where, flags.todo, flags.search, flags.quality)):
+        return envelope.usage(command, f"{command} takes no selection words (--all, --rows, --in, --todo, --search, "
+                                       "--quality).")
+    kwargs, failed = _arguments(entry, args, command, api, exact, chosen)
     if failed is not None:
         return failed
     if flags.dry_run:

@@ -24,6 +24,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
+from . import select
+
 Kind = Literal["R", "RJ", "J", "J-control", "B", "W", "dropped"]
 
 LOCKS = ("library", "support", "rekordbox_w", "rekordbox_r")
@@ -76,6 +78,12 @@ PHASE = "phase 1"
 # without a row says the reason's own words. The group that builds a `needs_yes` command adds its row (phase 6 moves
 # the words into the entry's own `confirm`).
 CONFIRM: dict[str, str] = {}
+
+
+# The verb's own "all" (design §7.3): what `--all` of a command selects, `<command> -> verb` as `select.VERB_ALL` names it.
+# A bulk command without a row has no `--all` (the parser does not offer it). The groups that build the other verbs add
+# theirs (`aiff convert --all` is a scope, not a list of songs: it is not here).
+ALL_OF: dict[str, str] = {"upgrade apply": select.UPGRADE_ALL, "check done": select.CHECK_DONE}
 
 
 def confirm_words(entry: "Entry") -> str | None:
@@ -248,7 +256,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("batch_resume", "batch resume", "J", params={"batch_id": _positional("aiff", type="int")}),
     _e("batch_undo", "batch undo", "J", params={"batch_id": _positional("aiff", type="int")}, needs_yes=True),
     _e("undo_upgrade", "track undo", "J", params={"track_ids": TRACKS}, needs_yes=True),
-    _e("upgrade", "upgrade apply", "J", params={"track_ids": TRACKS, "mode": Arg("--way", resolve="upgrade_way")}),
+    _e("upgrade", "upgrade apply", "J", params={"track_ids": TRACKS, "mode": Arg("--way", resolve="upgrade_way")},
+       dry_run="upgrade_preview"),
     _e("upgrade", "upgrade discard", "J", params={"track_ids": TRACKS}, fixed={"mode": "discard"}, needs_yes=True),
     _e("upgrade_all", "upgrade apply", "J"),
     _e("rekordbox_checked", "check done", "J", params={"track_ids": _positional("track_or_batch", many=True)}),
@@ -269,8 +278,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("batches", "batch list", "R", "batch list", cli_first=True, built=True),
     _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional()}, cli_first=True,
        built=True),
-    _e("select", "", "R", cli_first=True),
-    _e("upgrade_preview", "", "R", cli_first=True),
+    _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
+    _e("upgrade_preview", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("fill_facts", "", "J", cli_first=True),
     _e("auto_upgrade_preview", "", "R", cli_first=True),
     _e("auto_upgrade_run", "", "J", cli_first=True),

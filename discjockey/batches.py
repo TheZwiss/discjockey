@@ -52,8 +52,9 @@ import json
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
 
-from . import align, audio, convert, db, library, ops, rbstep, rename, report as rep, upgrades
+from . import align, audio, convert, db, library, ops, rbstep, rekordbox, rename, report as rep, upgrades
 from .events import BatchProgress, Cancelled, CancelToken, Emit, Result, no_emit
 from .models import AiffBatchRow, AiffItemRow
 from .rekordbox import Session, eligible
@@ -299,6 +300,81 @@ def present(paths, e: dict) -> eligible.Present:
     if file.is_file():
         return "here"
     return "missing" if library.online(file, library.watched_roots(paths)) else "away"
+
+
+# --- the dry run of an upgrade (what `upgrade apply --dry-run` answers: the Same track and New track ways) ---
+
+PREVIEW_MODES = {"swap": "same_track", "add_new": "add_new"}  # the bridge's mode -> the action the plan names
+
+
+def quick_reason(paths, e: dict | None, rb: rekordbox.Status) -> str | None:
+    """Same track's quick answer for a song's entry (`eligible.same_track_quick`: no file is decoded): None when it can
+    run, else the reason."""
+    verdict = Skip("no_upgrade") if e is None else eligible.same_track_quick(e, rb, present(paths, e))
+    return verdict.reason if isinstance(verdict, Skip) else None
+
+
+def preview_row(paths, state: dict, key: str, e: dict | None, mode: str, reason: str | None) -> dict:
+    """One song of an upgrade dry run: `planned` or `skipped` (with its `reason`), and the files a run would make. `key`
+    is the song's key, the id the row is addressed by (a plan's item)."""
+    row = {"key": key, "action": PREVIEW_MODES[mode], "state": "skipped" if reason else "planned", "reason": reason,
+           "file": str(paths.root / e["path"]) if e and e.get("path") else None, "new_file": None, "superseded": None}
+    if reason or e is None:
+        return row
+    try:
+        if mode == "add_new":
+            new, old = upgrades.add_new_names(paths, state, key, e, e["upgrade"].get("status", "lossless"))
+        elif upgrades.swap_possible(e):
+            new = e["path"]
+            old = upgrades.swap_backup_name(paths, library.NameReserver(paths.root, state), key, e["path"])
+        else:
+            new, old = convert.plan_names(paths, state, key, e, e["upgrade"])
+    except (FileExistsError, KeyError, ValueError):  # no free name now: the run finds out
+        return row
+    row["new_file"], row["superseded"] = str(paths.root / new), str(paths.root / old)
+    return row
+
+
+def preview_space(paths, state: dict, rows: Sequence[dict]) -> list[dict]:
+    """What the new AIFF files of the planned `rows` need, per drive: the sum over the songs that become a new file (a
+    swap writes into the file it replaces and renders in .discjockey/.tmp). `{drive, needed, free, enough}` each."""
+    need: dict[int, list] = {}
+    for row in rows:
+        e = state["tracks"][row["key"]]
+        if row["action"] == "same_track" and upgrades.swap_possible(e) or not row["new_file"]:
+            continue
+        try:
+            places = convert.space_needed(paths, paths.root / e["upgrade"]["file"],
+                                          Path(row["new_file"]).relative_to(paths.root).as_posix())
+        except (RuntimeError, OSError):  # the download can't be probed: the run says so for that song
+            continue
+        for folder, nbytes in places:
+            entry = need.setdefault(library.device(folder), [folder, 0])
+            entry[1] += nbytes
+    return [{"drive": str(folder), "needed": n, "free": (free := convert.free_space(folder)), "enough": free >= n}
+            for folder, n in need.values()]
+
+
+def upgrade_preview(paths, state: dict, tracks: Sequence[str], mode: str, rb: rekordbox.Status) -> dict:
+    """What an upgrade of `tracks` would do (`mode`: `swap` is Same track, `add_new` New track), asked the way the run
+    asks it first, without a file decoded: `{mode, total, planned, skipped, items, space, rekordbox}`. Each item is a
+    song's `preview_row`; `space` the free space per drive; `rekordbox.needs_rekordbox_closed` whether a Same track
+    that is not a swap would need rekordbox closed. Reads only."""
+    rows = []
+    for key in dict.fromkeys(tracks):
+        e = state["tracks"].get(key)
+        if mode == "swap":
+            reason = quick_reason(paths, e, rb)
+        else:
+            reason = "no_upgrade" if not e or not e.get("upgrade") else \
+                {"away": "away", "missing": "file_missing"}.get(present(paths, e))
+        rows.append(preview_row(paths, state, key, e, mode, reason))
+    planned = [r for r in rows if r["state"] == "planned"]
+    needs_closed = rb.running and mode == "swap" and any(
+        not upgrades.swap_possible(state["tracks"][r["key"]]) for r in planned)
+    return {"mode": mode, "total": len(rows), "planned": len(planned), "skipped": len(rows) - len(planned),
+            "items": rows, "space": preview_space(paths, state, planned),
+            "rekordbox": {"state": rb.state, "running": rb.running, "needs_rekordbox_closed": needs_closed}}
 
 
 def _needs_write(paths, state: dict, items: Sequence[tuple[str, str]]) -> Callable:

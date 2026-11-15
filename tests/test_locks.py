@@ -364,6 +364,7 @@ def test_a_reader_never_makes_a_writer_busy_and_a_writer_makes_the_reader_say_so
 
 def test_the_writer_retries_while_a_reader_holds_and_goes_on_when_it_lets_go(support):
     import threading
+    (support / rb_lock.LOCK_NAME).touch()  # a reader holds the file a writer has made once; it never makes it itself
     release = threading.Event()
     held = threading.Event()
 
