@@ -106,6 +106,7 @@ def test_two_processes_saving_settings_at_once_lose_neither_change(procs, suppor
     assert load_settings(path).daily_qobuz_limit == 180
 
 
+@pytest.mark.real_lock_waits
 def test_the_support_lock_waits_two_seconds_then_answers_busy_support_lock(procs, support):
     assert (library.SUPPORT_WAIT_S, rb_lock.WRITER_WAIT_S) == (2.0, 2.0)
     holder = procs.holder(support, "support")
@@ -362,6 +363,7 @@ def test_a_reader_never_makes_a_writer_busy_and_a_writer_makes_the_reader_say_so
             assert free is False
 
 
+@pytest.mark.real_lock_waits
 def test_the_writer_retries_while_a_reader_holds_and_goes_on_when_it_lets_go(support):
     import threading
     (support / rb_lock.LOCK_NAME).touch()  # a reader holds the file a writer has made once; it never makes it itself
@@ -388,6 +390,7 @@ def test_the_writer_retries_while_a_reader_holds_and_goes_on_when_it_lets_go(sup
         t.join(5)
 
 
+@pytest.mark.real_lock_waits
 def test_the_writer_is_busy_after_two_seconds_when_another_writer_holds(procs, support):
     holder = procs.holder(support, "writer")
     started = time.monotonic()

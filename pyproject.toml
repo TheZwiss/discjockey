@@ -31,5 +31,6 @@ pythonpath = ["."]
 # Parallel by default (pytest-xdist): the full suite drops from many minutes to about 25 s.
 addopts = ["-n", "auto"]
 markers = [
+    "real_lock_waits: the test runs with the production lock waits (2 s), not the short ones tests/speed_locks.py sets",
     "real_sqlcipher_kdf: the test uses SQLCipher's own passphrase key derivation (tests/speed_sqlcipher.py derives it once per key otherwise)",
 ]
