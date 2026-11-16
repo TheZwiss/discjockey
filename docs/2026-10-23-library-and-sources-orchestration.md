@@ -535,7 +535,16 @@ Results:
     to 50 fact-less files per panel open, undocumented, untested; pick (b) keep + document + test, as design §7.1
     wants panel = dry run = run; coordinator takes it), 10 M; S6 → change design row 424 (W-11); U8 → views search
     via names.search_fold (W-10); vitest 553 touched ok; fix round runs npm run check. Issue 39 ~14.11M, phase 1
-    ~11.99M. Ub2 (docs) RUNNING.
+    ~11.99M. Ub2 (docs) done: **248k** (92 calls)
+    → phase1/phase-review-docs.md: 0 C, 1 I (D-1 CONTRIBUTING says the old sync's --dry-run changes nothing, but
+    prepare saves --extra N even in a dry run → a dry run grants Qobuz downloads; coordinator adds a CODE fix: no
+    --extra save in a dry run), 18 M; decisions D-3/D-16/D-17 → reviewer's picks; U12: kit's aac = native ~225k,
+    live step 2 needs >320 kbps (CDJ limit) → kit can't make it. PHASE REVIEW TOTAL ~1.20M (4 Opus parts; plan
+    est. 300-500k). Findings 60: safety 1I+9M, CLI 9I+11M, window 1I+10M, docs 1I+18M. Issue 39 ~14.36M, phase 1
+    ~12.24M. FIX ROUNDS (Sonnet, fix-round agent, one branch feat/cli-1-pr, worktree cli1-pr, sequential):
+    FA safety S-1..S-10 + D-1 code; FB CLI help/catalogue/parser C-2..C-7, C-15, C-19; FC CLI ids/render/words
+    C-1, C-8..C-14, C-16..C-18, C-20; FD window/contract W-1..W-11 (+ npm run check); FE docs D-1..D-19 + U9 + S3
+    + W-11 design row (last: help texts change in FB). Each 150-220k → ~0.9-1.1M. FA RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
