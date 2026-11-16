@@ -57,6 +57,7 @@ Trash does. It ends with `library scan` as the next step (`--json`: one object w
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import shutil
@@ -102,6 +103,20 @@ CLICK_SECONDS = 40  # the alignment check needs 30 s at least (align.MIN_DURATIO
 CLICK_ARTIST = "Click Test"
 UPGRADE_SHIFT_MS = 30  # the parked click upgrade without --same-edit starts this much later than the click file
 UPGRADE_RATE = 44100  # parked upgrades are 16-bit 44.1 kHz AIFFs like the ones Discjockey makes
+
+
+@functools.lru_cache(maxsize=None)
+def encoder_available(name: str) -> bool:
+    """Whether the ffmpeg on PATH can encode with `name` (the app's own ffmpeg has no MP3 encoder, a Homebrew one does)."""
+    try:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return False
+    return any(line.split()[1:2] == [name] for line in out.splitlines())
+
+
+def _click_encoder(kind: str) -> str:
+    return CLICK_KINDS[kind][3][1]  # the codec arguments start with "-c:a", <encoder>
 
 
 def _retitle(path: Path, title: str, comment: str | None = None) -> None:
@@ -289,6 +304,10 @@ def make_click(paths: Paths, kind: str, bpm: float, into: Path, same_edit: bool 
         if here == (paths.root / taken).resolve() or (paths.root / taken).resolve() in here.parents:
             raise ValueError(f"{into} is inside {taken}/. Make the click track in a scratch folder outside the music "
                              "folder's own folders.")
+    if not encoder_available(_click_encoder(kind)):
+        works = [k for k in CLICK_KINDS if encoder_available(_click_encoder(k))]
+        raise ValueError(f"This ffmpeg has no {_click_encoder(kind)} encoder, so --click {kind} cannot be made. "
+                         f"Kinds that work here: {', '.join(works) or 'none'}.")
     artist, title, name = click_names(kind, bpm, messy_name)
     ext, muxer, _, codec = CLICK_KINDS[kind]
     target = into / name

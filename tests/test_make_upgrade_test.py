@@ -26,6 +26,8 @@ TEST_STEM = "Vatoz Locoz - Gimme Gimme (upgrade test)"
 CURRENT = f"Library/_Upgrade test/not_lossless/{TEST_STEM}.aiff"
 PARKED = f"Upgrades ready/_Upgrade test/{TEST_STEM}.aiff"
 pytestmark = needs_ffmpeg
+# The app's own ffmpeg (what CI uses) has no MP3 encoder; a machine with one runs the MP3 cases.
+needs_mp3 = pytest.mark.skipif(not script.encoder_available("libmp3lame"), reason="this ffmpeg has no MP3 encoder")
 
 
 @pytest.fixture
@@ -518,7 +520,7 @@ def library_only(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("kind, ext, codec, rate", [
-    ("mp3", "mp3", "mp3", 44100), ("m4a48", "m4a", "aac", 48000), ("flac", "flac", "flac", 44100),
+    pytest.param("mp3", "mp3", "mp3", 44100, marks=needs_mp3), ("m4a48", "m4a", "aac", 48000), ("flac", "flac", "flac", 44100),
     ("aiff", "aiff", "pcm_s16be", 44100), ("aac", "m4a", "aac", 44100), ("wav96", "wav", "pcm_s24le", 96000)])
 def test_click_makes_a_decodable_track_with_the_marker_and_a_parked_upgrade(library_only, tmp_path, kind, ext, codec, rate):
     from discjockey.quality import probe
@@ -562,22 +564,43 @@ def test_click_bpm_changes_the_spacing_of_the_clicks(library_only, tmp_path):
 
 
 def test_click_refuses_what_is_in_the_way(library_only, tmp_path, capsys):
-    args = ["--root", str(library_only.root), "--click", "mp3"]
+    args = ["--root", str(library_only.root), "--click", "flac"]
     assert script.main([*args, "--into", str(tmp_path / "scratch")]) == 0
     before = sorted(p.name for p in (tmp_path / "scratch").iterdir())
     assert script.main([*args, "--into", str(tmp_path / "scratch")]) == 2
     assert "already exists" in capsys.readouterr().out
     assert script.main([*args, "--into", str(library_only.library / "Mine")]) == 2  # a folder Discjockey watches
     assert "inside Library/" in capsys.readouterr().out
-    assert script.main(["--root", str(library_only.root), "--click", "mp3", "--bpm", "5", "--into",
+    assert script.main(["--root", str(library_only.root), "--click", "flac", "--bpm", "5", "--into",
                         str(tmp_path / "other")]) == 2
     assert not (tmp_path / "other").exists() and sorted(p.name for p in (tmp_path / "scratch").iterdir()) == before
-    for bad in (["--click", "mp3"], ["--same-edit", "--into", str(tmp_path)], ["--attach-upgrades", "--click", "mp3"]):
+    for bad in (["--click", "flac"], ["--same-edit", "--into", str(tmp_path)], ["--attach-upgrades", "--click", "flac"]):
         with pytest.raises(SystemExit):
             script.main(["--root", str(library_only.root), *bad])
     with run_lock(library_only.lock):
         assert script.main([*args, "--into", str(tmp_path / "locked")]) == 3
     assert not (tmp_path / "locked").exists()
+
+
+def test_click_without_the_encoder_says_which_is_missing_and_which_kinds_work(library_only, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(script, "encoder_available", lambda name: name != "libmp3lame")
+    into = tmp_path / "scratch"
+    assert script.main(["--root", str(library_only.root), "--click", "mp3", "--into", str(into)]) == 2
+    out = capsys.readouterr().out.strip()
+    assert out == ("This ffmpeg has no libmp3lame encoder, so --click mp3 cannot be made. "
+                   "Kinds that work here: m4a48, flac, aiff, aac, wav96.")
+    assert not into.exists() and not (library_only.root / "Upgrades ready").exists()
+
+
+def test_encoder_available_reads_the_encoder_list_of_the_ffmpeg_on_path(monkeypatch):
+    listing = " A....D aac                  AAC\n A....D libmp3lame           MP3 (codec mp3)\n"
+    monkeypatch.setattr(script.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, listing, ""))
+    script.encoder_available.cache_clear()
+    try:
+        assert script.encoder_available("libmp3lame") and script.encoder_available("aac")
+        assert not script.encoder_available("pcm_s16be")
+    finally:
+        script.encoder_available.cache_clear()
 
 
 def import_scratch(paths, folder):
@@ -593,7 +616,7 @@ def import_scratch(paths, folder):
     return {e["title"]: (k, e) for k, e in load_state(paths)["tracks"].items()}
 
 
-@pytest.mark.parametrize("kind", ["mp3", "m4a48"])
+@pytest.mark.parametrize("kind", [pytest.param("mp3", marks=needs_mp3), "m4a48"])
 @pytest.mark.parametrize("same_edit", [False, True])
 def test_attach_parks_the_upgrade_on_the_imported_click_track(library_only, tmp_path, monkeypatch, capsys, kind,
                                                               same_edit):
