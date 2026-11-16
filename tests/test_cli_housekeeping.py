@@ -36,7 +36,9 @@ def test_help_json_lists_every_built_entry_with_what_an_agent_needs(capsys):
     assert not planned & set(listed)  # nothing that is not built
     for command, found in listed.items():
         assert set(found) >= {"command", "kind", "writes", "job", "args", "flags", "needs_yes", "dry_run", "locks",
-                              "reasons", "example", "usage"}, command
+                              "reasons", "example", "usage", "methods", "dry_run_method", "songs", "flag_values",
+                              "required_flags"}, command
+        assert all("id" in a for a in found["args"]), command
         assert found["example"] and found["usage"].startswith(command)
         assert "usage" in found["reasons"] and set(found["reasons"]) <= set(housekeeping.REASONS)
         assert "schema" not in found  # plan v2 D11: no data schema in phase 1
@@ -65,7 +67,7 @@ def test_the_index_describes_a_write_by_its_catalogue_entry():
 def test_the_short_help_starts_with_the_agents_line_and_lists_the_words(capsys):
     code = cli.main(["help"])
     out, err = capsys.readouterr()
-    path = housekeeping.command_path()
+    path = shlex.quote(housekeeping.command_path())  # a line a shell can take
     assert code == 0 and out.splitlines()[0] == f"AI agents: run `{path} help --json` first."
     for word in ("rekordbox", "help", "where", "app open", "call"):
         assert any(line.startswith(word + " ") for line in out.splitlines()), word
@@ -202,3 +204,133 @@ def test_a_freshness_that_fails_leaves_as_of_null_and_the_answer_alone(tmp_path,
     assert answer["ok"] is False and answer["reason"] == "config_invalid"
     code, env = run_json(["rekordbox", "status"], capsys)
     assert code == 0 and env["outcome"] == "ok" and env["as_of"] == {"scanned_at": None, "read_at": None}
+
+
+# --- what the person types (C-2) ---
+
+def _row(capsys, *words):
+    code, env = run_json(["help", *words], capsys)
+    assert code == 0, env
+    return env["data"]["commands"][0]
+
+
+def test_an_id_argument_is_listed_as_the_form_a_person_types(capsys):
+    undo = _row(capsys, "batch", "undo")
+    assert undo["args"][0]["id"] == "aiff" and undo["args"][0]["type"] == "str" and undo["args"][0]["word"] == "aiff:N"
+    show = _row(capsys, "batch", "show")
+    assert (show["args"][0]["id"], show["args"][0]["word"]) == ("batch", "aiff:N|moves:N")
+    assert _row(capsys, "folder", "remove")["args"][0]["word"] == "FOLDER"
+    assert _row(capsys, "settings", "set", "auto-upgrade")["args"][0]["word"] == "on|off"
+
+
+def test_a_songs_command_lists_the_ways_to_say_which_songs(capsys):
+    done = _row(capsys, "check", "done")
+    assert done["songs"] == ["TRACK...", "-", "--all", "--rows", "--batch"]
+    assert done["args"][0]["name"] == "track_ids" and done["args"][0]["required"] is False
+    assert done["flag_values"]["--batch"] == "aiff:N" and done["flag_values"]["--in"] == "COLLECTION"
+    assert "(TRACK... | - | --all | --rows | --batch aiff:N)" in done["usage"]
+    assert _row(capsys, "upgrade", "discard")["songs"] == ["TRACK...", "-", "--rows"]
+    assert _row(capsys, "rekordbox", "status")["songs"] == []
+
+
+def test_the_usage_of_a_flag_says_what_it_takes(capsys):
+    apply = _row(capsys, "upgrade", "apply")
+    assert "[--in COLLECTION]" in apply["usage"] and "[--way same-track|new-track]" in apply["usage"]
+    assert "[--plan plan:ID]" in apply["usage"] and apply["flag_values"]["--way"] == "same-track|new-track"
+    assert "[--limit N] [--offset N]" in _row(capsys, "todo", "list")["usage"]
+    code = cli.main(["help", "upgrade", "apply"])
+    assert code == 0 and "--in COLLECTION" in capsys.readouterr().out
+
+
+def test_a_flag_a_command_cannot_run_without_has_no_brackets(capsys):
+    phase = _row(capsys, "sync", "run")
+    assert phase["required_flags"] == ["--auto-upgrade-only"]
+    assert " --auto-upgrade-only" in phase["usage"] and "[--auto-upgrade-only" not in phase["usage"]
+
+
+# --- the reasons of a command (C-3) ---
+
+def test_a_command_lists_the_reasons_its_entries_and_locks_answer_with(capsys):
+    restore = _row(capsys, "rekordbox", "restore")
+    assert {"rekordbox_lock", "rekordbox_open", "no_library", "still_running", "conflicting_flags"} <= set(
+        restore["reasons"])
+    assert "no_library" in _row(capsys, "batch", "list")["reasons"]
+    assert "no_library" not in _row(capsys, "rekordbox", "status")["reasons"]
+    assert "no_library" not in _row(capsys, "settings", "set", "auto-upgrade")["reasons"]
+    assert {"window_job", "worker_lost", "not_running", "unknown_id"} <= set(_row(capsys, "job", "stop")["reasons"])
+    assert "still_running" in _row(capsys, "job", "wait")["reasons"]
+    assert {"needs_yes", "refused"} <= set(_row(capsys, "call")["reasons"])
+
+
+def test_a_read_answers_no_library_exactly_when_the_catalogue_says_it_needs_one(tmp_path, monkeypatch, capsys):
+    """`NEEDS_NO_LIBRARY` is the fact behind the `no_library` reason: run every built read with no music folder chosen."""
+    monkeypatch.setenv(library.SUPPORT_ENV, str(tmp_path / "support"))
+    seen = 0
+    for command, entries in parser.commands().items():
+        for e in entries:
+            if e.kind in ("R", "RJ") and e.example and e.command == command and not e.dry_run:
+                code, env = run_json(shlex.split(e.example), capsys)
+                needs = e.method not in catalog.NEEDS_NO_LIBRARY
+                assert (env["outcome"], env["reason"]) == (("refused", "no_library") if needs else ("ok", None)), e.example
+                assert ("no_library" in housekeeping.reasons_of([e])) == needs
+                seen += 1
+    assert seen >= 10
+
+
+# --- the methods (C-4) ---
+
+def test_the_index_names_the_methods_a_row_runs_and_call_lists_what_it_takes(capsys):
+    code, env = run_json(["help"], capsys)
+    rows = {c["command"]: c for c in env["data"]["commands"]}
+    assert rows["aiff convert"]["methods"] == ["convert", "make_aiff", "aiff_plan"]
+    assert rows["aiff convert"]["dry_run_method"] == "aiff_plan"
+    assert rows["help"]["methods"] == [] and rows["help"]["dry_run_method"] is None
+    methods = env["data"]["call_methods"]
+    assert "select_listing" in methods and "upgrade_preview" in methods
+    assert not {"select", "quit", "stop", "pick_folder"} & set(methods)
+    for name in methods:  # a catalogue assertion: calling them would start workers
+        built = [e for e in catalog.by_method(name) if not e.planned]
+        assert built and name not in catalog.WINDOW_ONLY and name not in catalog.DROPPED, name
+
+
+# --- a noun and a command, in words (C-19) ---
+
+def test_the_short_list_says_what_each_noun_is_for_and_a_new_noun_cannot_ship_without_words(capsys):
+    from discjockey.words import NOUN_WORDS
+    assert {c[0] for c in parser.commands()} <= set(NOUN_WORDS)
+    assert cli.main(["help"]) == 0
+    out = capsys.readouterr().out
+    assert "The folders Discjockey watches for your own files. (add, remove)" in out
+
+
+def test_help_of_one_word_prints_its_sentence(capsys):
+    assert cli.main(["help", "where"]) == 0
+    out = capsys.readouterr().out
+    assert "Say where Discjockey's folders" in out
+    assert cli.main(["help", "job", "stop"]) == 0 and "Ask a job to stop" in capsys.readouterr().out
+
+
+# --- `--help` after a word (C-6) ---
+
+def test_a_noun_or_a_command_with_help_shows_its_rows(capsys):
+    code, out, _ = _run(["upgrade", "--help"], capsys)
+    assert code == 0 and [l.split("  ")[0] for l in out.splitlines() if l.startswith("upgrade ")] == [
+        "upgrade apply", "upgrade discard", "upgrade list"]
+    code, env = run_json(["upgrade", "apply", "--help"], capsys)
+    assert code == 0 and [c["command"] for c in env["data"]["commands"]] == ["upgrade apply"]
+    code, env = run_json(["upgrade", "apply", "local:1", "-h"], capsys)
+    assert code == 0 and [c["command"] for c in env["data"]["commands"]] == ["upgrade apply"]
+
+
+def test_help_of_a_word_that_does_not_exist_is_still_bad_args(capsys):
+    code, env = run_json(["nonsense", "--help"], capsys)
+    assert code == 2 and env["outcome"] == "bad_args"
+    code, env = run_json(["help", "upgrade", "nonsense"], capsys)  # the last words drop off until a command matches
+    assert code == 0 and {c["command"] for c in env["data"]["commands"]} == {"upgrade apply", "upgrade discard",
+                                                                           "upgrade list"}
+
+
+def _run(argv, capsys):
+    code = cli.main(argv)
+    out, err = capsys.readouterr()
+    return code, out, err

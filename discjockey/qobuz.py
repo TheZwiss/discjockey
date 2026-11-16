@@ -84,7 +84,7 @@ def _save_secrets(paths: SupportPaths, cfg: Config, credentials: bool = False) -
     """Saves what a login changed in cfg (the app id and secrets; the e-mail and password too when `credentials`)
     into the config.toml as it is NOW, under the support lock. A login takes seconds, and cfg was read before it:
     writing the whole old cfg back would undo anything another process saved meanwhile."""
-    with library.support_lock(paths.support):
+    with library.support_lock(paths.support, wait_s=library.SUPPORT_LOGIN_WAIT_S):
         path = config_file(paths)
         if not path.exists():
             return

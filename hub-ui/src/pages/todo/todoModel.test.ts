@@ -25,7 +25,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
   const chips = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
-  return { chips, check_tracks: 0, hidden_count: 0, show_hidden: false, empty: null,
+  return { chips, check_tracks: 0, hidden_count: 0, show_hidden: false, empty: null, empty_text: null,
     groups: groups.map(([key, ids]) => ({ key, label: key, hint: '', items: ids.map((id) => item(id, key)) })) };
 }
 function upgrade(extra: Partial<Upgrade> = {}): Upgrade {
@@ -499,7 +499,7 @@ describe('upgrade decision', () => {
 describe('rekordbox check after a replace', () => {
   const check = (extra: Partial<RekordboxCheckView>): RekordboxCheckView => ({ reason: 'swapped', since: '2026-10-31',
     match: 'exact', offset_ms: 0, moved: false, aligned: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff',
-    reload_tag: true, batch: null, rekordbox: null, old_name: null, ...extra });
+    reload_tag: true, batch: null, rekordbox: null, old_name: null, person_steps: [], ...extra });
   const words = (c: RekordboxCheckView) => checkCard(c)!.steps.map((s) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : ''));
   it('a swap: Reload Tag, analyse; the hint about Auto Relocate', () => {
     const c = checkCard(check({}))!;
@@ -704,7 +704,7 @@ describe('the item just acted on (the hold)', () => {
   it('a ghost is the row as it was, without what only a to-do has', () => {
     const old = item('t2', 'rekordbox_check', { upgrade_ready: true, can_undo: true, detail: 'Reload Tag',
       check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, text: 't', old_path: null,
-        reload_tag: true, batch: null, rekordbox: null, old_name: null } });
+        reload_tag: true, batch: null, rekordbox: null, old_name: null, person_steps: [] } });
     const g = ghostOf(old);
     expect(itemKey(g)).toBe(itemKey(old));
     expect(g).toMatchObject({ upgrade_ready: false, can_undo: false, check: undefined, detail: '', title: old.title });

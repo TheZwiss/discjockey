@@ -101,7 +101,7 @@ def parse(listing: object) -> Listing:
     if source == "todo":
         group = _text(listing, "group") or "all"
         if group not in ("all", *views.TODO_GROUP_KEYS):
-            raise BadId("unknown_id", f"There is no to-do group called {group}. The groups are "
+            raise BadId("usage", f"There is no to-do group called {group}. The groups are "
                                       f"{', '.join(views.TODO_GROUP_KEYS)}.")
         hidden = listing.get("hidden", False)
         if not isinstance(hidden, bool):
@@ -109,7 +109,7 @@ def parse(listing: object) -> Listing:
         return Listing("todo", group=group, hidden=hidden)
     quality = _text(listing, "quality") or "all"
     if quality not in views.LIBRARY_FILTERS:
-        raise BadId("unknown_id", f"There is no quality filter called {quality}. The filters are "
+        raise BadId("usage", f"There is no quality filter called {quality}. The filters are "
                                   f"{', '.join(views.LIBRARY_FILTERS)}.")
     view, key = collection(_text(listing, "in") or "all")
     return Listing("library", view=view, key=key, search=_text(listing, "search") or "", quality=quality)

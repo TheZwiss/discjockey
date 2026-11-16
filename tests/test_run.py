@@ -1329,3 +1329,16 @@ def test_the_real_rekordbox_services_are_the_default(tmp_path, monkeypatch):
     [options] = seen
     assert options["running"] is run.process.running and options["compare"] is run.align.compare_files
     assert options["place"] == run.locate() and callable(options["now"])
+
+
+def test_a_dry_run_with_extra_plans_with_it_but_saves_nothing(paths):
+    save_settings(paths.settings_file, Settings())
+    before = paths.settings_file.read_bytes()
+    base = run.prepare(paths, dry_run=True)
+    room = lambda prep: run.Budget(prep.state, lambda: None, prep.settings).remaining()  # noqa: E731
+    prep = run.prepare(paths, dry_run=True, extra=20)
+    assert paths.settings_file.read_bytes() == before  # the dry run granted nothing to today's real runs
+    assert (prep.settings.extra_date, prep.settings.extra_amount) == (date.today().isoformat(), 20)
+    assert room(prep) == room(base) + 20  # but its plan counts the extra
+    run.prepare(paths, extra=20)  # a real run still saves it
+    assert paths.settings_file.read_bytes() != before

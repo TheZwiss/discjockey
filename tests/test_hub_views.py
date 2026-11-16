@@ -722,6 +722,7 @@ def test_library_sorts_by_folder_with_unlisted_tracks_last():
 
 def test_library_search_all_tracks_and_not_in_a_playlist():
     assert [r["track_id"] for r in views.library(LIB, "all", None, "läuff", "all", "artist", lines=[])["rows"]] == ["c"]
+    assert [r["track_id"] for r in views.library(LIB, "all", None, "lauff", "all", "artist", lines=[])["rows"]] == ["c"]  # accents ignored
     assert views.library(LIB, "all", None, "", "all", "artist", lines=[])["summary"]["tracks"] == 5  # not found ones have no file
     nip = views.library(LIB, "unlisted", None, "", "all", "artist", lines=[])
     assert nip["title"] == "Not in a playlist" and [r["track_id"] for r in nip["rows"]] == ["f"]
@@ -777,6 +778,11 @@ def test_todo_empty_states():
     assert views.todo(state(a=e()), "all", False, {}, TODAY)["empty"] == "all_lossless"
     assert views.todo(state(a=e("missing", hidden=True)), "all", False, {}, TODAY)["empty"] == "all_hidden"
     assert views.todo(state(a=e("missing")), "fake", False, {}, TODAY)["empty"] == "nothing_here"
+    for filt, tracks in (("all", state(a=e())), ("all", state(a=e("missing", hidden=True))), ("fake", state(a=e("missing")))):
+        out = views.todo(tracks, filt, False, {}, TODAY)
+        assert out["empty_text"] == {"all_lossless": "Everything is lossless.", "all_hidden": "Only hidden tracks are left.",
+                                     "nothing_here": "Nothing here."}[out["empty"]]
+    assert views.todo(state(a=e("missing")), "all", False, {}, TODAY)["empty_text"] is None
 
 
 def test_todo_others_from_the_last_run_and_the_preview():

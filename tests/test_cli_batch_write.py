@@ -13,6 +13,7 @@ import json
 import re
 
 import pytest
+from hub_helpers import cmd
 
 from batch_helpers import needs_ffmpeg
 from discjockey import batches, db, library, words
@@ -34,7 +35,7 @@ def stopped_batch(found, capsys, monkeypatch, tracks=None) -> str:
     code, env = run_json(["upgrade", "apply", *(tracks or found.tracks), *SAME], capsys)
     assert (code, env["reason"]) == (NEEDS_PERSON, "rekordbox_open"), env
     monkeypatch.setattr(process, "running", lambda: False)
-    return env["person_steps"][0]["then"].removeprefix("batch resume ")
+    return env["person_steps"][0]["then"].removeprefix(cmd("batch resume "))
 
 
 # --- batch resume ---
@@ -52,9 +53,9 @@ def test_a_stopped_batch_resumes_its_planned_items_and_names_what_is_left_to_do(
     assert (data["batch_id"], data["state"], data["total"], data["done"]) == ("aiff:1", "done", 3, 3)
     assert [r["state"] for r in data["results"]] == ["done"] * 3
     assert env["message"] == "3 of 3 songs done."
-    assert [n["run"] for n in env["next"]] == ["batch show aiff:1", "check list"]
+    assert [n["run"] for n in env["next"]] == [cmd("batch show aiff:1"), cmd("check list")]
     [step] = [s for s in env["person_steps"] if s["id"] == "step:reload_tag"]
-    assert step["then"] == "check done --batch aiff:1"
+    assert step["then"] == cmd("check done --batch aiff:1")
     assert all(found.entry(i)["path"].endswith(f"Song {i}.aiff") for i in range(3))
     assert [(b.id, b.state) for b in batches_of(found)] == [(1, "done")]  # the same batch, not a second one
 
@@ -75,7 +76,7 @@ def test_resume_with_rekordbox_still_open_needs_the_person_and_keeps_the_batch_s
     before = untouched(found)
     code, env = run_json(["batch", "resume", "aiff:1"], capsys)
     assert (code, env["outcome"], env["reason"]) == (NEEDS_PERSON, "needs_person", "rekordbox_open")
-    assert [(s["id"], s["then"]) for s in env["person_steps"]] == [("step:quit_rekordbox", "batch resume aiff:1")]
+    assert [(s["id"], s["then"]) for s in env["person_steps"]] == [("step:quit_rekordbox", cmd("batch resume aiff:1"))]
     assert untouched(found) == before and batches_of(found)[0].state == "stopped"
 
 
@@ -111,7 +112,7 @@ def test_resume_takes_a_typed_aiff_id_only_and_an_unknown_one_is_bad_args(lib, c
         code, env = run_json(["batch", "resume", text], capsys)
         assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", reason), text
     code, env = run_json(["batch", "resume"], capsys)
-    assert (code, env["outcome"]) == (BAD_ARGS, "bad_args") and "BATCH_ID" in env["message"]
+    assert (code, env["outcome"]) == (BAD_ARGS, "bad_args") and env["message"] == "Say which batch: aiff:N."
 
 
 def test_resume_while_the_library_lock_is_held_is_busy_and_changes_nothing(lib, capsys, monkeypatch):
@@ -176,7 +177,7 @@ def test_undo_puts_back_every_track_newest_first_and_says_how_many(lib, capsys):
     assert [r["track"] for r in data["results"]] == [found.tracks[1], found.tracks[0]]  # newest first
     assert [(found.paths.root / p).read_bytes() for p in found.olds] == original
     assert found.entry(0)["path"] == found.olds[0] and found.entry(0)["upgrade"]
-    assert env["next"] == [{"run": "upgrade list", "why": "the better versions wait there again"}]
+    assert env["next"] == [{"run": cmd("upgrade list"), "why": "the better versions wait there again"}]
     assert [i.state for i in found.batch(1).items] == ["undone", "undone"]
     code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)  # nothing left to put back
     assert (code, env["outcome"], env["data"]["total"]) == (OK, "ok", 0)
@@ -189,7 +190,7 @@ def test_undo_with_rekordbox_open_undoes_nothing_and_needs_the_person(lib, capsy
     before = untouched(found)
     code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)
     assert (code, env["outcome"], env["reason"]) == (NEEDS_PERSON, "needs_person", "rekordbox_open") and code == 4
-    assert [(s["id"], s["then"]) for s in env["person_steps"]] == [("step:quit_rekordbox", "the same command")]
+    assert [(s["id"], s["then"]) for s in env["person_steps"]] == [("step:quit_rekordbox", None)]
     assert [r["state"] for r in env["data"]["results"]] == ["waiting", "waiting"]
     assert untouched(found) == before
     monkeypatch.setattr(process, "running", lambda: False)  # the same command, once rekordbox is quit
@@ -418,7 +419,7 @@ def test_golden_the_pages_of_a_resume_and_an_undo(lib, capsys, tmp_path, monkeyp
     code, out, err = run(["batch", "resume", "aiff:1"], capsys)
     assert code == OK and "batch_resume" in WRITES
     check_golden("batch_resume", unstamped(out, tmp_path))
-    assert "Your turn: " in err and "Then: check done --batch aiff:1" in err
+    assert "Your turn: " in err and f"Then: {cmd('check done --batch aiff:1')}" in err
     code, out, err = run(["batch", "undo", "aiff:1", "--yes"], capsys)
     assert code == OK and "batch_undo" in WRITES
     check_golden("batch_undo", unstamped(out, tmp_path))
@@ -577,7 +578,7 @@ def test_restore_puts_rekordbox_back_saves_the_current_library_and_lists_the_mis
     assert all(set(m) == {"id", "path", "was"} for m in data["missing_after"])
     assert env["message"] == (words.RESTORED.format(backup=backup, saved=data["saved_current"]) + " "
                               + words.MISSING_AFTER.format(n=2))
-    assert env["next"] == [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
+    assert env["next"] == [{"run": cmd("batch list"), "why": "the batches to undo so these tracks find their files again"}]
 
 
 def test_restore_reads_rekordbox_s_library_only_while_it_holds_rekordbox_lock_exclusively(lib, capsys, monkeypatch):
@@ -619,7 +620,7 @@ def test_restore_with_rekordbox_open_needs_the_person_and_changes_nothing(lib, c
     before = kept(found)
     code, env = run_json(["rekordbox", "restore", backup, "--yes"], capsys)
     assert (code, env["outcome"], env["reason"]) == (NEEDS_PERSON, "needs_person", "rekordbox_open") and code == 4
-    assert [(s["id"], s["then"]) for s in env["person_steps"]] == [("step:quit_rekordbox", "the same command")]
+    assert [(s["id"], s["then"]) for s in env["person_steps"]] == [("step:quit_rekordbox", None)]
     assert env["message"] == words.RESTORE_REFUSED["rekordbox_open"] and kept(found) == before
     monkeypatch.setattr(process, "running", lambda: False)  # the same command, once rekordbox is quit
     assert run_json(["rekordbox", "restore", backup, "--yes"], capsys)[0] == OK
@@ -764,7 +765,7 @@ def test_a_batch_that_meets_the_rekordbox_lock_stays_stopped_and_resumes_after_i
         code, env = run_json(["upgrade", "apply", "--all", *SAME], capsys)
         assert (code, env["outcome"], env["reason"]) == (BUSY, "busy", "rekordbox_lock"), env
         assert (env["data"]["batch_id"], env["data"]["state"]) == ("aiff:1", "stopped")  # the answer names the batch
-        assert env["next"][0]["run"] == "batch resume aiff:1"
+        assert env["next"][0]["run"] == cmd("batch resume aiff:1")
         [row] = run_json(["batch", "list"], capsys)[1]["data"]["batches"]  # the batch is there, stopped, nothing done
         assert (row["id"], row["state"], row["stop_reason"], row["done"], row["planned"]) == ("aiff:1", "stopped", "busy", 0, 2)
         code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)  # an undo writes rekordbox too
@@ -779,7 +780,7 @@ def test_wait_busy_does_not_retry_a_command_whose_busy_end_left_a_batch(lib, cap
     with rbsession.writer_lock(found.paths.support):
         code, env = run_json(["upgrade", "apply", "--all", *SAME, "--wait-busy", "30"], capsys)  # would wait 30 s if retried
     assert (code, env["outcome"], env["reason"]) == (BUSY, "busy", "rekordbox_lock"), env
-    assert env["data"]["batch_id"] == "aiff:1" and env["next"][0]["run"] == "batch resume aiff:1"
+    assert env["data"]["batch_id"] == "aiff:1" and env["next"][0]["run"] == cmd("batch resume aiff:1")
     assert len(batches_of(found)) == 1  # no second batch, no `not_stopped` from a retry
 
 

@@ -125,23 +125,23 @@ KIND_REASON = {**{kind: kind for kind in KIND_OUTCOME}, "busy": "library_lock", 
 @dataclass(frozen=True)
 class Step:
     say: str   # a template; its fields are named in `person_step`'s call
-    then: str  # what to do once the person did it
+    then: str | None  # the command to run once the person did it; None: run the same command again
 
 
 STEPS: dict[str, Step] = {
-    "quit_rekordbox": Step("Quit rekordbox, then tell me to carry on.", "the same command"),
+    "quit_rekordbox": Step("Quit rekordbox, then tell me to carry on.", None),
     "relocate_new": Step("In rekordbox, relocate {tracks} to the new file.", "check done {tracks}"),
     "reload_tag": Step("In rekordbox, reload the tags of {tracks}.", "check done {tracks}"),
     "folder_access": Step("Allow {app} to open {folder}: answer the macOS question, or turn it on in System Settings "
-                          "› Privacy & Security › Files and Folders.", "the same command"),
-    "connect_drive": Step("Connect the drive {drive}.", "the same command"),
+                          "› Privacy & Security › Files and Folders.", None),
+    "connect_drive": Step("Connect the drive {drive}.", None),
 }
 
 
 def person_step(name: str, **fields: str) -> dict:
     """`{"id": "step:<name>", "say", "then"}` for one of `STEPS`, its templates filled with `fields`."""
     step = STEPS[name]
-    return {"id": f"step:{name}", "say": step.say.format(**fields), "then": step.then.format(**fields)}
+    return {"id": f"step:{name}", "say": step.say.format(**fields), "then": step.then.format(**fields) if step.then else None}
 
 
 def pick(outcomes: Iterable[str]) -> str:

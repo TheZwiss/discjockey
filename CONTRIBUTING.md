@@ -38,51 +38,81 @@ absolute path of the program.
   and flag is listed there; this file holds no hand-written command shapes.
 - **Grammar:** `discjockey <noun> <verb> [ids] [flags]`. `--json`, `--jsonl`, `--verbose`, `--no-color`, `--wait`,
   `--detach` and `--wait-busy` stand anywhere on the line; a flag a command does not take is a usage error, never
-  ignored. `--dry-run` shows what a command that changes things would do; `--yes` is what such a command needs to run
-  (a command never prompts). `discjockey call <method> [--args <json|->]` sends a bridge method the window's own
-  payload, through the same refusals as the noun-verb command. `discjockey app open` opens the window.
+  ignored. `--dry-run` shows what a command that changes things would do (where `help` lists it in `flags`); `--yes` is
+  the window's confirmation, taken only by the commands whose `needs_yes` is true (`upgrade discard`, `track undo`,
+  `batch undo`, `folder remove`, `rekordbox restore`): without it they answer `refused` / `needs_yes` with what they
+  would do, and any other command answers `bad_args` to the flag (a command never prompts). `discjockey call <method>
+  [--args <json|->]` sends a bridge method the window's own payload, through the same refusals as the noun-verb command.
+  `discjockey app open` opens the window.
 - **The answer:** with `--json`, stdout holds exactly one object, for a usage error and a crash too; without it the
-  answer is a text page, and notices and problems go to stderr. The keys, in this order: `v` (1), `command`,
-  `outcome`, `reason`, `message`, `data`, `next` (commands to run next), `person_steps` (what only the person can do),
-  `recovered` (always a list), `job`, `as_of` (`{scanned_at, read_at}`: when the index was last scanned and the
-  playlists last read, from the stored records; both `null` without a music folder), `sandbox`.
+  answer is a text page, and notices and problems go to stderr. The keys, in this order: `v` (1), `command`, `outcome`,
+  `reason`, `message`, `data`, `next` (commands to run next), `person_steps` (what only the person can do: `{id, say,
+  then}`; `then` is the command to run afterwards, or `null` for the same command again; every `next[].run` and every
+  `then` starts with this program's path), `recovered` (always a list), `job`, `as_of` (`{scanned_at, read_at}`: when
+  the index was last scanned and the playlists last read, from the stored records; both `null` without a music folder),
+  `sandbox`. `data` is the answer of the command's bridge method minus `ok` (`help --json` names no shapes):
+  docs/hub-bridge-contract.md describes each one, the command line's own methods (`cli_first`) included; where a method
+  has no row there (`rekordbox preview`), its docstring in `discjockey/hub/api.py` (`CliApi`) and the module that builds
+  the answer (`discjockey/rekordbox/preview.py`) are the reference.
 - **Exit codes** are the outcome's: 0 `ok`, 1 `failed`, 2 `bad_args`, 3 `busy`, 4 `needs_person`, 5 `stopped`,
   6 `partial`, 7 `refused`, 8 `running`. `reason` is one word of the closed list in `discjockey/hub/outcomes.py`.
-- **Jobs** (commands that change the library, and reads that can take minutes) run in a worker process that outlives
-  the command; the first stderr line is `Job job:… started (follow: <path> job follow job:…)`, so a killed call still
-  has the id. A command that starts a job waits as follows: `--detach` answers `ok` (exit 0, `job` set) once the job
-  runs; `--wait S` answers the job's own envelope, or `running` (exit 8, with the progress and any `person_steps`) after
-  S seconds while the job goes on; with no flag a terminal follows to the end and anything else waits 90 s. `job list
-  [--all]`, `job show <job|current> [--log]`, `job follow <job|current> [--jsonl] [--from-end]`, `job wait <job|current>
-  [--wait S]` and `job stop <job|current> [--now]` work on any job from any process (`current` is the one running write
-  job of this music folder); Ctrl-C in the command that started a job stops it safely, a second press a second later
-  stops it at once. A `--jsonl` answer is one event per line, then the envelope.
-- **Dry runs:** a `--dry-run` changes no byte of the music folder, the rekordbox folder, `settings.json` or `library.db`;
-  it stores its plan (`<support>/plans/`), caches (`cache/`) and, when it is a read job (`aiff … --dry-run`), the
-  job's own record (`jobs/`). `--plan <id>` then runs that plan. On the aiff commands: `--rows` and `rename --all` with
-  no song, and a plan of a clean library, are `ok` with `total` 0; `aiff convert --all` on a clean library is
-  `refused`; a dry run with more than 50 own files whose facts are unread is `refused` (`facts_missing`, next
-  `library facts`; the window plans on the facts stored).
+- **Jobs** (commands that change the library, and reads that can take minutes) run in a worker process that outlives the
+  command; the first stderr line is `Job job:… started (follow: <path> job follow job:…)`, so a killed call still has
+  the id. A command that starts a job waits as follows: `--detach` answers `ok` (exit 0, `job` set) once the job runs,
+  or the job's own answer when it already ended (a `busy` too); `--wait S` answers the job's own envelope, or `running`
+  (exit 8, with the progress and any `person_steps`) after S seconds while the job goes on; with no flag a terminal
+  follows to the end and anything else waits 90 s. `job list [--all]`, `job show <job|current> [--log]`, `job follow
+  <job|current> [--jsonl] [--from-end]`, `job wait <job|current> [--wait S]` and `job stop <job|current> [--now]` work
+  on any job from any process (`current` is the one running write job of this music folder); Ctrl-C in the command that
+  started a job stops it safely, a second press a second later stops it at once. A `--jsonl` answer is one event per
+  line, then the envelope.
+- **Dry runs:** a rebuilt command's `--dry-run` changes no byte of the music folder, the rekordbox folder,
+  `settings.json` or `library.db`; it stores its plan (`<support>/plans/`), caches (`cache/`) and, when it is a read job
+  (`aiff … --dry-run`), the job's own record (`jobs/`). `--plan <id>` then runs that plan. On the aiff commands:
+  `--rows` and `rename --all` with no song, and a plan of a clean library, are `ok` with `total` 0; `aiff convert --all`
+  on a clean library is `refused`; a dry run with more than 50 own files whose facts are unread is `refused`
+  (`facts_missing`, next `library facts`; up to 50 are read in memory and never stored, in the window too; past 50 the
+  window plans on the stored facts and never refuses).
 - **Scratch folders:** a command run by hand always sets `DISCJOCKEY_SUPPORT=<scratch folder>` and
-  `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real
-  library and the real rekordbox library. `where` prints what a process resolved.
-- **Not rebuilt yet:** the sync (no command), `setup` and `update` still run the old command line
-  (`cli/legacy.py`; `discjockey <word> --help` prints their flags and exit codes). The words that are gone answer `bad_args`
-  and say what to say instead: `upgrades` (say `upgrade …`), `upgrade undo` (say `track undo`), `rekordbox checked` (say
-  `check done`), `convert` and `rename` (say `aiff convert …` and `aiff rename …`), `settings auto-upgrade` (say `settings set auto-upgrade on|off`; `settings show` reads). The sync takes `--dry-run` (changes
-  nothing), `--yes` (no question), `--limit N` (at most N downloads), `--extra N` (N more Qobuz downloads today),
-  `--verbose` and `--json` (needs `--yes` or `--dry-run`; one object `{"ok", "exit_code", "dry_run", "report",
-  "counts", "auto_upgrade"}`, every human line on stderr); exit 0 done, 1 errors in the run, 2 setup problem or no
-  music folder, 3 another run holds the library, 130 stopped (Ctrl-C once stops after the current step, twice stops at
-  once).
+  `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real library
+  and the real rekordbox library. `where` prints what a process resolved. A set but empty `DISCJOCKEY_REKORDBOX=` means
+  "no rekordbox library".
+- **What a command may do:** an agent's command counts as the person starting it (CLAUDE.md > "Agent-ready"): it never
+  deletes a file (a replaced file moves to `Superseded/`), writes rekordbox's library only while rekordbox is closed,
+  takes a backup first, can be undone, and takes the library lock like the window. Never run a real sync, upgrade or
+  download while working on the code: it changes the library and counts against the Qobuz daily limit.
+- **Not rebuilt yet:** the sync (no command), `setup` and `update` still run the old command line (`cli/legacy.py`).
+  `setup` asks Setup's questions in the Terminal, the music folder first (it needs a real Terminal window), and ends
+  with the line that lets you type just `discjockey`; `update` gets the newest yt-dlp (`discjockey setup --help` and
+  `discjockey update --help` print their flags). The words that are gone answer `bad_args` and say what to say instead:
+  `upgrades` (say `upgrade …`), `upgrade undo` (say `track undo`), `rekordbox checked` (say `check done`), `convert` and
+  `rename` (say `aiff convert …` and `aiff rename …`), `settings auto-upgrade` (say `settings set auto-upgrade on|off`;
+  `settings show` reads). The sync takes `--dry-run` (moves and downloads nothing, writes no report and saves no
+  `--extra`, but still stores the playlists it read in `library.db`), `--yes` (no question), `--limit N` (at most N
+  downloads), `--extra N` (N more Qobuz downloads today), `--verbose` and `--json` (needs `--yes` or `--dry-run`; one
+  object `{"ok", "exit_code", "dry_run", "report", "counts", "auto_upgrade"}`, or `{"ok": false, "kind", "message"}` for
+  a problem, every human line on stderr); exit 0 done, 1 errors in the run, a crash or `--json` without
+  `--yes`/`--dry-run`, 2 setup problem or no music folder, 3 another run holds the library or the support lock (for
+  `update` also a tools update that runs), 130 stopped (Ctrl-C once stops after the current step, twice stops at once).
   Each word leaves with the group that builds its replacement.
 
-`help --json` layout: `data` is `{command, version, global_flags: [{flag, says}], commands: [...]}`. Each command:
-`command` (`rekordbox status`), `kind` (`R` read, `RJ` read that may run as a job, `J` write job, `J-control`
-stops a job, `B` brief save, `words` for `help`, `where`, `app open` and `call`), `writes`, `job` (runs as a job),
-`args` (`{name, word, positional, many, required, type}`: what the person types), `flags` (the ones beside the
-arguments: `--dry-run`, `--yes`, `--limit`, `--offset`), `needs_yes`, `dry_run`, `locks`, `reasons` (the `reason`s the
-command may answer with), `example` and `usage`. A command that is not built yet is not listed.
+`help --json` layout: `data` is `{command, version, global_flags: [{flag, says}], commands: [...], call_methods: [...]}`
+(`call_methods`: every bridge method `call` accepts). Each command: `command` (`rekordbox status`), `kind` (`R` read,
+`RJ` read that may run as a job, `J` write job, `J-control` stops a job, `B` brief save, `words` for `help`, `where`,
+`app open`, `call` and the `job` words, rows that also carry `says`, one line on what the word does), `writes`, `job`
+(runs as a job), `args` (`{name, word, positional, many, required, type, id}`: what the person types; `word` is the form
+of a positional (`aiff:N`, `on|off`, `FOLDER`) or the flag, `id` the id kind a value is read as, else `null`; a command
+that selects songs has `track_ids` not required: `songs` lists the ways), `songs` (`["TRACK...", "-", "--all", "--rows",
+"--batch"]`, each only where the command has it; empty for a command that selects none), `flags` (the ones beside the
+arguments: the selection words `--all`, `--rows`, `--in`, `--todo`, `--search`, `--quality` on a command that takes
+songs, `--auto-upgrade-only`, `--dry-run`, `--yes`, `--limit`, `--offset`), `flag_values` (the word of the value of each
+flag that takes one: `{"--in": "COLLECTION", "--way": "same-track|new-track"}`), `required_flags` (flags the command
+cannot run without), `needs_yes`, `dry_run`, `locks`, `methods` (the bridge methods it runs, `call`'s names),
+`dry_run_method`, `reasons` (the `reason`s the command line and the catalogue know the command answers with; an engine
+rule may still answer `refused` or `failed` with a reason of its own, `facts_missing` or an eligibility reason, always
+one word of the closed list in `discjockey/hub/outcomes.py`), `example` and `usage` (`(TRACK... | - | --all | --rows)`
+is the songs, `[--in COLLECTION]` a flag with its value, a flag without brackets one the command cannot run without).
+`<noun> --help` and `<noun> <verb> --help` are `help <noun> [<verb>]`. A command that is not built yet is not listed.
 
 ## Tests
 

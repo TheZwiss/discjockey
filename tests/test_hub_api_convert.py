@@ -332,6 +332,28 @@ def test_a_stopped_convert_all_is_the_cdj_groups_resume(hub):
     assert cdj_group(api) is None                             # converted: no longer a file CDJs refuse
 
 
+def test_the_windows_plan_read_probes_files_without_stored_facts_at_every_call_and_stores_nothing(hub, monkeypatch):
+    """Panel = dry run = run (design 7.1): the window's `aiff_plan` reads the facts of own files that lack them in memory,
+    again at every call (the contract says so); with more than `MOST_UNREAD` it plans on the stored facts alone."""
+    lib, box, api, rec = hub(["clean", "chain"])
+    with db.connect(lib.paths.db_file) as conn:
+        conn.execute("UPDATE files SET file_codec = NULL, file_rate = NULL, file_bits = NULL, file_kbps = NULL")
+    probed = []
+    real = api._svc.probe
+    api._svc.probe = lambda path: probed.append(path) or real(path)
+    scope = {"kind": "lossless", "view": "all", "key": None}
+    assert [i["track"] for i in api.aiff_plan(scope)["plan"]["items"]] == [lib.tracks[0], lib.tracks[1]]
+    assert len(probed) == 2
+    api.aiff_plan(scope)
+    assert len(probed) == 4                                   # nothing is kept: the next call reads again
+    with db.connect(lib.paths.db_file) as conn:
+        assert db.facts_missing(conn) == 2                    # and nothing was stored
+    monkeypatch.setattr(aiff_plan, "MOST_UNREAD", 1)          # more than a read takes: the command line's refusal ...
+    answer = api.aiff_plan(scope)
+    assert answer["ok"] and answer["plan"]["items"] == []     # ... is not the window's: its plan leaves them out
+    assert len(probed) == 4
+
+
 def test_the_facts_of_files_from_before_they_were_stored_are_filled_first(hub):
     lib, box, api, rec = hub(["clean", "chain"])
     with db.connect(lib.paths.db_file) as conn:
@@ -488,6 +510,16 @@ def test_every_shape_stage_d_adds_has_the_fixtures_keys(hub):
     item = group(api, "rekordbox_check")["items"][0]
     assert set(item["batch"]) == keys("batch") and set(item["batch"]["tracks"][0]["check"]) == keys("check_view")
     assert set(wait_job(api, rec, api.batch_undo(f.result["batch"])).result) == keys("undo_result_success")
+
+
+def test_the_answers_the_command_line_reads_have_the_fixtures_keys_the_fake_carries_too(hub):
+    """Every key an ok answer always carries is in types.ts and in the fake (hub-ui fake/convert.test.ts reads the same
+    fixture): `rekordbox_status`, `set_auto_upgrade`'s result and `track().cutoff_text`."""
+    lib, box, api, rec = hub(["mp3"])
+    assert set(api.rekordbox_status()) - {"ok", "writing", "as_of"} == keys("rekordbox_status")
+    f = wait_job(api, rec, api.set_auto_upgrade(False))
+    assert f.ok and set(f.result) == keys("set_auto_upgrade_result")
+    assert "cutoff_text" in api.track(lib.tracks[0])["track"]
 
 
 def test_a_stopped_batch_has_the_fixtures_keys_in_the_library_and_in_to_do(tmp_path, monkeypatch):

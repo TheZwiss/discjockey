@@ -28,6 +28,13 @@ class Busy(Problem):
         super().__init__(BUSY, reason="rekordbox_lock", next=next, person_steps=person_steps, data=data)
 
 
+def ensure(support: Path) -> None:
+    """Makes `rekordbox.lock` (empty, never truncated) where a writer will need it, so a reader always has something
+    to hold: before the first writer of a support folder there is no file and a reader holds nothing."""
+    support.mkdir(parents=True, exist_ok=True)
+    os.close(os.open(support / LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o644))
+
+
 @contextmanager
 def writer_lock(support: Path) -> Iterator[None]:
     """Holds `rekordbox.lock` exclusively for the block. Tries for up to `WRITER_WAIT_S` (a reader's shared hold is

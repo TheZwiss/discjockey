@@ -15,7 +15,8 @@ path from an id.
 | `playlist` | `playlist:<folder>` | a bare folder name |
 | `collection` | `all`, `unlisted`, `playlist:<folder>`, `folder:<path>` | |
 
-A bare path where a track or a file is meant is `Ident("path", text)` for `resolve` to settle."""
+A bare path where a track or a file is meant is `Ident("path", text)` for `resolve` to settle. `FORMS` is that table's
+"what a person types" column, as the words `help` shows: the one place that knows the forms."""
 from __future__ import annotations
 
 import re
@@ -26,6 +27,9 @@ from ..models import SERVICE_NAMES
 
 KINDS = ("track", "file", "aiff", "moves", "job", "report", "plan", "folder", "playlist", "collection")
 BATCH_KINDS = ("aiff", "moves")
+FORMS = {"track": "TRACK", "file": "file:N", "aiff": "aiff:N", "moves": "moves:N", "batch": "aiff:N|moves:N",
+         "job": "job:ID|current", "report": "report:STAMP|last", "plan": "plan:ID", "folder": "FOLDER",
+         "playlist": "PLAYLIST", "collection": "COLLECTION"}  # kind -> what the person types (`help`, usage errors)
 SERVICE_PREFIXES = tuple(f"{service}:" for service in SERVICE_NAMES if service != "spotify")  # a Spotify id is bare
 
 NUMBER = re.compile(r"\d+")
@@ -88,7 +92,7 @@ def _wrong_kind(kind: str, allowed: tuple[str, ...], text: str) -> BadId:
 
 
 def _article(kind: str) -> str:
-    return f"a {kind}" if kind != "aiff" else "an aiff batch"
+    return {"aiff": "an aiff batch", "moves": "a move batch"}.get(kind, f"a {kind}")
 
 
 def _names(allowed: tuple[str, ...]) -> str:
@@ -96,7 +100,8 @@ def _names(allowed: tuple[str, ...]) -> str:
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1]
 
 
-_KIND_WORDS = {"track": "a track", "file": "a file", "aiff": "an aiff batch (aiff:<n>)", "moves": "a move batch (moves:<n>)",
+_KIND_WORDS = {"track": "a track", "file": "a file", "aiff": f"an aiff batch ({FORMS['aiff']})",
+               "moves": f"a move batch ({FORMS['moves']})",
                "job": "a job", "report": "a report", "plan": "a plan", "folder": "a folder", "playlist": "a playlist",
                "collection": "a collection"}
 

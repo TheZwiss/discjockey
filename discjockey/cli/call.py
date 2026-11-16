@@ -18,11 +18,13 @@ from datetime import datetime
 from .. import tools
 from ..hub import catalog, registry, select
 from ..hub.catalog import Entry
+from ..rekordbox import lock as rb_lock
 from ..rekordbox.locate import locate
 from . import bind, envelope, follow, worker
 from .parser import BATCH_SELECTION_WORDS, SELECTION_WORDS, Flags, parameters_of, selects, signature_of
 
 NOT_BUILT = "{command} is not built yet."
+JOB_FLAGS_WORDS = "{command} answers at once: {given} is for a command that runs as a job."
 START_WAIT_S = 15.0  # how long the client waits for a worker to leave `queued` (with --wait-busy: that much more)
 FOLLOW_POLL_S = 0.05
 _children: list[subprocess.Popen] = []  # workers this process started and has not seen end (reaped at the next start)
@@ -211,6 +213,22 @@ def _needs_yes(entry: Entry, command: str, kwargs: Mapping | None = None, api=No
                             data=dry["data"] if shown else None, as_of=dry["as_of"] if shown else None)
 
 
+def job_flags(flags: Flags, allowed: tuple[str, ...] = ()) -> list[str]:
+    """The job flags (`--detach`, `--wait`, `--wait-busy`, `--jsonl`) the line carries, except the ones in `allowed`."""
+    given = [word for word, on in (("--detach", flags.detach), ("--wait", flags.wait is not None),
+                                   ("--wait-busy", flags.wait_busy is not None), ("--jsonl", flags.jsonl)) if on]
+    return [word for word in given if word not in allowed]
+
+
+def refuse_job_flags(flags: Flags, command: str, allowed: tuple[str, ...] = ()) -> dict | None:
+    """The usage error (`bad_args`, exit 2) of a command that answers at once and was given a job flag: a flag a command
+    does not take is never ignored (design §2.2). None when the line carries none."""
+    given = job_flags(flags, allowed)
+    if not given:
+        return None
+    return envelope.usage(command, JOB_FLAGS_WORDS.format(command=command, given=" and ".join(given)))
+
+
 def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = False) -> dict:
     """Runs one entry. `args` are the method's parameters by name as the person gave them (what the command line
     typed; `resolve` turns them into arguments), or, with `exact` (`call`), already the bridge's own arguments."""
@@ -253,11 +271,13 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
             entry, kwargs = _plan_entry(command, kwargs)
         if entry.dry_run == entry.method and entry.kind in ("J", "RJ"):  # the read is the job (`aiff_plan`): a worker runs it
             return start_job(entry, kwargs, command, flags)
-        return _dry_run(entry, command, kwargs, api)
+        return refuse_job_flags(flags, command) or _dry_run(entry, command, kwargs, api)  # answers at once
     if entry.needs_yes and not flags.yes:
         return _needs_yes(entry, command, kwargs, api)
     if entry.kind in ("J", "RJ"):
         return start_job(entry, kwargs, command, flags)
+    if (refused := refuse_job_flags(flags, command)) is not None:  # an R or B method answers at once
+        return refused
     answer = getattr(api, entry.method)(**kwargs)
     return envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None)
 
@@ -304,10 +324,12 @@ def start_job(entry: Entry, kwargs: Mapping, command: str, flags: Flags, *,
     (`queued`, claimed), the worker started and handed the claim, then the first answer: the job's own envelope when
     it has ended, else `running` (exit 8) with its id (or, with --detach, `ok`). The first stderr line names the job. Killing this process afterwards never touches the worker."""
     here = bind.resolved()
+    if entry.kind == "J":  # a write: its lock file exists before it starts, so a reader of rekordbox holds something
+        rb_lock.ensure(here.support)
     place = locate()
     roots = {"music": str(here.paths.root) if here.paths is not None else str(here.music_folder) if here.music_folder else None,
              "support": str(here.support), "rekordbox": str(place.db.parent) if place is not None else None,
-             "sandbox": None}
+             "rekordbox_share": str(place.share) if place is not None else None, "sandbox": None}
     reg = registry.Registry(here.support)
     reg.prune(datetime.now())
     files = reg.create(entry.method, command, dict(kwargs), "terminal", roots)

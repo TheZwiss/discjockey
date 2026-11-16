@@ -108,11 +108,13 @@ class Sink:
 
 class Ticker(threading.Thread):
     """Notices a stop request (Ctrl-C or the `stop` file) and writes `stopping`; writes what `update` held back. It
-    never touches the files inside a signal handler (the handler only sets the token)."""
+    never touches the files inside a signal handler (the handler only sets the token). `interrupt` (a read job): the
+    stop request also reaches the main thread as SIGINT, once, because a read has nothing to finish safely."""
 
-    def __init__(self, files: registry.JobFiles, token):
+    def __init__(self, files: registry.JobFiles, token, interrupt: bool = False):
         super().__init__(name="job-ticker", daemon=True)
         self.files, self.token = files, token
+        self.interrupt, self._sent = interrupt, False
         self._end = threading.Event()
 
     def run(self) -> None:
@@ -120,6 +122,9 @@ class Ticker(threading.Thread):
             try:
                 if self.token.cancelled and self.files.state().get("status") == "running":
                     self.files.update(status="stopping")
+                if self.interrupt and self.token.cancelled and not self._sent:
+                    self._sent = True
+                    os.kill(os.getpid(), signal.SIGINT)  # the handler runs on the main thread, which runs the read
                 self.files.flush()
             except Exception:  # noqa: BLE001
                 pass
@@ -153,10 +158,11 @@ class Caffeinate:
 
 
 class StopSignals:
-    """SIGINT as `design §6.3` step 4 says. `hard` is whether the second press came (the envelope says `stop_now`)."""
+    """SIGINT as `design §6.3` step 4 says. `hard` is whether the second press came (the envelope says `stop_now`).
+    `at_once` (a read job): the first press ends the job (a read leaves nothing half-done, so `hard` stays False)."""
 
-    def __init__(self, token):
-        self.token, self.hard, self.first = token, False, None
+    def __init__(self, token, at_once: bool = False):
+        self.token, self.hard, self.first, self.at_once = token, False, None, at_once
         self.previous = None
 
     def __enter__(self):
@@ -172,15 +178,20 @@ class StopSignals:
         if self.first is None:
             self.first = now
             self.token.cancel()
+            if self.at_once:
+                raise KeyboardInterrupt
         elif now - self.first >= CTRL_C_REPEAT_S:
             self.hard = True
             raise KeyboardInterrupt
 
 
 def _holder(files: registry.JobFiles, roots: dict) -> dict | None:
-    """The job that holds the library now, from the registry (`{job, via, kind}`), else None."""
+    """The job that holds the library now, from the registry (`{job, via, kind}`), else None. Only a job whose command
+    takes the library lock counts (the catalogue's `locks` column): a running read job holds nothing."""
     for other in registry.Registry(files.dir.parent.parent).list(roots.get("music")):
         if other.get("id") != files.id and other.get("status") in ("running", "stopping"):
+            if not any("library" in e.locks for e in catalog.by_method(other.get("method") or "")):
+                continue
             return {"job": other["id"], "via": other.get("via"), "kind": other.get("kind")}
     return None
 
@@ -273,8 +284,8 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
 
 def _read_job(files: registry.JobFiles, command: str, method: str, args: dict, api) -> dict:
     """An RJ entry (design §5.2): the method answers when it is done, and `status: running` is written by hand (no
-    `Jobs` job does it). Stop at once (`--now`) reaches it as SIGINT on this thread; the stop file only ends it where
-    the method itself looks at its token."""
+    `Jobs` job does it). A stop request (the stop file, `--now` or Ctrl-C) ends it at once, as SIGINT on this thread:
+    a read has nothing to finish safely, and its plan is saved only after the method returns."""
     files.update(status="running")
     answer = _call(api, method, args)
     fresh = api.freshness()
@@ -305,9 +316,10 @@ def _run(files: registry.JobFiles) -> int:
         api = bind.headless(bind.from_roots(roots), events=sink, job=files)
         entries = catalog.by_method(record["method"])
         caffeinate = Caffeinate(bool(entries) and entries[0].kind == "J")
-        ticker = Ticker(files, bind.job_token(api))
+        read = bool(entries) and entries[0].kind == "RJ"
+        ticker = Ticker(files, bind.job_token(api), interrupt=read)
         ticker.start()
-        with StopSignals(bind.job_token(api)) as signals:
+        with StopSignals(bind.job_token(api), at_once=read) as signals:
             env = _work(files, record, sink, api, signals)
     except BaseException:  # noqa: BLE001 - whatever happened, the job ends with an envelope
         traceback.print_exc()  # log.txt

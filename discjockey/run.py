@@ -115,9 +115,13 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     if extra is not None:
         if not 1 <= extra <= MAX_EXTRA:
             raise SetupProblem(f"The extra amount must be between 1 and {MAX_EXTRA}.", "config_invalid")
-        settings = update_settings(paths.settings_file, lambda s: replace(
-            s, extra_date=date.today().isoformat(), extra_amount=extra))
-        emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
+        grant = lambda s: replace(s, extra_date=date.today().isoformat(), extra_amount=extra)  # noqa: E731
+        if dry_run:  # the dry run plans with the extra in memory; saving it would grant it to the real runs of today
+            settings = grant(settings)
+            emit(Message("info", f"Planning with {extra} extra Qobuz downloads today (a dry run saves nothing)."))
+        else:
+            settings = update_settings(paths.settings_file, grant)
+            emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
 
     emit(Message("info", "Reading your playlists..."))
     signs: list[tuple[str, str, str]] = []  # warning signs a login-using read met (Liked music), recorded below

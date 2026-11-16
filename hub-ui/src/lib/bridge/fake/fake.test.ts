@@ -132,6 +132,15 @@ describe('fake backend', () => {
     expect(after.estimate?.qobuz_needed).toBe((before.estimate?.qobuz_needed ?? 0) - 1);
     expect(await f.never_download('not-in-plan', true)).toMatchObject({ ok: false, kind: 'changed' });
   });
+  it("an empty To-do list comes with the engine's words for the command line (empty_text)", async () => {
+    const f = createFakeBridge('normal');
+    const full = await f.todo('all', false);
+    expect(full).toMatchObject({ ok: true, empty: null, empty_text: null });
+    const cdj = await f.todo('cdj', false);  // no file of the scenario is hard on CDJs
+    expect(cdj).toMatchObject({ ok: true, groups: [], empty: 'nothing_here', empty_text: 'Nothing here.' });
+    const first = await createFakeBridge('first_run').todo('all', false);  // the window's own state: the engine has no words for it
+    expect(first).toMatchObject({ ok: true, empty: 'empty_library', empty_text: null });
+  });
   it('the normal scenario has every state the pages need', async () => {
     const f = createFakeBridge('normal');
     const todo = await f.todo('all', false);

@@ -335,7 +335,7 @@ Brief outline: v1 1.2's decisions (headless bind, `remember=False`, routing per 
 
 | | |
 |---|---|
-| Goal | `aiff convert`, `aiff rename` in every selection form, dry runs that write nothing (≤ 50 facts in memory, `facts_missing`), `library facts`; `HubApi.resolve("collection")` (L D1's engine half); `convert_cmd.py` deleted |
+| Goal | `aiff convert`, `aiff rename` in every selection form, dry runs that write nothing but their plan and their read job's record in `<support>/jobs/` (≤ 50 facts in memory, `facts_missing`), `library facts`; `HubApi.resolve("collection")` (L D1's engine half); `convert_cmd.py` deleted |
 | Material | files 31k (`convert_cmd.py` 4k, `fill_facts` ~1.5k, `aiff_plan.plan` ~2k, `api.py` AIFF methods ~5k, `test_convert_cmd.py` 9.5k, `test_hub_api_convert.py` ~3k, `rehearse-convert` ~4k) + brief 4k = **35k** |
 | Review | **own Sonnet review**; rehearsal on a copy: `rehearse-convert` all PASS |
 
@@ -425,7 +425,7 @@ V2.4 and the whole phase). No shots: no screen changes (`npm run verify` before 
 
 | # | Group | From | Size |
 |---|---|---|---|
-| V3.1 | **Every bridge read live** through the generic path: `library list/collections`, `folder list/check`, `folder remove --dry-run`, `tidy run --dry-run`, `batch undo moves:<n> --dry-run`, `job_status`, `track spectrum --json`, `status`'s Dashboard part, `report list`, `sync plan [--search]`, `limits show`, `limits set --dry-run`, `playlist list`, `playlist check` (RJ), `login list/find`, `setup status`, `app info`, `setup music --dry-run`, `tools status`, `open file\|folder\|url\|report\|licences\|privacy-settings`; paging (`--limit`, `--offset`, `total`, `next_offset`), `--since` (`today`, `yesterday`, `<n>d`, `<n>h`, ISO); each entry's `example`, T4 parity and T7′ over all of them. Material: catalogue ~8k, `hub_helpers.py` 3.2k, `test_hub_api.py` 5.0k, `api.py` R signatures ~3k, `views.library` paging ~3k, brief 5k ≈ 27k | v1 3.1, 3.5, 3.6 (plain reads) | 225k |
+| V3.1 | **Every bridge read live** through the generic path: `library list/collections`, `folder list/check`, `folder remove --dry-run`, `tidy run --dry-run`, `batch undo moves:<n> --dry-run`, `job_status`, `track spectrum --json`, `status`'s Dashboard part, `report list`, `sync plan [--search]`, `limits show`, `limits set --dry-run`, `playlist list`, `playlist check` (RJ), `login list/find`, `setup status`, `app info`, `setup music --dry-run`, `tools status`, `open file\|folder\|url\|report\|licences\|privacy-settings`; paging (`--limit`, `--offset`, `total`, `next_offset`; removes `cli/__init__.py`'s `PAGING_IS_TEXT` refusal of them with `--json`), `--since` (`today`, `yesterday`, `<n>d`, `<n>h`, ISO); each entry's `example`, T4 parity and T7′ over all of them. Material: catalogue ~8k, `hub_helpers.py` 3.2k, `test_hub_api.py` 5.0k, `api.py` R signatures ~3k, `views.library` paging ~3k, brief 5k ≈ 27k | v1 3.1, 3.5, 3.6 (plain reads) | 225k |
 | V3.2 | `status` (Dashboard + nav counts + running jobs + live person steps), `doctor` (every check of §5.3, `folder_access`), `status --ready` (a filter of doctor's), `app info --check` (C8) | v1 3.3, 3.4 (doctor), 3.6 (check) | 235k |
 | V3.3 | `history` (reports, batches, the operations log; `undo`/`cant_text`), `library superseded`, `rekordbox match [--in C]`, `todo list --group` taking several groups (contract change) | v1 3.4 (history), 3.7, 3.1 (superseded) | 230k |
 | V3.4 | **Hand pages**: `library list`, `sync plan`, `track spectrum` (verdict, cutoff sentence, 22×64 sketch, waveform sparkline), `report list/show` and `history` (runs); each on `rest()` | v1 3.1, 3.2 (text), 3.3 (pages) | 210k |
@@ -437,7 +437,7 @@ All read-only: one Opus phase review + fix 330k. `--png` is E6. `offer`, the six
 
 | # | Group | From | Size |
 |---|---|---|---|
-| V4.1 | The whole sync: `sync read`, `sync run [selection] [--plan] [--how-many]` (`partial` only for `failed`), the legacy sync and `cli/legacy.py` deleted, `bin/discjockey` without `caffeinate` | v1 4.1 | 225k |
+| V4.1 | The whole sync: `sync read`, `sync run [selection] [--plan] [--how-many]` (`partial` only for `failed`), the legacy sync and `cli/legacy.py` deleted, `bin/discjockey` without `caffeinate`; `sync run --dry-run` (`sync_preview`, the same answer as `sync plan`) plans on the stored read (V2.2, design §9.2) and writes nothing T9 forbids: no `record_reads`, `record_pending` or `record_signs`, no scan, no `extra` settings save (today's `run.prepare(dry_run=True)` still does `record_reads`, `record_pending` and `record_signs` but no scan and, since 9b8ee280, no `extra` save: phase-review-safety S3); reading the playlists is `sync read`'s, never a dry run's; T9 gets its `sync run --dry-run` case | v1 4.1 | 225k |
 | V4.2 | Playlist writes `add/remove/rename/move/enable/disable/edit --file/add-liked`; `playlists_file.apply(lines, op)` + `validate` (U25, U26 engine half); `--if-version`; changes logged for `history` | v1 4.2 | 185k |
 | V4.3 | The save question (C1): `--files move\|leave`, `--rename`, `--no-rename`, `--move`, `--no-move`, ids in the dry run, `--plan` binding a subset | v1 4.3 | 190k |
 | V4.4 | `tidy run [--all\|--with-yours\|--plan]`, `batch undo moves:<n>`, `import run` | v1 4.4 | 185k |
@@ -632,7 +632,7 @@ the second.
 | 2 | L D5, T:`decisionFor`, SA `TrackDetails` | V6.1/V6.2 |
 | 3 | L D6, SA `rowInTodo`/`inTodo` | V6.1/V6.2 |
 | 4 | L D7, L D34, T:`actionsFor`/`IMPROVABLE`, SA `footAction`, `aiffShown`, `aiffVariant`, T `Details.aiff`, `libraryModel.ts:aiffHeader` | V6.1/V6.2 |
-| 5 | L D8, T:`canSwap`/`upgradeWays`/`defaultWay`/`UpgradeFlow.way`, `goes`/`NOWHERE`, `selectionWays`/`beforeLine`, SA `UpgradeCards` | V6.3/V6.4 |
+| 5 | L D8, T:`canSwap`/`upgradeWays`/`defaultWay`/`UpgradeFlow.way`, `goes`/`NOWHERE`, `selectionWays`/`beforeLine`, SA `UpgradeCards`, T: `BRIDGE_MODE`/`Way`/`MODE_OF` (the window takes `upgrade.ways[].way`, `same_track`/`new_track`, as it is; the translation goes) | V6.3/V6.4 |
 | 6 | L D9, T:`undoAsk`/`undoManyConfirm`, SB `ConfirmHost` callers | V1.10 (`needs_yes`) + V6.3/V6.4 (`confirm` words) |
 | 7 | L D10, T:`groupIdOf` + `DuplicateFlow.#keepOne`, SA `DuplicateFoot` | V2.5 (`keep_file`) + V6.3/V6.4 |
 | 8 | L D11, T:`keepWords`/`fileWords`/`fileFormat`/`lastFolder`/`keepLabel` | V6.3/V6.4 |

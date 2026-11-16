@@ -321,3 +321,21 @@ def test_the_pages_of_the_four_commands_are_the_golden_text(music, capsys, tmp_p
     check_golden("folder_add", page(["folder", "add", str(folder)]))
     check_golden("folder_remove", page(["folder", "remove", str(folder), "--yes"]))
     check_golden("settings_set", page(["settings", "set", "auto-upgrade", "off"]))
+
+
+def test_no_engine_sentence_points_at_a_command_that_is_not_built_yet():
+    """The command line's words name only what runs now (L-2, and `folder list` beside it): every `noun verb` in a
+    backtick of `words.py`'s constants is a built command or one of the line's own words."""
+    import re
+    from discjockey import words
+    runnable = {" ".join(e.command) for e in parser.built()} | {" ".join(c) for c in parser.HOUSEKEEPING}
+    nouns = {c.split()[0] for c in runnable}
+    named = []
+    for name, text in vars(words).items():
+        if name.isupper() and isinstance(text, str):
+            named += [(name, span) for span in re.findall(r"`([a-z][^`]*)`", text)]
+    assert named  # NO_SONG, NO_REPORT, ... do name some
+    for name, span in named:
+        first = span.split()[0]
+        if first in nouns and len(span.split()) > 1 and not span.split()[1].startswith(("-", "<")):
+            assert " ".join(span.split()[:2]) in runnable, (name, span)

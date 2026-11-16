@@ -9,6 +9,8 @@ Part b's commands (`upgrade discard`, `track undo`, `check done`) reuse `inline_
 text pages are pinned by `tests/cli_golden/{upgrade_discard,track_undo,check_done}.txt`."""
 from __future__ import annotations
 
+import re
+import copy
 import json
 import os
 import signal
@@ -16,13 +18,14 @@ import types
 from contextlib import contextmanager
 
 import pytest
+from hub_helpers import cmd
 
 from batch_helpers import make_lib, needs_ffmpeg, use
 from convert_helpers import EXACT
 from discjockey import batches, db, library, upgrades
 from discjockey.cli import bind, call, worker
 import discjockey.cli as cli
-from discjockey.hub import api as api_words, catalog, select
+from discjockey.hub import api as api_words, catalog, ids, select
 from discjockey.rekordbox import backup as rbbackup, process
 from discjockey.rekordbox import session as rbsession
 
@@ -79,7 +82,7 @@ def inline_workers(monkeypatch):
 @pytest.fixture
 def lib(tmp_path, monkeypatch, inline_workers):
     from discjockey.hub.api import CliApi
-    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, text: text)  # the fixture's keys are not real song keys
+    monkeypatch.setattr(ids, "SPOTIFY_ID", re.compile(r"[A-Za-z0-9]{2,22}"))  # the fixture's keys (t1, t2…) pass as song keys; the real resolver runs
 
     def make(kinds):
         found = make_lib(tmp_path, monkeypatch, kinds)
@@ -87,6 +90,14 @@ def lib(tmp_path, monkeypatch, inline_workers):
         monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(found.paths.support))
         return found
     return make
+
+
+@pytest.fixture
+def stale_keys(monkeypatch):
+    """A test of the engine's per-song answer for a key the records lack (a song gone between the line and the run):
+    the real resolver would refuse the line first (`unknown_id`), so the key reaches the engine as typed."""
+    from discjockey.hub.api import CliApi
+    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, text, state=None: text)
 
 
 def run(argv, capsys):
@@ -115,9 +126,9 @@ def test_same_track_on_three_tracks_is_one_aiff_batch_that_the_result_names(lib,
     assert (data["batch"], data["batch_id"], data["total"], data["done"]) == (1, "aiff:1", 3, 3)
     [row] = batches_of(found)
     assert (row.id, row.started_by, row.state) == (1, "user", "done")
-    assert [n["run"] for n in env["next"]] == ["batch show aiff:1", "check list"]
+    assert [n["run"] for n in env["next"]] == [cmd("batch show aiff:1"), cmd("check list")]
     [step] = [s for s in env["person_steps"] if s["id"] == "step:reload_tag"]
-    assert step["then"] == "check done --batch aiff:1" and all(t in step["say"] for t in found.tracks)
+    assert step["then"] == cmd("check done --batch aiff:1") and all(t in step["say"] for t in found.tracks)
     assert [r["person_steps"][0]["id"] for r in data["results"]] == ["step:reload_tag"] * 3
     assert found.row(0)["FolderPath"].endswith("Song 0.aiff")  # rekordbox's row points at the new file
     assert data["backup"]  # rekordbox's library was backed up before the batch wrote to it
@@ -142,8 +153,8 @@ def test_new_track_with_a_plan_runs_only_the_plans_items_and_says_where_to_reloc
     assert found.entry(2)["upgrade"] and not found.entry(0)["upgrade"]  # c stayed parked, a was added
     [step] = env["person_steps"]
     new_file = str(found.paths.root / data["results"][0]["path"])
-    assert step["id"] == "step:relocate_new" and new_file in step["say"] and step["then"] == f"check done {a}"
-    assert data["results"][0]["person_steps"] == [step]
+    assert step["id"] == "step:relocate_new" and new_file in step["say"] and step["then"] == cmd(f"check done {a}")
+    assert data["results"][0]["person_steps"] == [{**step, "then": f"check done {a}"}]  # the envelope's `then` is a full command line
     assert env["next"] == []  # a New track has no batch
     assert batches_of(found) == [] and rbbackup.backups(found.paths) == []  # no batch record, rekordbox never opened
 
@@ -258,7 +269,7 @@ def test_rekordbox_open_before_a_batch_of_one_track_needs_the_person_and_closes_
     code, env = run_json(["upgrade", "apply", found.tracks[0], *SAME], capsys)
     assert (code, env["outcome"], env["reason"]) == (NEEDS_PERSON, "needs_person", "rekordbox_open")
     [step] = env["person_steps"]
-    assert (step["id"], step["then"]) == ("step:quit_rekordbox", "the same command")
+    assert (step["id"], step["then"]) == ("step:quit_rekordbox", None)
     assert env["next"] == []  # nothing to resume: the batch is closed
     [row] = batches_of(found)
     assert row.state == "done" and found.entry(0)["upgrade"]
@@ -271,12 +282,12 @@ def test_rekordbox_open_midway_leaves_a_stopped_batch_and_the_step_says_to_resum
     monkeypatch.setattr(process, "running", lambda: True)
     code, env = run_json(["upgrade", "apply", *found.tracks, *SAME], capsys)
     assert (code, env["reason"]) == (NEEDS_PERSON, "rekordbox_open")
-    assert [s["then"] for s in env["person_steps"]] == ["batch resume aiff:1"]
+    assert [s["then"] for s in env["person_steps"]] == [cmd("batch resume aiff:1")]
     [row] = batches_of(found)
     assert row.state == "stopped"
     code, env = run_json(["upgrade", "apply", "--all"], capsys)  # Upgrade all while a stopped batch waits: resume it
     assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "not_stopped")
-    assert env["next"][0]["run"] == "batch resume aiff:1" and len(batches_of(found)) == 1
+    assert env["next"][0]["run"] == cmd("batch resume aiff:1") and len(batches_of(found)) == 1
 
 
 def test_new_track_with_every_name_taken_fails_that_song_and_still_does_the_next(lib, capsys):
@@ -309,7 +320,7 @@ def test_a_same_track_swap_that_breaks_midway_fails_the_item_and_leaves_the_song
     assert library.load_state(found.paths)["pending"] == []
 
 
-def test_an_unknown_song_is_skipped_and_a_batch_of_skips_is_refused(lib, capsys):
+def test_an_unknown_song_is_skipped_and_a_batch_of_skips_is_refused(lib, stale_keys, capsys):
     found = lib(["mp3", "stale"])
     code, env = run_json(["upgrade", "apply", "nope", found.tracks[0], *SAME], capsys)
     assert (code, env["outcome"]) == (PARTIAL, "partial")
@@ -385,7 +396,7 @@ def test_golden_the_page_of_a_new_track_apply(lib, capsys, tmp_path):
     code, out, err = run(["upgrade", "apply", *found.tracks, *NEW], capsys)
     assert code == OK and "upgrade_apply" in WRITES
     check_golden("upgrade_apply", out.replace(str(tmp_path), "<tmp>"))
-    assert "Your turn: " in err and "relocate" in err and "Then: check done t1aaaaaaa" in err
+    assert "Your turn: " in err and "relocate" in err and f"Then: {cmd('check done t1aaaaaaa')}" in err
 
 
 # --- upgrade discard, track undo, check done (V1.11 part b) ---
@@ -395,7 +406,7 @@ def untouched(found):
     return found.music(), found.dump(), library.load_state(found.paths)["tracks"], batches_of(found)
 
 
-def test_discard_and_undo_without_yes_are_refused_with_the_dry_run_and_change_nothing(lib, capsys):
+def test_discard_and_undo_without_yes_are_refused_with_the_dry_run_and_change_nothing(lib, stale_keys, capsys):
     found = lib(["mp3", "mp3"])
     assert run_json(["upgrade", "apply", found.tracks[0], *NEW], capsys)[0] == OK  # something to undo
     before = untouched(found)
@@ -421,7 +432,7 @@ def test_discard_and_undo_without_yes_are_refused_with_the_dry_run_and_change_no
     assert not (found.paths.support / "plans").exists()
 
 
-def test_discard_with_yes_throws_the_new_versions_away_and_keeps_the_current_files(lib, capsys):
+def test_discard_with_yes_throws_the_new_versions_away_and_keeps_the_current_files(lib, stale_keys, capsys):
     found = lib(["mp3", "mp3", "mp3"])
     code, env = run_json(["upgrade", "discard", found.tracks[0], found.tracks[1], "nope", "--yes"], capsys)
     assert (code, env["outcome"]) == (PARTIAL, "partial")  # `nope` has nothing to discard: skipped
@@ -435,7 +446,7 @@ def test_discard_with_yes_throws_the_new_versions_away_and_keeps_the_current_fil
     assert (code, env["outcome"], env["message"]) == (OK, "ok", "1 of 1 song done.")
 
 
-def test_discard_has_no_plan_and_one_song_with_nothing_to_discard_is_refused(lib, capsys):
+def test_discard_has_no_plan_and_one_song_with_nothing_to_discard_is_refused(lib, stale_keys, capsys):
     found = lib(["mp3"])
     code, env = run_json(["upgrade", "discard", found.tracks[0], "--plan", "plan:000000000000", "--yes"], capsys)
     assert (code, env["outcome"]) == (REFUSED, "refused") and "Discard has none" in env["message"]
@@ -468,7 +479,7 @@ def test_track_undo_puts_new_tracks_back_and_a_second_undo_has_nothing_to_undo(l
     assert (data["total"], data["undone"], data["refused"], data["failed"]) == (2, 2, 0, 0)
     assert sorted(r["track"] for r in data["results"]) == sorted(found.tracks)
     assert found.entry(0)["path"] == found.olds[0] and found.entry(0)["upgrade"]
-    assert env["next"] == [{"run": "upgrade list", "why": "the better versions wait there again"}]
+    assert env["next"] == [{"run": cmd("upgrade list"), "why": "the better versions wait there again"}]
     code, env = run_json(["track", "undo", found.tracks[0], "--yes"], capsys)  # nothing left: the job is refused
     assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "refused")
     assert env["message"] == env["data"]["results"][0]["message"] and env["data"]["undone"] == 0
@@ -485,7 +496,7 @@ def test_track_undo_of_a_mix_is_partial_with_the_refused_track_in_the_results(li
     assert states[found.tracks[0]] == ("undone", None) and states[found.tracks[1]][0] == "refused"
 
 
-def test_track_undo_dry_run_says_per_track_whether_it_can_be_undone_and_why_not(lib, capsys):
+def test_track_undo_dry_run_says_per_track_whether_it_can_be_undone_and_why_not(lib, stale_keys, capsys):
     found = lib(["mp3", "mp3", "mp3"])
     assert run_json(["upgrade", "apply", *found.tracks[:2], *NEW], capsys)[0] == OK
     assert run_json(["check", "done", found.tracks[1]], capsys)[0] == OK  # ends the undo of the second
@@ -666,3 +677,23 @@ def test_golden_the_pages_of_a_discard_an_undo_and_a_check(lib, capsys, tmp_path
     code, out, err = run(["check", "done", found.tracks[0]], capsys)
     assert code == OK and "check_done" in WRITES
     check_golden("check_done", out.replace(str(tmp_path), "<tmp>"))
+
+
+def test_check_done_batch_leaves_a_song_a_later_batch_changed_again(lib, capsys):
+    found = lib(["mp3", "aiff"])
+    first = apply_same(found, capsys)
+    run_json(["upgrade", "apply", found.tracks[0], *SAME], capsys)  # batch 2 exists (it found nothing to do here)
+    state = library.load_state(found.paths)  # ...as if it had redone the first song: its open check is that batch's
+    state["tracks"][found.tracks[0]]["rekordbox_check"]["batch"] = 2
+    library.save_state(found.paths, state)
+    before = copy.deepcopy(found.entry(0))
+    code, env = run_json(["check", "done", "--batch", first], capsys)
+    rows = {r["track"]: r for r in env["data"]["results"]}
+    assert rows[found.tracks[1]]["state"] == "done"
+    assert (rows[found.tracks[0]]["state"], rows[found.tracks[0]]["reason"]) == ("skipped", "newer_batch")
+    assert "aiff:2" in rows[found.tracks[0]]["message"] and (code, env["outcome"]) == (PARTIAL, "partial")
+    assert found.entry(0) == before and found.entry(1)["rekordbox_check"] is None  # check, undo and download stay
+    code, env = run_json(["check", "done", "--batch", "aiff:2"], capsys)
+    assert [r["track"] for r in env["data"]["results"]] == [found.tracks[0]] and code == OK
+    assert found.entry(0)["rekordbox_check"] is None
+

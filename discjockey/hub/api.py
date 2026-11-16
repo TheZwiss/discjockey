@@ -81,6 +81,8 @@ NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
 UNDO_NONE = batches.NOTHING_UNDONE
 NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
 NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
+NEWER_CHECK = "A later batch ({later}) changed this track again, so its check belongs to that batch: `check done --batch {later}`."
+NEWER_CHECK_STEP = "This track was changed again after this batch, so its check is not this batch's: `check done {track}`."
 CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
 NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove"))  # run on what is there when --yes comes: no plan to run
@@ -118,6 +120,8 @@ LIBRARY_METHODS = frozenset((
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
+# What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
+RESOLVE_WORDS = {"upgrade_way": "same-track|new-track"}
 
 
 @dataclass
@@ -187,7 +191,7 @@ def _answering(fn):
     command line reads the rest (`outcomes.problem_fields`: the outcome row of the kind, the reason, the commands that
     move on, the steps only a person can do). A problem with a playlist service (a SourceError) also carries
     "service", a setting_off one "setting". A `BadId` (a typed id the command line cannot use) answers `bad_args`:
-    only the command line's methods raise it."""
+    the command line's methods raise it, and `todo` for a filter that is no group (the window sends only group keys)."""
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
         try:
@@ -437,6 +441,10 @@ class HubApi:
 
     def _start(self, resolved: Resolved) -> None:
         """At launch (app.main): bind the library when the music folder is there, else remember why not."""
+        try:  # the lock file a reader of rekordbox holds exists before the first writer
+            rb_lock.ensure(self._support.support)
+        except OSError:
+            pass
         if resolved.paths is not None:
             self._bind(resolved.paths)
             try:  # signs the last session left waiting for the lock (a read made while a sync ran)
@@ -1070,7 +1078,7 @@ class HubApi:
     @bridge
     def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
         if filter not in ("all", None, *views.TODO_GROUP_KEYS):
-            raise BadId("unknown_id", f"There is no to-do group called {filter}. The groups are "
+            raise BadId("usage", f"There is no to-do group called {filter}. The groups are "
                                       f"{', '.join(views.TODO_GROUP_KEYS)}.")
         state = self._state()
         out = self._todo(state, filter, bool(show_hidden))
@@ -2304,8 +2312,10 @@ class HubApi:
         """"Done, checked in rekordbox" for tracks (a batch card sends its done tracks): the reminders and with them
         the undo end. A write job (kind "rekordbox_checked"); the result lists the `checked` tracks, those with
         nothing to check (`not_checked`) and the engine's `results`. `batch_id` (the command line's `--batch`; then
-        `track_ids` is empty): the tracks that AIFF batch did. A batch whose tracks were all checked already is a
-        finished job with nothing in it (`batch` says which); named tracks with nothing to check end `changed`."""
+        `track_ids` is empty): the tracks whose open check is that AIFF batch's (the window's batch card lists the
+        same). A track a later batch or step changed again keeps that check and is in `newer` (track -> `aiff:N` of
+        the later batch, or None). A batch whose tracks were all checked already is a finished job with nothing in it
+        (`batch` says which); named tracks with nothing to check end `changed`."""
         if batch_id is not None:
             if track_ids:
                 raise ValueError(BATCH_OR_TRACKS)
@@ -2316,13 +2326,22 @@ class HubApi:
 
         def work(ctx) -> dict:
             state, recovered = self._begin()
-            wanted = ids if ids is not None else batches.tracks_of(self._paths, batch_id)
+            later: dict = {}
+            if ids is not None:
+                wanted = ids
+            else:
+                def check_of(t: str) -> dict:
+                    return (state["tracks"].get(t) or {}).get("rekordbox_check") or {}
+                wanted = [t for t in state["tracks"] if check_of(t).get("batch") == batch_id]
+                later = {t: (f"aiff:{check_of(t)['batch']}" if isinstance(check_of(t).get("batch"), int) else None)
+                         for t in batches.tracks_of(self._paths, batch_id)
+                         if check_of(t) and check_of(t).get("batch") != batch_id}
             before = {t: state["tracks"].get(t) for t in wanted}
             done = batches.checked(self._paths, wanted, state=state, now=self._svc.now)
             checked = [r.track_id for r in done]
             body = {"results": [asdict(r) for r in done], "checked": checked,
                     "not_checked": [] if ids is None else [t for t in ids if t not in checked], "recovered": recovered,
-                    **({} if ids is not None else {"batch": batch_id})}
+                    **({} if ids is not None else {"batch": batch_id, "newer": later})}
             if not checked and ids is not None and not self._skipped_check_is_ok:
                 ctx.failed_result = body  # the skipped rows still say which tracks had nothing to check
                 raise OpProblem(NOTHING_TO_CHECK, "changed")
@@ -3064,7 +3083,8 @@ class CliApi(HubApi):
     (tests/test_hub_api.py): the window's `HubApi` has none of these."""
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
-                 "collection": "_resolve_collection", "folder": "_resolve_folder"}  # kind -> the method that makes it (grows per group)
+                 "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch",
+                 "report": "_resolve_report"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -3260,7 +3280,11 @@ class CliApi(HubApi):
                 for t in result["checked"]]
         rows += [{"track": t, "action": "check", "state": "skipped", "reason": "nothing_to_check",
                   "message": NOTHING_TO_CHECK_ONE} for t in result.get("not_checked") or ()]
-        checked, skipped = len(result["checked"]), len(result.get("not_checked") or ())
+        newer = result.get("newer") or {}
+        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "newer_batch",
+                  "message": NEWER_CHECK.format(later=b) if b else NEWER_CHECK_STEP.format(track=t)}
+                 for t, b in newer.items()]
+        checked, skipped = len(result["checked"]), len(result.get("not_checked") or ()) + len(newer)
         if not checked:  # nothing to check is no error (an `--all` with none open, or only such tracks named): ok, total 0
             return {"message": NOTHING_TO_CHECK, "outcome": "ok",
                     "data": {"results": rows, "total": 0, "done": 0, "skipped": skipped, "failed": 0}}
@@ -3268,7 +3292,9 @@ class CliApi(HubApi):
             f"{checked} {'track' if checked == 1 else 'tracks'} checked in rekordbox."
         message += CHECK_ENDS_UNDO
         if skipped:
-            message += f" {skipped} had nothing to check."
+            message += f" {skipped - len(newer)} had nothing to check." if skipped > len(newer) else ""
+            if newer:
+                message += f" {len(newer)} belong{'s' if len(newer) == 1 else ''} to a later change."
         return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
                                              "failed": 0}}
 
@@ -3362,7 +3388,8 @@ class CliApi(HubApi):
         resolver = self.RESOLVERS.get(kind)
         if resolver is None:
             raise OpProblem(f"Discjockey cannot turn {kind} words into an id yet.", "failed")
-        return {"kind": kind, "resolved": [getattr(self, resolver)(text) for text in values]}
+        extra = {"state": self._state()} if kind == "track" else {}  # the records once for the whole call
+        return {"kind": kind, "resolved": [getattr(self, resolver)(text, **extra) for text in values]}
 
     @cli_first
     def fill_facts(self) -> dict:
@@ -3433,15 +3460,21 @@ class CliApi(HubApi):
             scanned, read = db.freshness(conn) if conn is not None else (None, None)
         return {"scanned_at": scanned, "read_at": read}
 
-    def _resolve_track(self, text: str) -> str:
+    def _resolve_track(self, text: str, state: dict | None = None) -> str:
+        """A song key as typed, or the path of a file of the library as its key; a well-formed key the records lack is
+        `unknown_id` (nothing was looked at: the whole command is `bad_args`)."""
+        state = state if state is not None else self._state()
         found = parse_id(text, ("track",))
         if found.kind == "track" and found.value != "-":
-            return str(found.value)
-        if found.kind != "path":
+            key = str(found.value)
+        elif found.kind != "path":
             raise BadId("unknown_id", "A song key is missing: say a key or the path of a file of your library.")
-        key = self._song_holding(text)
-        if key is None:
-            raise BadId("unknown_id", f"Your library has no track with the file {text}.")
+        else:
+            key = self._song_holding(text, state)
+            if key is None:
+                raise BadId("unknown_id", f"Your library has no track with the file {text}.")
+        if key not in state["tracks"]:
+            raise BadId("unknown_id", engine_words.NO_SONG.format(key=key))
         return key
 
     def _resolve_collection(self, text: str) -> dict:
@@ -3510,6 +3543,25 @@ class CliApi(HubApi):
         if row is None:
             raise BadId("unknown_id", f"There is no AIFF batch {found.value}.")
         return int(found.value)
+
+    def _resolve_batch(self, text: str) -> str:
+        """`batch show`: a batch as typed, `aiff:<n>` or `moves:<n>` (a bare number is `bad_id_kind`); `batch_detail`
+        reads it again and says when no batch has it."""
+        parse_id(text, BATCH_KINDS)
+        return text.strip()
+
+    def _resolve_report(self, text: str) -> str:
+        """`report show`, `open report`: `report:<stamp>`, the bare stamp or `last` (the newest report) as the bare
+        stamp. Another kind of id is `bad_id_kind`; a stamp with no report, or `last` with none at all, `unknown_id`."""
+        found = parse_id(text, ("report",))
+        stamps = [stamp for stamp, _ in self._reports()]
+        if found.value == "last":
+            if not stamps:
+                raise BadId("unknown_id", engine_words.NO_REPORT_YET)
+            return max(stamps)
+        if found.value not in stamps:
+            raise BadId("unknown_id", engine_words.NO_REPORT.format(stamp=found.value))
+        return str(found.value)
 
     def _resolve_upgrade_way(self, text: str) -> str:
         """`--way`: `same-track` or `new-track` (the snake_case spellings too) as the bridge's mode."""
@@ -3779,7 +3831,7 @@ class CliApi(HubApi):
         was picked for an AIFF batch: `selection`, `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the batch that
         undid it). `limit` 0 is every batch."""
         if kind not in (None, *BATCH_KINDS):
-            raise BadId("bad_id_kind", f"A batch kind is aiff or moves, not {kind}.")
+            raise BadId("usage", f"A batch kind is aiff or moves, not {kind}.")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
             raise BadId("usage", "--limit takes a number: 0 for every batch.")
         fetch = limit or -1  # SQLite's LIMIT -1 is no limit

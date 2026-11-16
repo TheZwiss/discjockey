@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Literal
 
 ENV = "DISCJOCKEY_REKORDBOX"
+SHARE_ENV = "DISCJOCKEY_REKORDBOX_SHARE"  # with ENV: the analysis folder a job worker takes from its client
 DB_NAME = "master.db"
 OPTIONS = Path("Library/Application Support/Pioneer/rekordboxAgent/storage/options.json")
 DEFAULT_DIR = Path("Library/Pioneer/rekordbox")
@@ -52,7 +53,8 @@ def locate(env: Mapping[str, str] = os.environ, home: Path | None = None,
             return None
         folder = Path(override)
         db = folder / DB_NAME
-        return Place(db, folder / "share", "override", None) if db.is_file() else None
+        share = Path(env[SHARE_ENV]) if env.get(SHARE_ENV) else folder / "share"
+        return Place(db, share, "override", None) if db.is_file() else None
     home = Path.home() if home is None else home
     found = _from_options(home / OPTIONS)
     if found is not None:

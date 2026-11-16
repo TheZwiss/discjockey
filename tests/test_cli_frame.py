@@ -8,12 +8,12 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from hub_helpers import LOSSLESS, choose_music, make_root
+from hub_helpers import LOSSLESS, choose_music, cmd, make_root, write_state
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
 from discjockey import library
-from discjockey.cli import bind, call, parser
+from discjockey.cli import bind, call, envelope, parser
 from discjockey.hub import catalog
 from discjockey.hub.outcomes import EXIT
 
@@ -146,6 +146,60 @@ def test_conflicting_flags_and_text_usage_errors(capsys):
     assert code == 2 and out == "" and "--bogus" in err
 
 
+JOB_FLAG_LINES = (["--detach"], ["--wait", "30"], ["--wait-busy", "5"], ["--jsonl"])
+
+
+def test_a_job_flag_on_a_command_that_answers_at_once_is_bad_args_never_ignored(capsys):
+    """Design §2.2: a flag a command does not take is a usage error. A read, a brief save, `--dry-run` of a write that
+    answers at once, and the command line's own words answer at once; --detach, --wait, --wait-busy and --jsonl are
+    for a command that runs as a job."""
+    for words in (["help"], ["where"], ["batch", "list"], ["rekordbox", "status"], ["job", "list"],
+                  ["call", "rekordbox_status"], ["library", "facts", "--dry-run"]):
+        for flag in JOB_FLAG_LINES:
+            for form in ([], ["--json"]):
+                if flag == ["--jsonl"] and form:
+                    continue  # --json with --jsonl is its own conflict
+                code, out, err = run([*words, *flag, *form], capsys)
+                lines = out.splitlines()
+                assert code == EXIT["bad_args"] == 2, (words, flag, form)
+                if form or flag == ["--jsonl"]:
+                    env = json.loads(lines[-1])
+                    assert (env["outcome"], env["reason"], env["data"]) == ("bad_args", "usage", None), (words, flag)
+                    assert list(env) == ENVELOPE_KEYS and "answers at once" in env["message"] and flag[0] in env["message"]
+                else:
+                    assert out == "" and "answers at once" in err and flag[0] in err, (words, flag)
+
+
+def test_a_job_command_still_takes_the_job_flags(monkeypatch, capsys):
+    seen = []
+
+    def start(entry, kwargs, command, flags, **rest):
+        seen.append((command, flags.detach, flags.wait, flags.jsonl))
+        return envelope.envelope(command, "ok", data={"job": "job:x", "status": "running"})
+
+    monkeypatch.setattr(call, "start_job", start)
+    for flag in (["--detach"], ["--wait", "30"], ["--jsonl"]):
+        code, out, _ = run(["library", "scan", *flag, *([] if flag == ["--jsonl"] else ["--json"])], capsys)
+        assert code == 0 and json.loads(out.splitlines()[-1])["outcome"] == "ok", flag
+    assert seen == [("library scan", True, None, False), ("library scan", False, 30.0, False),
+                    ("library scan", False, None, True)]
+    code, env = run_json(["job", "wait", "current", "--wait", "1", "--json"], capsys)  # `job wait` takes --wait
+    assert env["reason"] != "usage" or "answers at once" not in env["message"]
+    code, env = run_json(["job", "wait", "current", "--detach", "--json"], capsys)  # but not --detach
+    assert (code, env["reason"]) == (2, "usage") and "--detach" in env["message"]
+
+
+def test_help_json_names_the_job_flags_as_the_job_commands_own(capsys):
+    code, env = run_json(["help", "--json"], capsys)
+    data = env["data"]
+    assert {f["flag"] for f in data["global_flags"] if "job commands" in f["says"]} == {
+        "--jsonl", "--wait", "--detach", "--wait-busy"}
+    job_flags = {"--jsonl", "--wait", "--detach", "--wait-busy"}
+    for command in data["commands"]:  # a command that answers at once never lists them
+        assert not job_flags & set(command["flags"]) or command["job"], command["command"]
+    assert any(c["job"] for c in data["commands"])
+
+
 def test_a_crash_is_one_failed_envelope_and_exit_1(monkeypatch, capsys):
     def boom(*args, **kwargs):
         raise RuntimeError("inside")
@@ -217,9 +271,14 @@ def test_resolve_turns_a_path_into_the_song_key_and_a_key_stays(tmp_path, monkey
     choose_music(tmp_path, monkeypatch)
     api = bind.default()
     absolute = str(paths.root / LOSSLESS)
-    answer = api.resolve("track", [absolute, LOSSLESS, "local:7", "qobuz:12"])
+    state = library.load_state(paths)
+    state["tracks"]["qobuz:12"] = {**state["tracks"]["t1"], "path": "Library/Hard_Bounce/Other - Song.aiff"}
+    write_state(paths, state)
+    answer = api.resolve("track", [absolute, LOSSLESS, "qobuz:12"])
     assert answer["ok"] and answer["kind"] == "track"
-    assert answer["resolved"] == ["t1", "t1", "local:7", "qobuz:12"]
+    assert answer["resolved"] == ["t1", "t1", "qobuz:12"]  # a key stays; one the library lacks is unknown_id
+    lacking = api.resolve("track", ["local:7"])
+    assert (lacking["outcome"], lacking["reason"]) == ("bad_args", "unknown_id") and "local:7" in lacking["message"]
 
 
 def test_resolve_refuses_what_it_cannot_make_an_id_of(tmp_path, monkeypatch):
@@ -237,7 +296,7 @@ def test_resolve_refuses_what_it_cannot_make_an_id_of(tmp_path, monkeypatch):
 def test_resolve_of_a_path_needs_the_library(capsys):
     answer = bind.default().resolve("track", ["/some/file.aiff"])
     assert (answer["ok"], answer["reason"]) == (False, "no_library")
-    assert bind.default().resolve("track", ["local:3"])["resolved"] == ["local:3"]  # a key needs nothing
+    assert bind.default().resolve("track", ["local:3"])["reason"] == "no_library"  # a key is looked up in the records too
 
 
 def test_call_run_resolves_what_was_typed_and_never_looks_up_itself(tmp_path, monkeypatch):
@@ -342,6 +401,21 @@ def test_the_support_folder_of_a_test_is_a_scratch_folder():
     assert "Application Support" not in str(library.support_dir())
 
 
+def test_a_test_cannot_open_a_real_app_or_page(tmp_path):
+    """conftest's guard (C-18): the opener the command line binds (`Services()`) and the calls under it refuse."""
+    import subprocess
+    import webbrowser
+    from discjockey.hub.api import Services
+    missing = tmp_path / "nothing-here"
+    for call_ in (lambda: subprocess.run(["open", str(missing)], check=False),
+                  lambda: subprocess.run(["open", "-R", str(missing)], check=False),
+                  lambda: Services().open_path(missing), lambda: Services().reveal(missing),
+                  lambda: webbrowser.get()):
+        with pytest.raises(AssertionError, match="stub the opener"):
+            call_()
+    assert subprocess.run(["echo", "hi"], capture_output=True, text=True).stdout == "hi\n"  # other commands run
+
+
 # --- the generic printer and the page framework ---
 
 def test_the_generic_page_prints_words_for_facts_and_every_field_with_verbose():
@@ -394,14 +468,54 @@ def test_colour_only_on_a_terminal_that_wants_it():
 def test_a_problem_prints_its_message_and_steps_on_stderr_and_exits_with_its_number(monkeypatch, capsys):
     from discjockey.cli import envelope
     env = envelope.envelope("track hide", "needs_person", reason="rekordbox_open", message="rekordbox is open.",
-                            person_steps=[{"id": "step:quit_rekordbox", "say": "Quit rekordbox.", "then": "carry on"}],
-                            next=[{"run": "discjockey track hide x", "why": "after that"}])
+                            person_steps=[{"id": "step:quit_rekordbox", "say": "Quit rekordbox.", "then": "track hide x"}],
+                            next=[{"run": "track hide x", "why": "after that"}])
     assert cli.emit(env, parser.Flags()) == EXIT["needs_person"] == 4
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err.splitlines() == [
-        "rekordbox is open.", "Your turn: Quit rekordbox. Then: carry on", "Next: discjockey track hide x  (after that)"]
+        "rekordbox is open.", f"Your turn: Quit rekordbox. Then: {cmd('track hide x')}", f"Next: {cmd('track hide x')}  (after that)"]
     assert cli.emit(env, parser.Flags(json=True)) == 4
     assert json.loads(capsys.readouterr().out)["person_steps"][0]["id"] == "step:quit_rekordbox"
+
+
+def test_the_command_lines_own_constants_are_defined_once():
+    from discjockey.cli.render import generic
+    assert parser.HOUSEKEEPING is catalog.HOUSEKEEPING and parser.DEFAULT_LIMIT is generic.DEFAULT_LIMIT
+    for name in ("HELP", "WHERE", "APP_OPEN", "CALL", *("JOB_" + w for w in ("LIST", "SHOW", "FOLLOW", "WAIT", "STOP"))):
+        assert getattr(parser, name) in parser.HOUSEKEEPING, name
+
+
+def test_every_command_the_envelope_names_is_a_full_command_line(monkeypatch, capsys):
+    from discjockey.cli import envelope, housekeeping
+    path = housekeeping.command_path()
+    env = envelope.envelope("sync read", "needs_person", reason="rekordbox_open", message="Open.",
+                            person_steps=[{"id": "step:quit_rekordbox", "say": "Quit.", "then": None},
+                                          {"id": "step:reload_tag", "say": "Reload.", "then": "check done t1"}],
+                            next=[{"run": "sync read", "why": "again"}, {"run": f"{path} job show job:1", "why": "x"}],
+                            data={"person_steps": [{"then": "check done t1"}]})
+    assert cli.emit(env, parser.Flags(json=True)) == 4
+    out = json.loads(capsys.readouterr().out)
+    assert [n["run"] for n in out["next"]] == [cmd("sync read"), f"{path} job show job:1"]  # one path, never two
+    assert [s["then"] for s in out["person_steps"]] == [None, cmd("check done t1")]
+    assert out["data"] == {"person_steps": [{"then": "check done t1"}]}  # data is the bridge's answer, left alone
+    # a path with a space (a checkout under "DJ Downloader/") is quoted, once, also where the line already has it
+    monkeypatch.setattr(housekeeping, "command_path", lambda: "/Users/x y/bin/discjockey")
+    quoted = "'/Users/x y/bin/discjockey'"
+    spaced = envelope.envelope("sync read", "ok", next=[{"run": "sync read", "why": "a"}, {"run": f"{quoted} job wait j", "why": "b"}])
+    assert cli.runnable(spaced)["next"] == [{"run": f"{quoted} sync read", "why": "a"}, {"run": f"{quoted} job wait j", "why": "b"}]
+    from discjockey.cli import follow
+    assert follow.first_line("job:1") == f"Job job:1 started (follow: {quoted} job follow job:1)"
+    assert follow.running_envelope("job wait", {"id": "job:1", "status": "running"})["next"][0]["run"].startswith(quoted + " job wait")
+
+
+def test_both_your_turn_lines_start_with_the_one_prefix(monkeypatch, capsys):
+    from discjockey.cli import envelope, follow
+    monkeypatch.setattr(envelope, "YOUR_TURN", "Over to you: ")
+    env = envelope.envelope("track hide", "needs_person", reason="rekordbox_open",
+                            person_steps=[{"id": "step:quit_rekordbox", "say": "Quit rekordbox.", "then": None}])
+    assert cli.notices(env)[-1] == "Over to you: Quit rekordbox."
+    source = Path(follow.__file__).read_text()
+    assert "Your turn" not in source and "envelope.YOUR_TURN" in source
 
 
 def test_the_envelope_rejects_a_word_it_does_not_know():
@@ -462,3 +576,27 @@ def test_the_removed_words_are_bad_args_that_say_what_to_say_instead(argv, say, 
     assert (code, env["outcome"], env["reason"]) == (2, "bad_args", "usage") and say in env["message"]
     code, out, err = run(argv, capsys)  # the plain page says it too, on stderr
     assert code == 2 and out == "" and say in err
+
+
+# --- the command line's words for a wrong line (phase review C-7, C-15) ---
+
+@pytest.mark.parametrize("argv,message", [
+    (["batch", "resume"], "Say which batch: aiff:N."),
+    (["batch", "show"], "Say which batch: aiff:N|moves:N."),
+    (["job", "show"], "Say which job: job:ID|current."),
+    (["call"], "Say which method: call <METHOD>."),
+    (["settings", "set", "auto-upgrade"], "Say on or off."),
+    (["todo", "list", "--foo"], "todo list does not take --foo. `help todo list` lists what it takes."),
+    (["upgrade", "apply", "x", "--way"], "--way needs a value."),
+    (["todo", "list", "--limit", "many"], "--limit takes a number, not many."),
+])
+def test_a_wrong_line_is_answered_in_the_command_lines_words_not_argparses(argv, message, capsys):
+    code, env = run_json([*argv, "--json"], capsys)
+    assert (code, env["outcome"], env["reason"], env["message"]) == (2, "bad_args", "usage", message)
+
+
+def test_a_usage_error_under_jsonl_still_ends_with_the_envelope_line(capsys):
+    code, out, err = run(["todo", "list", "--jsonl", "--bogus"], capsys)
+    lines = out.splitlines()
+    assert code == 2 and len(lines) == 1 and err == ""
+    assert json.loads(lines[0])["outcome"] == "bad_args" and "--bogus" in json.loads(lines[0])["message"]

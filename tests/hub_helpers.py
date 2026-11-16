@@ -16,6 +16,13 @@ from discjockey.library import Paths, empty_state, save_state
 from discjockey.models import FetchedPlaylist, PlaylistInfo, SourceTrack
 from discjockey.planner import ENTRY_KEYS
 
+def cmd(text: str) -> str:
+    """A command as the command line prints it in `next[].run` and `person_steps[].then`: behind the program's path."""
+    import shlex
+    from discjockey.cli import housekeeping
+    return f"{shlex.quote(housekeeping.command_path())} {text}"
+
+
 ID1, ID2 = "0DiscjockeyExampleList", "3DiscjockeyExampleList"
 PLAYLISTS = f"# my playlists\nHard_Bounce = https://open.spotify.com/playlist/{ID1}\n" \
             f"Powertrance = https://open.spotify.com/playlist/{ID2}\n"

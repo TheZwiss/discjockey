@@ -1,5 +1,5 @@
 Run
-Run id          2026-11-10_110000
+Id              report:2026-11-10_110000
 Started         2026-11-10T11:00:00
 Finished        2026-11-10T11:05:00
 Duration s      300

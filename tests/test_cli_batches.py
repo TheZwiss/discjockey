@@ -27,7 +27,7 @@ def with_batches(paths) -> tuple[int, int]:
             "path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff", "note": "Upgraded",
             "rekordbox": {"entries": ["4711"], "kept": ["title", "comment"]}})
         db.set_aiff_item(conn, first, 1, "skipped", "needs_choice")
-        db.set_aiff_batch(conn, first, state="done", backup="2026-11-10_090001", ended=datetime(2026, 11, 10, 9, 1, 0))
+        db.set_aiff_batch(conn, first, state="done", backup="20261110T090001Z", ended=datetime(2026, 11, 10, 9, 1, 0))
         second = db.start_aiff_batch(conn, "convert", "make_aiff", None, [("t2", "convert")],
                                      datetime(2026, 11, 12, 18, 30, 0))
         db.set_aiff_batch(conn, second, state="stopped", stop_reason="rekordbox_open")
@@ -78,7 +78,7 @@ def test_batch_list_shows_both_kinds_newest_first_with_typed_ids(lib, capsys):
     assert (tidy["kind"], tidy["what"], tidy["state"], tidy["skipped"], tidy["done"], tidy["total"]) == (
         "moves", "Tidy-up", "done", 1, 0, 1)
     assert (upgrade["kind"], upgrade["what"], upgrade["started_by"], upgrade["done"], upgrade["skipped"],
-            upgrade["total"], upgrade["backup"]) == ("aiff", "upgrade", "user", 1, 1, 2, "2026-11-10_090001")
+            upgrade["total"], upgrade["backup"]) == ("aiff", "upgrade", "user", 1, 1, 2, "20261110T090001Z")
 
 
 def test_batch_list_takes_a_kind_and_a_limit_and_counts_every_batch(lib, capsys):
@@ -90,7 +90,7 @@ def test_batch_list_takes_a_kind_and_a_limit_and_counts_every_batch(lib, capsys)
     code, env = data_of(["batch", "list", "--kind", "aiff", "--limit", "1"], capsys)
     assert [r["id"] for r in env["data"]["batches"]] == ["aiff:2"] and env["data"]["total"] == 2
     code, env = data_of(["batch", "list", "--kind", "tidy"], capsys)
-    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "bad_id_kind")
+    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "usage")
     code, env = data_of(["batch", "list", "--limit", "0"], capsys)          # 0 is all, as the page's --limit 0
     assert code == 0 and len(env["data"]["batches"]) == 3
 
@@ -116,7 +116,7 @@ def test_batch_show_aiff_has_each_items_paths_and_rekordbox_part(lib, capsys):
     assert code == 0
     data = env["data"]
     assert (data["id"], data["kind"], data["state"], data["backup"], data["total"]) == (
-        "aiff:1", "aiff", "done", "2026-11-10_090001", 2)
+        "aiff:1", "aiff", "done", "20261110T090001Z", 2)
     done, skipped = data["results"]
     assert done["path"] == "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff" and done["name"] == "Vatoz Locoz - Gimme Gimme"
     assert done["rekordbox"] == {"entries": ["4711"], "kept": ["title", "comment"]} and done["message"] == "Upgraded"
@@ -170,8 +170,37 @@ def test_report_show_last_is_the_newest_reports_run_detail(lib, capsys):
     assert bare["data"] == older["data"]
 
 
-def test_report_show_of_a_run_that_is_not_there_is_refused(lib, capsys):
+def test_report_show_of_a_run_that_is_not_there_is_unknown_id(lib, capsys):
     code, env = data_of(["report", "show", "last"], capsys)
-    assert code == 7 and env["outcome"] == "refused" and "no run report" in env["message"]
-    code, env = data_of(["report", "show", "report:2026-01-01_000000"], capsys)
-    assert code == 7 and env["outcome"] == "refused"
+    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "unknown_id")
+    assert env["message"] == "There is no run report yet."
+    with_report(lib)
+    for typed in ("report:2020-01-01_000000", "2020-01-01_000000"):
+        code, env = data_of(["report", "show", typed], capsys)
+        assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "unknown_id"), typed
+        assert "2020-01-01_000000" in env["message"] and "report show last" in env["message"]
+        assert "report list" not in env["message"]  # `report list` is not built yet: no words point at it
+
+
+def test_report_show_of_another_kind_of_id_is_bad_id_kind(lib, capsys):
+    with_report(lib)
+    code, env = data_of(["report", "show", "aiff:1"], capsys)
+    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "bad_id_kind")
+
+
+def test_report_show_prints_the_typed_id_that_parses_back(lib, capsys):
+    stamp = with_report(lib)
+    code, env = data_of(["report", "show", f"report:{stamp}"], capsys)
+    assert code == 0 and env["outcome"] == "ok" and env["data"]["run"]["id"] == f"report:{stamp}"
+    from discjockey.hub import views
+    assert views.runs([(stamp, {})])[0]["id"] == f"report:{stamp}"  # the list's rows carry it too
+
+
+def test_report_show_prints_the_id_once_and_verbose_prints_both_forms(lib, capsys):
+    stamp = with_report(lib)
+    assert cli.main(["report", "show", "last"]) == 0
+    text = capsys.readouterr().out
+    assert f"Id              report:{stamp}" in text and "Run id" not in text
+    assert cli.main(["report", "show", "last", "--verbose"]) == 0
+    verbose = capsys.readouterr().out
+    assert "Run id" in verbose and f"report:{stamp}" in verbose

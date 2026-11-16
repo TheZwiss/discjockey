@@ -2,6 +2,7 @@
 method, every parameter has a word, window-only and dropped rows are what the design says."""
 import inspect
 import typing
+from dataclasses import replace
 
 import pytest
 
@@ -22,7 +23,7 @@ from discjockey.hub.catalog import Arg, Entry
 # `auto_upgrade_preview`; `start_sync`'s own `sync run` row stays planned for phase 4), part b `folder add`, `folder remove`
 # (`add_watched_folder`, `remove_watched_folder`, and `removal_preview`, which is its dry run: no command of its own),
 # `settings show` (`settings_view`) and `settings set auto-upgrade` (`set_auto_upgrade`).
-PHASE_1_CEILING = 80
+PHASE_1_CEILING = 81  # 80 + the planned `login check <service>` row (`setup_account` with the saved browser: U2)
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
@@ -180,3 +181,39 @@ def test_the_entries_are_well_formed():
 def test_the_planned_count_only_shrinks():
     planned = [e for e in catalog.ENTRIES if e.planned]
     assert len(planned) <= PHASE_1_CEILING, f"{len(planned)} planned entries"
+
+
+def _all_built(monkeypatch):
+    """Every entry as if its command were built (`planned` cleared): what the parser must still be able to make."""
+    monkeypatch.setattr(catalog, "ENTRIES", tuple(replace(e, planned=None) for e in catalog.ENTRIES))
+
+
+def test_the_parser_builds_with_every_planned_command_built(monkeypatch):
+    """A command line that cannot be made stops every line: the rows phase 1 wrote down must not collide (the three-word
+    login rows `login sign-in spotify` and `login sign-in <service>` did)."""
+    from discjockey.cli import parser
+    _all_built(monkeypatch)
+    assert parser.build() is not None
+    assert {("login", "check"), ("login", "sign-in"), ("login", "sign-out"), ("login", "skip")} <= set(parser.commands())
+
+
+def test_a_command_with_several_writes_names_the_rule_that_picks_one(monkeypatch):
+    """The parser takes its words from the first write of a command; the rest are reached by a rule the group that builds
+    the command writes in `call.choose`. Every such command is named in `DISPATCH`, built or planned."""
+    several = {}
+    for e in catalog.ENTRIES:
+        if e.command and e.kind not in ("R", "W", "dropped"):
+            several.setdefault(" ".join(e.command), []).append(e)
+    needs = {command for command, entries in several.items() if len(entries) > 1}
+    assert needs <= set(catalog.DISPATCH), sorted(needs - set(catalog.DISPATCH))
+    assert set(catalog.DISPATCH) <= needs, "a rule for a command that has one write only"
+    assert all(catalog.DISPATCH.values())
+
+
+def test_a_login_row_names_its_service_in_match_not_in_its_command():
+    rows = {e.method: e for e in catalog.ENTRIES if e.command[:1] == ("login",) and e.match}
+    assert {m: dict(e.match) for m, e in rows.items()} == {
+        "qobuz_check_login": {"service": "qobuz"}, "setup_skip_qobuz": {"service": "qobuz"},
+        "setup_spotify_login": {"service": "spotify"}, "spotify_sign_out": {"service": "spotify"},
+        "setup_skip_spotify": {"service": "spotify"}}
+    assert all(len(e.command) == 2 for e in rows.values())

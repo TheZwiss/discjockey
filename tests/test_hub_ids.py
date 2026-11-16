@@ -40,6 +40,18 @@ def test_a_bare_number_for_a_batch_says_which_batch():
         assert "say aiff:12 or moves:12" in e.value.message
 
 
+def test_the_words_for_a_wrong_kind_use_the_right_article():
+    for text, allowed, said in (("moves:1", ["aiff"], "moves:1 is a move batch id, but this command takes an aiff batch"),
+                                ("aiff:1", ["moves"], "aiff:1 is an aiff batch id, but"),
+                                ("job:1a2b3c4d", ["track"], "job:1a2b3c4d is a job id, but")):
+        with pytest.raises(ids.BadId) as e:
+            ids.parse(text, allowed)
+        assert said in e.value.message
+    with pytest.raises(ids.BadId) as e:
+        ids.parse("moves:x", ["moves"])
+    assert "is not a move batch id: moves:<number> is." in e.value.message
+
+
 def test_a_batch_id_of_the_other_kind_is_refused():
     with pytest.raises(ids.BadId) as e:
         ids.parse("aiff:3", ["moves"])

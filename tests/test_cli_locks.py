@@ -7,7 +7,9 @@ a built entry without a driver fails, so the column cannot be forgotten.
 The probes (`jobs.lock_free`, the console watch) are not takes: they never hold a lock for work."""
 from __future__ import annotations
 
+import shutil
 import sys
+import threading
 
 import pytest
 
@@ -21,8 +23,30 @@ from discjockey.rekordbox import lock as rb_lock
 
 
 class Recorder:
+    """`words` are the takes in the order the lock functions were called; `events` are the holds as they open and close:
+    `("take", word, thread)` when the lock is held, `("release", word, thread)` when the block ends."""
+
     def __init__(self):
         self.words: list[str] = []
+        self.events: list[tuple[str, str, int]] = []
+
+
+class Held:
+    """The context manager a lock function returned, noting when its hold opens and when it ends."""
+
+    def __init__(self, inner, rec: Recorder, word: str):
+        self.inner, self.rec, self.word = inner, rec, word
+
+    def __enter__(self):
+        value = self.inner.__enter__()
+        self.rec.events.append(("take", self.word, threading.get_ident()))
+        return value
+
+    def __exit__(self, *exc):
+        try:
+            return self.inner.__exit__(*exc)
+        finally:
+            self.rec.events.append(("release", self.word, threading.get_ident()))
 
 
 @pytest.fixture
@@ -40,7 +64,7 @@ def fake_locks(monkeypatch):
 
         def take(*args, **kwargs):
             rec.words.append(words[name])
-            return real(*args, **kwargs)
+            return Held(real(*args, **kwargs), rec, words[name])
         take.__name__ = name
         return take
 
@@ -313,8 +337,18 @@ DRIVERS = {
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 
 
+AUDIO_METHODS = {"rekordbox_preview", "convert", "rename", "make_aiff", "aiff_plan"}  # their drivers decode or write real audio
+
+
+def skip_without_tools(entry):
+    """These drivers run ffmpeg and ffprobe on a real file: without them the test skips, like the other audio tests."""
+    if entry.method in AUDIO_METHODS and (shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None):
+        pytest.skip("ffmpeg not installed")
+
+
 @pytest.mark.parametrize("entry", BUILT, ids=lambda e: f"{e.method}:{' '.join(e.command)}")
 def test_the_locks_a_built_entry_takes_are_its_locks_column(entry, box):
+    skip_without_tools(entry)
     if entry.kind in ("W", "dropped"):  # no command: nothing to take
         assert entry.locks == frozenset()
         return
@@ -343,6 +377,64 @@ def order_of(box, drive) -> list[str]:
     rec.words.clear()
     drive(api, events)
     return list(rec.words)
+
+
+RANK = {"support": 0, "library": 1, "rekordbox_r": 2, "rekordbox_w": 2}  # the two rekordbox.lock takes are one rank
+
+
+def disorder_of(events: list[tuple[str, str, int]]) -> str | None:
+    """The first lock taken while a later one is held (in one thread), else None. The rule is about holds that are open
+    together: a lock that was let go before the next is taken (a reader's preview, then the library) is no breach."""
+    held: dict[int, list[str]] = {}
+    for what, word, thread in events:
+        mine = held.setdefault(thread, [])
+        if what == "release":
+            mine.remove(word)
+            continue
+        later = [h for h in mine if RANK[h] > RANK[word]]
+        if later:
+            return f"{word} is taken while {later[0]} is held: {[e[:2] for e in events]}"
+        mine.append(word)
+    return None
+
+
+@pytest.mark.parametrize("entry", [pytest.param(e, id=f"{e.method}:{' '.join(e.command)}") for e in BUILT])
+def test_a_built_entry_takes_its_locks_in_the_stated_order(entry, box):
+    """Lock order is support, library, rekordbox.lock: a lock taken while another is held comes later in that order
+    (a reader after a writer is allowed: both are `rekordbox.lock`). Only holds that are open together count."""
+    skip_without_tools(entry)
+    if entry.kind in ("W", "dropped"):
+        return
+    own = f"{entry.method}:{' '.join(entry.command)}"
+    driver = DRIVERS.get(own) or DRIVERS.get(entry.method)
+    api, events, rec = box
+    rec.words.clear()
+    rec.events.clear()
+    driver(api, events)
+    assert disorder_of(rec.events) is None, disorder_of(rec.events)
+
+
+def test_the_order_check_fails_when_the_library_is_taken_while_the_reader_hold_is_open(box, tmp_path):
+    """The check is not blind: a driver that takes `library` inside a `rekordbox_r` hold is a breach, and the same two
+    takes one after the other (the hold let go first) are not."""
+    api, events, rec = box
+    support, music = api._support.support, api._paths.root / ".discjockey"
+    rec.events.clear()
+    with rb_lock.reader_lock(support):
+        with library.run_lock(music / "scratch.lock"):
+            pass
+    assert "library is taken while rekordbox_r is held" in (disorder_of(rec.events) or "")
+    rec.events.clear()
+    with rb_lock.reader_lock(support):
+        pass
+    with library.run_lock(music / "scratch.lock"):
+        pass
+    assert disorder_of(rec.events) is None
+    rec.events.clear()
+    with library.run_lock(music / "scratch.lock"):  # the allowed way round: the reader inside the library lock
+        with rb_lock.reader_lock(support):
+            pass
+    assert disorder_of(rec.events) is None
 
 
 def _music_elsewhere(api, rec):

@@ -27,9 +27,30 @@ REKORDBOX_PROBLEM = {
 SCAN_OLDER = "Library/ or a watched folder changed after the last scan, so this plan is on the files as that scan saw them."
 
 # a collection (`--in`) that is not there (`HubApi.resolve("collection", ...)`; the words the console's `convert --in` had)
+# One line for each noun of the command line, for the short `help` list (tests/test_cli_housekeeping.py: a noun with no
+# words cannot ship)
+NOUN_WORDS = {
+    "aiff": "Make files AIFF and give them clean names.",
+    "batch": "The batches Discjockey made: list, show, carry on or undo one.",
+    "check": "The checks to do in rekordbox after a file changed.",
+    "folder": "The folders Discjockey watches for your own files.",
+    "library": "Your library: read it again, read file facts.",
+    "rekordbox": "rekordbox's library: its state, what a change would do, its backups.",
+    "report": "The reports of past syncs.",
+    "settings": "What Settings holds, and changing it.",
+    "sync": "The sync.",
+    "todo": "Your to-do list.",
+    "track": "One song: find it, show it, undo its last step.",
+    "upgrade": "Better versions waiting: list, put in, throw away.",
+    "job": "Long runs: list, show, follow, wait for, stop.",
+}
+
 NO_PLAYLIST = "No playlist called “{name}”."
+NO_SONG = "Your library has no song {key}. `track find <words>` finds a song's id."
+NO_REPORT_YET = "There is no run report yet."
+NO_REPORT = "There is no report {stamp}. `report show last` shows the newest; a sync prints the id of its report."
 NO_FOLDER = "No folder at {path}."
-NOT_WATCHED = "{path} is not one of the watched folders. `folder list` names them."
+NOT_WATCHED = "{path} is not one of the watched folders."
 LIBRARY_NOT_REMOVABLE = "{path} is your Library: it is always watched and cannot be removed."
 BAD_FOLDER = "A folder is its path, or folder:<path>."
 BAD_COLLECTION = "A collection is all, unlisted, playlist:<name> or folder:<path>."
@@ -161,6 +182,12 @@ def person_steps(track_id: str, check: dict | None, new_path: str | None = None)
     else:
         return []
     return [{**person_step(name, tracks=track_id), "say": say}]
+
+
+# The To-do page's words for an empty list (`HubApi.todo`'s `empty_text`, from its `empty`); the window keeps its own copy
+# (hub-ui copy.ts `EMPTY`) until phase 6
+TODO_EMPTY = {"all_lossless": "Everything is lossless.", "all_hidden": "Only hidden tracks are left.",
+              "nothing_here": "Nothing here."}
 
 
 TIMING_WORDS = {

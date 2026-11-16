@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import shlex
 import signal
 import sys
 import time
@@ -42,12 +43,15 @@ START_WAIT_S = 15.0  # how long a client waits for a worker to leave `queued` (w
 POLL_S = 0.05
 SHOWN_EVENTS = 20  # the last events `job show` prints
 FIRST_LINE = "Job {job} started (follow: {path} job follow {job})"
+NO_JOB = "No job of this music folder is running."
+NO_JOB_YET = "There is no job here yet. `job list --all` lists every job."
 WINDOW_STOP = "{job} belongs to the window, which stops its jobs with its own Stop button."
 
 
 def command_path() -> str:
+    """The program's path as a shell takes it: quoted when it holds a space (a checkout's `DJ Downloader/`)."""
     from . import housekeeping  # housekeeping imports this module
-    return housekeeping.command_path()
+    return shlex.quote(housekeeping.command_path())
 
 
 def default_wait() -> float:
@@ -335,7 +339,7 @@ def drive(files: registry.JobFiles, command: str, flags: Flags, *, wait: float |
             if printer is not None and live_steps(rec) != shown_steps:
                 shown_steps = live_steps(rec)
                 for step in shown_steps:
-                    print(f"Your turn: {step.get('say')}", file=sys.stderr, flush=True)
+                    print(f"{envelope.YOUR_TURN}{step.get('say')}", file=sys.stderr, flush=True)
             if len(interrupts.presses) > handled:
                 handled = len(interrupts.presses)
                 if not own:
@@ -416,7 +420,7 @@ def _pick(command: str, text: str, reg: registry.Registry, music: str | None, *,
     running = [r for r in rows if r.get("status") in registry.ACTIVE and _is_write(r)]
     chosen = running[0] if running else None if running_only else rows[0] if rows else None
     if chosen is None:
-        return None, envelope.problem(command, "refused", "not_running")
+        return None, envelope.problem(command, "refused", "not_running", NO_JOB if running_only else NO_JOB_YET)
     return reg.get(chosen["id"]), None
 
 

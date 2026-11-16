@@ -20,7 +20,7 @@ from .. import cdj as cdj_rule, playlists_file as pf
 from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_MIN_KBPS, SERVICES, SERVICE_NAMES,
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
-from ..names import expected_stem, fold
+from ..names import expected_stem, fold, search_fold
 from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
                       AiffBatchRow, BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
                       PlaylistRecord, Question, WatchedFolder, is_own, split_token, track_link as key_link)
@@ -29,7 +29,7 @@ from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PLAN_LABELS, auto_upgrade_line, check_text, result_folder
 from ..settings import Settings
-from ..words import person_steps
+from ..words import TODO_EMPTY, person_steps
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
@@ -287,7 +287,7 @@ def run_summary(run_id: str, data: dict) -> dict:
     if code == 130:
         # every "queued" result was not done: stopped before it, left out by the user, or over the daily limit
         stopped_after = sum(1 for r in results if r.get("track_id") and r.get("section") != "queued")
-    return {"run_id": run_id, "started": started, "finished": finished, "duration_s": seconds, "exit_code": code,
+    return {"run_id": run_id, "id": f"report:{run_id}", "started": started, "finished": finished, "duration_s": seconds, "exit_code": code,
             "kind": data.get("kind") or "sync",
             "counts": {"lossless": lossless, "lossy": lossy, "problems": count(PROBLEM_SECTIONS),
                        "moved": count(MOVED_SECTIONS)},
@@ -1330,10 +1330,10 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                # checked files that aren't lossless: the strip's "Not lossless yet" row
                "not_lossless": by["good_lossy"] + by["weak"] + by["fake"],
                "to_do": sum(1 for e in entries if e.get("in_playlists") and not e.get("hidden") and _group(e) is not None)}
-    q = fold(query or "").strip()
+    q = search_fold(query or "").strip()  # case and accents ignored, as the command line's `track find`
     if q:
-        rows = [r for r in rows if q in fold(f"{r['artist']} {r['title']}")]
-        also = [r for r in also if q in fold(f"{r['artist']} {r['title']}")] if also is not None else None
+        rows = [r for r in rows if q in search_fold(f"{r['artist']} {r['title']}")]
+        also = [r for r in also if q in search_fold(f"{r['artist']} {r['title']}")] if also is not None else None
     # All counts every row the table lists under it (a read playlist's songs without a file too, never `also`); the
     # quality chips count files, the rows they list
     chips = {f: sum(1 for r in rows if (f == "all" or r["file_state"] != "no_file") and _matches(r, f))
@@ -1742,7 +1742,7 @@ def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None
     how = _batch_how(started_by, kind, tracks)
     return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
             "detail": f"{started or ''} · {how}".strip(" ·"),
-            "batch": {"id": batch_id, "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
+            "batch": {"id": batch_id, "aiff_id": f"aiff:{batch_id}", "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
                       "tracks": tracks}}
 
 
@@ -1963,7 +1963,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     # the page header's count of checks is tracks (a batch is one item in `chips` but holds `size` tracks)
     check_tracks = sum(1 for e in state["tracks"].values() if e.get("rekordbox_check"))
     return {"chips": chips, "check_tracks": check_tracks, "hidden_count": hidden, "show_hidden": show_hidden,
-            "groups": groups, "empty": empty}
+            "groups": groups, "empty": empty, "empty_text": TODO_EMPTY.get(empty)}
 
 
 def todo_others(prep, last_report: dict | None) -> dict[str, str]:

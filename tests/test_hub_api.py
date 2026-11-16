@@ -255,6 +255,14 @@ def test_library_track_and_todo(root):
     assert api.track("nope")["kind"] == "changed"
 
 
+def test_a_todo_filter_that_is_no_group_is_the_command_lines_bad_args_and_cdj_is_a_group(root):
+    api, _ = make_api(root)
+    nope = api.todo("nope")
+    assert (nope["ok"], nope["kind"], nope["outcome"], nope["reason"]) == (False, "bad_args", "bad_args", "usage")
+    assert "cdj" in nope["message"]                       # the words name every group the page can ask for
+    assert api.todo("cdj")["ok"] is True
+
+
 def test_library_rows_carry_the_same_track_link_as_the_details(root):
     """The row menu's "Open in …" reads the row (there when the menu opens): the same link the details' head has,
     here from the keys (no read yet); asking for the rows makes no call to a service (fake_spotify only serves reads)."""

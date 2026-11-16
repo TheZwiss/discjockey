@@ -259,13 +259,16 @@ def _sidecars(path: Path) -> tuple[Path, Path]:
 def _tidy_sidecars(path: Path, made: tuple[Path, ...]) -> None:
     """Takes away the `-wal` and `-shm` a read-only open made. Never by deleting them: another process may have
     started using them since, so a plain read-write open and close does it, and SQLite itself removes them only when
-    that close is the last one on the database. Nothing is written to the database (an empty log has nothing to
-    checkpoint). Best effort: a folder that cannot be written leaves them as they are."""
+    that close is the last one on the database. A writer that committed while the read was open and closed before it
+    leaves its pages in the log: this close is then the last one and checkpoints them, so it runs with the binding's
+    fullfsync settings. Best effort: a folder that cannot be written leaves them as they are."""
     if not any(f.exists() for f in made):
         return
     try:
         conn = sqlite3.connect(str(path), timeout=0)
         try:
+            conn.execute("PRAGMA fullfsync = ON")  # what `connect` sets: a checkpoint here must reach the drive
+            conn.execute("PRAGMA checkpoint_fullfsync = ON")
             conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchall()
         finally:
             conn.close()

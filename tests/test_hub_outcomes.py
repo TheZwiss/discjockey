@@ -99,12 +99,21 @@ def test_pick_of_nothing_is_ok_and_of_unknown_is_an_error():
         outcomes.pick(["running"])
 
 
+def test_a_step_with_no_command_of_its_own_has_a_null_then():
+    """`then` is a command or None (run the same command again), never prose (C-13)."""
+    for name, fields in (("quit_rekordbox", {}), ("folder_access", {"app": "A", "folder": "F"}),
+                         ("connect_drive", {"drive": "D"})):
+        assert outcomes.person_step(name, **fields)["then"] is None
+    assert outcomes.person_step("relocate_new", tracks="t1")["then"] == "check done t1"
+    assert all(step.then is None or step.then.startswith("check done") for step in outcomes.STEPS.values())
+
+
 def test_person_step_fills_its_words():
     step = outcomes.person_step("folder_access", app="Discjockey", folder="Music")
     assert step["id"] == "step:folder_access"
     assert step["say"].startswith("Allow Discjockey to open Music")
     assert outcomes.person_step("quit_rekordbox") == {
-        "id": "step:quit_rekordbox", "say": "Quit rekordbox, then tell me to carry on.", "then": "the same command"}
+        "id": "step:quit_rekordbox", "say": "Quit rekordbox, then tell me to carry on.", "then": None}
     assert set(outcomes.STEPS) == {"quit_rekordbox", "relocate_new", "reload_tag", "folder_access", "connect_drive"}
 
 

@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 from audio_helpers import needs_ffmpeg
-from hub_helpers import LOSSLESS, LOSSY, choose_music, make_root
+from hub_helpers import LOSSLESS, LOSSY, choose_music, make_root, write_state
 from rekordbox_helpers import make_master
 from test_rekordbox_preview import LAME, rekordbox_for
 
 import discjockey.cli as cli
-from discjockey import rekordbox
+from discjockey import library, rekordbox
 from discjockey.library import run_lock
 from discjockey.rekordbox import lock as rb_lock
 
@@ -126,11 +126,14 @@ def test_preview_refusals(lib, capsys):
     code, env = data_of(["rekordbox", "preview", "--path", str(lib.root / LOSSLESS)], capsys)
     assert code == 7 and (env["outcome"], env["reason"]) == ("refused", "file_missing")
     code, env = data_of(["rekordbox", "preview", "local:99"], capsys)  # a key of the right shape that nothing holds
-    assert code == 7 and (env["outcome"], env["reason"]) == ("refused", "refused") and "local:99" in env["message"]
+    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "unknown_id") and "local:99" in env["message"]
     code, env = data_of(["rekordbox", "preview", "--path", str(lib.root / "nope.mp3")], capsys)
     assert code == 7 and env["reason"] == "file_missing"
     code, env = data_of(["rekordbox", "preview"], capsys)
     assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "usage")
+    state = library.load_state(lib)
+    state["tracks"]["local:1"] = dict(state["tracks"]["t1"], path="Library/Hard_Bounce/Other - Song.aiff")  # a song the line can name
+    write_state(lib, state)
     code, env = data_of(["rekordbox", "preview", "local:1", "--path", "x"], capsys)
     assert code == 2 and env["reason"] == "conflicting_flags"
 

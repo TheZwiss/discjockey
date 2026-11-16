@@ -144,6 +144,7 @@ def test_the_checks_of_a_batch_are_one_item_and_batch_undo_puts_them_back(hub):
     assert item["key"] == item["track_id"] == f"batch:{r['batch']}" and item["group"] == "rekordbox_check"
     b = item["batch"]
     assert (b["id"], b["size"], len(b["tracks"])) == (r["batch"], 3, 3) and b["started"]
+    assert b["aiff_id"] == f"aiff:{r['batch']}"  # the id `check done --batch` takes
     assert [t["track_id"] for t in b["tracks"]] == lib.tracks and all(t["can_undo"] for t in b["tracks"])
     assert [t["check"]["batch"] for t in b["tracks"]] == [{"id": r["batch"], "size": 3}] * 3
     mp3, aiff, free = (t["check"] for t in b["tracks"])
