@@ -83,7 +83,7 @@ NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
 NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
 CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
-NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts"))  # run on what is there when --yes comes: no plan to run
+NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -117,7 +117,7 @@ LIBRARY_METHODS = frozenset((
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
-CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))
+CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
 
 
 @dataclass
@@ -1969,12 +1969,12 @@ class HubApi:
     @bridge
     def remove_watched_folder(self, folder_id: int) -> dict:
         """Stops watching an import folder (D12; its files stay where they are): a write job (kind "folders"), its
-        result `{files, redownload}`."""
+        result `{name, files, redownload}` (`name` is for the command line's words; the window ignores it)."""
         folder = self._import_folder(folder_id)
 
         def change(ctx) -> dict:
             counts = folders_mod.remove(self._paths, folder.id, self._today(), emit=ctx.emit)
-            return {"files": counts.files, "redownload": counts.redownload}
+            return {"name": folder.path.name or str(folder.path), "files": counts.files, "redownload": counts.redownload}
 
         return {"job_id": self._jobs.start("folders", replanned_work(self._store, change, self._svc.now)).id}
 
@@ -2590,7 +2590,7 @@ class HubApi:
 
         def work(ctx) -> dict:
             self._update_settings(lambda s: replace(s, auto_upgrade=on))
-            return {}
+            return {"auto_upgrade": on}  # the value as saved: the command line says it (the window ignores it)
 
         return {"job_id": self._jobs.start("set_auto_upgrade", work).id}
 
@@ -3054,7 +3054,7 @@ class CliApi(HubApi):
     (tests/test_hub_api.py): the window's `HubApi` has none of these."""
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
-                 "collection": "_resolve_collection"}  # kind -> the method that makes it (grows per group)
+                 "collection": "_resolve_collection", "folder": "_resolve_folder"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -3120,6 +3120,15 @@ class CliApi(HubApi):
             return self._phase_words(result)
         if method == "auto_upgrade_preview" and "auto_upgrade" in result:
             return {"message": engine_words.AUTO_UPGRADE_OFF} if result["auto_upgrade"] is None else {}
+        if method == "set_auto_upgrade" and isinstance(result.get("auto_upgrade"), bool):
+            return {"message": engine_words.AUTO_UPGRADE_SET[result["auto_upgrade"]]}
+        if method == "removal_preview" and "files" in result:
+            return {"message": engine_words.removal_words(result["files"], result["redownload"])}
+        if method == "remove_watched_folder" and "files" in result:
+            return {"message": f"{engine_words.REMOVED.format(name=result['name'])} "
+                               f"{engine_words.removal_words(result['files'], result['redownload'])}"}
+        if method == "check_import_folder" and result.get("message"):  # a folder that cannot be watched says why
+            return {"message": result["message"]}
         if method == "fill_facts" and "total" in result:
             return self._facts_words(result)
         if method in ("convert", "rename", "make_aiff") and result.get("batch") is None and result.get("total") == 0 \
@@ -3366,6 +3375,27 @@ class CliApi(HubApi):
             return {"total": db.facts_missing(conn) if conn is not None else 0}
 
     @cli_first
+    def settings_view(self) -> dict:
+        """`settings show`: what Settings holds, in the window's words where it has them. Needs no music folder (the
+        settings file is the support folder's). `{music_folder, auto_upgrade, read_liked_music, daily_qobuz_limit,
+        qobuz_skipped, spotify_skipped, import_skipped, accounts, labels}`: `music_folder` is the chosen folder (null:
+        not chosen yet), `read_liked_music` is the switch as the page shows it (on only with a YouTube login),
+        `accounts` the YouTube and SoundCloud logins that are set up, each `{browser, browser_name, profile,
+        profile_name, daily_limit}`, `labels` the page's names of the two switches. The file is read strictly as a
+        sync reads it: one that cannot be read is `config_invalid`. A read: no lock."""
+        settings = load_settings(self._support.settings_file)
+        home = self._svc.home
+        accounts = {s: {"browser": a.browser, "browser_name": BROWSERS[a.browser], "profile": a.profile,
+                        "profile_name": profile_name(a.browser, a.profile, home), "daily_limit": a.daily_limit}
+                    for s, a in settings.accounts.items()}
+        return {"music_folder": self._music_status()["path"], "auto_upgrade": settings.auto_upgrade,
+                "read_liked_music": settings.reads_liked_music, "daily_qobuz_limit": settings.daily_qobuz_limit,
+                "qobuz_skipped": settings.qobuz_skipped, "spotify_skipped": settings.spotify_skipped,
+                "import_skipped": settings.import_skipped, "accounts": accounts,
+                "labels": {"auto_upgrade": engine_words.AUTO_UPGRADE_LABEL,
+                           "read_liked_music": engine_words.LIKED_MUSIC_LABEL}}
+
+    @cli_first
     def freshness(self) -> dict:
         """How fresh the answers are, for the command line's `as_of`: `{scanned_at, read_at}`, each an ISO time or None.
         `scanned_at` is when the index was last scanned (a watched folder's last scan), `read_at` when the playlists
@@ -3408,6 +3438,25 @@ class CliApi(HubApi):
                 raise BadId("unknown_id", engine_words.NO_PLAYLIST.format(name=name))
             return {"view": "playlist", "key": found}
         raise BadId("usage", engine_words.BAD_COLLECTION)
+
+    def _resolve_folder(self, text: str) -> int:
+        """`folder remove <folder>`: a watched import folder, typed as its path (absolute, `~` or relative to where the
+        command runs) or as `folder:<path>`, to its folder id. The Library, a folder nobody watches (or no music folder
+        yet) is `bad_args`, `unknown_id`, in the words `NOT_WATCHED` / `LIBRARY_NOT_REMOVABLE`."""
+        word = text.strip()
+        if word.startswith("folder:"):
+            word = word[len("folder:"):].strip()
+        if not word:
+            raise BadId("usage", engine_words.BAD_FOLDER)
+        typed = {fold(os.path.abspath(os.path.expanduser(word))), fold(os.path.realpath(os.path.expanduser(word)))}
+        with self._move_log() as conn:
+            rows = db.watched_folders(conn) if conn is not None else []
+        for f in rows:
+            if fold(os.path.normpath(str(f.path))) in typed:
+                if f.kind != "import":
+                    raise BadId("unknown_id", engine_words.LIBRARY_NOT_REMOVABLE.format(path=word))
+                return f.id
+        raise BadId("unknown_id", engine_words.NOT_WATCHED.format(path=word))
 
     def _collection_folder(self, name: str) -> str:
         """The key of the folder view for a typed path (see `_resolve_collection`); BadId when no folder is there."""

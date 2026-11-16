@@ -18,7 +18,7 @@ from ..hub import catalog
 from ..hub.api import CliApi
 from ..hub.catalog import Entry
 
-LEGACY_WORDS = frozenset(("setup", "update", "settings"))
+LEGACY_WORDS = frozenset(("setup", "update"))
 # Old words that are gone: what the usage error tells a person (or an agent) who still types one (design §12)
 MOVED = {("upgrades",): "`upgrades` is not a command any more: say `upgrade …` (`upgrade list`, `upgrade apply`, "
                         "`upgrade discard`).",
@@ -26,6 +26,8 @@ MOVED = {("upgrades",): "`upgrades` is not a command any more: say `upgrade …`
          ("rekordbox", "checked"): "`rekordbox checked` is not a command any more: say `check done`.",
          ("convert",): "`convert` is not a command any more: say `aiff convert …` (`--all --in <collection>` is Make all "
                        "lossless files AIFF, `--all --todo cdj` is Convert all).",
+         ("settings", "auto-upgrade"): "`settings auto-upgrade` is not a command any more: say `settings set auto-upgrade "
+                                       "on|off` (`settings show` says which it is now).",
          ("rename",): "`rename` is not a command any more: say `aiff rename …` (`--all [--in <collection>]` is every "
                       "clean AIFF whose name isn't clean)."}
 GLOBAL_BOOL = {"--json": "json", "--jsonl": "jsonl", "--detach": "detach", "--verbose": "verbose",
@@ -233,6 +235,14 @@ def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
     return flags
 
 
+def _switch(text: str) -> bool:
+    """A positional switch (`settings set auto-upgrade on|off`): the word `on` or `off` as the bool the method takes."""
+    word = text.strip().lower()
+    if word not in ("on", "off"):
+        raise argparse.ArgumentTypeError(f"say on or off, not {text}")
+    return word == "on"
+
+
 def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
     primary = catalog.primary(entries)
     signature = signature_of(primary.method)
@@ -241,7 +251,7 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
         optional = signature.parameters[name].default is not inspect.Parameter.empty
         if arg.positional:
             leaf.add_argument(name, nargs="*" if arg.many else "?" if optional else None, metavar=name.upper(),
-                              default=argparse.SUPPRESS)
+                              default=argparse.SUPPRESS, **({"type": _switch} if arg.type == "bool" else {}))
         elif arg.flag:
             taken.add(arg.flag)
             if arg.type == "bool":

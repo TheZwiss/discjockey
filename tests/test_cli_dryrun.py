@@ -457,6 +457,8 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "aiff convert": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True}), ({}, {"all": True, "todo": "cdj"})],
     "aiff rename": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
     "sync run": [({}, {"auto_upgrade_only": True})],
+    "folder add": [({"path": "a-folder"}, {})],
+    "folder remove": [({"folder_id": "a-watched-folder"}, {})],
 }
 
 
@@ -466,7 +468,7 @@ def t9_cases():
 
 @needs_ffmpeg
 @pytest.mark.parametrize("command,args,flags", t9_cases(), ids=lambda v: str(v) if isinstance(v, str) else "")
-def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inline_workers, command, args, flags):
+def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inline_workers, tmp_path_factory, command, args, flags):
     lib = upgrades
     entry = catalog.primary([e for e in catalog.ENTRIES if " ".join(e.command) == command and e.dry_run and e.planned is None])
     args = {k: (lib.tracks if v == "all-tracks" else v) for k, v in args.items()}
@@ -483,6 +485,13 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inl
         made = rb_backup.Backup.ensure(lib.paths, lib.place, dbid=dbid, batch_id=None, tracks=[])
         made.close(lib.place)
         args["backup"] = made.id
+    if args.get("path") == "a-folder":  # a folder outside the music folder, empty (what `folder add` would watch)
+        args["path"] = str(tmp_path_factory.mktemp("to-watch"))
+    if args.get("folder_id") == "a-watched-folder":  # a watched import folder, typed as its path
+        watched = tmp_path_factory.mktemp("watched")
+        with db.connect(lib.paths.db_file) as conn:
+            db.add_watched_folder(conn, watched, datetime(2026, 11, 16, 9, 0, 0))
+        args["folder_id"] = str(watched)
     support, music, rekordbox = lib.paths.support, lib.paths.root, lib.folder
     # (`jobs/` is the registry's record of a job, bookkeeping like plans/ and cache/: the dry run of a read job (kind RJ,
     # the aiff ones) is answered by a worker, so its job exists whatever it reads; the read itself writes nothing but the plan)

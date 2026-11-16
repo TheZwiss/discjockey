@@ -1,5 +1,5 @@
 """The old command line, moved here unchanged by issue 39 group 1.2: the sync (no command) and the words whose
-replacement is not built yet (`setup`, `update`, `settings`). `discjockey/cli/__init__.py` routes
+replacement is not built yet (`setup`, `update`). `discjockey/cli/__init__.py` routes
 those words here unchanged; each leaves with the group that lands its replacement (`upgrades`, `upgrade`, `batch` and
 `rekordbox checked | backups | restore` left with group 1.12, `convert` and `rename` with group 1.13: they are `aiff
 convert` and `aiff rename`). Started by `python -m discjockey`
@@ -11,7 +11,7 @@ run), runs, and ends with the report's summary and Auto-upgrade's summary line. 
 "counts", "auto_upgrade"}` or `{"ok": false, "kind", "message"}` for a problem, and every human line goes to stderr
 (CONTRIBUTING.md > "Commands for scripts and agents" > "Not rebuilt yet"). Exit codes: 0 done (also when upgrades wait for rekordbox), 1
 errors in the run, a crash or `needs_yes`, 2 setup problem or no music folder, 3 another run holds the library lock,
-130 stopped. The other commands live in `settings_cmd.py` (`settings`) and `setup_cmd.py`."""
+130 stopped. The other commands live in `setup_cmd.py`."""
 from __future__ import annotations
 
 import argparse
@@ -61,12 +61,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help="print one JSON object at the end (the human lines go to stderr); needs --yes or --dry-run")
     commands = p.add_subparsers(
         dest="command", metavar="command", title="commands",
-        description="setup: one-time logins; update: get the newest yt-dlp; "
-                    "settings: change a setting without the window (auto-upgrade)")
+        description="setup: one-time logins; update: get the newest yt-dlp")
     for name, help_text in (("setup", "One-time logins."), ("update", "Get the newest yt-dlp.")):
         _sync_flags(commands.add_parser(name, description=help_text), repeated=True)
-    from .. import settings_cmd
-    settings_cmd.add_commands(commands)
     args = p.parse_args(argv)
     if args.json and args.command in ("setup", "update"):
         p.error(f"--json belongs to the sync, not to `{args.command}`")
@@ -252,9 +249,6 @@ def _print_json(data: dict, out) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    if args.command == "settings":  # takes the lock itself where it writes
-        from .. import settings_cmd
-        return settings_cmd.run(args)
     # `--json` is the sync's: one object on stdout at the end, every human line on stderr
     as_json = args.command is None and args.json
     if as_json and not (args.yes or args.dry_run):

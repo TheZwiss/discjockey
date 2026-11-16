@@ -950,8 +950,10 @@ def rh1_dry(work: Path, ctx: dict, checks: Checks) -> None:
 def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
     checks.tag = "RH2"
     print("RH2: switch off")
-    code, data, _, _ = run_cli(work, "rh2-setting", "settings", "auto-upgrade", "off", "--json", offline=True)
-    checks.add("RH2 settings auto-upgrade off", code == 0 and data.get("auto_upgrade") is False, f"exit {code}")
+    code, data, _, _ = run_cli(work, "rh2-setting", "settings", "set", "auto-upgrade", "off", "--wait", "60", "--json",
+                               offline=True)
+    checks.add("RH2 settings set auto-upgrade off", code == 0 and (data.get("data") or {}).get("auto_upgrade") is False,
+               f"exit {code}")
     before = snapshot(work, ctx)
     code, data, _, seconds = real_sync(work, "rh2-sync")
     state["off_seconds"] = seconds
@@ -973,8 +975,10 @@ def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
 def rh3_dry_on(work: Path, ctx: dict, picks: list[dict], checks: Checks) -> None:
     checks.tag = "RH3"
     print("RH3: dry run with the switch on")
-    code, data, _, _ = run_cli(work, "rh3-setting", "settings", "auto-upgrade", "on", "--json", offline=True)
-    checks.add("RH3 settings auto-upgrade on", code == 0 and data.get("auto_upgrade") is True, f"exit {code}")
+    code, data, _, _ = run_cli(work, "rh3-setting", "settings", "set", "auto-upgrade", "on", "--wait", "60", "--json",
+                               offline=True)
+    checks.add("RH3 settings set auto-upgrade on", code == 0 and (data.get("data") or {}).get("auto_upgrade") is True,
+               f"exit {code}")
     before = snapshot(work, ctx)
     code, data, _, _ = phase_run(work, "rh3-dry", "--dry-run")
     block = data.get("auto_upgrade") or {}

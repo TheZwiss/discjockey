@@ -81,6 +81,7 @@ CONFIRM: dict[str, str] = {
     "upgrade discard": "Throw away the new versions? Your current files stay. These versions are not offered again.",
     "track undo": "Undo the last step of these tracks? Your old files go back where they were.",
     "batch undo": "Undo every step this batch did? Your old files go back where they were.",
+    "folder remove": "Stop watching this folder? Discjockey forgets its files; the files stay where they are.",
     "rekordbox restore": "Put rekordbox's whole library back as this backup holds it? Every change made in rekordbox "
                          "since is dropped. Your library as it is now is saved first.",
 }
@@ -197,8 +198,7 @@ ENTRIES: tuple[Entry, ...] = (
        fixed={"filter": "rekordbox_check"}, built=True, locks={"rekordbox_r"}),
     _e("sidebar", "library collections", "R", "library collections"),
     _e("watched_folders", "folder list", "R", "folder list"),
-    _e("removal_preview", "folder remove", "R", "folder remove folder:/Music/Crate --dry-run",
-       params={"folder_id": _positional("folder", type="int")}),
+    _e("removal_preview", "", "R", params={"folder_id": _positional("folder", type="int")}, built=True),  # `folder remove --dry-run`
     _e("check_import_folder", "folder check", "R", "folder check /Music/Crate"),
     _e("tidy_preview", "tidy run", "R", "tidy run --dry-run"),
     _e("move_batches", "", "R", built=True),  # the window's own list; `batch list` is `batches`
@@ -266,7 +266,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("setup_spotify_login", "login sign-in spotify", "J"),
     _e("spotify_sign_out", "login sign-out spotify", "J", needs_yes=True),
     _e("setup_skip_spotify", "login skip spotify", "J"),
-    _e("set_auto_upgrade", "settings set auto-upgrade", "J", params={"on": _positional(type="bool")}),
+    _e("set_auto_upgrade", "settings set auto-upgrade", "J", "settings set auto-upgrade off",
+       params={"on": _positional(type="bool")}, built=True, locks={"library", "support"}),
     _e("setup_check_tools", "tools status", "R", "tools status"),
     _e("update_tools", "tools update", "J"),
     _e("rollback_tools", "tools rollback", "J", needs_yes=True),
@@ -279,10 +280,12 @@ ENTRIES: tuple[Entry, ...] = (
        dry_run="check_music_folder"),
     _e("retry_music_folder", "setup status", "R", "setup status"),
     _e("setup_skip_import", "setup skip-import", "B"),
-    _e("add_watched_folder", "folder add", "J", params={"path": _positional()}, dry_run="check_import_folder"),
+    _e("add_watched_folder", "folder add", "J", "folder add /Music/Crate", params={"path": _positional()},
+       dry_run="check_import_folder", built=True, locks={"library"}),
     _e("start_import", "import run", "J"),
-    _e("remove_watched_folder", "folder remove", "J", params={"folder_id": _positional("folder", type="int")},
-       needs_yes=True, dry_run="removal_preview"),
+    _e("remove_watched_folder", "folder remove", "J", "folder remove folder:/Music/Crate --dry-run",
+       params={"folder_id": _positional("folder", type="int")}, needs_yes=True, dry_run="removal_preview", built=True,
+       locks={"library"}),
     # --- questions, duplicates, AIFF, upgrades, rekordbox check
     _e("answer_same_song", "question answer", "J", params={
         "song_key": _derived("question"), "own_key": _derived("question"), "same": _positional(type="bool")}),
@@ -356,7 +359,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("auto_upgrade_run", "sync run", "J", "sync run --auto-upgrade-only --dry-run", cli_first=True,
        dry_run="auto_upgrade_preview", built=True, locks={"library", "rekordbox_r", "rekordbox_w"},
        partial=AUTO_UPGRADE_PARTIAL),
-    _e("settings_view", "settings show", "R", cli_first=True),
+    _e("settings_view", "settings show", "R", "settings show", cli_first=True, built=True),
     _e("rekordbox_backups", "rekordbox backups", "R", "rekordbox backups", cli_first=True, built=True),
     _e("rekordbox_restore", "rekordbox restore", "J", "rekordbox restore 20261110T090001Z --dry-run", cli_first=True,
        needs_yes=True, dry_run="rekordbox_restore_preview", built=True, locks={"library", "rekordbox_w"}),

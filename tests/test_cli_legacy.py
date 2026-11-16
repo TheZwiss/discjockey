@@ -458,7 +458,7 @@ def run_json(argv, capsys):
 
 
 def test_the_legacy_words_still_parse():
-    for argv in (["setup"], ["update"], ["settings", "auto-upgrade"]):
+    for argv in (["setup"], ["update"]):
         assert cli.parse_args(argv).command == argv[0]
     with pytest.raises(SystemExit):  # `convert` and `rename` are `aiff convert` and `aiff rename` of the new line
         cli.parse_args(["convert", "--all", "lossless"])
@@ -626,8 +626,7 @@ def test_rekordbox_open_the_plan_says_so_and_the_sync_upgrades_nothing(tmp_path,
 @needs_ffmpeg
 def test_with_the_switch_off_the_sync_moves_no_file_and_says_nothing_of_upgrades(tmp_path, monkeypatch, capsys):
     lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
-    assert cli.main(["settings", "auto-upgrade", "off"]) == 0
-    capsys.readouterr()
+    save_settings(lib.paths.settings_file, Settings(auto_upgrade=False))  # the switch the new `settings set` writes
     monkeypatch.setattr(cli, "locate", lambda: pytest.fail("looked for rekordbox"))
     monkeypatch.setattr(process, "running", lambda: pytest.fail("asked whether rekordbox runs"))
     before = (lib.music(), lib.dump())
@@ -710,89 +709,3 @@ def test_hub_is_no_legacy_word_any_more(capsys):
         cli.parse_args(["hub"])
     import discjockey.cli as the_command_line
     assert the_command_line.main(["hub"]) == 2 and "hub is not a command" in capsys.readouterr().err
-
-
-# --- discjockey settings auto-upgrade ---
-
-def settings_json(argv, capsys):
-    code = cli.main(["settings", "auto-upgrade", *argv, "--json"])
-    return code, json.loads(capsys.readouterr().out)
-
-
-def test_settings_auto_upgrade_reads_sets_and_prints_the_window_value(root, capsys):
-    paths = Paths(root, support=root / ".support")
-    assert cli.main(["settings", "auto-upgrade"]) == 0
-    assert capsys.readouterr().out == "Upgrade automatically when I sync: on\n"          # on by default
-    assert settings_json([], capsys) == (0, {"ok": True, "auto_upgrade": True})
-    assert cli.main(["settings", "auto-upgrade", "off"]) == 0
-    assert capsys.readouterr().out == "Upgrade automatically when I sync: off\n"
-    from discjockey.settings import load_settings
-    assert load_settings(paths.settings_file).auto_upgrade is False
-    assert settings_json([], capsys) == (0, {"ok": True, "auto_upgrade": False})
-    assert settings_json(["on"], capsys) == (0, {"ok": True, "auto_upgrade": True})
-    assert load_settings(paths.settings_file).auto_upgrade is True
-
-
-def test_a_busy_support_lock_is_a_busy_answer_in_plain_words_not_a_traceback(root, capsys, monkeypatch):
-    """Another process saving its own settings for over 2 seconds (a flock of another descriptor conflicts here too)."""
-    monkeypatch.setattr(library, "SUPPORT_WAIT_S", 0.3)
-    paths = Paths(root, support=root / ".support")
-    paths.support.mkdir(parents=True, exist_ok=True)
-    with library.support_lock(paths.support):
-        code, data = settings_json(["off"], capsys)
-        assert code == 3 and data["ok"] is False and (data["kind"], data["reason"]) == ("busy", "support_lock")
-        assert "Traceback" not in data["message"] and "Another Discjockey process" in data["message"]
-        assert cli.main(["settings", "auto-upgrade", "on"]) == 3
-        out = capsys.readouterr()
-        assert "Another Discjockey process" in out.out and "Traceback" not in out.out + out.err
-    from discjockey import tool_updates
-
-    def busy(support):
-        raise library.SupportBusy()
-
-    monkeypatch.setattr(tool_updates, "update", busy)
-    assert cli.main(["update"]) == 3  # the terminal's update: busy words, no traceback
-    assert "Another Discjockey process" in capsys.readouterr().out
-    monkeypatch.setattr(cli, "sync", lambda paths, args: busy(None))  # a sync's own saves (--extra)
-    code, data, _ = sync_json(["--yes", "--json"], capsys)
-    assert code == 3 and (data["kind"], data["reason"]) == ("busy", "support_lock") and data["ok"] is False
-
-
-def test_settings_auto_upgrade_keeps_the_other_settings(root, capsys):
-    paths = Paths(root, support=root / ".support")
-    from dataclasses import replace
-    from discjockey.settings import load_settings
-    save_settings(paths.settings_file, replace(Settings(), daily_qobuz_limit=40, qobuz_skipped=True))
-    assert cli.main(["settings", "auto-upgrade", "off"]) == 0
-    s = load_settings(paths.settings_file)
-    assert (s.auto_upgrade, s.daily_qobuz_limit, s.qobuz_skipped) == (False, 40, True)
-
-
-def test_settings_auto_upgrade_reads_without_the_lock_and_writes_with_it(root, capsys):
-    paths = Paths(root, support=root / ".support")
-    with run_lock(paths.lock):
-        assert settings_json([], capsys) == (0, {"ok": True, "auto_upgrade": True})            # a read: no lock
-        code, data = settings_json(["off"], capsys)
-    assert code == 3 and (data["ok"], data["kind"]) == (False, "busy")
-    assert not paths.settings_file.exists()                                                    # nothing was changed
-    assert cli.main(["settings", "auto-upgrade", "off"]) == 0                                  # the lock is free again
-
-
-def test_settings_auto_upgrade_needs_a_music_folder_and_a_readable_file(root, tmp_path, capsys):
-    paths = Paths(root, support=root / ".support")
-    paths.settings_file.write_text('{"auto_upgrade": "yes"}')
-    code, data = settings_json(["off"], capsys)
-    assert code == 1 and (data["ok"], data["kind"], data["reason"]) == (False, "refused", "settings_invalid")
-    assert "auto_upgrade must be true or false" in data["message"] and "yes" in paths.settings_file.read_text()
-
-
-def test_settings_auto_upgrade_without_a_music_folder_is_exit_2(capsys):
-    code, data = settings_json([], capsys)               # conftest: an empty support folder, Setup never done
-    assert code == 2 and (data["ok"], data["kind"], data["reason"]) == (False, "refused", "no_library")
-
-
-def test_settings_takes_on_or_off_only(capsys):
-    with pytest.raises(SystemExit):
-        cli.parse_args(["settings", "auto-upgrade", "maybe"])
-    with pytest.raises(SystemExit):
-        cli.parse_args(["settings"])

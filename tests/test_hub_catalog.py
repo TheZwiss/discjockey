@@ -19,8 +19,10 @@ from discjockey.hub.catalog import Arg, Entry
 # `rekordbox backups`, `rekordbox restore` and `rekordbox_restore_preview`; 1.13 part a builds `library facts` (and its
 # read, `facts_preview`), part b `aiff convert` and `aiff rename` (`convert`, `rename`, `make_aiff` and the two `aiff_plan`
 # reads that are their dry runs); 1.14 part a builds `sync run --auto-upgrade-only` (`auto_upgrade_run` and its dry run
-# `auto_upgrade_preview`; `start_sync`'s own `sync run` row stays planned for phase 4).
-PHASE_1_CEILING = 85
+# `auto_upgrade_preview`; `start_sync`'s own `sync run` row stays planned for phase 4), part b `folder add`, `folder remove`
+# (`add_watched_folder`, `remove_watched_folder`, and `removal_preview`, which is its dry run: no command of its own),
+# `settings show` (`settings_view`) and `settings set auto-upgrade` (`set_auto_upgrade`).
+PHASE_1_CEILING = 80
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",

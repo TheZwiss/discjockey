@@ -1,0 +1,11 @@
+Music folder       <tmp>
+Auto upgrade       yes
+Read liked music   no
+Daily qobuz limit  60
+Qobuz skipped      no
+Spotify skipped    no
+Import skipped     no
+
+Labels
+Auto upgrade      Upgrade automatically when I sync
+Read liked music  Read my Liked music

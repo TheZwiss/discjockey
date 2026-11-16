@@ -1,0 +1,9 @@
+Imported 3 files.
+
+Files          3
+Own songs      3
+Sound checked  3
+Unreadable     0
+Left           0
+Stopped        no
+Link note      Your playlists couldn't be read, so the imported files are linked to them at the next sync.

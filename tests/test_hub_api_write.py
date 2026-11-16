@@ -978,7 +978,7 @@ def test_removing_a_folder_forgets_its_files_and_reports_what_downloads_again(li
     preview = api.removal_preview(fid)
     assert (preview["name"], preview["files"], preview["redownload"]) == ("Music", 3, 0)
     done = wait_job(api, rec, api.remove_watched_folder(fid))
-    assert (done.ok, done.kind, done.result) == (True, "folders", {"files": 3, "redownload": 0})
+    assert (done.ok, done.kind, done.result) == (True, "folders", {"name": "Music", "files": 3, "redownload": 0})
     assert [r["kind"] for r in api.watched_folders()["folders"]] == ["library"]
     assert not own_songs(paths) and all(p.is_file() for p in folder.iterdir())  # the files stay where they are
     for bad in (fid, 0, "x", True, None):
@@ -999,7 +999,7 @@ def test_removing_the_folder_of_a_playlist_songs_only_file_makes_it_download_aga
     fid = next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
     assert api.removal_preview(fid) == {"ok": True, "name": "Music", "files": 3, "redownload": 1}
     done = wait_job(api, rec, api.remove_watched_folder(fid))
-    assert done.result == {"files": 3, "redownload": 1}
+    assert done.result == {"name": "Music", "files": 3, "redownload": 1}
     assert load_state(paths)["tracks"]["t3"]["path"] is None
     wanted = [(a["kind"], a["track_id"]) for g in api.sync_preview()["groups"] for a in g["actions"]]
     assert ("acquire", "t3") in wanted  # the preview was planned again at once

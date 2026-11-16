@@ -29,6 +29,9 @@ SCAN_OLDER = "Library/ or a watched folder changed after the last scan, so this 
 # a collection (`--in`) that is not there (`HubApi.resolve("collection", ...)`; the words the console's `convert --in` had)
 NO_PLAYLIST = "No playlist called “{name}”."
 NO_FOLDER = "No folder at {path}."
+NOT_WATCHED = "{path} is not one of the watched folders. `folder list` names them."
+LIBRARY_NOT_REMOVABLE = "{path} is your Library: it is always watched and cannot be removed."
+BAD_FOLDER = "A folder is its path, or folder:<path>."
 BAD_COLLECTION = "A collection is all, unlisted, playlist:<name> or folder:<path>."
 
 # file facts (`library facts`, and the dry runs that read a few in memory: design §5.3, §7.1)
@@ -83,6 +86,31 @@ def waiting_line(n: int) -> str:
     """What the phase says when it meets rekordbox open at the end of a sync (the same words as the summary line's
     clause for n = 0): nothing was upgraded, `n` upgrades wait."""
     return f"{n} upgrade{' waits' if n == 1 else 's wait'} for rekordbox to be closed."
+
+
+# Settings (`settings show`, `settings set auto-upgrade`): the names the Settings page gives its two switches, and what
+# a change says
+AUTO_UPGRADE_LABEL = "Upgrade automatically when I sync"
+LIKED_MUSIC_LABEL = "Read my Liked music"
+AUTO_UPGRADE_SET = {True: "Upgrade automatically when I sync: on. Nothing moves until the next sync.",
+                    False: "Upgrade automatically when I sync: off. The upgrades that are ready wait in your to-do list."}
+
+# Watched folders (`folder add`, `folder remove`): the words of the window's remove question (`removeWords`), and what the
+# command says once the folder is no longer watched
+REMOVAL_FORGETS = "Discjockey forgets its {files}. The files stay where they are."
+REMOVAL_AGAIN = {1: "1 song from your playlists had its only copy there. It will be downloaded again at the next sync.",
+                 None: "{n} songs from your playlists had their only copy there. They will be downloaded again at the "
+                       "next sync."}
+REMOVED = "Stopped watching {name}."
+
+
+def removal_words(files: int, redownload: int) -> str:
+    """What removing a watched folder takes away: its files (they stay on disk) and the playlist songs that download
+    again (the window's `removeWords` body)."""
+    out = [REMOVAL_FORGETS.format(files=f"{files:,} file{'s' if files != 1 else ''}")]
+    if redownload > 0:
+        out.append(REMOVAL_AGAIN[1] if redownload == 1 else REMOVAL_AGAIN[None].format(n=f"{redownload:,}"))
+    return " ".join(out)
 
 
 # what a Convert / Rename run says it did (the console's words, `aiff convert` and `aiff rename`)

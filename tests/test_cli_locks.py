@@ -12,7 +12,7 @@ import sys
 import pytest
 
 import hub_helpers
-from hub_helpers import make_root, wait_job
+from hub_helpers import wait_job
 from discjockey import library
 from discjockey.hub import catalog
 from discjockey.hub.api import CliApi
@@ -53,8 +53,9 @@ def fake_locks(monkeypatch):
 
 
 @pytest.fixture
-def box(tmp_path, fake_locks):
-    paths = make_root(tmp_path)
+def box(tmp_path, fake_locks, monkeypatch):
+    hub_helpers.fake_import(monkeypatch)  # `folder add`'s import reads no real audio
+    paths = hub_helpers.music_root(tmp_path)  # beside it, the folders `folder add` watches
     events = hub_helpers.Recorder()
     api = CliApi(paths.support, events, hub_helpers.services())  # the command line's api: the cli_first methods too
     hub_helpers._MADE.append(api)  # conftest stops its jobs at teardown
@@ -241,6 +242,28 @@ def locate_in(folder):
 
 
 # one driver per built entry's method: it does what the command's method does, once
+def _watch(api, rec):
+    """`folder add` on a folder of three audio files (the import's readers faked), through to the end of its job."""
+    import hub_helpers
+    from pathlib import Path
+    folder = hub_helpers.import_folder(Path(api._paths.root).parent, 3)
+    answer = api.add_watched_folder(str(folder))
+    assert wait_job(api, rec, answer).ok
+    return folder
+
+
+def _watched_id(api, rec) -> int:
+    """The id of a watched import folder made before the call that is measured (its locks are not the call's)."""
+    import hub_helpers
+    from pathlib import Path
+    folder = hub_helpers.import_folder(Path(api._paths.root).parent, 1, name="Measured")
+    assert wait_job(api, rec, api.add_watched_folder(str(folder))).ok
+    rec_words = getattr(api, "lock_recorder", None)
+    if rec_words is not None:
+        rec_words.words.clear()
+    return next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
+
+
 DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
@@ -280,6 +303,11 @@ DRIVERS = {
     "convert": _aiff_run("convert"),
     "rename": _aiff_run("rename"),
     "make_aiff": _aiff_run("make_aiff"),
+    "settings_view": lambda api, rec: api.settings_view(),  # a read of the support folder's file: no lock
+    "set_auto_upgrade": lambda api, rec: wait_job(api, rec, api.set_auto_upgrade(False)),
+    "add_watched_folder": lambda api, rec: _watch(api, rec),
+    "removal_preview": lambda api, rec: api.removal_preview(_watched_id(api, rec)),
+    "remove_watched_folder": lambda api, rec: wait_job(api, rec, api.remove_watched_folder(_watched_id(api, rec))),
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
