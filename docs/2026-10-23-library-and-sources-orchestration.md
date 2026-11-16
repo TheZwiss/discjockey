@@ -493,7 +493,7 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
-    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). V1.13a fa5da9be + b e0968bea. Review done. V1.13 merged (3cafe9b9). V1.14a a52ce2fc. RUNNING: V1.14b.
+    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). V1.13a fa5da9be + b e0968bea. Review done. V1.13 merged (3cafe9b9). V1.14a a52ce2fc + b 35901f1a. RUNNING: V1.14 review.
    
     NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
     master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
@@ -801,6 +801,11 @@ Results:
     summary `kind` (optional key), `start_note` in auto_upgrade.py + words; the phase's master.db reads now take
     reader_lock (sync's own phase too); `sync run` without the flag refused via `catalog.PHASE_ONLY`; rehearse-sync
     RH2-RH6 on the new command (not run); ceiling 85. Started a spin-loop Monitor once, stopped it. Issue 39 ~11.57M.
+    Part b 35901f1a: Sonnet **264k** (est. 200-280k; cut once by the usage limit at 9:50, resumed by message; full
+    5473 passed). `folder add/remove`, `settings show/set auto-upgrade`, `resolve("folder")`, `settings_view`;
+    settings_cmd.py + cli/legacy_out.py deleted (7 tests ported, 1 dropped); removal/switch words into words.py via
+    result_words; `folder remove` without a music folder = refused/no_library; ceiling 80. V1.14 build 622k vs plan
+    ~200k. Issue 39 ~11.83M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
