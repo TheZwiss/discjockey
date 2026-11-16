@@ -63,8 +63,8 @@ Beside `ok`, `kind`, `message` (and `service`, `setting`) every ok:false answer 
 `console`, `sync_running` are `busy`; `not_set_up`, `no_library`, `setting_off`, `exists`, `changed`, `refused`,
 `protected` are `refused`; `login_expired`, `rekordbox_open` are `needs_person`; `stopped` is `stopped`; the rest are
 `failed`), `reason` (a key of `REASONS` in the same module: the engine's own where the raiser named one, else the
-kind's), `next` (`[{run, why}]`: commands that move on), `person_steps` (`[{id, say, then}]`: what only a person can do;
-`rekordbox_open` carries `step:quit_rekordbox`) and `data` (object or null). An ok:true answer is unchanged.
+kind's), `next` (`[{run, why}]`: commands that move on), `person_steps` (`[{id, say, then}]`: what only a person can do; `then` is the command to run
+afterwards or null for the same command again; `rekordbox_open` carries `step:quit_rekordbox`) and `data` (object or null). An ok:true answer is unchanged.
 
 The command line also calls methods the window does not have (the catalogue's `cli_first` entries, marked
 `@cli_first` and kept on `CliApi(HubApi)`, because pywebview hands the page every public name of its object: the same
