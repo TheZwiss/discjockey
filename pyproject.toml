@@ -34,6 +34,5 @@ addopts = ["-n", "auto", "--dist", "worksteal"]
 markers = [
     "real_durability: the test runs with the real drive flushes (F_FULLFSYNC, synchronous = FULL, fullfsync); tests/speed_durability.py turns them off otherwise",
     "real_tools: the test runs every ffprobe and ffmpeg for real (tests/tool_memo.py answers a repeat on the same bytes otherwise)",
-    "real_lock_waits: the test runs with the production lock waits (2 s), not the short ones tests/speed_locks.py sets",
     "real_sqlcipher_kdf: the test uses SQLCipher's own passphrase key derivation (tests/speed_sqlcipher.py derives it once per key otherwise)",
 ]

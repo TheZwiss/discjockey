@@ -73,7 +73,8 @@ def run(args, *a, **k):
         with open(source, "rb") as f:
             data = f.read()
     suffix = os.path.splitext(source)[1].lower() if source else ""
-    key = (tuple(command), suffix, os.path.splitext(output)[1].lower() if output else "", hashlib.blake2b(data, digest_size=16).digest(),
+    out_suffix = os.path.splitext(output)[1].lower() if output else ""
+    key = (tuple(command), suffix, out_suffix, hashlib.blake2b(data, digest_size=16).digest(),
            tuple(sorted((n, v) for n, v in k.items() if n != "input")), os.environ.get("PATH"))
     found = _answers.get(key)
     if found is not None:
