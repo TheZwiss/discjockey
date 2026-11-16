@@ -493,7 +493,8 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     **STATE 2026-11-16 ~midday (before a compact): USER SAID "pause after this agent is done".** RUNNING: V1.14 fix
-    round DONE 8ebb70f9; rehearse-sync PASS; V1.14 MERGED (1444f8fe). User go again 2026-11-16 afternoon → V1.15 next.
+    round DONE 8ebb70f9; rehearse-sync PASS; V1.14 MERGED (1444f8fe). Suite speed-up merged (3f4b6044, ~1 min).
+    V1.15a done; V1.15b RUNNING. USER SAID "pause" (2026-11-16 evening): log V1.15b when it ends, then STOP for the go.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
