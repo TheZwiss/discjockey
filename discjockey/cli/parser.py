@@ -84,6 +84,7 @@ class Flags:
     todo: str | None = None
     search: str | None = None
     quality: str | None = None
+    auto_upgrade_only: bool = False  # `sync run --auto-upgrade-only`: the phase alone (`catalog.PHASE_ONLY`)
 
 
 @dataclass
@@ -190,6 +191,10 @@ def _option_type(arg: catalog.Arg):
     return {"int": int, "float": float}.get(arg.type, str)
 
 
+PHASE_ONLY_WORDS = ("{command} runs only the sync's last phase for now: say {flag}. The whole sync is still "
+                    "`discjockey --yes` (or `discjockey --dry-run` to look first).")
+
+
 SELECTION_FLAGS = {"--rows": ("rows", True), "--in": ("where", False), "--todo": ("todo", False),
                    "--search": ("search", False), "--quality": ("quality", False)}  # flag -> (Flags field, switch?)
 
@@ -217,6 +222,8 @@ def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
     answers it, `--yes` when an entry needs it, `--limit` and `--offset` on a read (unless the method's own flags took
     the word). The parser and `help --json` both read this."""
     flags = _selection_flags(entries, taken)
+    if (switch := catalog.PHASE_ONLY.get(" ".join(entries[0].command))) is not None:
+        flags.append(switch)
     if any(e.dry_run for e in entries):
         flags.append("--dry-run")
     if any(e.needs_yes for e in entries):
@@ -249,6 +256,8 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
             field_name, switch = SELECTION_FLAGS[flag]
             leaf.add_argument(flag, dest=f"_sel_{field_name}", action="store_true" if switch else "store",
                               default=argparse.SUPPRESS)
+        elif flag in catalog.PHASE_ONLY.values():
+            leaf.add_argument(flag, dest=f"_{flag[2:].replace('-', '_')}", action="store_true", default=argparse.SUPPRESS)
         elif flag in ("--dry-run", "--yes"):
             leaf.add_argument(flag, dest=f"_{flag[2:].replace('-', '_')}", action="store_true", default=argparse.SUPPRESS)
         else:
@@ -315,7 +324,7 @@ def parse(argv: list[str]) -> Parsed:
     command = tuple(ns.pop("_command"))
     for key in [k for k in ns if k.startswith(("_noun", "_word"))]:
         del ns[key]
-    for key, attr in (("_dry_run", "dry_run"), ("_yes", "yes")):
+    for key, attr in (("_dry_run", "dry_run"), ("_yes", "yes"), ("_auto_upgrade_only", "auto_upgrade_only")):
         if ns.pop(key, False):
             setattr(flags, attr, True)
     selected = ns.get("batch_id") is not None  # `--batch` says which songs: the batch's
@@ -334,6 +343,8 @@ def parse(argv: list[str]) -> Parsed:
     entries = commands()[command]
     primary = catalog.primary(entries)
     signature = signature_of(primary.method)
+    if (switch := catalog.PHASE_ONLY.get(" ".join(command))) is not None and not flags.auto_upgrade_only:
+        raise UsageError(PHASE_ONLY_WORDS.format(command=" ".join(command), flag=switch))
     for name, arg in catalog.effective_params(primary, signature).items():
         if arg.positional and arg.many:
             if name in ns and not ns[name]:

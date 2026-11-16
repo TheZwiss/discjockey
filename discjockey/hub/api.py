@@ -116,6 +116,8 @@ LIBRARY_METHODS = frozenset((
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
 ))
+# the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
+CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))
 
 
 @dataclass
@@ -189,7 +191,7 @@ def _answering(fn):
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
         try:
-            if fn.__name__ in LIBRARY_METHODS:
+            if fn.__name__ in LIBRARY_METHODS or fn.__name__ in CLI_LIBRARY_METHODS:
                 self._need_library()  # NoLibrary -> no_library before anything starts
             return {"ok": True, **(fn(self, *args, **kwargs) or {})}
         except Busy as e:
@@ -3069,6 +3071,8 @@ class CliApi(HubApi):
         items = plan_store.items_of(answer)
         if items is None and isinstance(answer.get("plan"), Mapping):
             items = self._aiff_items(answer["plan"])
+        if items is None and isinstance(answer.get("auto_upgrade"), Mapping):  # the phase alone: its rows, keyed by song
+            items = {r["track"]: dict(r) for r in answer["auto_upgrade"]["results"]}
         if items is None or kind in NO_PLAN_COMMANDS:
             return None
         extra = {**(answer.get("plan_extra") or {}), "command": command}
@@ -3112,6 +3116,10 @@ class CliApi(HubApi):
             return self._checked_words(result)
         if method == "rekordbox_restore" and "saved_current" in result:
             return self._restore_words(result)
+        if method == "auto_upgrade_run" and "auto_upgrade" in result:
+            return self._phase_words(result)
+        if method == "auto_upgrade_preview" and "auto_upgrade" in result:
+            return {"message": engine_words.AUTO_UPGRADE_OFF} if result["auto_upgrade"] is None else {}
         if method == "fill_facts" and "total" in result:
             return self._facts_words(result)
         if method in ("convert", "rename", "make_aiff") and result.get("batch") is None and result.get("total") == 0 \
@@ -3121,6 +3129,30 @@ class CliApi(HubApi):
         if method in ("convert", "rename", "make_aiff") and isinstance(result.get("results"), list) and result.get("total"):
             return self._upgrade_words(result, aiff=True)
         return {}
+
+    def _phase_words(self, result: dict) -> dict:
+        """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
+        (`report.auto_upgrade_line`), the run's outcome (`partial` or `failed` by the tracks that failed only: a track
+        that waits or was refused is not a failure), its batch (`batch_id`), the steps only a person can do in rekordbox
+        (the upgrade batch's own words, `_upgrade_words`) and the report to read."""
+        block = result["auto_upgrade"]
+        if block is None:
+            return {"message": engine_words.AUTO_UPGRADE_OFF}
+        rows = block["results"]
+        out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
+                     "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
+        batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
+                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"], "action": "same_track"}
+                                                        for r in rows if r["state"] in ("done", "failed")]}
+        words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
+        if "batch_id" in (words.get("data") or {}):
+            out["data"] = {"batch_id": words["data"]["batch_id"]}
+        out["next"] = [*(words.get("next") or ())]
+        if result.get("report"):
+            out["next"].append({"run": f"report show {result['report']}", "why": "what this run did, track by track"})
+        if words.get("person_steps"):
+            out["person_steps"] = words["person_steps"]
+        return out
 
     @staticmethod
     def _facts_words(result: dict) -> dict:
@@ -3218,6 +3250,57 @@ class CliApi(HubApi):
             message += f" {skipped} had nothing to check."
         return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
                                              "failed": 0}}
+
+    @cli_first
+    def auto_upgrade_preview(self) -> dict:
+        """`sync run --auto-upgrade-only --dry-run`: what the sync's last phase would do now (`run.auto_upgrade_only` with
+        `dry_run`: the records read only, nothing written, no report). `{auto_upgrade, start_note}`: the phase's block
+        (`auto_upgrade.Outcome`, `dry_run: true`; its rows are the plan's items) or null when Settings' switch is off,
+        and the Sync page's before-start line for it (`auto_upgrade.start_note`; null when no upgrade is coming).
+        Settings are read strictly, as a sync reads them: a file it cannot read is `config_invalid`."""
+        found = run.auto_upgrade_only(self._paths, load_settings(self._support.settings_file), dry_run=True,
+                                      rekordbox=self._rekordbox_services())
+        block = found.outcome.to_dict() if found.outcome else None
+        return {"auto_upgrade": block, "start_note": auto_upgrade.start_note(block)}
+
+    @cli_first
+    def auto_upgrade_run(self, plan_id: str | None = None) -> dict:
+        """`sync run --auto-upgrade-only`: the sync's last phase alone (`run.auto_upgrade_only`: no playlists are read,
+        the planner never runs) as a write job (kind "auto_upgrade"). The result is `{exit_code, report, auto_upgrade}`:
+        the report's id (`report:<stamp>`: `report show` takes it; null with the switch off) and the phase's block
+        (`auto_upgrade.Outcome`; null when Settings' switch is off, which is read inside the job under the library lock).
+        rekordbox open: every upgrade of the set waits (`rekordbox_open`), nothing is moved, the job is done. A Stop ends it
+        `stopped` once the records are saved. `plan_id` (`--plan`): only the tracks of that plan that still stand run; a
+        track whose answer changed waits (`changed`), the ones new since the plan are in `new_since_plan`."""
+        only, changed, extra = None, (), {}
+        if plan_id is not None:
+            only, changed, extra = self._phase_plan(plan_id)
+
+        def work(ctx) -> dict:
+            settings = load_settings(self._support.settings_file)
+            try:
+                found = run.auto_upgrade_only(self._paths, settings, emit=ctx.emit, token=ctx.token,
+                                              rekordbox=self._rekordbox_services(), only=only, changed=changed)
+            except run.RunCrashed as e:
+                ctx.failed_result = {"exit_code": 1, "report": f"report:{e.report.stem}", "auto_upgrade": None, **extra}
+                raise
+            result = {"exit_code": found.code, "report": f"report:{found.report.stem}" if found.report else None,
+                      "auto_upgrade": found.outcome.to_dict() if found.outcome else None, **extra}
+            if found.code == 130:  # Stop: what was done is saved, the answer is `stopped` and still carries the block
+                ctx.failed_result = result
+                raise Cancelled()
+            return result
+        return {"job_id": self._jobs.start("auto_upgrade", work).id}
+
+    def _phase_plan(self, plan_id: str) -> tuple[set[str], tuple[str, ...], dict]:
+        """A run with a plan for the phase alone (design §7.1): the songs of the plan that still stand as the dry run saw
+        them (`_bind_plan` against the rows `auto_upgrade_preview` gives today), those whose row is another now, and what
+        the result adds (`new_since_plan`). A plan none of whose rows stands is `changed`, as for `upgrade`."""
+        block = self.auto_upgrade_preview().get("auto_upgrade") or {}
+        plan, bound = self._bind_plan(plan_id, {r["track"]: r for r in block.get("results") or ()})
+        if plan.items and not bound.run:
+            raise OpProblem(PLAN_NOTHING, "changed")
+        return set(bound.run), bound.changed, {"new_since_plan": list(bound.new)} if bound.new else {}
 
     def scan_next(self) -> list[dict]:
         """The `next` of a dry run that planned on the last scan: `library scan` when Library/ or a watched folder was

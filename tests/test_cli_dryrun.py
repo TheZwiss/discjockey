@@ -456,6 +456,7 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "library facts": [({}, {})],
     "aiff convert": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True}), ({}, {"all": True, "todo": "cdj"})],
     "aiff rename": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
+    "sync run": [({}, {"auto_upgrade_only": True})],
 }
 
 

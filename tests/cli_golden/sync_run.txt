@@ -1,0 +1,21 @@
+Upgraded 2 tracks; your cues stayed.
+
+Exit code  0
+Report     report:<stamp>
+Batch id   aiff:1
+
+Auto upgrade
+Batch    1
+Backup   <backup>
+Done     2
+Waiting  0
+Refused  0
+Failed   0
+Stopped  no
+Dry run  no
+
+Auto upgrade › Results
+Track      Name             State  Reason  Message                                                                                                        How
+t0aaaaaaa  Artist – Song 0  done   none    new file Library/A/Artist - Song 0.aiff, lined up with rekordbox; the old one moved to Superseded/A/Old 0.mp3  new_aiff
+t1aaaaaaa  Artist – Song 1  done   none    matches exactly; the lossy file is kept as Superseded/A/Artist - Song 1 (lossy).aiff                           in_place
+2 of 2 shown

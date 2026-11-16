@@ -102,8 +102,15 @@ ALL_METHOD: dict[str, str] = {"upgrade apply": "upgrade_all", "aiff convert": "m
 AIFF = ("aiff convert", "aiff rename")
 ALL_NARROWS: dict[str, tuple[str, ...]] = {"aiff convert": ("where", "todo"), "aiff rename": ("where",)}
 
+# A command that runs only with a switch of its own while the rest of it is not built (phase 1: `sync run` is the sync's last
+# phase alone; phase 4 lands the whole sync and removes this): `<command> -> the flag`. The parser offers the flag, and a line
+# without it is a usage error (`parser.PHASE_ONLY_WORDS`).
+PHASE_ONLY: dict[str, str] = {"sync run": "--auto-upgrade-only"}
+
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
+# ... of the Auto-upgrade phase alone: only a track that failed (a track that waits for rekordbox or was refused is not a failure, R24)
+AUTO_UPGRADE_PARTIAL = ("failed",)
 # ... of an undo: a track whose undo was refused (a file changed since, nothing to undo) or failed
 UNDO_PARTIAL = ("refused", "failed")
 
@@ -343,8 +350,12 @@ ENTRIES: tuple[Entry, ...] = (
     _e("fill_facts", "library facts", "J", "library facts --dry-run", cli_first=True, dry_run="facts_preview", built=True,
        locks={"library"}),
     _e("facts_preview", "", "R", cli_first=True, built=True),
-    _e("auto_upgrade_preview", "", "R", cli_first=True),
-    _e("auto_upgrade_run", "", "J", cli_first=True),
+    # `sync run` is built for the phase alone now (`--auto-upgrade-only`, the parser's `PHASE_ONLY`); `start_sync` is the
+    # whole sync (phase 4) and keeps its row planned
+    _e("auto_upgrade_preview", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
+    _e("auto_upgrade_run", "sync run", "J", "sync run --auto-upgrade-only --dry-run", cli_first=True,
+       dry_run="auto_upgrade_preview", built=True, locks={"library", "rekordbox_r", "rekordbox_w"},
+       partial=AUTO_UPGRADE_PARTIAL),
     _e("settings_view", "settings show", "R", cli_first=True),
     _e("rekordbox_backups", "rekordbox backups", "R", "rekordbox backups", cli_first=True, built=True),
     _e("rekordbox_restore", "rekordbox restore", "J", "rekordbox restore 20261110T090001Z --dry-run", cli_first=True,

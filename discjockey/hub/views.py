@@ -288,6 +288,7 @@ def run_summary(run_id: str, data: dict) -> dict:
         # every "queued" result was not done: stopped before it, left out by the user, or over the daily limit
         stopped_after = sum(1 for r in results if r.get("track_id") and r.get("section") != "queued")
     return {"run_id": run_id, "started": started, "finished": finished, "duration_s": seconds, "exit_code": code,
+            "kind": data.get("kind") or "sync",
             "counts": {"lossless": lossless, "lossy": lossy, "problems": count(PROBLEM_SECTIONS),
                        "moved": count(MOVED_SECTIONS)},
             "stopped_after": stopped_after, "auto_upgrade": auto_upgrade_view(data.get("auto_upgrade"))}

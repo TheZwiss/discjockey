@@ -112,6 +112,10 @@ def buy_links(artist: str, title: str) -> str:
     return f"[Beatport](https://www.beatport.com/search?q={q}) · [Bandcamp](https://bandcamp.com/search?q={q})"
 
 
+SYNC, AUTO_UPGRADE_ONLY = "sync", "auto_upgrade_only"  # a run's kinds (`RunLog.kind`, the report's `.json` `kind`)
+RUN_TITLES = {SYNC: "Discjockey run", AUTO_UPGRADE_ONLY: "Discjockey Auto-upgrade run"}
+
+
 @dataclass
 class RunLog:
     """Everything one run did, as structured results. Rendered to reports/<time>.md and saved as .json for the hub."""
@@ -120,6 +124,7 @@ class RunLog:
     crashed: str | None = None  # the crash note (crash_note) when the run stopped on an unexpected error
     auto_upgrade: dict | None = None  # the Auto-upgrade phase's block (auto_upgrade.Outcome.to_dict); None: switch off
     crash_details: str = ""  # the error and its traceback, for a bug report: below the note, never in it
+    kind: str = SYNC  # what the run was: a whole sync, or only its Auto-upgrade phase (`sync run --auto-upgrade-only`)
 
     def add(self, result: Result) -> None:
         self.results.append(result)
@@ -164,7 +169,7 @@ def render_line(r: Result) -> str:
 
 
 def render_report(log: RunLog, finished: datetime) -> str:
-    out = [f"# Discjockey run {log.started:%Y-%m-%d %H:%M:%S}", "", f"Finished at {finished:%H:%M:%S}.", ""]
+    out = [f"# {RUN_TITLES[log.kind]} {log.started:%Y-%m-%d %H:%M:%S}", "", f"Finished at {finished:%H:%M:%S}.", ""]
     if log.crashed:
         out += [f"## {CRASHED}", "", log.crashed, ""]
     if line := auto_upgrade_line(log.auto_upgrade):
@@ -264,6 +269,8 @@ def write_run(paths: Paths, log: RunLog, finished: datetime, exit_code: int, sta
     md.write_text(render_report(log, finished), encoding="utf-8")
     data = {"started": log.started.isoformat(timespec="seconds"), "finished": finished.isoformat(timespec="seconds"),
             "exit_code": exit_code, "results": [asdict(r) for r in log.results]}
+    if log.kind != SYNC:  # a report with no `kind` is a sync's (every report written before the phase alone existed)
+        data["kind"] = log.kind
     if log.crashed:
         data["crashed"] = log.crashed
     if log.auto_upgrade is not None:

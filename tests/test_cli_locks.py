@@ -84,7 +84,7 @@ def _preview(api, rec):
     assert answer["ok"], answer
 
 
-def _parked(api, rec, *, all_of_them: bool = False):
+def _parked(api, rec, *, all_of_them: bool = False, phase: str | None = None):
     """`upgrade` / `upgrade_all` on a song with a parked upgrade, against a fixture rekordbox library that does not hold the
     song (the batch opens it for writing: its master.db is the one thing a Same track changes there)."""
     from pathlib import Path
@@ -97,7 +97,20 @@ def _parked(api, rec, *, all_of_them: bool = False):
     make_master(folder, [])
     api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
     api._svc.rekordbox_place = lambda: locate_in(folder)
-    if all_of_them:
+    if phase:  # the phase asks rekordbox's library only for a file that is not an AIFF (`auto_upgrade.plan`)
+        from discjockey import library
+        state = library.load_state(api._paths)
+        old = api._paths.root / state["tracks"]["t2"]["path"]
+        mp3 = old.with_suffix(".mp3")
+        old.rename(mp3)
+        state["tracks"]["t2"]["path"] = str(mp3.relative_to(api._paths.root))
+        library.save_state(api._paths, state)
+    if phase == "run":  # the sync's last phase alone: the plan reads rekordbox, the batch writes it
+        answer = api.auto_upgrade_run()
+    elif phase == "preview":  # its dry run: a read, no job
+        assert api.auto_upgrade_preview()["ok"]
+        return
+    elif all_of_them:
         answer = api.upgrade_all()
     else:  # with the plan of its dry run, as `--plan` runs it: that also reads rekordbox's state (`rekordbox_r`)
         plan_id = api.save_plan("upgrade apply", api.upgrade_preview(["t2"], "same_track"), "upgrade apply t2 --dry-run")
@@ -253,6 +266,8 @@ DRIVERS = {
     "upgrade": lambda api, rec: _parked(api, rec),
     "upgrade:upgrade discard": _discard,  # a driver per command where two entries of one method take different locks
     "upgrade_all": lambda api, rec: _parked(api, rec, all_of_them=True),
+    "auto_upgrade_run": lambda api, rec: _parked(api, rec, phase="run"),
+    "auto_upgrade_preview": lambda api, rec: _parked(api, rec, phase="preview"),
     "undo_upgrade": _undo,
     "undo_upgrade_preview": lambda api, rec: api.undo_upgrade_preview(["t2"]),
     "batch_resume": _resume,

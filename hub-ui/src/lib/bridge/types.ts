@@ -223,6 +223,9 @@ export type AutoUpgradeBlock = { batch: number | null; backup: string | null; do
 export type RunSummary = {
   run_id: string; started: string; finished: string | null; duration_s: number | null; exit_code: number;
   counts: RunCounts; stopped_after: number | null;
+  /** what the run was: a whole sync, or only its Auto-upgrade phase (`sync run --auto-upgrade-only`, the command line's;
+   *  a run from before it is a sync); the window never starts the second */
+  kind?: 'sync' | 'auto_upgrade_only';
   /** the run's Auto-upgrade phase and its one-line account (`line`: "Upgraded 2 tracks; your cues stayed. 1 waits for
    *  rekordbox to be closed."; null when nothing happened); null when the switch was off for the run */
   auto_upgrade: (AutoUpgradeBlock & { line: string | null }) | null;

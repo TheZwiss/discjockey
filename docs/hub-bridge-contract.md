@@ -122,6 +122,9 @@ remember=False)` (the command line's) acts on a write's record as it is, with no
 - **Budget** (`qobuz_today`, `today`): `used, allowance, limit, carry_over, extra, remaining` (ints). "37 of 80 · 60 + 20 carried over".
 - **RunSummary**: `run_id` (`YYYY-MM-DD_HHMMSS`), `started`, `finished`, `duration_s`, `exit_code` (0 ok, 1 some failed,
   130 stopped), `counts {lossless, lossy, problems, moved}`, `stopped_after` int|null ("stopped by you after N tracks"),
+  `kind` (`"sync"`, or `"auto_upgrade_only"` for a run of the command line's `sync run --auto-upgrade-only`: only the
+  Auto-upgrade phase, a report titled "Discjockey Auto-upgrade run" that holds the `auto_upgrade` block; a report without
+  the key is a sync; the window never starts the second),
   `auto_upgrade` (stage C: the run's Auto-upgrade block with its `line`, see "Auto-upgrade" below; null when the switch
   was off for that run and in runs from before it).
 - **Result** (report line; in `ActionFinished.result`, run sections, op results): `section, folder, artist, title,
@@ -278,6 +281,7 @@ remember=False)` (the command line's) acts on a write's record as it is, with no
    "finished": "2026-10-19T22:11:00",
    "duration_s": 1440,
    "exit_code": 0,
+   "kind": "sync",
    "counts": {
     "lossless": 1,
     "lossy": 0,
@@ -1298,6 +1302,7 @@ Qobuz `days_to_load` is null.
   "finished": "2026-10-19T22:11:00",
   "duration_s": 1440,
   "exit_code": 0,
+  "kind": "sync",
   "counts": {
    "lossless": 1,
    "lossy": 0,

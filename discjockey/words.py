@@ -58,6 +58,33 @@ MISSING_AFTER = ("{n} of your rekordbox tracks now point at files that Discjocke
 WOULD_MISSING = ("{n} of your rekordbox tracks would point at files that Discjockey has since moved to Superseded/. "
                  "Undo those batches first (`batch undo`), or Relocate them in rekordbox.")
 
+# Auto-upgrade, the sync's last phase (`sync run --auto-upgrade-only`; plan stage C §3). `before_start_line` is the Sync page's
+# line before a start while rekordbox is open, `AUTO_PLAN_LINE` the one it shows while rekordbox is closed (both are
+# built by the window itself in `planModel.ts` today; phase 6 takes that copy away), `waiting_line` what the phase says
+# when it meets rekordbox open at the end of a sync, `AUTO_UPGRADE_OFF` what the phase alone says with the switch off.
+AUTO_UPGRADE_OFF = "Auto-upgrade is off, so nothing was moved."
+AUTO_UPGRADE_NOTHING = "No upgrade was waiting, so nothing was moved."
+
+
+def before_start_line(n: int) -> str:
+    """Plan stage C §3's Sync before-start Hint: said before a sync starts (the Sync page, the console's plan). The
+    check happens when the phase begins, at the end of the sync, so rekordbox may still be quit until then. The phase
+    itself, which meets rekordbox open at that moment, says `waiting_line` instead."""
+    return (f"rekordbox is open: quit it before the sync ends, so the sync can put {n} "
+            f"upgrade{'s' if n != 1 else ''} in place.")
+
+
+def auto_plan_line(n: int) -> str:
+    """The Sync page's one-line Hint under Start while rekordbox is closed: what the sync will do at its end."""
+    return f"{n} {'upgrade goes' if n == 1 else 'upgrades go'} in at the end; cues stay."
+
+
+def waiting_line(n: int) -> str:
+    """What the phase says when it meets rekordbox open at the end of a sync (the same words as the summary line's
+    clause for n = 0): nothing was upgraded, `n` upgrades wait."""
+    return f"{n} upgrade{' waits' if n == 1 else 's wait'} for rekordbox to be closed."
+
+
 # what a Convert / Rename run says it did (the console's words, `aiff convert` and `aiff rename`)
 AIFF_LEFT = "{n} left as they are."
 

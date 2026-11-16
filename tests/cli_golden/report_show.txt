@@ -4,6 +4,7 @@ Started         2026-11-10T11:00:00
 Finished        2026-11-10T11:05:00
 Duration s      300
 Exit code       0
+Kind            sync
 Stopped after   none
 Auto upgrade    none
 Needs you       none

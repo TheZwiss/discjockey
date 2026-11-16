@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .. import REPO, __version__, tools
 from ..hub import catalog, registry
-from ..hub.api import LIBRARY_METHODS
+from ..hub.api import CLI_LIBRARY_METHODS, LIBRARY_METHODS
 from ..hub.catalog import Entry
 from ..hub.outcomes import REASONS
 from ..rekordbox.locate import locate
@@ -98,7 +98,7 @@ def reasons_of(entries: list[Entry]) -> list[str]:
             found |= {"unknown_id", "bad_id_kind"}
         if e.needs_yes:
             found.add("needs_yes")
-        if e.method in LIBRARY_METHODS:
+        if e.method in LIBRARY_METHODS or e.method in CLI_LIBRARY_METHODS:
             found.add("no_library")
         found |= {f"{lock}_lock" for lock in e.locks if f"{lock}_lock" in REASONS}
     return sorted(found)

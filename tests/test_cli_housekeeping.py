@@ -90,7 +90,7 @@ def test_help_of_a_word_that_is_not_there_is_bad_args(capsys):
 
 
 def test_a_command_not_built_is_in_no_help(capsys):
-    code, env = run_json(["help", "sync"], capsys)
+    code, env = run_json(["help", "playlist"], capsys)
     assert code == 2 and env["outcome"] == "bad_args"
 
 
