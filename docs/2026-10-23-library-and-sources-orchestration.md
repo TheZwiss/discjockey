@@ -474,23 +474,38 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
-  - **CURRENT STATE (2026-11-15 evening, issue 39 phase 1 building; read this first):** standing user go: build
-    phase 1, reviews, phase review, merge, then the A-D live tests WITHOUT asking between steps (ping the user only
-    for P steps at the Mac; stop only for product decisions, the Qobuz "Use this" note before phase 2, extras E2-E9).
-    Plan: docs/2026-11-15-agent-cli-plan-v2.md. Briefs: ~/DJ Downloader/.claude/issue39/phase1/V1.x.md (gate passed).
-    Phase branch feat/cli-1-live-slice, kept checked out in worktree .claude/worktrees/cli1-live; per group: branch
-    feat/cli-1-N from it + worktree .claude/worktrees/cli1-N; after the agent: my own full pytest in background if it
-    changed anything after its last full run; `git worktree remove`, then in cli1-live `git merge --no-ff feat/cli-1-N`
-    + `git merge --no-ff main`, check_public, push; log size here; next group. Dispatch prompt pattern = V1.8's (brief
-    path, worktree, D3/D4/D10/D11 note, earlier groups' decisions, no real data, full pytest at end, report <10 lines).
-    Merged: V1.1-V1.10 + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.11.
-    Next: V1.9, V1.10 (no own review); V1.11-V1.15 each: build → Sonnet review (findings file in phase1/) → fix-round
-    agent that also runs the rehearsal on a copy (V1.11+V1.12 share one `rehearse`; made-up data only, never the
-    user's support folder/library); then Opus phase review + fix, `npm run verify` once on the phase branch (bg), CI
-    green, merge to main, then the live tests (v1 plan §7 runbook). CARRY: review-V1.7 #9 → V1.12/V1.13 prompts
-    (convert_cmd `_plan` + batch_cmd `_rekordbox_status` take reader_lock and answer `writing`) and the `tools update`
-    builder (terminal update via `_support_job`'s registry check); phase review items are in the V1.x entries below.
-    Phase 1 spent so far ~2.41M; remaining est. ~4.0M (not measured: plan prices +~15% as groups have landed).
+  - **CURRENT STATE (2026-11-16 ~01:40, NIGHT RUN, user asleep; read this first):** user's go 2026-11-16 ~01:35: "prepare
+    for a compact ... then work through the night". Standing go (2026-11-15): build phase 1, reviews, phase review,
+    merge WITHOUT asking between steps; stop only for product decisions, the Qobuz "Use this" note (phase 2), extras
+    E2-E9, and P steps at the Mac. TONIGHT'S STOP POINT: phase 1 merged into main (CI green, verify green) — then STOP
+    before the A-D live tests (they need the user at the Mac and the real music folder/rekordbox) and write a short
+    morning summary. If the usage limit cuts an agent: Claude Code resumes at the reset; resume that agent by
+    SendMessage (rule 7), never a duplicate.
+    Plan: docs/2026-11-15-agent-cli-plan-v2.md. Briefs: ~/DJ Downloader/.claude/issue39/phase1/V1.x.md.
+    Phase branch feat/cli-1-live-slice, checked out in worktree .claude/worktrees/cli1-live; per group: branch
+    feat/cli-1-N from it + worktree .claude/worktrees/cli1-N; after the build/fix: `git worktree remove`, then in
+    cli1-live `git merge --no-ff feat/cli-1-N` + `git merge --no-ff main`, check_public, push; log size here (commit
+    on main + push); next group.
+    SPLIT RULE (since V1.10): groups land 1.4-3.5x the plan price, so every remaining group is built in two halves
+    (part a, part b) on the same branch, each est. 190-260k, then (V1.11-V1.15) a Sonnet review of the whole group
+    (findings file phase1/review-V1.N.md) and a fix-round agent. Dispatch prompt pattern = the V1.12b prompt (brief
+    path, worktree, YOUR HALF / NOT yours, the earlier groups' decisions list, overrides written into every command
+    line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
+    pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
+    Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
+    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. Fix 02ebb757 done. RUNNING: V1.12 rehearsal agent
+    (made-up data).
+   
+    NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
+    master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
+    rekordbox library, support folder or music. If scripts/rekordbox_rehearsal.py can only rehearse on a copy of the
+    real library, the agent reports that and the real-copy rehearsal moves to the morning with the user (rekordbox
+    closed). Then V1.13 (a/b, review, fix + rehearse-convert; carry #9: convert_cmd `_plan` takes reader_lock and
+    answers `writing`), V1.14 (a/b, review, fix + rehearse-sync), V1.15 (a/b, review, fix on a scratch library;
+    carry: `tools update` terminal path via `_support_job`'s registry check if it lands there). Then Opus phase
+    review (all "FOR PHASE REVIEW" items in the V1.x entries below + the carry list in memory project_issue39_cli),
+    its fix round, `npm run verify` once on the phase branch (run_in_background), CI green (gh run list), merge
+    feat/cli-1-live-slice into main, push. Phase 1 spent ~6.9M so far (issue 39 ~8.99M + V1.12b running).
   - **NIGHT RUN (2026-11-14 ~23:55, user asleep, go: "finish the design work through the night"):** scope = steps 2-5
     only (design → adversarial review → design fixes → build plan), then STOP for the user's go before any build.
     Step 2 running: Opus designer, brief `brief-39-design.md`, output `docs/2026-11-14-agent-cli-design.md` (est.
@@ -714,6 +729,36 @@ Results:
     window logic. Decisions taken by the outcome rules (not product): all items failed and none done = `failed`, not
     partial; `check done <ids>` with nothing open = ok total 0 with skipped rows (brief: "skipped, not an error").
     Fix round (fix-round agent, Sonnet, est. 130-200k) running. Issue 39 ~8.52M.
+    V1.11 fix 946ce524: fix-round **148k** (est. 130-200k; 64 calls; full 5325 passed): all 10 + decision fixed (5 left
+    by the review's own "otherwise leave"); finding-9 tests checked by mutation. FOR PHASE REVIEW: `check done` with
+    nothing open ends `ok` on the CLI's api but `changed` in the window's job (same method, two outcomes).
+    Merged + main → 90cc0afe, pushed. Issue 39 ~8.67M.
+    V1.12 split in two (plan 200k). Part a 8a980af0: Sonnet **325k** (est. 190-260k; 130 calls; full 5356 passed).
+    Schema 10 `via` + scope (old console batches → terminal, scope null; terminal selections scope `selection`, not
+    shown in the window's Library Resume link; window `upgrade` now records `selection`); `batch resume aiff:<n>`,
+    `batch undo aiff:<n> --yes` + cli_first `batch_undo_preview`; not-stopped resume = refused/not_stopped; rehearsal
+    script's batch undo calls → `aiff:<n> --yes --wait 3600`; ceiling 95. Some early runs had DISCJOCKEY_SUPPORT=""
+    (shell vars not kept): checked, conftest's autouse `_scratch_support` covers every test and nothing in the real
+    support folder or library changed. FOR PHASE REVIEW: `parse_id("track:1", ("aiff",))` → unknown_id not
+    bad_id_kind; `batch resume` without id = argparse words; window "Undo all" still sends `undo_upgrade` with track
+    ids (design row wants `batch_undo`). Issue 39 ~8.99M.
+    Part b ef6b8856: Sonnet **404k** (est. 190-260k; 193 calls; full 5337 passed). rekordbox backups/restore
+    (`rekordbox_restore_preview` dry run takes reader_lock, `writing` while a writer holds it; restore checks in
+    `backup.preview`/`_verified`); batch_cmd.py + upgrades_cmd.py deleted (30+19 tests: 14 ported, rest duplicates or
+    old prompts); carry #9 `_rekordbox_status` gone with batch_cmd; convert/rename helpers parked in convert_cmd.py
+    until V1.13; rehearsal script step 8 (backups, restore dry run + --yes, byte-equal), not run yet; ceiling 93.
+    FOR REVIEW: a job ending `busy` on a held rekordbox.lock carries no batch data (`worker._busy`), so an agent
+    isn't told which batch stopped. V1.12 total 729k vs plan 200k. Issue 39 ~9.39M.
+    V1.12 review: Sonnet **221k** (est. 190-240k; 76 calls; full 5337 passed): 0 Critical, 5 Important (batch undo
+    reverses a later batch's step; undo dry run opens RW; restore dry run reads live master.db immutable while
+    rekordbox runs; resume refuses a crash-left `running` batch; busy envelope loses the batch), 6 Minor. Decisions
+    (mine, by the safety rule: never overwrite the person's rekordbox library with a foreign one): M-2 refuse when the
+    live dbid is readable but the backup's is unknown; M-3 keep `refused` + `data.why` for phase 1 (FOR PHASE REVIEW).
+    Fix round and rehearsal split (together est. >250k): fix (Sonnet, est. 150-200k) then rehearsal on made-up data.
+    Issue 39 ~9.61M.
+    V1.12 fix 02ebb757: fix-round **172k** (est. 150-200k; cut once by the usage limit at 4:50, resumed by message;
+    full 5349 passed): all 11 fixed, I-1..I-5 test-first. `batch undo` refuses `newer_batch`; busy job carries the
+    stopped batch; `master.immutable_for` public. Issue 39 ~9.78M. Next: rehearsal agent (Sonnet, made-up source).
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
