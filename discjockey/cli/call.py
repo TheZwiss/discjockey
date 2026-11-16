@@ -97,15 +97,41 @@ def _listing(entry: Entry, command: str, flags: Flags) -> tuple[dict | None, dic
         verb = catalog.ALL_OF.get(command)
         if verb is None:
             return None, envelope.usage(command, f"{command} has no --all. Name the songs, or use --rows.")
-        if (clash := [w for w, v in (("--in", flags.where), ("--todo", flags.todo), ("--search", flags.search),
-                                     ("--quality", flags.quality)) if v]):
+        takes = catalog.ALL_NARROWS.get(command, ())
+        if (clash := [w for w, field, v in (("--in", "where", flags.where), ("--todo", "todo", flags.todo),
+                                            ("--search", "search", flags.search), ("--quality", "quality", flags.quality))
+                      if v and field not in takes]):
             return None, envelope.usage(command, f"{clash[0]} narrows --rows; --all is the verb's own list.",
                                         "conflicting_flags")
-        return {"verb_all": verb}, None
+        return {"verb_all": verb, **({"in": flags.where} if flags.where else {})}, None
     if flags.todo and flags.where:
         return None, envelope.usage(command, "--in and --todo name two different lists: choose one.", "conflicting_flags")
     listing = {"in": flags.where, "search": flags.search, "quality": flags.quality, "group": flags.todo}
     return {k: v for k, v in listing.items() if v is not None}, None
+
+
+BAD_IN_WITH_CDJ = ("--all --todo cdj is the whole group of files CDJs won't play well; --in can't narrow it.")
+BAD_ALL_TODO = "--all takes --todo cdj, the group of files CDJs won't play well; no other group has a Convert all."
+
+
+def _all_scope(args: Mapping, flags: Flags, command: str, api) -> tuple[dict, dict | None]:
+    """`aiff convert --all [--in C | --todo cdj]` (design §7.3): the scope `make_aiff` takes, `lossless` in a collection
+    (`--in`, resolved by `HubApi.resolve`; none is all of them) or the CDJ group. Also the dry run of `aiff rename --all
+    [--in C]`: its plan is the collection's, so it says what waits too (the run selects the same songs through
+    `select_listing`). Returns the arguments with `scope`, or the envelope of why not."""
+    if clash := [w for w, v in (("--search", flags.search), ("--quality", flags.quality),
+                                ("--todo", flags.todo if command != "aiff convert" else None)) if v]:
+        return {}, envelope.usage(command, f"{clash[0]} narrows --rows; --all is the verb's own list.", "conflicting_flags")
+    if flags.todo is not None:
+        if flags.where:
+            return {}, envelope.usage(command, BAD_IN_WITH_CDJ, "conflicting_flags")
+        if flags.todo != "cdj":
+            return {}, envelope.usage(command, BAD_ALL_TODO)
+        return {**args, "scope": {"kind": "cdj"}}, None
+    answer = api.resolve("collection", [flags.where or "all"])
+    if not answer.get("ok"):
+        return {}, envelope.from_answer(command, answer)
+    return {**args, "scope": {"kind": "lossless", **answer["resolved"][0]}}, None
 
 
 def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> tuple[dict, dict | None]:
@@ -125,28 +151,43 @@ def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> 
                                   "conflicting_flags")
     if not forms:
         return {}, envelope.usage(command, words)
-    if narrowing and not flags.rows:
+    if narrowing and not flags.rows and not (flags.all and command in catalog.ALL_NARROWS):
         return {}, envelope.usage(command, "--in, --todo, --search and --quality narrow --rows; they mean nothing "
                                            "without it.", "conflicting_flags")
     if batch:
         return {**args, "track_ids": []}, None
     if typed:
         return dict(args), None
+    if flags.all and ((command in catalog.ALL_METHOD and command not in catalog.ALL_OF)  # a scope, not a list of songs
+                      or (command == "aiff rename" and flags.dry_run)):
+        return _all_scope(args, flags, command, api)
     listing, failed = _listing(entry, command, flags)
     if failed is not None:
         return {}, failed
+    if flags.all and command == "aiff rename" and args.get("plan_id"):
+        listing = {**listing, "plan": args["plan_id"]}  # the run answers for the plan's songs too (V1.10's plan rule)
     answer = api.select_listing(listing)
     if not answer.get("ok"):
         return {}, envelope.from_answer(command, answer)
+    if not answer["ids"] and command in catalog.AIFF:  # no song to convert or rename: done, the dry run says so too
+        return {}, envelope.envelope(command, "ok", message=answer.get("message") or select.NO_ROWS, data=NOTHING_LEFT)
     if not answer["ids"] and answer.get("message") and not flags.dry_run:  # a verb's "all" with nothing left is done (R29)
         return {}, envelope.envelope(command, "ok", message=answer["message"], data=NOTHING_LEFT)
     return {**args, "track_ids": answer["ids"]}, None
 
 
+def _plan_entry(command: str, kwargs: Mapping) -> tuple[Entry, dict]:
+    """The `--dry-run` of an AIFF command: the command's `aiff_plan` entry and its arguments, the scope the write would
+    run (`make_aiff`'s own, or the songs of `convert` / `rename`) and the entry's `only` (Rename's answer alone)."""
+    entry = catalog.entry_of("aiff_plan", command)
+    scope = kwargs.get("scope") or {"kind": "tracks", "tracks": kwargs.get("track_ids") or []}
+    return entry, {"scope": scope, **entry.fixed}
+
+
 def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
     """The entry's `--dry-run` (design §7.1): its `dry_run` method on the last scan, answering `as_of.scanned_at` and,
     when a watched folder changed after that scan, `next: library scan`. An answer that lists its items (each with a
-    `key`) is stored as a plan (`plan_store`: the one file a dry run writes) and its id is `data.plan_id`, which
+    `key`) is stored as a plan (`plan_store`: the plan file a dry run writes) and its id is `data.plan_id`, which
     `--plan` runs."""
     answer = getattr(api, entry.dry_run)(**{k: v for k, v in kwargs.items() if k in parameters_of(entry.dry_run)})
     env = envelope.from_answer(command, answer, as_of=_as_of(api))
@@ -190,7 +231,8 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
         args, failed = _selection(entry, args, flags, command, api)
         if failed is not None:
             return failed
-        chosen = ("track_ids",) if flags.all or flags.rows or args.get("batch_id") is not None else ()
+        chosen = (("track_ids",) if flags.all or flags.rows or args.get("batch_id") is not None else ()
+                  ) + (("scope",) if "scope" in args else ())
     elif any((flags.all, flags.rows, flags.where, flags.todo, flags.search, flags.quality)):
         return envelope.usage(command, f"{command} takes no selection words (--all, --rows, --in, --todo, --search, "
                                        "--quality).")
@@ -204,6 +246,8 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
             entry = catalog.entry_of(catalog.ALL_METHOD[command], command)
             kwargs = {k: v for k, v in kwargs.items() if k in parameters_of(entry.method)}
     if flags.dry_run:
+        if entry.dry_run == "aiff_plan" and entry.method != "aiff_plan":  # Convert, Rename, Make all: the one `AiffPlan`
+            entry, kwargs = _plan_entry(command, kwargs)
         if entry.dry_run == entry.method and entry.kind in ("J", "RJ"):  # the read is the job (`aiff_plan`): a worker runs it
             return start_job(entry, kwargs, command, flags)
         return _dry_run(entry, command, kwargs, api)
@@ -293,7 +337,7 @@ def _as_of(api) -> dict | None:
 def choose(entries: list[Entry], flags: Flags) -> Entry:
     """The entry of a noun-verb command that runs: the write when there is one (its `--dry-run` runs the entry's
     `dry_run` method), else the read."""
-    return next((e for e in entries if e.kind != "R"), entries[0])
+    return catalog.primary(entries)
 
 
 def _pick(entries: list[Entry], args: Mapping) -> Entry | None:

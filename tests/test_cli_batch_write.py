@@ -372,7 +372,7 @@ def test_a_convert_selection_is_selection_from_a_command_and_origin_selection_fr
     found = lib(["mp3"])
     scopes = []
 
-    def spy(self, scope, *, only, started_by, batch_scope):
+    def spy(self, scope, *, only, started_by, batch_scope, **plan):
         scopes.append((self._via, batch_scope))
         return lambda ctx: {}  # no batch: only the scope the api would record is looked at
     monkeypatch.setattr(HubApi, "_aiff_work", spy)

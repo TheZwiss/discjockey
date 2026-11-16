@@ -43,7 +43,8 @@ export interface Bridge {
   rekordbox_status(): Promise<Res<RekordboxStatus>>;
   /** What Make all lossless files AIFF, a selection's Convert or the CDJ group's Convert all would do now (issue 33
    *  stage D): a read of the files' stored facts, no decoding. `refused` for a scope that is none of the three */
-  aiff_plan(scope: AiffScope): Promise<Res<{ plan: AiffPlan }>>;
+  /** `only` is the command line's (`aiff rename --dry-run`); the window sends none */
+  aiff_plan(scope: AiffScope, only?: 'rename'): Promise<Res<{ plan: AiffPlan }>>;
   // read with network (refused with sync_running during any sync)
   search_candidates(track_id: string): Promise<Res<Candidates>>;
   preview(track_id: string, candidate: Candidate): Promise<Res<{ url: string }>>;

@@ -726,7 +726,8 @@ export type AiffPlan = {
   /** the room the new files need per drive (`drive` a folder on it); a rename needs none */
   space: { drive: string; needed: number; free: number; enough: boolean }[];
   superseded_bytes: number;
-  rekordbox: { state: 'ready' | 'none' | 'unreadable'; running: boolean; needs_closed: boolean } };
+  /** `writing` (only then present): a writer held rekordbox.lock, so the plan took the cached state and no lookup */
+  rekordbox: { state: 'ready' | 'none' | 'unreadable'; running: boolean; needs_closed: boolean; writing?: boolean } };
 export type UndoItem = { track: string; state: 'undone' | 'refused' | 'failed' | 'waiting'; reason: string | null;
   message: string };
 export type UndoResult = { batch: number | null; total: number; undone: number; refused: number; failed: number;

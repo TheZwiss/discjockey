@@ -2103,7 +2103,9 @@ hub) and `hub-ui/src/lib/bridge/fake/convert.test.ts` (the fake backend) both re
 `AiffScope`, `AiffPlan`, `CdjWhy`, `CdjWords`); the new methods are in `contract.ts` and, as `LIBRARY_METHODS` members,
 answer `no_library` without a music folder.
 
-- **`aiff_plan(scope)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). `scope` is
+- **`aiff_plan(scope, only?)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). `only` is the command
+  line's (`aiff rename --dry-run`; the window sends none): `"rename"` plans Rename's answer alone, as `rename` runs it (a file
+  that needs a Convert is left out, in a `tracks` scope `skipped` as `needs_convert`); any other value is `refused`. `scope` is
   `{kind: "tracks", tracks: [key, …]}` (what the user picked; each song once), `{kind: "lossless", view:
   "all"\|"unlisted"\|"playlist"\|"folder", key: str\|null}` (the view's own files, as `library()` lists them without filter or
   search, whose stored codec is lossless; `key` is null for `all` / `unlisted`) or `{kind: "cdj"}` (To-do's group).
@@ -2127,9 +2129,18 @@ answer `no_library` without a music folder.
     "AIFF 24-bit or above 44.1 kHz → 16-bit", "New tags", "Clean name only", then "{format} → AIFF").
   - `lossy`: how many items have a lossy file now. `space`: `[{drive, needed, free, enough}]`, the room per drive
     (`drive` is a folder on it). `superseded_bytes`: what `Superseded/` takes. `rekordbox`: `{state: ready\|none\|unreadable,
-    running, needs_closed}`, `needs_closed` true when an item's file is in rekordbox's library.
-  - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Files without stored
-    facts (the import's facts fill hasn't reached them) are left out until it does.
+    running, needs_closed, writing?}`, `needs_closed` true when an item's file is in rekordbox's library; `writing: true` (only
+    then present) says a writer of any Discjockey process held `rekordbox.lock`, so master.db was not opened and the plan took
+    rekordbox's cached state with no lookup of its tracks (as `rekordbox_status` answers `writing`).
+  - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Own files without stored
+    facts (a library from before they were kept) are read in memory (ffprobe) and never stored (`aiff_plan.with_facts`),
+    for the files the scope looks at (a selection's, a view's, every own file the CDJ group could hold) that
+    `library facts` would store: at most 50. With more, the command line's answer is `refused` (`kind` `refused`, `reason`
+    `facts_missing`, `data` `{missing, most: 50}`, `next: library facts`, which reads and stores them) and nothing is
+    planned; the window has no action that reads facts, so its `aiff_plan` plans on the facts stored (own files without
+    facts are left out) and never refuses for this. A file ffprobe found no sound in (marked) is not counted and is not read.
+    The command line's empty answers: `--rows` and `rename --all` with no song, and a plan of a clean library, are `ok`
+    with `total` 0; `aiff convert --all` on a clean library is `refused`.
 - **`track().aiff`** (`aiff_plan.file_answer`): `null` (no file, a download (also while its drive is away), a better version waiting: the upgrade decision
   stands) or `{action: "convert"\|"rename"\|null, why_not: reason\|null, kind, from, to, name_now, new_name, bytes, lossy,
   cdj: {short, words}\|null}`. `kind`, `to` ("AIFF · 16-bit · 44.1 kHz" for a Convert, null for a rename), `new_name`
@@ -2141,13 +2152,21 @@ answer `no_library` without a music folder.
   name is a Rename with `new_name` null and `bytes` 0. For every other reason (`named_already`, `away`, `needs_convert`,
   `no_name`, …) `action` is null, `kind` / `to` / `new_name` null and `bytes` 0. `from`, `lossy` and `cdj` always say what
   the file is. rekordbox is read from the cached state. The same meaning holds for a plan's `skipped` (a reason is a
-  blocked or empty answer, never an item); views, api, the fake and the console's `convert --dry-run` read the one
+  blocked or empty answer, never an item); views, api, the fake and the command line's `aiff convert --dry-run` read the one
   `aiff_plan` and add nothing of their own.
-- **Write jobs** `convert(track_ids, origin = "library" \| "todo")`, `rename(track_ids)` and `make_aiff(scope)` (scope
+- **Write jobs** `convert(track_ids, origin = "library" \| "todo", plan_id?)`, `rename(track_ids, plan_id?)` and `make_aiff(scope, plan_id?)` (scope
   `lossless` or `cdj`; any other is `refused`) → `{job_id}`; job kind `aiff_batch`, progress `BatchProgress`, result
   `AiffBatchResult` (`{batch, state, stop_reason, total, done, skipped, failed, results: [{track, action, state, reason,
   message, path, rekordbox}], backup, recovered}`, items' `action` `convert` or `rename`). One selected id is a batch
   "alone" (its job carries the `track_id`).
+  - `plan_id` (the command line's `--plan`; the window sends none): only the items of that plan that still stand run
+    (each item's answer as `aiff_plan` gives it now equals the one the dry run saw, keyed by song), as one batch; the
+    others are `skipped` with reason `changed` (a named-songs run lists only the songs it was given), and
+    `new_since_plan: [track ids]` (only when there are some) lists the songs that have an item now and had none in the
+    plan. A plan none of whose songs stands (also one whose songs the run does not name) is `changed` (as for `upgrade`); a plan that had no items (a clean
+    library) ends the job done with `batch` null and `total` 0 (the command line says "Nothing to change: these are clean
+    AIFFs already." unless `new_since_plan` lists songs); an unknown plan is `bad_args`, an old one `refused`
+    (`plan_expired`), as for `upgrade`.
   - `convert` does each file's own answer (`eligible.aiff_action`: Convert, or only the name for a clean AIFF); `rename` is
     Rename's answer alone (a file that needs a Convert is left out as `needs_convert`); `make_aiff` plans again at its start.
   - The batch's `started_by` / `scope`: `convert` → `user` / `library:selection` or `todo:selection`; `rename` → `user` /

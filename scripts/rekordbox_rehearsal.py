@@ -23,7 +23,8 @@ same-track --json` and `bin/discjockey batch undo aiff:<id> --yes --json` with `
 their labels only) and writes `W/report.json`. Exit code 0 when every check passes, 1 otherwise, 2 when it refuses.
 `rehearse-sync` (plan stage C §7 RH): the same copies, but the sync's Auto-upgrade phase instead of `upgrade apply`;
 see its docstring. `rehearse-convert` (plan stage D §7.1): Convert to AIFF, Give it its clean name, Make all lossless
-files AIFF and the CDJ group's Convert all; see its docstring. Run these on a work folder that only `copy-db` and
+files AIFF and the CDJ group's Convert all (`bin/discjockey aiff convert … --dry-run`, then the same line with `--plan
+<id> --json`; each answer is the envelope, its `data` the plan or the batch); see its docstring. Run these on a work folder that only `copy-db` and
 `copy-tracks` have touched (they change the copies).
 Delete `W` afterwards: it holds the copies. `copy-db` marks `W` (`.discjockey-rehearsal`); `copy-tracks` and
 `rehearse`, which delete inside `W`, refuse a folder without the mark, and every step refuses a `W` inside the
@@ -1202,8 +1203,8 @@ DERIVED = (
      ("-ar", "96000", "-c:a", "pcm_s24be", "-write_id3v2", "1", "-f", "aiff")),
     ("AIFF 16/44.1 wrong tags (derived)", "derived_tags.aiff", "tags", "Rehearsal tags", 12,
      ("-ar", "44100", "-c:a", "pcm_s16be", "-write_id3v2", "1", "-f", "aiff")),
-    ("AAC 420 kbps (derived)", "derived_aac.m4a", "aac", "Rehearsal AAC", 4, ("-c:a", "aac", "-b:a", "420k")),
-)
+    ("AAC 420 kbps (derived)", "derived_aac.m4a", "aac", "Rehearsal AAC", 4, ("-ar", "96000", "-c:a", "aac", "-b:a", "420k")),
+)  # 96 kHz: ffmpeg's AAC encoder stops near 225 kbps at 44.1 kHz whatever it is asked for
 RECORD_TITLES = {"MP3 #1": "Rehearsal MP3", "M4A 44.1 #1": "Rehearsal M4A 44", "M4A 48 #1": "Rehearsal M4A 48"}
 LOSSLESS_SET = ("FLAC (derived)", "AIFF 24-bit 96 kHz (derived)", "AIFF 16/44.1 wrong tags (derived)", PCM)
 CDJ_SET = ("AAC 420 kbps (derived)",)
@@ -1392,9 +1393,17 @@ def prepare_convert(work: Path, picks: list[dict], checks: Checks) -> dict:
 
 
 def cli(work: Path, tag: str, *args: str) -> tuple[int, dict, str]:
-    """A Discjockey command of the convert rehearsal: no network, `--json`. Returns exit code, JSON, stderr."""
+    """A Discjockey command of the convert rehearsal: no network, `--json`. Returns exit code, the envelope, stderr."""
     code, data, err, _ = run_cli(work, tag, *args, "--json", offline=True)
     return code, data, err
+
+
+def aiff(work: Path, tag: str, *args: str) -> tuple[int, dict, dict, str]:
+    """An `aiff convert` / `aiff rename` command, waited for to its end (a real convert takes minutes; the default wait
+    is 90 s and then answers `running`). Returns exit code, the envelope, the envelope's `data` (the plan of a dry run,
+    the batch of a run) and stderr."""
+    code, env, err = cli(work, tag, "aiff", *args, "--wait", "3600")
+    return code, env, env.get("data") or {}, err
 
 
 def convert_snapshot(work: Path, ctx: dict) -> dict:
@@ -1416,15 +1425,15 @@ def kinds_of(plan: dict) -> dict[str, int]:
 def rh2_dry(work: Path, ctx: dict, checks: Checks, view: str) -> dict:
     checks.tag = "RH2"
     print("RH2: dry runs")
-    # the first dry run fills the files' stored facts (it only reads the files, and writes library.db once)
-    code, data, err = cli(work, "rh2-warm", "convert", "--all", "lossless", "--in", view, "--dry-run")
-    checks.add("RH2 a first dry run fills the stored facts (exit 0, ok, a dry run)",
-               code == 0 and data.get("ok") is True and data.get("dry_run") is True,
-               f"exit {code}; reading lines on stderr: {len(re.findall('Reading what your files are', err))}")
+    # a dry run reads the facts of files that have none stored in memory (at most 50) and stores none: the tree, the
+    # records (library.db) and master.db must be the same after it
     before = convert_snapshot(work, ctx)
     want = {"flac": 1, "aiff_hires": 1, "tags": 1, PCM_KIND: 1}
-    code, data, err = cli(work, "rh2-lossless", "convert", "--all", "lossless", "--in", view, "--dry-run")
-    plan = data.get("plan") or {}
+    code, env, data, err = aiff(work, "rh2-lossless", "convert", "--all", "--in", view, "--dry-run")
+    plan, plan_id = data.get("plan") or {}, data.get("plan_id")
+    checks.add("RH2 Make all dry run: exit 0, ok, a plan with an id",
+               code == 0 and env.get("outcome") == "ok" and str(plan_id or "").startswith("plan:"),
+               f"exit {code}, outcome {env.get('outcome')}, plan {plan_id}")
     checks.add("RH2 Make all dry run: the kinds equal the made picks (flac 1, aiff_hires 1, tags 1, name 1)",
                code == 0 and kinds_of(plan) == want and plan.get("total") == 4 and plan.get("lossy") == 0,
                f"kinds {kinds_of(plan)}, total {plan.get('total')}, lossy {plan.get('lossy')}, skipped "
@@ -1434,13 +1443,21 @@ def rh2_dry(work: Path, ctx: dict, checks: Checks, view: str) -> dict:
                f"{[i['action'] for i in plan.get('items', [])]}")
     ok, detail = same_convert_snapshot(before, convert_snapshot(work, ctx))
     checks.add("RH2 Make all dry run changed nothing (tree, library.db, master.db bytes and rows)", ok, detail)
-    code, data, err = cli(work, "rh2-cdj", "convert", "--all", "cdj", "--dry-run")
+    code, env, data, err = aiff(work, "rh2-cdj", "convert", "--all", "--todo", "cdj", "--dry-run")
     plan_cdj = data.get("plan") or {}
     checks.add("RH2 CDJ dry run: the AAC only", code == 0 and kinds_of(plan_cdj) == {"aac": 1}
                and plan_cdj.get("total") == 1, f"kinds {kinds_of(plan_cdj)}, total {plan_cdj.get('total')}")
     ok, detail = same_convert_snapshot(before, convert_snapshot(work, ctx))
     checks.add("RH2 CDJ dry run changed nothing", ok, detail)
-    return {"lossless": plan, "cdj": plan_cdj}
+    ids = {"RH3": plan_id, "RH4": data.get("plan_id")}
+    names = tuple(ctx["info"][label]["tid"] for label in LOSSY_SET)
+    code, env, data, err = aiff(work, "rh2-lossy", "convert", *names, "--dry-run")
+    ids["RH5"] = data.get("plan_id")
+    checks.add("RH2 the three runs each have a plan to run (their dry runs saved one)",
+               all(str(i or "").startswith("plan:") for i in ids.values()), f"{ids}")
+    ok, detail = same_convert_snapshot(before, convert_snapshot(work, ctx))
+    checks.add("RH2 the lossy picks' dry run changed nothing", ok, detail)
+    return {"lossless": plan, "cdj": plan_cdj, "ids": ids}
 
 
 def results_of(run: dict) -> dict[str, dict]:
@@ -1582,9 +1599,10 @@ def check_rename(work: Path, ctx: dict, label: str, before: dict, after: dict, r
 
 
 def check_batch(work: Path, ctx: dict, tag: str, run: dict, code: int, started_by: str, kind: str, labels: set[str],
-                checks: Checks) -> None:
+                checks: Checks, env: dict) -> None:
+    """`run` is the envelope's `data` (the batch), `env` the envelope (its outcome)."""
     checks.add(f"{tag} run: exit 0, ok, every item done, none skipped or failed",
-               code == 0 and run.get("ok") is True and run.get("done") == len(labels) == run.get("total")
+               code == 0 and env.get("outcome") == "ok" and run.get("done") == len(labels) == run.get("total")
                and not run.get("skipped") and not run.get("failed"),
                f"exit {code}, batch {run.get('batch')}, state {run.get('state')}, done {run.get('done')}/"
                f"{run.get('total')}, skipped {run.get('skipped')}, failed {run.get('failed')}")
@@ -1655,8 +1673,9 @@ def check_records(ctx: dict, tag: str, labels: set[str], rename_label: str | Non
 
 
 def run_batch(work: Path, ctx: dict, tag: str, args: tuple[str, ...], started_by: str, kind: str, labels: set[str],
-              checks: Checks, state: dict, rename_label: str | None = None) -> dict:
-    """One batch of the rehearsal: the run, stage B's checks per item, the backup; returns the pieces undo needs."""
+              checks: Checks, state: dict, rename_label: str | None = None, plan_id: str | None = None) -> dict:
+    """One batch of the rehearsal: the run (`aiff <args> --plan <the dry run's plan>`: `aiff convert --all --in V`,
+    `--all --todo cdj`, or the songs), stage B's checks per item, the backup; returns the pieces undo needs."""
     checks.tag = tag
     print(f"{tag}: {' '.join(args)}")
     rb_db, paths = work / "rb" / "master.db", ctx["paths"]
@@ -1665,11 +1684,11 @@ def run_batch(work: Path, ctx: dict, tag: str, args: tuple[str, ...], started_by
     ctx["work"] = work
     was = {label: dict(library.load_state(paths)["tracks"][ctx["info"][label]["tid"]]) for label in labels}
     t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    code, run, err = cli(work, f"{tag.lower()}-run", *args)
+    code, env, run, err = aiff(work, f"{tag.lower()}-run", *args, *(("--plan", plan_id) if plan_id else ()))
     t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    check_batch(work, ctx, tag, run, code, started_by, kind, labels, checks)
+    check_batch(work, ctx, tag, run, code, started_by, kind, labels, checks, env)
     if not run.get("batch"):
-        raise Refused(f"{tag}: no batch ran ({run.get('reason') or code}): stopped before the later steps.")
+        raise Refused(f"{tag}: no batch ran ({env.get('reason') or code}): stopped before the later steps.")
     checks.add(f"{tag} no -wal/-shm beside the copy after the run", not master.leftovers(rb_db))
     check_records(ctx, tag, labels, rename_label, was, run["batch"], checks)
     after = dump(rb_db)
@@ -1695,10 +1714,10 @@ def run_batch(work: Path, ctx: dict, tag: str, args: tuple[str, ...], started_by
     return {"before": before, "run": run, "labels": labels, "created": sub["created"], "tag": tag, "was": was}
 
 
-def rh3_make_all(work: Path, ctx: dict, view: str, checks: Checks, state: dict) -> dict:
+def rh3_make_all(work: Path, ctx: dict, view: str, checks: Checks, state: dict, plan_id: str | None = None) -> dict:
     labels = set(LOSSLESS_SET)
-    out = run_batch(work, ctx, "RH3", ("convert", "--all", "lossless", "--in", view), "make_aiff", "convert",
-                    labels, checks, state, rename_label=PCM)
+    out = run_batch(work, ctx, "RH3", ("convert", "--all", "--in", view), "make_aiff", "convert",
+                    labels, checks, state, rename_label=PCM, plan_id=plan_id)
     fl, hi, tg = (ctx["info"][x] for x in LOSSLESS_SET[:3])
     check_samples(ctx, LOSSLESS_SET[0], True, checks)
     check_samples(ctx, LOSSLESS_SET[1], False, checks)
@@ -1711,9 +1730,10 @@ def rh3_make_all(work: Path, ctx: dict, view: str, checks: Checks, state: dict) 
     return out
 
 
-def rh4_cdj(work: Path, ctx: dict, checks: Checks, state: dict) -> dict:
+def rh4_cdj(work: Path, ctx: dict, checks: Checks, state: dict, plan_id: str | None = None) -> dict:
     labels = set(CDJ_SET)
-    out = run_batch(work, ctx, "RH4", ("convert", "--all", "cdj"), "cdj_all", "convert", labels, checks, state)
+    out = run_batch(work, ctx, "RH4", ("convert", "--all", "--todo", "cdj"), "cdj_all", "convert", labels, checks, state,
+                    plan_id=plan_id)
     i = ctx["info"][CDJ_SET[0]]
     checks.add("RH4 the AAC's offset d was 0", i["d"] == 0, f"d {i['d']} ({i['why']})")
     check_samples(ctx, CDJ_SET[0], False, checks)
@@ -1726,10 +1746,10 @@ def rh4_cdj(work: Path, ctx: dict, checks: Checks, state: dict) -> dict:
     return out
 
 
-def rh5_lossy(work: Path, ctx: dict, checks: Checks, state: dict) -> dict:
+def rh5_lossy(work: Path, ctx: dict, checks: Checks, state: dict, plan_id: str | None = None) -> dict:
     labels = set(LOSSY_SET)
     names = tuple(ctx["info"][label]["tid"] for label in LOSSY_SET)
-    out = run_batch(work, ctx, "RH5", ("convert", *names), "user", "convert", labels, checks, state)
+    out = run_batch(work, ctx, "RH5", ("convert", *names), "user", "convert", labels, checks, state, plan_id=plan_id)
     for label in LOSSY_SET:
         check_samples(ctx, label, False, checks)
     return out
@@ -1796,10 +1816,17 @@ def rehearse_convert(work: Path) -> int:
     view = f"folder:Library/{FOLDER}"  # a Library folder's key is relative to the music folder
     batches = []
     try:
-        rh2_dry(work, ctx, checks, view)
-        batches.append(rh3_make_all(work, ctx, view, checks, state))
-        batches.append(rh4_cdj(work, ctx, checks, state))
-        batches.append(rh5_lossy(work, ctx, checks, state))
+        plans = rh2_dry(work, ctx, checks, view)["ids"]  # each run binds its own dry run's plan (`--plan`)
+        # the dry runs read the facts of these unscanned files in memory; a real library has them stored (the import
+        # and scan store them), and the rename's "facts unchanged" check compares against the stored ones
+        code, env, err = cli(work, "rh1-facts", "library", "facts", "--wait", "3600")
+        songs = library.load_state(ctx["paths"])["tracks"]
+        missing = [label for label, i in ctx["info"].items() if songs[i["tid"]].get("file_codec") is None]
+        checks.add("RH2 `library facts` after the dry runs stored the facts of every file", code == 0 and not missing,
+                   f"exit {code}, no facts stored for: {missing or 'none'}")
+        batches.append(rh3_make_all(work, ctx, view, checks, state, plans["RH3"]))
+        batches.append(rh4_cdj(work, ctx, checks, state, plans["RH4"]))
+        batches.append(rh5_lossy(work, ctx, checks, state, plans["RH5"]))
         rh6_undo(work, ctx, batches, checks, state)
     finally:
         (work / "report.json").write_text(json.dumps(checks.items, indent=1, ensure_ascii=False), encoding="utf-8")

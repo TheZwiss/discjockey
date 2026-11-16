@@ -354,6 +354,7 @@ from batch_helpers import make_lib, needs_ffmpeg, use  # noqa: E402
 from convert_helpers import EXACT  # noqa: E402
 from discjockey import align  # noqa: E402
 from discjockey.rekordbox import process  # noqa: E402
+from test_cli_upgrade import inline_workers  # noqa: E402,F401 - the aiff dry runs are read jobs: a worker answers them
 
 KINDS = ["mp3", "stale", "aiff", "mp3_plain"]
 
@@ -440,7 +441,7 @@ def test_the_new_track_preview_names_the_files_it_would_add(upgrades):
     assert answer["rekordbox"]["needs_rekordbox_closed"] is False  # New track never writes rekordbox
 
 
-# --- T9: a dry run writes exactly one file, its plan ---
+# --- T9: a dry run changes no byte outside plans/, cache/ and jobs/ (and a read job's `jobs/`) ---
 
 def snapshot(folder: Path, skip: tuple[Path, ...]) -> dict[str, str]:
     return tree(folder, skip)
@@ -452,6 +453,9 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "track undo": [({"track_ids": "all-tracks"}, {})],
     "batch undo": [({"batch_id": "a-batch"}, {})],
     "rekordbox restore": [({"backup": "a-backup"}, {})],
+    "library facts": [({}, {})],
+    "aiff convert": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True}), ({}, {"all": True, "todo": "cdj"})],
+    "aiff rename": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
 }
 
 
@@ -461,9 +465,9 @@ def t9_cases():
 
 @needs_ffmpeg
 @pytest.mark.parametrize("command,args,flags", t9_cases(), ids=lambda v: str(v) if isinstance(v, str) else "")
-def test_t9_a_dry_run_changes_no_byte_outside_plans_and_cache(upgrades, command, args, flags):
+def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inline_workers, command, args, flags):
     lib = upgrades
-    (entry,) = [e for e in catalog.ENTRIES if " ".join(e.command) == command and e.dry_run and e.planned is None]
+    entry = catalog.primary([e for e in catalog.ENTRIES if " ".join(e.command) == command and e.dry_run and e.planned is None])
     args = {k: (lib.tracks if v == "all-tracks" else v) for k, v in args.items()}
     if args.get("batch_id") == "a-batch":  # a batch of the first song, done (what an undo would look at)
         with db.connect(lib.paths.db_file) as conn:
@@ -479,13 +483,19 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_and_cache(upgrades, command,
         made.close(lib.place)
         args["backup"] = made.id
     support, music, rekordbox = lib.paths.support, lib.paths.root, lib.folder
-    skip = (support / "plans", support / "cache")
+    # (`jobs/` is the registry's record of a job, bookkeeping like plans/ and cache/: the dry run of a read job (kind RJ,
+    # the aiff ones) is answered by a worker, so its job exists whatever it reads; the read itself writes nothing but the plan)
+    shown = catalog.entry_of(entry.dry_run, command)
+    is_read_job = shown is not None and shown.kind == "RJ"
+    skip = (support / "plans", support / "cache", support / "jobs")
     before = [snapshot(f, skip) for f in (support, music, rekordbox)]
     assert not (support / "plans").exists()
     env = call.run(entry, args, Flags(dry_run=True, **flags), api=bind.default())
     assert env["outcome"] == "ok", env
     after = [snapshot(f, skip) for f in (support, music, rekordbox)]
-    assert after == before  # every byte and every file outside plans/ and cache/, library.db and rekordbox included
+    assert after == before  # every byte and every file outside plans/, cache/ and jobs/, library.db and rekordbox included
+    if not is_read_job:  # no job at all: a dry run that is not a read job leaves no record of one
+        assert not (support / "jobs").exists()
     if command in api_module.NO_PLAN_COMMANDS:  # Discard and Undo run on what is there when --yes comes: no plan, no file
         assert "plan_id" not in env["data"] and not (support / "plans").exists()
     else:

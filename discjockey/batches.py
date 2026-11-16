@@ -82,9 +82,6 @@ NOTHING_FILE_ELIGIBLE = "None of these can be changed right now."  # the same fo
 NOTHING_UNDONE = "None of these could be undone."
 STOPPED_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and "
                         "press Resume.")
-# the console's variant of the line above: there is no Resume button to press
-STOPPED_BY_REKORDBOX_CONSOLE = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox "
-                                "and run: discjockey batch resume aiff:{batch}.")
 STOPPED_UNDO_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped the undo after {done} of {total}. Quit "
                              "rekordbox and undo the rest.")
 _DEFAULT = object()

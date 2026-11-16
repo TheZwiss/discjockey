@@ -26,6 +26,20 @@ REKORDBOX_PROBLEM = {
 # a dry run plans on the last scan; this is what it says when a folder has changed since (design §7.1)
 SCAN_OLDER = "Library/ or a watched folder changed after the last scan, so this plan is on the files as that scan saw them."
 
+# a collection (`--in`) that is not there (`HubApi.resolve("collection", ...)`; the words the console's `convert --in` had)
+NO_PLAYLIST = "No playlist called “{name}”."
+NO_FOLDER = "No folder at {path}."
+BAD_COLLECTION = "A collection is all, unlisted, playlist:<name> or folder:<path>."
+
+# file facts (`library facts`, and the dry runs that read a few in memory: design §5.3, §7.1)
+FACTS_MISSING = ("{n} files have not been read yet, which is more than can be read at once ({most} at most). "
+                 "Read them once first, then try again.")
+LOSSY_NOTE = "{n} of these {are} lossy: an AIFF made from them sounds the same and takes 5–10 times the space."
+FACTS_READ = "Read the facts of {n} file{s}."
+FACTS_NONE = "Nothing to read: Discjockey knows the facts of every file already."
+FACTS_WOULD = "{n} file{s} would be read."
+FACTS_UNREADABLE = "{n} file{s} could not be read and {stay} without facts."
+
 # `rekordbox restore` (design §7.4): why a restore was refused (`RestoreRefused.reason`), what it says when done, and what
 # it says of the tracks that now point at files Discjockey moved
 RESTORE_REFUSED = {
@@ -43,6 +57,23 @@ MISSING_AFTER = ("{n} of your rekordbox tracks now point at files that Discjocke
                  "Undo those batches first (`batch undo`), or Relocate them in rekordbox.")
 WOULD_MISSING = ("{n} of your rekordbox tracks would point at files that Discjockey has since moved to Superseded/. "
                  "Undo those batches first (`batch undo`), or Relocate them in rekordbox.")
+
+# what a Convert / Rename run says it did (the console's words, `aiff convert` and `aiff rename`)
+AIFF_LEFT = "{n} left as they are."
+
+
+def aiff_summary(results: list[dict], done: int, not_done: int) -> str:
+    """The one line of an AIFF batch's result: "Made 2 files AIFF, gave 1 file its clean name." for the items that went
+    through, "N left as they are." for the ones that did not (a song a plan or the run left as it is, a failed one)."""
+    made = sum(1 for r in results if r.get("state") == "done" and r.get("action") == "convert")
+    named = sum(1 for r in results if r.get("state") == "done" and r.get("action") == "rename")
+    plural = lambda n: f"{n} file{'s' if n != 1 else ''}"  # noqa: E731
+    parts = ([f"made {plural(made)} AIFF"] if made else []) + (
+        [f"gave {plural(named)} {'its' if named == 1 else 'their'} clean name"] if named else [])
+    lines = [f"{parts[0][:1].upper()}{parts[0][1:]}{''.join(', ' + p for p in parts[1:])}."] if parts else (
+        [f"{done} done."] if done else [])
+    return " ".join([*lines, *([AIFF_LEFT.format(n=not_done)] if not_done else [])])
+
 
 SWAP_REASONS = ("swapped", "repointed", "converted")  # the old rekordbox track keeps its file: Reload Tag
 ADDED_REASON = "added_as_new"                          # a new file: the old rekordbox track is pointed at it by hand

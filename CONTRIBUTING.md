@@ -57,18 +57,24 @@ absolute path of the program.
   [--wait S]` and `job stop <job|current> [--now]` work on any job from any process (`current` is the one running write
   job of this music folder); Ctrl-C in the command that started a job stops it safely, a second press a second later
   stops it at once. A `--jsonl` answer is one event per line, then the envelope.
+- **Dry runs:** a `--dry-run` changes no byte of the music folder, the rekordbox folder, `settings.json` or `library.db`;
+  it stores its plan (`<support>/plans/`), caches (`cache/`) and, when it is a read job (`aiff … --dry-run`), the
+  job's own record (`jobs/`). `--plan <id>` then runs that plan. On the aiff commands: `--rows` and `rename --all` with
+  no song, and a plan of a clean library, are `ok` with `total` 0; `aiff convert --all` on a clean library is
+  `refused`; a dry run with more than 50 own files whose facts are unread is `refused` (`facts_missing`, next
+  `library facts`; the window plans on the facts stored).
 - **Scratch folders:** a command run by hand always sets `DISCJOCKEY_SUPPORT=<scratch folder>` and
   `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real
   library and the real rekordbox library. `where` prints what a process resolved.
-- **Not rebuilt yet:** the sync (no command), `setup`, `update`, `convert`, `rename` and `settings` still run the old command line
+- **Not rebuilt yet:** the sync (no command), `setup`, `update` and `settings` still run the old command line
   (`cli/legacy.py`; `discjockey <word> --help` prints their flags and exit codes). The words that are gone answer `bad_args`
   and say what to say instead: `upgrades` (say `upgrade …`), `upgrade undo` (say `track undo`), `rekordbox checked` (say
-  `check done`). The sync takes `--dry-run` (changes
+  `check done`), `convert` and `rename` (say `aiff convert …` and `aiff rename …`). The sync takes `--dry-run` (changes
   nothing), `--yes` (no question), `--limit N` (at most N downloads), `--extra N` (N more Qobuz downloads today),
   `--verbose` and `--json` (needs `--yes` or `--dry-run`; one object `{"ok", "exit_code", "dry_run", "report",
   "counts", "auto_upgrade"}`, every human line on stderr); exit 0 done, 1 errors in the run, 2 setup problem or no
   music folder, 3 another run holds the library, 130 stopped (Ctrl-C once stops after the current step, twice stops at
-  once). `convert`, `rename` and `settings` take `--json` (and `--dry-run` where a plan can be shown) too.
+  once). `settings` takes `--json` too.
   Each word leaves with the group that builds its replacement.
 
 `help --json` layout: `data` is `{command, version, global_flags: [{flag, says}], commands: [...]}`. Each command:
