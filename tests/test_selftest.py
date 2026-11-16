@@ -138,6 +138,7 @@ def test_the_self_test_ignores_an_installed_update(tmp_path):
 
 # --- SQLCipher ---
 
+@pytest.mark.real_sqlcipher_kdf  # the build's own key derivation is what this check is about
 def test_a_keyed_file_opens_only_with_its_key(tmp_path):
     assert selftest.check_sqlcipher(tmp_path) == []
 

@@ -242,6 +242,13 @@ def test_clear_tmp_keeps_the_files_of_a_pending_swap(tmp_path):
     assert sorted(x.name for x in (p.tmp / "t1").iterdir()) == ["backup.aiff", "swap.aiff"]
 
 
+@pytest.mark.real_durability  # the one test that makes the real drive flush (conftest turns it off otherwise)
+def test_full_fsync_on_a_real_file_reaches_the_drive(tmp_path):
+    with open(tmp_path / "x", "wb") as f:
+        f.write(b"data")
+        library.full_fsync(f.fileno())  # F_FULLFSYNC where the disk has it, else os.fsync: no error either way
+
+
 def test_full_fsync_asks_the_drive_to_write_out(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(library.fcntl, "fcntl", lambda fd, cmd, *a: calls.append(cmd))

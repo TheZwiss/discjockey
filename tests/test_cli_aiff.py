@@ -820,7 +820,7 @@ def test_convert_songs_is_one_batch_started_by_the_user(world, capsys):
 
 def scrubbed(out: str, tmp_path) -> str:
     """A page as the golden holds it: the temp folder and the backup's name (the time it was made) said by a word."""
-    return re.sub(r"\d{8}T\d{6}Z", "<backup>", out.replace(str(tmp_path), "<tmp>"))
+    return re.sub(r"\d{8}T\d{6}Z(?:-\d+)?", "<backup>", out.replace(str(tmp_path), "<tmp>"))
 
 
 def test_the_page_of_a_run_is_the_batch_and_what_to_do_in_rekordbox(world, capsys, tmp_path):
