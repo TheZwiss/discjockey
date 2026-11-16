@@ -89,6 +89,22 @@ def test_resume_of_a_batch_that_is_not_stopped_is_refused_with_the_windows_words
     assert untouched(found) == before
 
 
+def test_resume_of_a_batch_a_crash_left_running_recovers_it_and_finishes_it(lib, capsys, monkeypatch):
+    found = lib(["mp3", "aiff"])
+    stopped_batch(found, capsys, monkeypatch)
+    with db.connect(found.paths.db_file) as conn:  # the process died mid-batch: the row still says running
+        db.set_aiff_batch(conn, 1, state="running", stop_reason=None)
+    assert batches_of(found)[0].state == "running"
+    with library.run_lock(found.paths.lock):  # one that really runs in another process is busy, not "not stopped"
+        code, env = run_json(["batch", "resume", "aiff:1"], capsys)
+        assert (code, env["outcome"]) == (BUSY, "busy"), env
+    code, env = run_json(["batch", "resume", "aiff:1"], capsys)
+    assert (code, env["outcome"], env["data"]["done"]) == (OK, "ok", 2), env
+    assert batches_of(found)[0].state == "done"
+    code, env = run_json(["batch", "resume", "aiff:1"], capsys)  # now it has ended: nothing to resume
+    assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "not_stopped")
+
+
 def test_resume_takes_a_typed_aiff_id_only_and_an_unknown_one_is_bad_args(lib, capsys):
     lib(["mp3"])
     for text, reason in (("1", "bad_id_kind"), ("moves:1", "bad_id_kind"), ("aiff:99", "unknown_id")):
@@ -200,6 +216,56 @@ def test_undo_dry_run_says_per_item_whether_it_can_be_undone_and_why_not(lib, ca
     assert "plan_id" not in data and untouched(found) == before
 
 
+def later_batch_did(found, track: str) -> int:
+    """A later batch that also did `track` (its item `done`), as a second pass over one song leaves it."""
+    batch = batches.start(found.paths, [(track, "same_track")], via="terminal")
+    with db.connect(found.paths.db_file) as conn:
+        db.set_aiff_item(conn, batch, 0, "done")
+    return batch
+
+
+def test_undo_of_a_batch_leaves_a_track_a_later_batch_did_again_and_names_that_batch(lib, capsys):
+    found = lib(["mp3", "mp3"])
+    done_batch(found, capsys)
+    later = later_batch_did(found, found.tracks[0])
+    before = untouched(found)
+    code, env = run_json(["batch", "undo", "aiff:1", "--dry-run"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok")
+    rows = {r["key"]: r for r in env["data"]["items"]}
+    assert (rows[found.tracks[0]]["state"], rows[found.tracks[0]]["reason"]) == ("skipped", "newer_batch")
+    assert rows[found.tracks[0]]["message"] == batches.NEWER_BATCH.format(later=f"aiff:{later}")
+    assert (rows[found.tracks[1]]["state"], rows[found.tracks[1]]["reason"]) == ("planned", None)
+    assert (env["data"]["planned"], env["data"]["skipped"]) == (1, 1) and untouched(found) == before
+    code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)
+    assert (code, env["outcome"], env["message"]) == (PARTIAL, "partial", "1 of 2 tracks undone."), env
+    states = {r["track"]: (r["state"], r["reason"]) for r in env["data"]["results"]}
+    assert states == {found.tracks[1]: ("undone", None), found.tracks[0]: ("refused", "newer_batch")}
+    assert found.entry(0)["path"] != found.olds[0]  # the track the later batch changed was not put back
+    assert [i.state for i in found.batch(1).items] == ["done", "undone"]
+    assert [i.state for i in found.batch(later).items] == ["done"]
+    with db.connect(found.paths.db_file) as conn:  # once the later batch is undone, the earlier one's turn comes
+        db.set_aiff_item(conn, later, 0, "undone")
+    code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)
+    assert (code, env["outcome"], env["data"]["undone"]) == (OK, "ok", 1), env
+    assert found.entry(0)["path"] == found.olds[0] and [i.state for i in found.batch(1).items] == ["undone"] * 2
+
+
+def test_undo_dry_run_only_reads_library_db(lib, capsys, monkeypatch):
+    found = lib(["mp3", "mp3"])
+    done_batch(found, capsys)
+    real = db.connect
+
+    def read_only_only(path, *, read_only=False, **kw):
+        assert read_only, "a dry run opened library.db read-write"
+        return real(path, read_only=True, **kw)
+    before = untouched(found)
+    with monkeypatch.context() as m:
+        m.setattr(db, "connect", read_only_only)
+        code, env = run_json(["batch", "undo", "aiff:1", "--dry-run"], capsys)
+    assert (code, env["outcome"], env["data"]["planned"]) == (OK, "ok", 2), env
+    assert untouched(found) == before
+
+
 def test_undo_of_a_mix_is_partial_with_the_refused_track_in_the_results(lib, capsys):
     found = lib(["mp3", "mp3"])
     done_batch(found, capsys)
@@ -208,6 +274,34 @@ def test_undo_of_a_mix_is_partial_with_the_refused_track_in_the_results(lib, cap
     assert (code, env["outcome"], env["message"]) == (PARTIAL, "partial", "1 of 2 tracks undone."), env
     states = {r["track"]: r["state"] for r in env["data"]["results"]}
     assert states == {found.tracks[1]: "undone", found.tracks[0]: "refused"}
+
+
+def test_stop_during_a_batch_undo_is_exit_5_with_the_rest_waiting_and_a_second_undo_finishes(lib, capsys, monkeypatch):
+    from discjockey import upgrades
+    from discjockey.cli import bind
+    found = lib(["mp3", "mp3", "mp3"])
+    done_batch(found, capsys)
+    started, real_headless, real_undo = [], bind.headless, upgrades.undo
+
+    def headless(resolved, **kw):
+        api = real_headless(resolved, **kw)
+        started.append(api)
+        return api
+
+    def undo_then_stop(*args, **kw):  # Ctrl-C arrives while the first track is being put back
+        done = real_undo(*args, **kw)
+        started[-1]._jobs.inline_token.cancel()
+        return done
+    monkeypatch.setattr(bind, "headless", headless)
+    monkeypatch.setattr(upgrades, "undo", undo_then_stop)
+    code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (STOPPED, "stopped", "stop"), env
+    assert [r["state"] for r in env["data"]["results"]] == ["undone", "waiting", "waiting"]
+    assert [i.state for i in found.batch(1).items] == ["done", "done", "undone"]  # what was undone stays undone
+    monkeypatch.setattr(upgrades, "undo", real_undo)
+    code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)
+    assert (code, env["outcome"], env["data"]["undone"]) == (OK, "ok", 2), env
+    assert [i.state for i in found.batch(1).items] == ["undone"] * 3
 
 
 def test_undo_takes_a_typed_aiff_id_only_and_the_move_batch_form_is_not_built_yet(lib, capsys):
@@ -407,9 +501,55 @@ def test_restore_dry_run_takes_no_writer_lock_and_says_writing_while_a_writer_ho
     assert env["data"]["missing_after"] and "writing" not in env["data"]["rekordbox"]
 
 
+def test_restore_dry_run_opens_the_live_library_shared_while_rekordbox_runs_with_wal_and_shm(lib, capsys, monkeypatch):
+    found = lib(["mp3", "mp3"])
+    backup, _ = with_backup(found, capsys)
+    code, closed = run_json(["rekordbox", "restore", backup, "--dry-run"], capsys)
+    assert code == OK and closed["data"]["missing_after"]
+    for suffix in ("-wal", "-shm"):  # rekordbox is open: its journal files are beside the library
+        found.place.db.with_name(found.place.db.name + suffix).write_bytes(b"")
+    opened = []
+    real = rbbackup.master.connect
+
+    def watching(db, key, *, immutable=True, **kw):
+        opened.append((db.name, immutable))
+        return real(db, key, immutable=immutable, **kw)
+    monkeypatch.setattr(rbbackup.master, "connect", watching)
+    monkeypatch.setattr(process, "running", lambda: True)
+    code, env = run_json(["rekordbox", "restore", backup, "--dry-run"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok")
+    assert env["data"]["missing_after"] == closed["data"]["missing_after"]
+    assert ("master.db", False) in opened  # the live library, shared: a live writer's pages are not read as immutable
+
+
+def test_restore_dry_run_of_a_library_that_cannot_be_read_says_unreadable_not_crashed(lib, capsys):
+    found = lib(["mp3"])
+    backup, _ = with_backup(found, capsys)
+    found.place.db.write_bytes(b"this is not a database" * 100)  # the repair case: restore is what fixes it
+    code, env = run_json(["rekordbox", "restore", backup, "--dry-run"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert env["data"]["missing_after"] is None and env["data"]["rekordbox"]["unreadable"] is True
+
+
+def test_a_query_that_fails_on_the_library_is_unreadable_too(lib, monkeypatch):
+    found = lib(["mp3"])
+
+    class Broken:
+        def execute(self, *a):
+            raise rbbackup.master.sqlcipher3.DatabaseError("file is not a database")
+
+        def close(self):
+            pass
+    monkeypatch.setattr(rbbackup.master, "connect", lambda *a, **kw: Broken())
+    assert rbbackup._paths_of(found.place.db) is None
+    assert rbbackup._missing_after(found.place.db, found.place.db) is None
+
+
 def test_a_dry_run_makes_no_lock_file_and_a_restore_holds_it_only_while_it_runs(tmp_path, monkeypatch, lib, capsys):
     found = lib(["mp3"])
-    backup = rbbackup.Backup.ensure(found.paths, found.place, dbid=None, batch_id=None, tracks=[])
+    with rbbackup.master.open_read(found.place, False) as m:  # a backup that names its library: restore may put it back
+        dbid = m.dbid
+    backup = rbbackup.Backup.ensure(found.paths, found.place, dbid=dbid, batch_id=None, tracks=[])
     backup.close(found.place)
     assert not (found.paths.support / rb_lock.LOCK_NAME).exists()
     assert run_json(["rekordbox", "restore", backup.id, "--dry-run"], capsys)[0] == OK
@@ -424,16 +564,43 @@ def test_restore_puts_rekordbox_back_saves_the_current_library_and_lists_the_mis
     rb_before = found.dump()
     backup, _ = with_backup(found, capsys)
     assert found.dump() != rb_before
+    current = rbbackup.sha256_file(found.place.db)  # the library as it is before the restore
     code, env = run_json(["rekordbox", "restore", backup, "--yes"], capsys)
     assert (code, env["outcome"], env["job"] is not None) == (OK, "ok", True), env
     data = env["data"]
     assert data["restored"] == backup and found.dump() == rb_before
     assert data["saved_current"] in [b.id for b in rbbackup.backups(found.paths)] and data["saved_current"] != backup
+    saved_copy = rbbackup.backups_dir(found.paths) / data["saved_current"] / "master.db"
+    assert rbbackup.sha256_file(saved_copy) == current  # the saved copy is the library that was replaced, byte for byte
+    assert rbbackup.sha256_file(found.place.db) != current
     assert [m["id"] for m in data["missing_after"]] == ["1", "2"]
     assert all(set(m) == {"id", "path", "was"} for m in data["missing_after"])
     assert env["message"] == (words.RESTORED.format(backup=backup, saved=data["saved_current"]) + " "
                               + words.MISSING_AFTER.format(n=2))
     assert env["next"] == [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
+
+
+def test_restore_reads_rekordbox_s_library_only_while_it_holds_rekordbox_lock_exclusively(lib, capsys, monkeypatch):
+    import fcntl
+    import os
+    found = lib(["mp3"])
+    backup, _ = with_backup(found, capsys)
+    seen = []
+    real = rbbackup._verified
+
+    def watching(b, place, running):
+        fd = os.open(found.paths.support / rb_lock.LOCK_NAME, os.O_RDWR)
+        try:  # a second descriptor asks for the shared hold a reader takes: the restore's exclusive hold refuses it
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            seen.append("shared hold granted")
+        except BlockingIOError:
+            seen.append("refused")
+        finally:
+            os.close(fd)
+        return real(b, place, running)
+    monkeypatch.setattr(rbbackup, "_verified", watching)
+    code, env = run_json(["rekordbox", "restore", backup, "--yes"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok") and seen == ["refused"], (env, seen)
 
 
 def test_a_restore_after_the_batches_were_undone_leaves_no_file_missing(lib, capsys):
@@ -485,6 +652,35 @@ def test_restore_refuses_what_it_cannot_do_with_the_engines_words_and_changes_no
     assert untouched(found) == before[0]
 
 
+def test_restore_of_a_backup_that_names_no_library_is_refused_when_this_one_can_be_read(lib, capsys):
+    import json
+    found = lib(["mp3"])
+    backup, _ = with_backup(found, capsys)
+    manifest_file = rbbackup.backups_dir(found.paths) / backup / "manifest.json"
+    manifest = json.loads(manifest_file.read_text())
+    manifest_file.write_text(json.dumps({**manifest, "dbid": None}))
+    before = untouched(found)
+    for flag in ("--yes", "--dry-run"):
+        code, env = run_json(["rekordbox", "restore", backup, flag], capsys)
+        assert (code, env["outcome"], env["data"]["why"]) == (REFUSED, "refused", "other_library"), flag
+    assert untouched(found) == before
+
+
+def test_restore_is_still_the_repair_for_a_library_that_cannot_be_read(lib, capsys):
+    import json
+    found = lib(["mp3"])
+    backup, _ = with_backup(found, capsys)
+    folder = rbbackup.backups_dir(found.paths) / backup
+    manifest = json.loads((folder / "manifest.json").read_text())
+    (folder / "manifest.json").write_text(json.dumps({**manifest, "dbid": None}))
+    good = (folder / "master.db").read_bytes()
+    found.place.db.write_bytes(b"damaged" * 1000)
+    code, env = run_json(["rekordbox", "restore", backup, "--yes"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert found.place.db.read_bytes() == good
+    assert env["data"]["saved_current"] and env["data"]["missing_after"] == []
+
+
 def test_restore_leftovers_beside_the_library_are_refused_as_unclean(lib, capsys):
     found = lib(["mp3"])
     backup, _ = with_backup(found, capsys)
@@ -493,6 +689,26 @@ def test_restore_leftovers_beside_the_library_are_refused_as_unclean(lib, capsys
     code, env = run_json(["rekordbox", "restore", backup, "--yes"], capsys)
     assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "unclean")
     assert env["message"] == words.RESTORE_REFUSED["unclean"] and untouched(found) == before
+    assert env["data"]["why"] == "unclean"
+
+
+def test_every_why_a_restore_can_be_refused_for_is_pinned_by_a_test(lib, capsys, monkeypatch):
+    """`data.why` is the closed list agents read (`reason` is `refused` for most): the five that are `refused` are pinned
+    here and by the tests of their own (`other_library`, `damaged`, `no_rekordbox`: ..._with_the_engines_words;
+    `unclean`: ..._as_unclean); `rekordbox_open` is `needs_person` and `not_found` is `bad_args`."""
+    assert set(words.RESTORE_REFUSED) == {"no_rekordbox", "not_found", "damaged", "other_library", "rekordbox_open",
+                                          "unclean", "changed"}
+    found = lib(["mp3"])
+    backup, _ = with_backup(found, capsys)
+
+    def stale(*a, **kw):
+        raise rbbackup.WriteRefused("changed")
+    monkeypatch.setattr(rbbackup, "_copy_checked", stale)  # rekordbox started in the gap between the check and the copy
+    before = kept(found)
+    code, env = run_json(["rekordbox", "restore", backup, "--yes"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "refused"), env
+    assert env["data"]["why"] == "changed" and env["message"] == words.RESTORE_REFUSED["changed"]
+    assert kept(found) == before
 
 
 def test_restore_takes_a_backup_that_exists_and_an_unknown_name_is_bad_args(lib, capsys):
@@ -547,6 +763,8 @@ def test_a_batch_that_meets_the_rekordbox_lock_stays_stopped_and_resumes_after_i
     with rbsession.writer_lock(found.paths.support):
         code, env = run_json(["upgrade", "apply", "--all", *SAME], capsys)
         assert (code, env["outcome"], env["reason"]) == (BUSY, "busy", "rekordbox_lock"), env
+        assert (env["data"]["batch_id"], env["data"]["state"]) == ("aiff:1", "stopped")  # the answer names the batch
+        assert env["next"][0]["run"] == "batch resume aiff:1"
         [row] = run_json(["batch", "list"], capsys)[1]["data"]["batches"]  # the batch is there, stopped, nothing done
         assert (row["id"], row["state"], row["stop_reason"], row["done"], row["planned"]) == ("aiff:1", "stopped", "busy", 0, 2)
         code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)  # an undo writes rekordbox too
@@ -554,6 +772,15 @@ def test_a_batch_that_meets_the_rekordbox_lock_stays_stopped_and_resumes_after_i
     assert (found.music(), found.dump()) == before
     code, env = run_json(["batch", "resume", "aiff:1"], capsys)
     assert (code, env["outcome"], env["data"]["done"]) == (OK, "ok", 2)
+
+
+def test_wait_busy_does_not_retry_a_command_whose_busy_end_left_a_batch(lib, capsys):
+    found = lib(["mp3", "aiff"])
+    with rbsession.writer_lock(found.paths.support):
+        code, env = run_json(["upgrade", "apply", "--all", *SAME, "--wait-busy", "30"], capsys)  # would wait 30 s if retried
+    assert (code, env["outcome"], env["reason"]) == (BUSY, "busy", "rekordbox_lock"), env
+    assert env["data"]["batch_id"] == "aiff:1" and env["next"][0]["run"] == "batch resume aiff:1"
+    assert len(batches_of(found)) == 1  # no second batch, no `not_stopped` from a retry
 
 
 def test_a_batch_of_one_that_meets_the_rekordbox_lock_is_closed_not_left_to_resume(lib, capsys):

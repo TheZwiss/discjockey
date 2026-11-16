@@ -145,7 +145,9 @@ def _a_backup(api, rec) -> str:
     make_master(folder, [])
     place = locate_in(folder)
     api._svc.rekordbox_place = lambda: place
-    made = rb_backup.Backup.ensure(api._paths, place, dbid=None, batch_id=None, tracks=[])
+    with rb_backup.master.open_read(place, False) as m:
+        dbid = m.dbid
+    made = rb_backup.Backup.ensure(api._paths, place, dbid=dbid, batch_id=None, tracks=[])
     made.close(place)
     api.lock_recorder.words.clear()
     return made.id

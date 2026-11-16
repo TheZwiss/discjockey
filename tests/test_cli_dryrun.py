@@ -473,7 +473,9 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_and_cache(upgrades, command,
         args["batch_id"] = f"aiff:{batch}"
     if args.get("backup") == "a-backup":  # a copy of the fixture rekordbox library (what a restore would put back)
         from discjockey.rekordbox import backup as rb_backup
-        made = rb_backup.Backup.ensure(lib.paths, lib.place, dbid=None, batch_id=None, tracks=[])
+        with rb_backup.master.open_read(lib.place, False) as m:
+            dbid = m.dbid
+        made = rb_backup.Backup.ensure(lib.paths, lib.place, dbid=dbid, batch_id=None, tracks=[])
         made.close(lib.place)
         args["backup"] = made.id
     support, music, rekordbox = lib.paths.support, lib.paths.root, lib.folder

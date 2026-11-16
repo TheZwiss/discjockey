@@ -761,7 +761,7 @@ def check_restore(work: Path, ctx: dict, backup: str | None, before_sha: str, sh
     rb_db = work / "rb" / "master.db"
     code, listed, _, _ = run_cli(work, "step8-backups", "rekordbox", "backups", "--json")
     found = [b["id"] for b in (listed.get("data") or {}).get("backups") or []]
-    checks.add("step 8 rekordbox backups lists the batch's backup", code == 0 and found == [backup],
+    checks.add("step 8 rekordbox backups lists the batch's backup", code == 0 and backup in found,
                f"exit {code}, {len(found)} backups")
     if backup is None or backup not in found:
         return

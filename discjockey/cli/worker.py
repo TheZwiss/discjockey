@@ -202,6 +202,12 @@ def _is_busy(answer: dict, job) -> bool:
     return bool(job is not None and job.finished and job.finished.get("problem") in BUSY_PROBLEMS)
 
 
+def _left_batch(job) -> bool:
+    """Whether a job that ended busy left an AIFF batch behind (stopped, with its planned items): its answer names the
+    batch and `batch resume`, which is what the person or agent does next, not the same command again."""
+    return bool(job is not None and ((job.finished or {}).get("result") or {}).get("batch"))
+
+
 def _stopped_reason(env: dict, signals: StopSignals) -> dict:
     if env["outcome"] == "stopped" and signals.hard:
         return {**env, "reason": "stop_now", "message": outcomes.REASONS["stop_now"].text}
@@ -248,11 +254,13 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
             sink.finished = None
             answer = _call(api, method, args)
             job = bind.last_job(api)
-            if _is_busy(answer, job) and time.monotonic() < deadline:
+            if _is_busy(answer, job) and not _left_batch(job) and time.monotonic() < deadline:
                 token.sleep(min(RETRY_BUSY_S, deadline - time.monotonic()))
-                continue
+                continue  # (a busy end that left a batch is not retried: the same command would meet `not_stopped`)
             break
         if _is_busy(answer, job):
+            if _left_batch(job):
+                return _stopped_reason(_finished_envelope(command, files, job, api, method), signals)
             return _busy(command, files, roots, job)
         if not answer.get("ok"):
             return _stopped_reason(envelope.from_answer(command, answer, job=files.id), signals)

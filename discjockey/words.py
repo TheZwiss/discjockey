@@ -36,6 +36,7 @@ RESTORE_REFUSED = {
     "other_library": "This backup was made from another rekordbox library than this Mac's, so nothing was changed.",
     "rekordbox_open": convert.REKORDBOX_OPEN,
     "unclean": rbstep.REFUSED["unclean"],
+    "changed": "rekordbox's library changed while it was being saved, so nothing was changed. Try again.",
 }
 RESTORED = "Restored rekordbox's library from {backup}. Your library as it was is saved as {saved}."
 MISSING_AFTER = ("{n} of your rekordbox tracks now point at files that Discjockey has since moved to Superseded/. "

@@ -2073,6 +2073,9 @@ class HubApi:
         a plan left out of the batch (`_each_work`'s words: they end as skipped); `extra`: what else the result says."""
         def work(ctx) -> dict:
             state, recovered = self._begin()
+            if resume is not None and self._stopped_aiff(resume).state != "stopped":
+                # read under the library lock, after recovery: a batch a crash left `running` is stopped by now
+                raise OpProblem(NOT_STOPPED, "refused", reason="not_stopped")
             batch_id = resume if resume is not None else make()
             return self._run_batch(ctx, state, recovered, batch_id, resume is not None, alone, left, extra)
         return work
@@ -2370,9 +2373,12 @@ class HubApi:
     @bridge
     def batch_resume(self, batch_id: int) -> dict:
         """Carries on a stopped Same track batch (its planned tracks, their eligibility asked again): a write job (kind
-        "batch_resume"); the result is a BatchResult. The job snapshot's `batch_kind` is the stopped batch's own kind."""
+        "batch_resume"); the result is a BatchResult. The job snapshot's `batch_kind` is the stopped batch's own kind.
+        A batch that ended (`done`) is `refused` / `not_stopped` at once; for any other the job decides after its
+        recovery, under the library lock: a batch a crash left `running` is stopped by then and resumes, one that is
+        still not stopped is `not_stopped`, one that really runs in another process is `busy`."""
         row = self._stopped_aiff(batch_id)
-        if row.state != "stopped":
+        if row.state == "done":  # a stopped or running one starts the job: whether it is stopped is read under the lock
             raise OpProblem(NOT_STOPPED, "refused", reason="not_stopped")
         return {"job_id": self._jobs.start("batch_resume", self._batch_work(None, batch_id, alone=False),
                                            batch_kind=row.kind).id}
@@ -3020,8 +3026,11 @@ class CliApi(HubApi):
         if isinstance(result.get("batch"), int):
             batch = f"aiff:{result['batch']}"
             out["data"] = {"batch_id": batch}
+            if result.get("state") == "stopped" and result.get("stop_reason") == "busy":
+                out["next"] = [{"run": f"batch resume {batch}",
+                                "why": "carries on where it stopped, once the other Discjockey is done"}]
             if result.get("done"):
-                out["next"] = [{"run": f"batch show {batch}", "why": "every song of this batch"},
+                out["next"] = [*out.get("next", ()), {"run": f"batch show {batch}", "why": "every song of this batch"},
                                {"run": "check list", "why": "what is left to do in rekordbox"}]
         parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
         parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed"))) if n]
@@ -3345,6 +3354,8 @@ class CliApi(HubApi):
                                          running=self._svc.rekordbox_running)
             except rb_backup.RestoreRefused as e:
                 raise self._restore_refusal(e) from None
+            except rb_backup.WriteRefused as e:  # master.db changed while the current library was saved: nothing written
+                raise OpProblem(engine_words.RESTORE_REFUSED["changed"], "refused", data={"why": e.reason}) from None
             return {"restored": backup, "saved_current": done.saved_current, "missing_after": done.missing_after,
                     "recovered": recovered}
         return {"job_id": self._jobs.start("rekordbox_restore", work).id}
@@ -3355,7 +3366,8 @@ class CliApi(HubApi):
         `{backup, missing_after, rekordbox}`. `missing_after` is the restore's own list (`[{id, path, was}]`: the tracks
         that would point at a file that is not there), `rekordbox` is `{running, needs_rekordbox_closed}`: a restore only
         runs with rekordbox quit. Takes no lock beyond the shared `rekordbox.lock` while master.db is read; with a writer
-        holding it master.db is not opened: `missing_after` is null and `rekordbox.writing` true. Nothing is saved or
+        holding it master.db is not opened: `missing_after` is null and `rekordbox.writing` true; a library that can't be read
+        (it is what a restore can repair) gives null and `rekordbox.unreadable` true. Nothing is saved or
         changed. The refusals of the restore itself (a damaged backup, another library, no rekordbox library) are
         `refused`; a name no backup has is `bad_args` / `unknown_id`."""
         running = bool(self._svc.rekordbox_running())
@@ -3369,6 +3381,8 @@ class CliApi(HubApi):
                 if e.reason == "not_found":
                     raise BadId("unknown_id", engine_words.RESTORE_REFUSED["not_found"]) from None
                 raise self._restore_refusal(e) from None
+        if missing is None:  # the current library can't be read: what a restore would leave missing is not known
+            return {"backup": backup, "missing_after": None, "rekordbox": {**shown, "unreadable": True}}
         return {"backup": backup, "missing_after": missing, "rekordbox": shown}
 
     @staticmethod
