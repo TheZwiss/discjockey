@@ -493,7 +493,8 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
-    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). RUNNING: V1.12 review (Sonnet).
+    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. RUNNING: V1.12 fix round, then a separate
+    rehearsal agent (made-up data).
    
     NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
     master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
@@ -748,6 +749,13 @@ Results:
     until V1.13; rehearsal script step 8 (backups, restore dry run + --yes, byte-equal), not run yet; ceiling 93.
     FOR REVIEW: a job ending `busy` on a held rekordbox.lock carries no batch data (`worker._busy`), so an agent
     isn't told which batch stopped. V1.12 total 729k vs plan 200k. Issue 39 ~9.39M.
+    V1.12 review: Sonnet **221k** (est. 190-240k; 76 calls; full 5337 passed): 0 Critical, 5 Important (batch undo
+    reverses a later batch's step; undo dry run opens RW; restore dry run reads live master.db immutable while
+    rekordbox runs; resume refuses a crash-left `running` batch; busy envelope loses the batch), 6 Minor. Decisions
+    (mine, by the safety rule: never overwrite the person's rekordbox library with a foreign one): M-2 refuse when the
+    live dbid is readable but the backup's is unknown; M-3 keep `refused` + `data.why` for phase 1 (FOR PHASE REVIEW).
+    Fix round and rehearsal split (together est. >250k): fix (Sonnet, est. 150-200k) then rehearsal on made-up data.
+    Issue 39 ~9.61M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
