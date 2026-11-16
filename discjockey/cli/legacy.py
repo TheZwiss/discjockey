@@ -29,6 +29,17 @@ from ..rekordbox import process
 from ..rekordbox.locate import locate
 
 LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
+TOOLS_JOB_RUNNING = "Another Discjockey job is already updating the tools. Wait until it has finished."
+TOOL_JOBS = ("update_tools", "rollback_tools")  # the support-only jobs of `HubApi._support_job`
+
+
+def _tools_job_running(support) -> bool:
+    """A tools update or rollback of this support folder running in any process (the registry): the terminal's
+    `update` gives the refusal `HubApi._support_job` gives, as the library lock alone does not stop it (these jobs hold
+    no library lock, only the support lock inside their work)."""
+    from ..hub import registry
+    return any(state.get("status") in registry.ACTIVE and (state.get("kind") or state.get("method")) in TOOL_JOBS
+               for state in registry.Registry(support).list(all=True))
 
 
 def _positive_int(text: str) -> int:
@@ -289,6 +300,9 @@ def _main(args: argparse.Namespace) -> tuple[int, dict | None]:
                 return setup_cmd.run_setup(paths), None
             if args.command == "update":
                 from .. import setup_cmd
+                if _tools_job_running(paths.support):
+                    print(TOOLS_JOB_RUNNING)
+                    return 3, _problem("busy", TOOLS_JOB_RUNNING, reason="tools_job")
                 return setup_cmd.run_update(paths.support), None
             return sync(paths, args)
     except NoLibrary as e:

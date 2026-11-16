@@ -726,3 +726,25 @@ def test_a_busy_support_lock_in_the_terminals_update_and_the_sync_is_a_busy_answ
     monkeypatch.setattr(cli, "sync", lambda paths, args: busy(None))  # a sync's own saves (--extra)
     code, data, _ = sync_json(["--yes", "--json"], capsys)
     assert code == 3 and (data["kind"], data["reason"]) == ("busy", "support_lock") and data["ok"] is False
+
+
+@pytest.mark.parametrize("method", ["update_tools", "rollback_tools"])
+def test_the_terminals_update_is_busy_while_a_tools_job_runs_in_the_registry(root, monkeypatch, capsys, method):
+    """`tools update` is not built yet, so the legacy `update` is the terminal's only way to it: it goes through the
+    same refusal `HubApi._support_job` gives (a tools job of this support folder already running, in any process)."""
+    from discjockey import setup_cmd
+    from discjockey.hub import registry
+    monkeypatch.setattr(setup_cmd, "run_update", lambda *a: pytest.fail("must not run beside a tools job"))
+    files = registry.Registry(root / ".support").create(method, "x", {}, "terminal", {})
+    files.update(status="running")
+    files.flush()
+    try:
+        assert cli.main(["update"]) == 3
+    finally:
+        files.update(status="done")
+        files.flush()
+        files.release_claim()
+    out = capsys.readouterr().out
+    assert "updating the tools" in out and "Traceback" not in out
+    monkeypatch.setattr(setup_cmd, "run_update", lambda *a: 0)
+    assert cli.main(["update"]) == 0  # the job is over: not refused any more
