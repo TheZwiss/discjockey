@@ -95,6 +95,17 @@ a temporary folder. The audio tests need ffmpeg and ffprobe on your `PATH` and s
 test also runs `actionlint` on both workflows when it is installed (`brew install actionlint`) and skips without it,
 so CI, whose runner has none, never lints them: run the tests on a Mac with it before changing a workflow.
 
+The suite waits for nothing a test does not need, so it runs in about a minute: `tests/conftest.py` installs three
+test-only changes (the production code and its defaults stay as they are, and each has a marker that turns it off for
+the one test that pins the real thing):
+
+- `tests/speed_sqlcipher.py`: SQLCipher's key stretching (about 30 ms on every open of a rekordbox library) runs once
+  per key and salt; `real_sqlcipher_kdf` uses SQLCipher's own passphrase derivation.
+- `tests/tool_memo.py`: an ffprobe or ffmpeg run on bytes already seen in this worker, the same way, is answered from
+  memory (the program runs for the first of each); `real_tools` runs every call for real.
+- `tests/speed_durability.py`: `F_FULLFSYNC` and library.db's `synchronous`/`fullfsync` pragmas do not wait for the
+  drive (a test never cuts the power); `real_durability` runs with the real ones.
+
 ## The window's interface (`hub-ui/`)
 
 Read [docs/hub-design-language.md](docs/hub-design-language.md) first: it holds the design rules, the blocks every

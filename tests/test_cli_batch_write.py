@@ -408,7 +408,7 @@ def test_the_windows_resume_link_shows_a_stopped_terminal_batch_of_a_library_vie
 
 def unstamped(text: str, tmp_path) -> str:
     """A page as the golden keeps it: no temp folder, no backup's time stamp."""
-    return re.sub(r"\d{8}T\d{6}Z", "<backup>", text.replace(str(tmp_path), "<tmp>"))
+    return re.sub(r"\d{8}T\d{6}Z(?:-\d+)?", "<backup>", text.replace(str(tmp_path), "<tmp>"))
 
 
 def test_golden_the_pages_of_a_resume_and_an_undo(lib, capsys, tmp_path, monkeypatch):

@@ -33,6 +33,7 @@ def fresh(tmp_path, library, state=None, facts=no_facts):
 
 # --- 1.1 connection, schema, version check ---
 
+@pytest.mark.real_durability  # the pragmas as library.db's connection sets them
 def test_connect_sets_the_binding_pragmas(tmp_path, library):
     path = fresh(tmp_path, library)
     with db.connect(path) as conn:
