@@ -1,0 +1,18 @@
+Gave 2 files their clean name.
+
+Batch        1
+State        done
+Stop reason  none
+Total        2
+Done         2
+Skipped      0
+Failed       0
+Backup       <backup>
+Recovered    none
+Batch id     aiff:1
+
+Results
+Track      Action  State  Reason  Message                                                                                                            Path                            Rekordbox               Person steps
+t2aaaaaaa  rename  done   none    now named Artist - Song 2.aiff                                                                                     Library/A/Artist - Song 2.aiff  entries: 3, kept: none  none
+t3aaaaaaa  rename  done   none    now named Artist - Song 3.aiff. This file isn't in your rekordbox collection, so there was nothing to keep there.  Library/A/Artist - Song 3.aiff  none                    none
+2 of 2 shown

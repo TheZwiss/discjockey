@@ -85,7 +85,7 @@ def command_path() -> str:
 
 def choose(entries: list[Entry]) -> Entry:
     """The entry the command runs (`call.choose`'s rule): the write when there is one, else the read."""
-    return next((e for e in entries if e.kind != "R"), entries[0])
+    return catalog.primary(entries)
 
 
 def reasons_of(entries: list[Entry]) -> list[str]:

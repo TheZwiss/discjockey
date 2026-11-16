@@ -57,6 +57,23 @@ MISSING_AFTER = ("{n} of your rekordbox tracks now point at files that Discjocke
 WOULD_MISSING = ("{n} of your rekordbox tracks would point at files that Discjockey has since moved to Superseded/. "
                  "Undo those batches first (`batch undo`), or Relocate them in rekordbox.")
 
+# what a Convert / Rename run says it did (the console's words, `aiff convert` and `aiff rename`)
+AIFF_LEFT = "{n} left as they are."
+
+
+def aiff_summary(results: list[dict], done: int, not_done: int) -> str:
+    """The one line of an AIFF batch's result: "Made 2 files AIFF, gave 1 file its clean name." for the items that went
+    through, "N left as they are." for the ones that did not (a song a plan or the run left as it is, a failed one)."""
+    made = sum(1 for r in results if r.get("state") == "done" and r.get("action") == "convert")
+    named = sum(1 for r in results if r.get("state") == "done" and r.get("action") == "rename")
+    plural = lambda n: f"{n} file{'s' if n != 1 else ''}"  # noqa: E731
+    parts = ([f"made {plural(made)} AIFF"] if made else []) + (
+        [f"gave {plural(named)} {'its' if named == 1 else 'their'} clean name"] if named else [])
+    lines = [f"{parts[0][:1].upper()}{parts[0][1:]}{''.join(', ' + p for p in parts[1:])}."] if parts else (
+        [f"{done} done."] if done else [])
+    return " ".join([*lines, *([AIFF_LEFT.format(n=not_done)] if not_done else [])])
+
+
 SWAP_REASONS = ("swapped", "repointed", "converted")  # the old rekordbox track keeps its file: Reload Tag
 ADDED_REASON = "added_as_new"                          # a new file: the old rekordbox track is pointed at it by hand
 

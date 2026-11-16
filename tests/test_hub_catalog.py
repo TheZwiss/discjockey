@@ -17,8 +17,9 @@ from discjockey.hub.catalog import Arg, Entry
 # and `upgrade_all` (part a), `upgrade discard`, `track undo` and `check done` (part b) and `undo_upgrade_preview`;
 # 1.12 builds `batch resume`, `batch undo aiff:<n>` and `batch_undo_preview` (the moves forms are phase 4's), then (part b)
 # `rekordbox backups`, `rekordbox restore` and `rekordbox_restore_preview`; 1.13 part a builds `library facts` (and its
-# read, `facts_preview`).
-PHASE_1_CEILING = 92
+# read, `facts_preview`), part b `aiff convert` and `aiff rename` (`convert`, `rename`, `make_aiff` and the two `aiff_plan`
+# reads that are their dry runs).
+PHASE_1_CEILING = 87
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",

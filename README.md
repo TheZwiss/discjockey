@@ -737,10 +737,10 @@ yet isn't listed until it has.
 Playing on XDJ players (XDJ-RX3, XDJ-XZ, XDJ-700) or an older CDJ? They stop at 48 kHz and some don't play FLAC or ALAC: Make
 all lossless files AIFF makes every lossless file one they play.
 
-**In the Terminal:** `discjockey convert <track>…`, `convert --all lossless [--in playlist:<name> | folder:<path> |
-unlisted]`, `convert --all cdj` and `rename <track>… | --all` do the same, each with `--dry-run` to see the plan first
-(CONTRIBUTING.md lists them with their JSON). They are for scripts and agents; the window's buttons are the way for
-everyone else.
+**In the Terminal:** `discjockey aiff convert <track>…`, `aiff convert --all [--in playlist:<name> | folder:<path> |
+unlisted]`, `aiff convert --all --todo cdj` and `aiff rename <track>… | --all [--in …]` do the same, each with `--dry-run`
+to see the plan first (`discjockey help aiff` lists them with their JSON). They are for scripts and agents; the window's
+buttons are the way for everyone else.
 
 ## rekordbox
 

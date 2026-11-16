@@ -12,7 +12,7 @@ A listing is a mapping:
 | `search`, `quality` | the Library's search words and quality filter (library only) |
 | `group` | a To-do group's key, or `all` (to-do only) |
 | `hidden` | whether To-do's hidden songs are listed too (to-do only) |
-| `verb_all` | the verb's own "all" button (`VERB_ALL`): the songs that button acts on, with nothing else in the listing |
+| `verb_all` | the verb's own "all" button (`VERB_ALL`): the songs that button acts on, with nothing else in the listing (`rename_all` takes an `in` too: the collection whose files it looks at) |
 
 A key its source does not take is `bad_args` (`conflicting_flags`), never ignored. Everything here is pure: the views
 are given, nothing is looked up."""
@@ -28,7 +28,9 @@ KEYS = ("source", "in", "search", "quality", "group", "hidden", "verb_all")
 SOURCES = ("library", "todo")
 UPGRADE_ALL = "upgrade_all"  # Upgrade all: Same track for every parked upgrade To-do shows as possible
 CHECK_DONE = "check_done"    # "Done, checked" for every check To-do lists
-VERB_ALL = (UPGRADE_ALL, CHECK_DONE)
+RENAME_ALL = "rename_all"    # Give it its clean name for every own clean AIFF whose name isn't clean, in a collection
+VERB_ALL = (UPGRADE_ALL, CHECK_DONE, RENAME_ALL)
+NO_ROWS = "No song is in that list, so there is nothing to do."
 
 CONFLICT = "conflicting_flags"
 ALL_IS_SAME_TRACK = "All of them is Same track only; name the songs to add them as new tracks."
@@ -80,8 +82,11 @@ def parse(listing: object) -> Listing:
     if verb is not None:
         if verb not in VERB_ALL:
             raise BadId("usage", f"{verb} has no 'all' here: the ones that do are {', '.join(VERB_ALL)}.")
-        if extra := sorted(set(given) - {"verb_all"}):
+        if extra := sorted(set(given) - {"verb_all", *(("in",) if verb == RENAME_ALL else ())}):
             raise BadId(CONFLICT, f"{extra[0]} narrows a listing; the 'all' of a verb is not one.")
+        if verb == RENAME_ALL:
+            view, key = collection(_text(listing, "in") or "all")
+            return Listing("library", view=view, key=key, verb_all=verb)
         return Listing("todo", verb_all=verb)
     source = _text(listing, "source") or ("todo" if "group" in given or "hidden" in given else "library")
     if source not in SOURCES:

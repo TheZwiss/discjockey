@@ -544,7 +544,8 @@ def test_a_read_job_runs_as_a_job_without_the_library_lock(env):
     open_gate(marker)
     thread.join(20)
     answer = started[0]
-    assert (answer["outcome"], answer["job"]) == ("ok", rj["id"]) and answer["data"] == {"plan": {"items": []}}
+    assert (answer["outcome"], answer["job"]) == ("ok", rj["id"]) and answer["data"]["plan"] == {"items": []}
+    assert answer["data"]["plan_id"].startswith("plan:")  # the read is a command's dry run: the worker saves its plan
     assert writer.state()["status"] == "running"  # the write job was never disturbed, and the read was not busy
     writer.open_gate()
     wait_for(writer.ended)

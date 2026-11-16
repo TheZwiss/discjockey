@@ -2103,7 +2103,9 @@ hub) and `hub-ui/src/lib/bridge/fake/convert.test.ts` (the fake backend) both re
 `AiffScope`, `AiffPlan`, `CdjWhy`, `CdjWords`); the new methods are in `contract.ts` and, as `LIBRARY_METHODS` members,
 answer `no_library` without a music folder.
 
-- **`aiff_plan(scope)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). `scope` is
+- **`aiff_plan(scope, only?)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). `only` is the command
+  line's (`aiff rename --dry-run`; the window sends none): `"rename"` plans Rename's answer alone, as `rename` runs it (a file
+  that needs a Convert is left out, in a `tracks` scope `skipped` as `needs_convert`); any other value is `refused`. `scope` is
   `{kind: "tracks", tracks: [key, …]}` (what the user picked; each song once), `{kind: "lossless", view:
   "all"\|"unlisted"\|"playlist"\|"folder", key: str\|null}` (the view's own files, as `library()` lists them without filter or
   search, whose stored codec is lossless; `key` is null for `all` / `unlisted`) or `{kind: "cdj"}` (To-do's group).
@@ -2127,7 +2129,9 @@ answer `no_library` without a music folder.
     "AIFF 24-bit or above 44.1 kHz → 16-bit", "New tags", "Clean name only", then "{format} → AIFF").
   - `lossy`: how many items have a lossy file now. `space`: `[{drive, needed, free, enough}]`, the room per drive
     (`drive` is a folder on it). `superseded_bytes`: what `Superseded/` takes. `rekordbox`: `{state: ready\|none\|unreadable,
-    running, needs_closed}`, `needs_closed` true when an item's file is in rekordbox's library.
+    running, needs_closed, writing?}`, `needs_closed` true when an item's file is in rekordbox's library; `writing: true` (only
+    then present) says a writer of any Discjockey process held `rekordbox.lock`, so master.db was not opened and the plan took
+    rekordbox's cached state with no lookup of its tracks (as `rekordbox_status` answers `writing`).
   - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Own files without stored
     facts (a library from before they were kept) are read in memory (ffprobe) and never stored (`aiff_plan.with_facts`),
     for the files the scope looks at (a selection's, a view's, every own file the CDJ group could hold) that
@@ -2145,7 +2149,7 @@ answer `no_library` without a music folder.
   name is a Rename with `new_name` null and `bytes` 0. For every other reason (`named_already`, `away`, `needs_convert`,
   `no_name`, …) `action` is null, `kind` / `to` / `new_name` null and `bytes` 0. `from`, `lossy` and `cdj` always say what
   the file is. rekordbox is read from the cached state. The same meaning holds for a plan's `skipped` (a reason is a
-  blocked or empty answer, never an item); views, api, the fake and the console's `convert --dry-run` read the one
+  blocked or empty answer, never an item); views, api, the fake and the command line's `aiff convert --dry-run` read the one
   `aiff_plan` and add nothing of their own.
 - **Write jobs** `convert(track_ids, origin = "library" \| "todo", plan_id?)`, `rename(track_ids, plan_id?)` and `make_aiff(scope, plan_id?)` (scope
   `lossless` or `cdj`; any other is `refused`) → `{job_id}`; job kind `aiff_batch`, progress `BatchProgress`, result

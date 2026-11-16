@@ -458,8 +458,10 @@ def run_json(argv, capsys):
 
 
 def test_the_legacy_words_still_parse():
-    for argv in (["setup"], ["update"], ["convert", "--all", "lossless"], ["settings", "auto-upgrade"]):
+    for argv in (["setup"], ["update"], ["settings", "auto-upgrade"]):
         assert cli.parse_args(argv).command == argv[0]
+    with pytest.raises(SystemExit):  # `convert` and `rename` are `aiff convert` and `aiff rename` of the new line
+        cli.parse_args(["convert", "--all", "lossless"])
 
 
 def test_the_sync_flags_work_before_and_after_a_command():

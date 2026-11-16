@@ -88,18 +88,31 @@ CONFIRM: dict[str, str] = {
 
 # The verb's own "all" (design §7.3): what `--all` of a command selects, `<command> -> verb` as `select.VERB_ALL` names it.
 # A bulk command without a row has no `--all` (the parser does not offer it). The groups that build the other verbs add
-# theirs (`aiff convert --all` is a scope, not a list of songs: it is not here).
-ALL_OF: dict[str, str] = {"upgrade apply": select.UPGRADE_ALL, "check done": select.CHECK_DONE}
+# theirs (`aiff convert --all` is a scope, not a list of songs: it is not here, `ALL_METHOD` has it).
+ALL_OF: dict[str, str] = {"upgrade apply": select.UPGRADE_ALL, "check done": select.CHECK_DONE,
+                          "aiff rename": select.RENAME_ALL}
 
 
 # The method that runs a verb's `--all` when it has one of its own (the window's button: `upgrade_all`), `<command> ->
 # method`. Every other verb's `--all` is the songs `ALL_OF` selects, given to the verb's ordinary method.
-ALL_METHOD: dict[str, str] = {"upgrade apply": "upgrade_all"}
+ALL_METHOD: dict[str, str] = {"upgrade apply": "upgrade_all", "aiff convert": "make_aiff"}
+
+# The AIFF commands (`aiff_plan` is their `--dry-run`), and what their `--all` takes besides: `--in C` (Make all lossless
+# files AIFF in that view; Rename all in it), `--todo cdj` (Convert all: the CDJ group). Both are named by the Flags field.
+AIFF = ("aiff convert", "aiff rename")
+ALL_NARROWS: dict[str, tuple[str, ...]] = {"aiff convert": ("where", "todo"), "aiff rename": ("where",)}
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
 # ... of an undo: a track whose undo was refused (a file changed since, nothing to undo) or failed
 UNDO_PARTIAL = ("refused", "failed")
+
+
+def primary(entries: "list[Entry]") -> "Entry":
+    """The entry a command runs and the parser takes its words from: the write when there is one (a `J` or `B` entry, the
+    first), else a read that runs as a job, else the read (`aiff convert` has the read `aiff_plan` among its entries,
+    which the write's `--dry-run` runs)."""
+    return next((e for e in entries if e.kind in ("J", "B")), next((e for e in entries if e.kind != "R"), entries[0]))
 
 
 def entry_of(method: str, command: str) -> "Entry | None":
@@ -180,8 +193,6 @@ ENTRIES: tuple[Entry, ...] = (
     _e("removal_preview", "folder remove", "R", "folder remove folder:/Music/Crate --dry-run",
        params={"folder_id": _positional("folder", type="int")}),
     _e("check_import_folder", "folder check", "R", "folder check /Music/Crate"),
-    _e("aiff_plan", "aiff convert", "RJ", params=SCOPE, dry_run="aiff_plan"),
-    _e("aiff_plan", "aiff rename", "RJ", params=SCOPE, dry_run="aiff_plan"),
     _e("tidy_preview", "tidy run", "R", "tidy run --dry-run"),
     _e("move_batches", "", "R", built=True),  # the window's own list; `batch list` is `batches`
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
@@ -273,9 +284,21 @@ ENTRIES: tuple[Entry, ...] = (
     _e("supersede_duplicate", "duplicate keep", "J", params={
         "group_id": _positional("duplicate"), "file_id": _positional("file", type="int"),
         "paths": _derived("duplicate_paths", "list")}),
-    _e("convert", "aiff convert", "J", params={"track_ids": TRACKS}, dry_run="aiff_plan"),
-    _e("rename", "aiff rename", "J", params={"track_ids": TRACKS}, dry_run="aiff_plan"),
-    _e("make_aiff", "aiff convert", "J", params=SCOPE, dry_run="aiff_plan"),
+    # `aiff convert` is three entries of one command: `convert` (named or --rows songs), `make_aiff` (--all [--in C | --todo
+    # cdj]: `ALL_METHOD` swaps it in) and the read that is its `--dry-run` (`aiff_plan`, which a worker runs: it may read
+    # files). `aiff rename` is `rename` and its own `aiff_plan` (`only` rename). `help` shows one row for each command.
+    _e("convert", "aiff convert", "J", 'aiff convert "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff" --dry-run',
+       params={"track_ids": TRACKS, "origin": _derived("aiff_origin")}, dry_run="aiff_plan", built=True,
+       locks={"library", "rekordbox_r", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
+    _e("rename", "aiff rename", "J", 'aiff rename "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff" --dry-run',
+       params={"track_ids": TRACKS}, dry_run="aiff_plan", built=True,
+       locks={"library", "rekordbox_r", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
+    _e("make_aiff", "aiff convert", "J", "aiff convert --all --in folder:Library/Hard_Bounce --dry-run", params=SCOPE,
+       dry_run="aiff_plan", built=True, locks={"library", "rekordbox_r", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
+    _e("aiff_plan", "aiff convert", "RJ", "aiff convert --all --todo cdj --dry-run", params={**SCOPE, "only": _derived("aiff_only")},
+       dry_run="aiff_plan", built=True, locks={"rekordbox_r"}),
+    _e("aiff_plan", "aiff rename", "RJ", "aiff rename --all --dry-run", params=SCOPE, fixed={"only": "rename"},
+       dry_run="aiff_plan", built=True, locks={"rekordbox_r"}),
     _e("batch_resume", "batch resume", "J", "batch resume aiff:1", params={"batch_id": _positional("aiff", type="int")},
        built=True, locks={"library", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
     _e("batch_undo", "batch undo", "J", "batch undo aiff:1 --dry-run", params={"batch_id": _positional("aiff", type="int")},

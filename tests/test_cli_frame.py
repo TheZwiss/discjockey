@@ -72,7 +72,8 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
     (["check", "done", "--all"], "new"),
     (["batch", "list"], "new"), (["batch", "show", "aiff:1"], "new"), (["batch", "resume", "aiff:1"], "new"),
     (["batch", "undo", "aiff:1", "--yes"], "new"),
-    (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
+    (["convert", "--all", "lossless"], "new"), (["rename", "--all"], "new"), (["aiff", "convert", "--all"], "new"),
+    (["aiff", "rename", "--all", "--dry-run"], "new"), (["hub"], "new"),
     (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "new"), (["settings", "auto-upgrade"], "legacy"),
     (["rekordbox", "status"], "new"), (["--json", "rekordbox", "status"], "new"), (["call", "quit"], "new"),
     (["nonsense"], "new"), (["--wait", "5", "setup"], "legacy"), (["help"], "new"), (["help", "setup"], "new"),
@@ -340,7 +341,7 @@ def test_the_bare_sync_goes_to_the_old_parser_unchanged(capsys):
 def test_the_old_commands_still_answer_with_their_old_shapes(tmp_path, monkeypatch, capsys):
     choose_music(tmp_path, monkeypatch)
     make_root(tmp_path)
-    code, out, err = run(["convert", "--all", "lossless", "--dry-run", "--json"], capsys)
+    code, out, err = run(["settings", "auto-upgrade", "--json"], capsys)
     data = json.loads(out)
     assert data["ok"] is True and "outcome" not in data and code == 0
 

@@ -73,6 +73,7 @@ PLAN_NOTHING = OUTCOME_REASONS["changed"].text
 PLAN_CHANGED_WORDS = OUTCOME_REASONS["changed"].text
 RESUME_FIRST = "An upgrade was stopped halfway. Carry it on instead of starting Upgrade all again."
 BAD_AIFF_SCOPE = "That isn't a set of files Discjockey can make AIFF."
+BAD_AIFF_ONLY = "`only` is rename, or left out."
 AIFF_ORIGINS = ("library", "todo")  # where a Convert was started: the batch's scope says so ("library:selection")
 TAG_CACHE_MAX = 50000  # file tag reads kept in memory (plan stage D §0.7); a library past it starts the cache over
 NO_AIFF_BATCH = "Discjockey has no record of this batch."
@@ -830,12 +831,17 @@ class HubApi:
                           only=only, held=held), True
 
     def _planned_reading(self, state: dict, scope: dict, only: str | None = None) -> plans.AiffPlan:
+        """`_planned_reading_blind`'s plan."""
+        return self._planned_reading_blind(state, scope, only)[0]
+
+    def _planned_reading_blind(self, state: dict, scope: dict, only: str | None = None) -> tuple[plans.AiffPlan, bool]:
         """`_planned` for a read (the panel, a dry run, the plan a run binds): the facts of the scope's own files that
         have none stored are read in memory (`aiff_plan.with_facts`), none is stored. `FactsMissing` for more than a
-        read takes."""
+        read takes. Also whether the plan was made blind (a writer held `rekordbox.lock`: rekordbox's cached state and no
+        lookup of its tracks)."""
         held = self._decided_now(state) if scope.get("kind") == "cdj" else ()
         state = plans.with_facts(self._paths, state, scope, probe=self._svc.probe, held=held)
-        return self._planned(state, scope, only, held=held)
+        return self._planned_read(state, scope, only, held=held)
 
     def _aiff_scope(self, scope: object, kinds: Sequence[str] = plans.SCOPE_KINDS) -> dict:
         """A scope from the page as `aiff_plan.plan` takes it, or ValueError: `{kind: "tracks", tracks}`, `{kind:
@@ -1035,15 +1041,24 @@ class HubApi:
         return {"track": detail}
 
     @bridge
-    def aiff_plan(self, scope: dict) -> dict:
+    def aiff_plan(self, scope: dict, only: str | None = None) -> dict:
         """What Make all lossless files AIFF, a selection's Convert or the CDJ group's Convert all would do (`{plan:
         AiffPlan}`, aiff_plan.AiffPlan.to_dict): `scope` `{kind: "tracks", tracks: [key, …]}`, `{kind: "lossless", view,
         key}` or `{kind: "cdj"}`. One read, off the window's thread like `spectrum` (pywebview gives every call its own);
         the tags of the files that need them are remembered, so reopening the panel is quick. The run plans again. Own
         files whose facts are not stored yet (a library from before the facts were kept) are read in memory, never
         stored (`aiff_plan.with_facts`): up to 50; with more the answer is `refused` (`facts_missing`, `next: library
-        facts`)."""
-        return {"plan": self._planned_reading(self._state(), self._aiff_scope(scope)).to_dict()}
+        facts`). `only` `"rename"` (the command line's `aiff rename --dry-run`) plans Rename's answer alone, as `rename`
+        runs it: a file that needs a Convert is left as it is. While a writer of any Discjockey process holds
+        `rekordbox.lock` master.db is not opened: the plan takes rekordbox's cached state and no lookup, and its
+        `rekordbox` part says `writing: true`."""
+        if only not in (None, "rename"):
+            raise ValueError(BAD_AIFF_ONLY)
+        plan, blind = self._planned_reading_blind(self._state(), self._aiff_scope(scope), only)
+        answer = plan.to_dict()
+        if blind:
+            answer["rekordbox"] = {**answer["rekordbox"], "writing": True}
+        return {"plan": answer}
 
     @bridge
     def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
@@ -3078,6 +3093,10 @@ class CliApi(HubApi):
             return self._upgrade_words(result)
         if method == "batch_resume" and isinstance(result.get("results"), list):
             return self._upgrade_words(result)
+        if method == "aiff_plan" and isinstance(result.get("plan"), dict):
+            plan = result["plan"]  # a dry run that has nothing to change and nothing waiting says so, as the window's panel does
+            clean = not (plan.get("total") or plan.get("waiting") or plan.get("skipped")) and "total" in plan
+            return {"message": plans.NOTHING_TO_CHANGE} if clean else {}
         if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
             return self._undo_words(result)
         if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
@@ -3090,6 +3109,8 @@ class CliApi(HubApi):
                 and result.get("state") == "done" \
                 and not result.get("new_since_plan"):
             return {"message": plans.NOTHING_TO_CHANGE}  # a plan whose files are all clean AIFFs already
+        if method in ("convert", "rename", "make_aiff") and isinstance(result.get("results"), list) and result.get("total"):
+            return self._upgrade_words(result, aiff=True)
         return {}
 
     @staticmethod
@@ -3114,7 +3135,10 @@ class CliApi(HubApi):
             out["next"] = [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
         return out
 
-    def _upgrade_words(self, result: dict) -> dict:
+    def _upgrade_words(self, result: dict, aiff: bool = False) -> dict:
+        """The words of an upgrade's batch, a resumed one and (`aiff`) a Convert, Rename or Make all lossless files AIFF
+        run: its `batch_id`, what to run next, the steps for the person and the one line that says what was done (an
+        AIFF run says it in its own words; it points at `check list` only when a step is left in rekordbox)."""
         out: dict = {}
         results = result["results"]
         if isinstance(result.get("batch"), int):
@@ -3125,10 +3149,14 @@ class CliApi(HubApi):
                                 "why": "carries on where it stopped, once the other Discjockey is done"}]
             if result.get("done"):
                 out["next"] = [*out.get("next", ()), {"run": f"batch show {batch}", "why": "every song of this batch"},
-                               {"run": "check list", "why": "what is left to do in rekordbox"}]
-        parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
-        parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed"))) if n]
-        out["message"] = ", ".join(parts) + "."
+                               *([] if aiff else [{"run": "check list", "why": "what is left to do in rekordbox"}])]
+        if aiff:
+            out["message"] = engine_words.aiff_summary(results, result["done"], result["skipped"] + result["failed"])
+        else:
+            parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
+            parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed")))
+                      if n]
+            out["message"] = ", ".join(parts) + "."
         tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
             r.get("state") == "done" and r.get("action") != "discard" for r in results) else {}
         steps, reload, rows = [], [], []
@@ -3147,6 +3175,8 @@ class CliApi(HubApi):
         out["data"] = {**out.get("data", {}), "results": rows}
         if steps:
             out["person_steps"] = steps
+            if aiff and isinstance(result.get("batch"), int) and result.get("done"):
+                out["next"] = [*out.get("next", ()), {"run": "check list", "why": "what is left to do in rekordbox"}]
         return out
 
     def _undo_words(self, result: dict) -> dict:
@@ -3413,12 +3443,22 @@ class CliApi(HubApi):
         if want.verb_all == select.CHECK_DONE:
             return self._nothing_left({"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))},
                                       NOTHING_TO_CHECK)
+        if want.verb_all == select.RENAME_ALL:
+            return self._nothing_left({"ids": self._rename_all_ids(state, want.view, want.key)}, plans.NOTHING_TO_CHANGE)
         if want.source == "todo":
             return {"ids": select.todo_ids(self._todo(state, want.group, want.hidden))}
         view, key = want.view, want.key
         if view == "folder":
             key = self._folder_key(key or "")
         return {"ids": select.library_ids(self._library_view(state, view, key, want.search, want.quality, None))}
+
+    def _rename_all_ids(self, state: dict, view: str, key: str | None) -> list[str]:
+        """What Rename all gives its clean name: the own clean AIFFs of the collection whose name isn't clean, as Rename's
+        own answer says (`aiff_plan` with `only` rename, on files whose facts are read in memory). The collection is
+        resolved as `--in` does (`_resolve_collection`: an unknown playlist or folder is `unknown_id`)."""
+        found = self._resolve_collection(view if key is None else f"{view}:{key}")
+        scope = {"kind": "lossless", **found}
+        return [i.track for i in self._planned_reading(state, scope, "rename").items]
 
     @staticmethod
     def _nothing_left(answer: dict, words: str) -> dict:

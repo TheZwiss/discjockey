@@ -435,7 +435,7 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
     rekordbox tracks that hold that file (`Master.entries_for` on a library opened read-only), None when there is no
     library to read (`rb.state` `none`, or one that can't be read). `tags`: reads one file's `audio.FileFacts`.
     `lines`, `records`, `watched`: what a playlist or folder view needs, read from `paths` when not given. `only`
-    "rename": the plan of `discjockey rename` (Rename's answer alone: a file that needs a Convert is left out, and in a
+    "rename": the plan of `aiff rename` (Rename's answer alone: a file that needs a Convert is left out, and in a
     `tracks` scope listed in `skipped` as `needs_convert`); None: `aiff_action`'s answer. Raises ValueError for a scope
     that isn't one of the three. `held`: the songs To-do shows in an open question or duplicate group, which the `cdj`
     scope leaves out (`cdj.group_members`); the commands, which have no To-do, give none."""

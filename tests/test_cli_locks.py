@@ -185,6 +185,43 @@ def _discard(api, rec):
     assert wait_job(api, rec, api.upgrade(["t2"], "discard")).ok
 
 
+def _own_song(api, kinds=("mp3",)):
+    """A library of own songs (`batch_helpers.make_own_lib`) and a second api attached to it, with the events recorder its
+    jobs report to: what `aiff convert | rename` work on. The lock recorder sees every api."""
+    from batch_helpers import make_own_lib
+    from convert_helpers import EXACT
+    folder = api._paths.root / "own-library"
+    folder.mkdir(exist_ok=True)
+    with pytest.MonkeyPatch.context() as mp:
+        lib = make_own_lib(folder, mp, list(kinds))
+    events = hub_helpers.Recorder()
+    own = CliApi(lib.paths.support, events, hub_helpers.services(
+        rekordbox_place=lambda: lib.place, rekordbox_running=lambda: False, compare=lambda a, b: EXACT))
+    hub_helpers._MADE.append(own)
+    own._attach(lib.paths)
+    own._jobs.keep_awake = hub_helpers._no_awake
+    return lib, own, events
+
+
+def _aiff_run(method: str):
+    """`convert` / `rename` / `make_aiff` with the plan of their dry run, as `--plan` runs them: the plan is read (the
+    shared `rekordbox.lock`, only while master.db is open), then the batch holds the library and rekordbox's writer."""
+    def drive(api, rec):
+        lib, own, events = _own_song(api, ("mp3",) if method == "convert" else ("clean",))  # a Convert; a Rename's item
+        scope = {"kind": "lossless", "view": "all", "key": None} if method == "make_aiff" else {
+            "kind": "tracks", "tracks": lib.tracks}
+        plan_id = own.save_plan("aiff convert", own.aiff_plan(scope), "aiff convert")
+        args = {"convert": (lib.tracks, "library", plan_id), "rename": (lib.tracks, plan_id),
+                "make_aiff": (scope, plan_id)}[method]
+        assert wait_job(own, events, getattr(own, method)(*args)).ok
+    return drive
+
+
+def _aiff_plan(api, rec):
+    lib, own, events = _own_song(api)
+    assert own.aiff_plan({"kind": "lossless", "view": "all", "key": None})["ok"]
+
+
 def locate_in(folder):
     from discjockey.rekordbox.locate import Place
     return Place(folder / "master.db", folder / "share", "override", None)
@@ -225,6 +262,10 @@ DRIVERS = {
     "rekordbox_backups": lambda api, rec: api.rekordbox_backups(),
     "rekordbox_restore": _restore,
     "rekordbox_restore_preview": lambda api, rec: api.rekordbox_restore_preview(_a_backup(api, rec)),
+    "convert": _aiff_run("convert"),
+    "rename": _aiff_run("rename"),
+    "make_aiff": _aiff_run("make_aiff"),
+    "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 

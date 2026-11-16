@@ -18,12 +18,16 @@ from ..hub import catalog
 from ..hub.api import CliApi
 from ..hub.catalog import Entry
 
-LEGACY_WORDS = frozenset(("setup", "update", "convert", "rename", "settings"))
+LEGACY_WORDS = frozenset(("setup", "update", "settings"))
 # Old words that are gone: what the usage error tells a person (or an agent) who still types one (design §12)
 MOVED = {("upgrades",): "`upgrades` is not a command any more: say `upgrade …` (`upgrade list`, `upgrade apply`, "
                         "`upgrade discard`).",
          ("upgrade", "undo"): "`upgrade undo` is not a command any more: say `track undo`.",
-         ("rekordbox", "checked"): "`rekordbox checked` is not a command any more: say `check done`."}
+         ("rekordbox", "checked"): "`rekordbox checked` is not a command any more: say `check done`.",
+         ("convert",): "`convert` is not a command any more: say `aiff convert …` (`--all --in <collection>` is Make all "
+                       "lossless files AIFF, `--all --todo cdj` is Convert all).",
+         ("rename",): "`rename` is not a command any more: say `aiff rename …` (`--all [--in <collection>]` is every "
+                      "clean AIFF whose name isn't clean)."}
 GLOBAL_BOOL = {"--json": "json", "--jsonl": "jsonl", "--detach": "detach", "--verbose": "verbose",
                "--no-color": "no_color"}
 GLOBAL_VALUE = {"--wait": "wait", "--wait-busy": "wait_busy"}
@@ -204,7 +208,8 @@ def _selection_flags(entries: list[Entry], taken: Collection[str]) -> list[str]:
         return []
     command = " ".join(entries[0].command)
     flags = [f for f in SELECTION_FLAGS if f not in taken]
-    return (["--all"] if command in catalog.ALL_OF and "--all" not in taken else []) + flags
+    has_all = command in catalog.ALL_OF or command in catalog.ALL_METHOD
+    return (["--all"] if has_all and "--all" not in taken else []) + flags
 
 
 def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
@@ -222,7 +227,7 @@ def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
 
 
 def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
-    primary = next((e for e in entries if e.kind != "R"), entries[0])
+    primary = catalog.primary(entries)
     signature = signature_of(primary.method)
     taken = set()
     for name, arg in catalog.effective_params(primary, signature).items():
@@ -327,7 +332,7 @@ def parse(argv: list[str]) -> Parsed:
     if command in HOUSEKEEPING:
         return Parsed(command, [], ns, flags, words)
     entries = commands()[command]
-    primary = next((e for e in entries if e.kind != "R"), entries[0])
+    primary = catalog.primary(entries)
     signature = signature_of(primary.method)
     for name, arg in catalog.effective_params(primary, signature).items():
         if arg.positional and arg.many:

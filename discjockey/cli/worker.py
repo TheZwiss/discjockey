@@ -279,7 +279,16 @@ def _read_job(files: registry.JobFiles, command: str, method: str, args: dict, a
     answer = _call(api, method, args)
     fresh = api.freshness()
     as_of = {key: fresh[key] for key in ("scanned_at", "read_at")} if fresh.get("ok") else None
-    return envelope.from_answer(command, answer, job=files.id, as_of=as_of if answer.get("ok") else None)
+    env = envelope.from_answer(command, answer, job=files.id, as_of=as_of if answer.get("ok") else None)
+    entry = catalog.entry_of(method, command)
+    if env["outcome"] == "ok" and entry is not None and entry.dry_run == method:
+        # the read is a command's `--dry-run` (`aiff_plan`): its plan is saved like any dry run's (call._dry_run)
+        if (plan_id := api.save_plan(command, answer, command)) is not None:
+            env["data"]["plan_id"] = plan_id
+        words = api.result_words(method, answer)
+        env["message"] = words.get("message") if words.get("ok") else None
+        env["next"] += [n for n in api.scan_next() if n not in env["next"]]
+    return env
 
 
 def _run(files: registry.JobFiles) -> int:
