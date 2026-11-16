@@ -842,6 +842,10 @@ Results:
     KDF ~19 s, worksteal. Losses: real flush/KDF/tool runs only in pin tests + the timing test (`real_*` markers);
     tool memo answers identical bytes+command; goldens ignore a backup's -N suffix. Merged → phase 3f4b6044 and into
     feat/cli-1-15 (2ce1e058: 5509 passed in 62.7 s). Issue 39 ~12.83M.
+    V1.15b first dispatch stopped by the user ("pause" → "NOW!") before any change (size not reported).
+    V1.15b 63cb37fa: Sonnet **121k** (est. 150-230k; 30 calls; full 5518 passed in 51.9 s, foreground). `--clean <ID>|
+    --all-marked [--into]` (Trash via NSFileManager, osascript fallback; Trash before entries leave library.db),
+    `--remove` gone, `wav96` + `--messy-name`; no aac420 (aac_at max ~322 kbit/s). Issue 39 ~12.95M. Review next.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
