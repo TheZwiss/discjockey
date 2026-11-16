@@ -493,8 +493,8 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     **STATE 2026-11-16 ~midday (before a compact): USER SAID "pause after this agent is done".** RUNNING: V1.14 fix
-    round (fix-round agent, committed, finishing its last full pytest in the background). On its notice: check ps,
-    log its size below the V1.14 review entry, then STOP and wait for the user's go (no rehearse-sync until then).
+    round DONE 8ebb70f9 (200k, 5489 passed, logged below the V1.14 review entry). PAUSED: wait for the user's go
+    (no rehearse-sync until then).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
@@ -818,6 +818,11 @@ Results:
     0 Important, 8 Minor. Decision #6 (mine, by the stated invariant, not the reviewer's "document the real order"):
     a settings write takes the support lock around the read-change-write and the library lock briefly inside it
     (support → library), pinned by a lock-order test. Issue 39 ~12.05M. Next: fix round, then rehearse-sync.
+    V1.14 fix 8ebb70f9: fix-round Sonnet **200k** (est. 115-200k; 80 calls; started on the old background rule; full
+    5489 passed): all 8 Minors fixed. #6: support → library order for every settings write (`_settings_job`
+    hold_library=False, `*_held` variants; set_music_folder reordered); sync's own Qobuz config/Spotify token saves
+    still take support inside library → issue 42 in docs/issues.md (number free on main; check other branches at
+    merge). Lock-order sentence in CLAUDE.md. Issue 39 ~12.25M. Paused by the user after it.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
