@@ -562,7 +562,11 @@ Results:
     found a real dropped 0), C-12 (To-do group facts, empty_text), C-13 (next.run/then with the program path), C-14,
     C-18 (autouse opener guard), C-20, L-1, L-2; plus a test that every backticked command in words.py is built.
     Leftover → FD: parser's removed-word text names `settings set auto-upgrade`. Issue 39 ~15.06M, phase 1
-    ~12.94M. FD (window/contract W-1..W-10; W-11 design row → FE) RUNNING.
+    ~12.94M. FD (window/contract W-1..W-10; W-11 design row → FE)
+    FD done a7fb373a + static 100c7365: Sonnet **162k** (76 calls; pytest 5645 passed + 1 check_public fail from the
+    uncommitted static, green after the static commit; svelte-check 0, vitest 1595): W-1 (b) documented + test,
+    W-2..W-8, W-10 (views search via search_fold); L-3 nothing (settings set auto-upgrade is built). Issue 39
+    ~15.22M, phase 1 ~13.10M. FE (docs D-2..D-19 + D-1 text + U9 + S3 + W-9 + W-11) RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
