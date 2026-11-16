@@ -570,7 +570,15 @@ Results:
     FE done b937aa19: Sonnet **158k** (62 calls; 5646 passed in 73.8 s): all docs findings applied, texts checked
     against the code now; D-8 skip also covers the aiff/preview lock drivers. D-3 not applied (its pick is a code
     change: job flags silently accepted on commands that answer at once) → FF small Sonnet round. Issue 39 ~15.38M,
-    phase 1 ~13.26M. FF RUNNING.
+    phase 1 ~13.26M.
+    FF done 0305ffcc: Sonnet **84k** (23 calls; 5649 passed in 74.3 s): job flags on commands that answer at once =
+    bad_args. Fix rounds total ~0.92M (FA 141 + FB 195 + FC1 142 + FC2 216 + FD 162 + FE 158 + FF 84k). feat/cli-1-pr
+    merged into the phase branch + main merged: 64bc4210, pushed. Issue 39 ~15.46M, phase 1 ~13.34M. verify RUNNING
+    (coordinator, background), then CI, then merge into main.
+    verify on 64bc4210: 1216 shots, 0 problems; smoke ok (11 routes). CI on the phase branch FAILED since the V1.15
+    merge (runs 43903786073, 43966337920): 4 tests in test_make_upgrade_test.py, "Encoder not found" for mp3 (CI's
+    shipped ffmpeg has no MP3 encoder); 5635 passed. Missed because I didn't check CI after the V1.15 merge. CI fix
+    (Sonnet, branch feat/cli-1-ci, worktree cli1-ci) RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
