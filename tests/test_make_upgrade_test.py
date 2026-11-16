@@ -1,6 +1,8 @@
 import importlib.util
 import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -167,6 +169,8 @@ def messy(root, tmp_path):
     for rel in ("Superseded/_Upgrade test/keep me.aiff", "Library/Mine/Plain - Song.mp3",
                 "Library/_Upgrade test/not_lossless/no marker (upgrade).aiff"):
         touch(root.root / rel)
+    for rel in ("Library/Mine/Song (UPGRADE TEST).mp3", "Library/Mine/Mine (upgrade test) remix.mp3"):
+        touch(root.root / rel)  # a person's own names that only look like ours
     touch(scratch / "click_final (upgrade test).wav")
     touch(scratch / "my own track.wav")
     return scratch
@@ -186,8 +190,9 @@ def test_clean_all_marked_moves_only_the_marked_files_and_tidies(root, messy, tr
     assert not (messy / "click_final (upgrade test).wav").exists()
     # the folders with nothing left go, the ones with a file in them stay
     assert not (root.root / "Upgrades ready/_Upgrade test").exists()
-    assert not (root.root / "Library/_Upgrade test/not_lossless").exists() or (
-        root.root / "Library/_Upgrade test/not_lossless/no marker (upgrade).aiff").exists()
+    assert (root.root / "Library/_Upgrade test/not_lossless/no marker (upgrade).aiff").exists()
+    assert (root.root / "Library/Mine/Song (UPGRADE TEST).mp3").exists()  # not ours: another case ...
+    assert (root.root / "Library/Mine/Mine (upgrade test) remix.mp3").exists()  # ... or the marker mid-name
     assert (root.root / "Superseded/_Upgrade test/keep me.aiff").exists()
     tracks = load_state(root)["tracks"]
     assert list(tracks) == ["11qwPqW58QcUS4BaAclu0j"]
@@ -264,14 +269,196 @@ def test_clean_without_anything_marked_says_so_and_still_names_the_scan(root, tr
 
 def test_the_script_never_deletes_an_audio_file():
     """Files only ever go to the Trash: no `unlink`, `os.remove` or `rmtree` of a music file (rmtree only on the
-    script's own work folder)."""
+    script's own work folder), however it is imported; the one `rmdir` empties folders in drop_empty_folders."""
     import ast
     tree = ast.parse(SCRIPT.read_text())
+    banned = ("unlink", "remove", "rename", "replace", "rmtree")
     calls = [(n.lineno, n.func.attr) for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
-    assert not [c for c in calls if c[1] in ("unlink", "remove", "rename", "replace")]
+    assert not [c for c in calls if c[1] in banned[:4]]
+    assert not [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id in banned]
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "rmtree":
             assert ast.unparse(node.args[0]) == "work"
+    rmdirs = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "rmdir"]
+    inside = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "drop_empty_folders")
+    assert rmdirs and all(r in set(ast.walk(inside)) for r in rmdirs)
+
+
+@pytest.mark.parametrize("name, ours", [
+    ("Artist - Title (upgrade test).aiff", True), ("Artist - Title (upgrade test) (lossy).aiff", True),
+    ("Artist - Title (upgrade test) (2).aiff", True), ("Artist - Title (upgrade test) [abc123].aiff", True),
+    ("click_final (upgrade test).wav", True), ("Song (UPGRADE TEST).mp3", False),
+    ("My Song (upgrade test) remix.mp3", False), ("Song (upgrade test)x.mp3", False), ("upgrade test.mp3", False),
+    ("Song.(upgrade test)", False)])
+def test_the_marker_is_matched_as_discjockeys_own_names_carry_it(name, ours):
+    assert script.carries_marker(name) is ours
+
+
+# --- the real trash_item (never the real Trash, never osascript) ---
+
+class FakeFoundation:
+    """A stand-in for pyobjc's Foundation: records what trashItemAtURL_resultingItemURL_error_ was asked."""
+
+    def __init__(self, answer):
+        self.calls = []
+        fake = self
+
+        class NSURL:
+            @staticmethod
+            def fileURLWithPath_(path):
+                return ("url", path)
+
+        class Manager:
+            def trashItemAtURL_resultingItemURL_error_(self, url, result, error):
+                fake.calls.append((url, result, error))
+                return answer
+
+        class NSFileManager:
+            @staticmethod
+            def defaultManager():
+                return Manager()
+
+        self.NSURL, self.NSFileManager = NSURL, NSFileManager
+
+
+class FakeError:
+    def localizedDescription(self):
+        return "full"
+
+
+def test_trash_item_asks_the_file_manager_and_raises_when_it_will_not(tmp_path, monkeypatch):
+    f = touch(tmp_path / "a (upgrade test).wav")
+    fake = FakeFoundation((True, None, None))
+    monkeypatch.setitem(sys.modules, "Foundation", fake)
+    script.trash_item(f)
+    assert fake.calls == [(("url", str(f)), None, None)] and f.exists()  # asked once, with the file's path
+    monkeypatch.setitem(sys.modules, "Foundation", FakeFoundation((False, None, FakeError())))
+    with pytest.raises(OSError, match="full"):
+        script.trash_item(f)
+    monkeypatch.setitem(sys.modules, "Foundation", FakeFoundation((False, None, None)))
+    with pytest.raises(OSError, match="Trash"):
+        script.trash_item(f)
+
+
+@pytest.mark.parametrize("code, stderr", [(0, ""), (1, "no")])
+def test_trash_item_falls_back_to_the_finder_with_the_path_as_an_argument(tmp_path, monkeypatch, code, stderr):
+    f = touch(tmp_path / 'we"ird -name (upgrade test).wav')
+    monkeypatch.setitem(sys.modules, "Foundation", None)  # `import Foundation` fails
+    runs = []
+
+    def run(argv, **kw):
+        runs.append(argv)
+        return subprocess.CompletedProcess(argv, code, "", stderr)
+
+    monkeypatch.setattr(script.subprocess, "run", run)
+    if code:
+        with pytest.raises(OSError, match="^no$"):
+            script.trash_item(f)
+    else:
+        script.trash_item(f)
+    (argv,) = runs
+    assert argv[0] == "/usr/bin/osascript" and argv[-1] == str(f.absolute())
+    assert argv[1::2][:-1] == ["-e"] * ((len(argv) - 2) // 2) and not any(str(f) in a for a in argv[:-1])
+    assert f.exists()  # nothing was deleted by the script itself
+
+
+def test_the_osascript_path_is_absolute_for_a_relative_file(tmp_path, monkeypatch):
+    f = touch(tmp_path / "rel (upgrade test).wav")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setitem(sys.modules, "Foundation", None)
+    runs = []
+    monkeypatch.setattr(script.subprocess, "run", lambda argv, **kw: runs.append(argv) or subprocess.CompletedProcess(argv, 0, "", ""))
+    script.trash_item(Path("rel (upgrade test).wav"))
+    assert runs[0][-1] == str(f.absolute()) and Path(runs[0][-1]).is_absolute()
+
+
+# --- the scratch folder of --into, a collision-tagged entry, rekordbox opened meanwhile ---
+
+def test_clean_refuses_an_into_that_is_not_a_scratch_folder_of_its_own(root, messy, trash, rekordbox_closed, tmp_path,
+                                                                       monkeypatch, capsys):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    touch(outside / "a (upgrade test).mp3")
+    link = tmp_path / "scratchlink"
+    link.symlink_to(outside, target_is_directory=True)
+    home = tmp_path / "home"
+    (home / "scratch2").mkdir(parents=True)
+    monkeypatch.setattr(script.Path, "home", classmethod(lambda cls: home))
+    before = everything(root.root)
+    for bad in (link, home, tmp_path, tmp_path.parent, Path("/")):
+        assert script.main(["--root", str(root.root), "--all-marked", "--into", str(bad)]) == 2, bad
+        assert "is not a scratch folder of its own" in capsys.readouterr().out
+    assert script.main(["--root", str(root.root), "--all-marked", "--into", str(home / "scratch2")]) == 0
+    assert (outside / "a (upgrade test).mp3").exists() and not before == everything(root.root)
+    assert all(p.name != "a (upgrade test).mp3" for p in trash.calls)
+
+
+def test_clean_refusals_of_into_move_nothing(root, messy, trash, rekordbox_closed, tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside2"
+    touch(outside / "a (upgrade test).mp3")
+    link = tmp_path / "scratchlink"
+    link.symlink_to(outside, target_is_directory=True)
+    before, state = everything(root.root), load_state(root)
+    assert script.main(["--root", str(root.root), "--all-marked", "--into", str(link)]) == 2
+    assert not trash.calls and everything(root.root) == before and load_state(root) == state
+
+
+def test_the_walk_does_not_follow_a_symlinked_folder_inside_a_root(root, tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside3"
+    touch(outside / "a (upgrade test).mp3")
+    (root.root / "Library" / "linked").symlink_to(outside, target_is_directory=True)
+    found = script.marked_files([root.library])
+    assert all("linked" not in p.parts for p in found)
+
+
+def test_the_paths_moved_are_absolute_for_a_relative_into(root, messy, trash, rekordbox_closed, monkeypatch, capsys):
+    monkeypatch.chdir(messy.parent)
+    assert script.main(["--root", str(root.root), "--all-marked", "--into", "scratch", "--json"]) == 0
+    moved = json.loads(capsys.readouterr().out)["moved"]
+    assert moved and all(Path(p).is_absolute() for p in moved)
+    assert str(messy.absolute() / "click_final (upgrade test).wav") in moved
+
+
+def test_clean_one_entry_takes_the_files_of_a_collision_tagged_source(root, trash, rekordbox_closed):
+    tagged = "Library/_Upgrade test/not_lossless/Artist - Title [abc123] (upgrade test).aiff"
+    parked = "Upgrades ready/_Upgrade test/Artist - Title [abc123] (upgrade test).aiff"
+    other = "Library/_Upgrade test/not_lossless/Artist - Other (upgrade test).aiff"
+    for rel in (tagged, parked, other):
+        touch(root.root / rel)
+    state = load_state(root)
+    e = dict(state["tracks"]["11qwPqW58QcUS4BaAclu0j"])
+    e.update(artist="Artist", title="Title (upgrade test)", path=tagged, status="not_lossless",
+             upgrade={"file": parked})
+    state["tracks"]["upgrade-test-5"] = e
+    save_state(root, state)
+    assert script.main(["--root", str(root.root), "--clean", "upgrade-test-5"]) == 0
+    assert sorted(p.relative_to(root.root).as_posix() for p in trash.calls) == sorted([tagged, parked])
+    assert (root.root / other).exists() and "upgrade-test-5" not in load_state(root)["tracks"]
+
+
+def test_rekordbox_opened_after_the_first_look_stops_before_any_file_moves(root, messy, trash, monkeypatch, capsys):
+    looks = iter([False, True, True])
+    monkeypatch.setattr(script, "rekordbox_open", lambda: next(looks))
+    before, state = everything(root.root), load_state(root)
+    assert script.main(["--root", str(root.root), "--all-marked", "--into", str(messy)]) == 2
+    assert "rekordbox is open" in capsys.readouterr().out
+    assert not trash.calls and everything(root.root) == before and load_state(root) == state
+
+
+def test_rekordbox_is_looked_at_with_the_lock_held(root, messy, trash, monkeypatch):
+    held = []
+
+    def look():
+        try:
+            with run_lock(root.lock):
+                held.append(False)
+        except script.LockHeld:
+            held.append(True)
+        return False
+
+    monkeypatch.setattr(script, "rekordbox_open", look)
+    assert script.main(["--root", str(root.root), "--all-marked"]) == 0
+    assert held and all(held)
 
 
 def test_names_derived_from_a_marked_file_keep_the_marker(root):

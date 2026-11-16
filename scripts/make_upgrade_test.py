@@ -47,7 +47,11 @@ from Discjockey (`folder remove <scratch> --yes`), then
 library.db and move to the macOS Trash every file whose name carries " (upgrade test)" inside Library/, Superseded/,
 Upgrades ready/ and each `--into` scratch folder (`--clean ID` only those named like that entry's track; `--all-marked`
 all of them), then remove the `_Upgrade test/` folders once they are empty and list what was moved. A file without the
-marker beside them stays. The Trash is not a deletion: the script never deletes an audio file, whoever empties the
+marker beside them stays, and so does one that carries it elsewhere than Discjockey's own names do (`Song (UPGRADE
+TEST).mp3`, `My Song (upgrade test) remix.mp3`): the marker, in lower case, ends the name or is followed by ` (` or ` [`.
+`--clean ID` is for a track made from a library file; click tracks (their entries are Discjockey's own) are cleaned
+with `--all-marked --into <scratch>`. An `--into` that is a link, `/`, the home folder or a folder above the music
+folder is refused (exit 2). The Trash is not a deletion: the script never deletes an audio file, whoever empties the
 Trash does. It ends with `library scan` as the next step (`--json`: one object with `moved` and `next`).
 """
 from __future__ import annotations
@@ -58,6 +62,7 @@ import os
 import shutil
 import subprocess
 import sys
+import unicodedata
 import zlib
 from datetime import datetime
 from pathlib import Path, PurePosixPath
@@ -361,6 +366,10 @@ LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
 ENTRY_PREFIX = "upgrade-test-"
 
 
+class RekordboxOpen(ValueError):
+    """rekordbox was found open (checked again once the lock is held and right before the first file moves)."""
+
+
 class CleanFailed(ValueError):
     """A file could not be moved to the Trash; `moved` is what had gone before it (nothing else was changed)."""
 
@@ -380,7 +389,7 @@ def trash_item(path: Path) -> None:
         from Foundation import NSURL, NSFileManager
     except ImportError:
         script = ["on run argv", 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)', "end run"]
-        r = subprocess.run(["osascript", *(a for line in script for a in ("-e", line)), str(path)],
+        r = subprocess.run(["/usr/bin/osascript", *(a for line in script for a in ("-e", line)), str(path.absolute())],
                            capture_output=True, text=True)
         if r.returncode != 0:
             raise OSError(r.stderr.strip() or "the Finder would not move it")
@@ -400,19 +409,63 @@ def own_entry(state: dict, track_id: str) -> dict:
     return e
 
 
-def marked_files(roots: list[Path], stem: str | None = None) -> list[Path]:
-    """The files under `roots` whose names carry the marker (with `stem`: only those whose name starts with it, a
-    song's clean name, so its Superseded and collision names count too). Symbolic links are not followed or taken;
-    each file once."""
+def carries_marker(name: str) -> bool:
+    """True when the file name carries the marker the way Discjockey's own names put it: at the end of the stem
+    (`Artist - Title (upgrade test).aiff`), or followed by ` (` or ` [` (a Superseded `(lossy)` or `(2)`, a
+    collision `[tag]`). The marker is written in lower case and matched as written: a person's own
+    `Song (UPGRADE TEST).mp3` or `My Song (upgrade test) remix.mp3` is not ours."""
+    stem = Path(unicodedata.normalize("NFC", name)).stem
+    i = stem.find(SUFFIX)
+    while i >= 0:
+        rest = stem[i + len(SUFFIX):]
+        if rest == "" or rest.startswith((" (", " [")):
+            return True
+        i = stem.find(SUFFIX, i + 1)
+    return False
+
+
+def marked_files(roots: list[Path], stems: set[str] | None = None) -> list[Path]:
+    """The files under `roots` whose names carry the marker (`carries_marker`; with `stems`: only those whose name
+    starts with one of them, a song's clean name, so its Superseded and collision names count too). Symbolic links
+    are not followed or taken; each file once; the paths are absolute."""
     found: dict[str, Path] = {}
+    folded_stems = None if stems is None else tuple(fold(s) for s in stems)
     for root in roots:
-        for here, dirs, names in os.walk(root, followlinks=False):
+        for here, _, names in os.walk(root.absolute(), followlinks=False):
             for name in names:
                 path = Path(here) / name
-                folded = fold(name)
-                if fold(SUFFIX) in folded and (stem is None or folded.startswith(fold(stem))) and not path.is_symlink():
+                if (carries_marker(name) and (folded_stems is None or fold(name).startswith(folded_stems))
+                        and not path.is_symlink()):
                     found.setdefault(str(path.resolve()), path)
     return sorted(found.values())
+
+
+def entry_stems(e: dict) -> set[str]:
+    """The names a test entry's files start with: its song's clean name, and the stems of its current and parked
+    files (a collision-tagged or differently named source file), each cut at the end of its first marker."""
+    stems = {expected_stem(e["artist"], e["title"])}
+    files = [e.get("path"), (e.get("upgrade") or {}).get("file")]
+    for rel in files:
+        stem = Path(rel).stem if rel else ""
+        i = stem.find(SUFFIX)
+        if i >= 0:
+            stems.add(stem[: i + len(SUFFIX)])
+    return stems
+
+
+def check_scratch(paths: Paths, folder: Path) -> None:
+    """ValueError (nothing changed) unless `folder` is a scratch folder of its own: not a symbolic link, not `/`,
+    not the home folder and not a folder that holds the home or the music folder."""
+    if folder.is_symlink():
+        raise ValueError(f"{folder} is not a scratch folder of its own: it is a link to another folder. Give the "
+                         "folder itself.")
+    here = folder.resolve()
+    for name, big in (("the home folder", Path.home().resolve()), ("the music folder", paths.root.resolve())):
+        if here == big or here in big.parents:
+            raise ValueError(f"{folder} is not a scratch folder of its own: it is or holds {name}. Give the folder "
+                             "the test files are in.")
+    if here == Path(here.anchor):
+        raise ValueError(f"{folder} is not a scratch folder of its own: it is the top of the disk.")
 
 
 def drop_empty_folders(paths: Paths) -> list[Path]:
@@ -436,21 +489,24 @@ def clean(paths: Paths, entry: str | None, into: list[Path]) -> dict:
     """The clean-up: moves the marked files to the Trash, then removes the test entries from library.db, then the
     empty `_Upgrade test/` folders. `entry`: one test track (its entry and the files named like its song), None for
     everything marked. `into`: the scratch folders to look in besides Library/, Superseded/ and Upgrades ready/.
-    Returns {"moved", "entries", "folders", "next"}; ValueError when `entry` is no test track or a folder is missing
-    (nothing changed); CleanFailed when the Trash would not take a file (the entries stay, so running it again
+    Returns {"moved", "entries", "folders", "next"}; ValueError when `entry` is no test track, a folder is missing or is no
+    scratch folder of its own, or rekordbox opened (nothing changed); CleanFailed when the Trash would not take a file (the entries stay, so running it again
     finishes)."""
     state = library.open_state(paths)
     if entry is not None:
         e = own_entry(state, entry)
-        entries, stem = [entry], expected_stem(e["artist"], e["title"])
+        entries, stems = [entry], entry_stems(e)
     else:
         entries = [k for k, e in state["tracks"].items() if k.startswith(ENTRY_PREFIX) and e["title"].endswith(SUFFIX)]
-        stem = None
+        stems = None
     for folder in into:
         if not folder.is_dir():
             raise ValueError(f"{folder} is not a folder.")
+        check_scratch(paths, folder)
     roots = [paths.library, paths.root / "Superseded", paths.root / "Upgrades ready", *into]
-    files = marked_files([r for r in roots if r.is_dir()], stem)
+    files = marked_files([r for r in roots if r.is_dir()], stems)
+    if files and rekordbox_open():  # opened since the first look: nothing has moved yet
+        raise RekordboxOpen(REKORDBOX_OPEN)
     moved: list[Path] = []
     for f in files:
         try:
@@ -536,12 +592,11 @@ def main(argv: list[str] | None = None) -> int:
     if paths is None:
         print("No music folder: choose one in Discjockey's Setup first, or pass --root.")
         return 2
-    if cleaning and rekordbox_open():
-        print(json.dumps({"ok": False, "message": REKORDBOX_OPEN}) if args.json else REKORDBOX_OPEN)
-        return 2
     try:
         with library.run_lock(paths.lock):
             if cleaning:
+                if rekordbox_open():
+                    raise RekordboxOpen(REKORDBOX_OPEN)
                 print_clean(paths, clean(paths, args.clean or None, args.into or []), args.json)
             elif args.click:
                 make_click(paths, args.click, args.bpm, args.into[0], args.same_edit, args.messy_name)
@@ -560,7 +615,7 @@ def main(argv: list[str] | None = None) -> int:
             for m in e.moved:
                 print(f"  moved before it stopped: {shown(paths, m)}")
         return 2
-    except (ValueError, NoLibrary) as e:
+    except (RekordboxOpen, ValueError, NoLibrary) as e:
         print(json.dumps({"ok": False, "message": str(e)}) if args.json else e)
         return 2
     return 0
