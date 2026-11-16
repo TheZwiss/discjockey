@@ -13,7 +13,7 @@ from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
 from discjockey import library
-from discjockey.cli import bind, call, parser
+from discjockey.cli import bind, call, envelope, parser
 from discjockey.hub import catalog
 from discjockey.hub.outcomes import EXIT
 
@@ -144,6 +144,60 @@ def test_conflicting_flags_and_text_usage_errors(capsys):
     assert (code, env["reason"]) == (2, "conflicting_flags")
     code, out, err = run(["rekordbox", "status", "--bogus"], capsys)
     assert code == 2 and out == "" and "--bogus" in err
+
+
+JOB_FLAG_LINES = (["--detach"], ["--wait", "30"], ["--wait-busy", "5"], ["--jsonl"])
+
+
+def test_a_job_flag_on_a_command_that_answers_at_once_is_bad_args_never_ignored(capsys):
+    """Design §2.2: a flag a command does not take is a usage error. A read, a brief save, `--dry-run` of a write that
+    answers at once, and the command line's own words answer at once; --detach, --wait, --wait-busy and --jsonl are
+    for a command that runs as a job."""
+    for words in (["help"], ["where"], ["batch", "list"], ["rekordbox", "status"], ["job", "list"],
+                  ["call", "rekordbox_status"], ["library", "facts", "--dry-run"]):
+        for flag in JOB_FLAG_LINES:
+            for form in ([], ["--json"]):
+                if flag == ["--jsonl"] and form:
+                    continue  # --json with --jsonl is its own conflict
+                code, out, err = run([*words, *flag, *form], capsys)
+                lines = out.splitlines()
+                assert code == EXIT["bad_args"] == 2, (words, flag, form)
+                if form or flag == ["--jsonl"]:
+                    env = json.loads(lines[-1])
+                    assert (env["outcome"], env["reason"], env["data"]) == ("bad_args", "usage", None), (words, flag)
+                    assert list(env) == ENVELOPE_KEYS and "answers at once" in env["message"] and flag[0] in env["message"]
+                else:
+                    assert out == "" and "answers at once" in err and flag[0] in err, (words, flag)
+
+
+def test_a_job_command_still_takes_the_job_flags(monkeypatch, capsys):
+    seen = []
+
+    def start(entry, kwargs, command, flags, **rest):
+        seen.append((command, flags.detach, flags.wait, flags.jsonl))
+        return envelope.envelope(command, "ok", data={"job": "job:x", "status": "running"})
+
+    monkeypatch.setattr(call, "start_job", start)
+    for flag in (["--detach"], ["--wait", "30"], ["--jsonl"]):
+        code, out, _ = run(["library", "scan", *flag, *([] if flag == ["--jsonl"] else ["--json"])], capsys)
+        assert code == 0 and json.loads(out.splitlines()[-1])["outcome"] == "ok", flag
+    assert seen == [("library scan", True, None, False), ("library scan", False, 30.0, False),
+                    ("library scan", False, None, True)]
+    code, env = run_json(["job", "wait", "current", "--wait", "1", "--json"], capsys)  # `job wait` takes --wait
+    assert env["reason"] != "usage" or "answers at once" not in env["message"]
+    code, env = run_json(["job", "wait", "current", "--detach", "--json"], capsys)  # but not --detach
+    assert (code, env["reason"]) == (2, "usage") and "--detach" in env["message"]
+
+
+def test_help_json_names_the_job_flags_as_the_job_commands_own(capsys):
+    code, env = run_json(["help", "--json"], capsys)
+    data = env["data"]
+    assert {f["flag"] for f in data["global_flags"] if "job commands" in f["says"]} == {
+        "--jsonl", "--wait", "--detach", "--wait-busy"}
+    job_flags = {"--jsonl", "--wait", "--detach", "--wait-busy"}
+    for command in data["commands"]:  # a command that answers at once never lists them
+        assert not job_flags & set(command["flags"]) or command["job"], command["command"]
+    assert any(c["job"] for c in data["commands"])
 
 
 def test_a_crash_is_one_failed_envelope_and_exit_1(monkeypatch, capsys):

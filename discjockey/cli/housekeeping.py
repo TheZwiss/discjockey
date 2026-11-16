@@ -332,6 +332,10 @@ def run_call(parsed: Parsed) -> dict:
 
 def run(parsed: Parsed) -> dict:
     """The answer of `help`, `where` or `call` (`app open` is `open_app`)."""
-    if parsed.command in JOB_WORDS:
-        return follow.run(parsed)
+    if parsed.command in JOB_WORDS:  # `job wait` and `job follow` take --wait and --jsonl; the others answer at once
+        allowed = ("--wait", "--jsonl") if parsed.command in (parser.JOB_WAIT, parser.JOB_FOLLOW) else ()
+        return call.refuse_job_flags(parsed.flags, " ".join(parsed.command), allowed) or follow.run(parsed)
+    if parsed.command != CALL:  # `call` runs its method's entry, which looks at the flags itself
+        if (refused := call.refuse_job_flags(parsed.flags, " ".join(parsed.command))) is not None:
+            return refused
     return {HELP: run_help, WHERE: run_where, CALL: run_call}[parsed.command](parsed)

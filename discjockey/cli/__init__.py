@@ -84,6 +84,8 @@ def _run(argv: list[str]) -> int:
         if (flags.json or flags.jsonl) and (flags.limit != parser.DEFAULT_LIMIT or flags.offset):
             raise UsageError(PAGING_IS_TEXT)  # only a flag the command line added (a method's own `limit` is its own)
         if parsed.command == APP_OPEN:
+            if (env := call.refuse_job_flags(flags, command)) is not None:
+                return emit(env, flags)
             return housekeeping.open_app()  # the window is the answer; nothing is printed
         if parsed.command in HOUSEKEEPING:
             env = housekeeping.run(parsed)

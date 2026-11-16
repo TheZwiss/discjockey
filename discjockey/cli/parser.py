@@ -6,7 +6,7 @@ take is a usage error, never ignored. `route` decides whether a line belongs to 
 `app open`, `call`) are parsed here too but run no entry.
 
 Not offered in phase 1: `--sandbox`, `--if-rev`, `--if-version`; `--jsonl`, `--wait`, `--detach` and `--wait-busy` are
-read but only job commands act on them."""
+read here; only job commands take them, a command that answers at once refuses them (`call.refuse_job_flags`)."""
 from __future__ import annotations
 
 import argparse
