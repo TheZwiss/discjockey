@@ -827,6 +827,14 @@ Results:
     V1.14 rehearse-sync (made-up): Sonnet **96k** (est. 120-200k; 14 calls): 152 PASS, 0 FAIL, 8 NOTE; first runs
     failed only on the fake (spare MP3 had no cues → correctly upgraded, not refused); build_fake.py fixed in
     scratchpad/rehearsal-v1.14/; repo unchanged. V1.14 merged → phase branch 1444f8fe (issue 42 unique). Issue 39 ~12.35M.
+    V1.15a 9ad51310: Sonnet **145k** (est. 150-230k; 42 calls; full 5502 passed in 6:01, foreground call auto-moved
+    to the background by Claude Code at 180 s → interim wake). `--click` kinds + `--attach-upgrades` (two calls: after
+    `folder add`); default upgrade = click 30 ms later (shifted), `--same-edit` exact. Stage D gaps (no kind added,
+    FOR V1.15 REVIEW/FIX to decide): 24-bit 96 kHz WAV; `click_final.aiff` vs the marker-in-name rule; AAC 420 kbps
+    (ffmpeg aac writes ~225k on clicks). Legacy `update` stays (tools update not runnable yet); it refuses busy (exit 3)
+    while the registry holds update_tools/rollback_tools. Issue 39 ~12.50M.
+    SUITE SPEED (user 2026-11-16): suite was ~25 s on 2026-10-23, now 4.5-6 min; Claude Code moves a foreground call to
+    the background after 180 s. User: no 3-way split; make the suite fast. Profiling run on the phase branch first.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
