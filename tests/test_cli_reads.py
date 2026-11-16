@@ -138,6 +138,27 @@ def test_track_show_takes_a_path_through_resolve(rich, capsys):
     assert code == 2 and nothing["reason"] == "unknown_id"
 
 
+def test_a_check_batch_prints_the_id_check_done_takes_and_lists_its_songs(rich, capsys):
+    state = library.load_state(rich)
+    for key in ("t1", "t4"):
+        state["tracks"][key]["rekordbox_check"]["batch"] = 3
+    write_state(rich, state)
+    code, text, _ = run(["check", "list"], capsys)
+    assert code == 0 and "aiff:3" in text and "check done --batch aiff:3" in text and "2 tracks" in text
+    assert "batch:" not in text
+    ids = [line.split()[0] for line in text.splitlines() if line.split() and line.split()[0] in ("t1", "t4")]
+    assert ids == ["t1", "t4"]  # the songs of the batch, each with its own id, in the batch's own table
+    _, env = data_of(["check", "list"], capsys)  # the window's key stays in the data; the typed id sits beside it
+    (item,) = [i for g in env["data"]["groups"] for i in g["items"] if i.get("batch")]
+    assert item["track_id"] == "batch:3" and item["batch"]["aiff_id"] == "aiff:3"
+
+
+def test_a_well_formed_song_key_the_library_lacks_is_unknown_id_not_changed(rich, capsys):
+    code, env = data_of(["track", "show", "qobuz:999"], capsys)
+    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "unknown_id")
+    assert "track find" in env["message"] and "qobuz:999" in env["message"]
+
+
 # --- the cutoff sentence is the engine's ---
 
 def test_the_payload_carries_the_cutoff_sentence_the_window_words_itself(rich, capsys):

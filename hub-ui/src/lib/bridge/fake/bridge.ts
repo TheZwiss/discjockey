@@ -291,7 +291,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     return { count, days: daysToLoad(count, budget(s).remaining, s.qobuz.limit),
       fits_today: count <= budget(s).remaining };
   };
-  const summary = (r: (typeof s.runs)[number]) => ({ run_id: r.run_id, started: r.started, finished: r.finished,
+  const summary = (r: (typeof s.runs)[number]) => ({ run_id: r.run_id, id: `report:${r.run_id}`, started: r.started, finished: r.finished,
     duration_s: r.duration_s, exit_code: r.exit_code, counts: r.counts, stopped_after: r.stopped_after,
     auto_upgrade: r.auto_upgrade });
   const assessment = (limit: number) => {
@@ -1592,7 +1592,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             const how = started_by === 'auto_upgrade' ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
               : tracks.every((x) => x.check!.reason === 'renamed') ? 'Clean name' : 'Made AIFF';
             items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${how}`,
-              batch: { id, size: group.length, started, started_by, kind, tracks } });
+              batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, kind, tracks } });
             chips.rekordbox_check++;
             counted.add(key);
           }

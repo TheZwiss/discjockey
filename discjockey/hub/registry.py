@@ -465,8 +465,8 @@ class Registry:
     def get(self, job_id: str) -> JobFiles:
         try:
             ids.parse(job_id, ("job",))
-        except ids.BadId:
-            raise NoSuchJob(f"{job_id} is not a job id.", reason="unknown_id") from None
+        except ids.BadId as e:
+            raise NoSuchJob(e.message, reason=e.reason) from None
         directory = self.root / job_id
         if not (directory / "state.json").is_file():
             raise NoSuchJob(f"There is no job {job_id} here.", reason="unknown_id")

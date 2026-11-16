@@ -9,6 +9,7 @@ Part b's commands (`upgrade discard`, `track undo`, `check done`) reuse `inline_
 text pages are pinned by `tests/cli_golden/{upgrade_discard,track_undo,check_done}.txt`."""
 from __future__ import annotations
 
+import re
 import copy
 import json
 import os
@@ -23,7 +24,7 @@ from convert_helpers import EXACT
 from discjockey import batches, db, library, upgrades
 from discjockey.cli import bind, call, worker
 import discjockey.cli as cli
-from discjockey.hub import api as api_words, catalog, select
+from discjockey.hub import api as api_words, catalog, ids, select
 from discjockey.rekordbox import backup as rbbackup, process
 from discjockey.rekordbox import session as rbsession
 
@@ -80,7 +81,7 @@ def inline_workers(monkeypatch):
 @pytest.fixture
 def lib(tmp_path, monkeypatch, inline_workers):
     from discjockey.hub.api import CliApi
-    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, text: text)  # the fixture's keys are not real song keys
+    monkeypatch.setattr(ids, "SPOTIFY_ID", re.compile(r"[A-Za-z0-9]{2,22}"))  # the fixture's keys (t1, t2…) pass as song keys; the real resolver runs
 
     def make(kinds):
         found = make_lib(tmp_path, monkeypatch, kinds)
@@ -88,6 +89,14 @@ def lib(tmp_path, monkeypatch, inline_workers):
         monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(found.paths.support))
         return found
     return make
+
+
+@pytest.fixture
+def stale_keys(monkeypatch):
+    """A test of the engine's per-song answer for a key the records lack (a song gone between the line and the run):
+    the real resolver would refuse the line first (`unknown_id`), so the key reaches the engine as typed."""
+    from discjockey.hub.api import CliApi
+    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, text, state=None: text)
 
 
 def run(argv, capsys):
@@ -310,7 +319,7 @@ def test_a_same_track_swap_that_breaks_midway_fails_the_item_and_leaves_the_song
     assert library.load_state(found.paths)["pending"] == []
 
 
-def test_an_unknown_song_is_skipped_and_a_batch_of_skips_is_refused(lib, capsys):
+def test_an_unknown_song_is_skipped_and_a_batch_of_skips_is_refused(lib, stale_keys, capsys):
     found = lib(["mp3", "stale"])
     code, env = run_json(["upgrade", "apply", "nope", found.tracks[0], *SAME], capsys)
     assert (code, env["outcome"]) == (PARTIAL, "partial")
@@ -396,7 +405,7 @@ def untouched(found):
     return found.music(), found.dump(), library.load_state(found.paths)["tracks"], batches_of(found)
 
 
-def test_discard_and_undo_without_yes_are_refused_with_the_dry_run_and_change_nothing(lib, capsys):
+def test_discard_and_undo_without_yes_are_refused_with_the_dry_run_and_change_nothing(lib, stale_keys, capsys):
     found = lib(["mp3", "mp3"])
     assert run_json(["upgrade", "apply", found.tracks[0], *NEW], capsys)[0] == OK  # something to undo
     before = untouched(found)
@@ -422,7 +431,7 @@ def test_discard_and_undo_without_yes_are_refused_with_the_dry_run_and_change_no
     assert not (found.paths.support / "plans").exists()
 
 
-def test_discard_with_yes_throws_the_new_versions_away_and_keeps_the_current_files(lib, capsys):
+def test_discard_with_yes_throws_the_new_versions_away_and_keeps_the_current_files(lib, stale_keys, capsys):
     found = lib(["mp3", "mp3", "mp3"])
     code, env = run_json(["upgrade", "discard", found.tracks[0], found.tracks[1], "nope", "--yes"], capsys)
     assert (code, env["outcome"]) == (PARTIAL, "partial")  # `nope` has nothing to discard: skipped
@@ -436,7 +445,7 @@ def test_discard_with_yes_throws_the_new_versions_away_and_keeps_the_current_fil
     assert (code, env["outcome"], env["message"]) == (OK, "ok", "1 of 1 song done.")
 
 
-def test_discard_has_no_plan_and_one_song_with_nothing_to_discard_is_refused(lib, capsys):
+def test_discard_has_no_plan_and_one_song_with_nothing_to_discard_is_refused(lib, stale_keys, capsys):
     found = lib(["mp3"])
     code, env = run_json(["upgrade", "discard", found.tracks[0], "--plan", "plan:000000000000", "--yes"], capsys)
     assert (code, env["outcome"]) == (REFUSED, "refused") and "Discard has none" in env["message"]
@@ -486,7 +495,7 @@ def test_track_undo_of_a_mix_is_partial_with_the_refused_track_in_the_results(li
     assert states[found.tracks[0]] == ("undone", None) and states[found.tracks[1]][0] == "refused"
 
 
-def test_track_undo_dry_run_says_per_track_whether_it_can_be_undone_and_why_not(lib, capsys):
+def test_track_undo_dry_run_says_per_track_whether_it_can_be_undone_and_why_not(lib, stale_keys, capsys):
     found = lib(["mp3", "mp3", "mp3"])
     assert run_json(["upgrade", "apply", *found.tracks[:2], *NEW], capsys)[0] == OK
     assert run_json(["check", "done", found.tracks[1]], capsys)[0] == OK  # ends the undo of the second

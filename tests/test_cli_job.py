@@ -445,6 +445,18 @@ def test_current_with_nothing_running_is_refused_not_running(env, jobs, capsys):
     jobs.make("done")
     code, printed, _ = run_json(["job", "stop", "current"], capsys)
     assert (code, printed["reason"]) == (7, "not_running")
+    assert printed["message"] == follow.NO_JOB  # it says what is wrong with the line, not "nothing to stop" for a look
+
+
+def test_job_show_current_with_no_job_at_all_says_there_is_none_yet(env, capsys):
+    code, printed, _ = run_json(["job", "show", "current"], capsys)
+    assert (code, printed["outcome"], printed["reason"]) == (7, "refused", "not_running")
+    assert printed["message"] == follow.NO_JOB_YET
+
+
+def test_a_job_word_of_another_kind_is_bad_id_kind(env, capsys):
+    code, printed, _ = run_json(["job", "show", "aiff:1"], capsys)
+    assert (code, printed["outcome"], printed["reason"]) == (2, "bad_args", "bad_id_kind")
 
 
 # --- job stop --now ---

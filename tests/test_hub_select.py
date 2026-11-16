@@ -4,6 +4,7 @@ one of them). The bulk commands are not built yet (their groups come later), so 
 entries whose methods are put on `CliApi` for the test, as `tests/test_cli_dryrun.py` does for the plan."""
 from __future__ import annotations
 
+import re
 import io
 import json
 
@@ -15,7 +16,7 @@ from hub_helpers import LOSSLESS, LOSSY, _MADE, Recorder, choose_music, make_roo
 from discjockey import align
 from discjockey.cli import bind, call, parser
 from discjockey.cli.parser import Flags, UsageError
-from discjockey.hub import catalog, select
+from discjockey.hub import catalog, ids, select
 from discjockey.hub.api import CliApi, cli_first
 from discjockey.hub.catalog import Entry
 from discjockey.hub.ids import BadId
@@ -43,7 +44,7 @@ def cli_api(paths, **kw) -> CliApi:
 @pytest.fixture
 def lib(tmp_path, monkeypatch):
     monkeypatch.setattr(CliApi, "demo_bulk", cli_first(demo_bulk), raising=False)
-    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, text: text)  # the test's keys are not real song keys
+    monkeypatch.setattr(ids, "SPOTIFY_ID", re.compile(r"[A-Za-z0-9]{2,22}"))  # the fixture's keys (t1, t2…) pass as song keys; the real resolver runs
     SEEN.clear()
     paths = make_root(tmp_path)
     choose_music(tmp_path, monkeypatch)
@@ -65,7 +66,7 @@ def rows_of(answer: dict) -> list[str]:
     ({"group": "upgrade_ready", "in": "all"}, "conflicting_flags"),   # a word of the other source is never ignored
     ({"source": "todo", "search": "x"}, "conflicting_flags"), ({"source": "library", "hidden": True}, "conflicting_flags"),
     ({"verb_all": "upgrade_all", "in": "all"}, "conflicting_flags"), ({"verb_all": "sing"}, "usage"),
-    ({"group": "nowhere"}, "unknown_id"), ({"quality": "great"}, "unknown_id"), ({"in": "folder:"}, "unknown_id"),
+    ({"group": "nowhere"}, "usage"), ({"quality": "great"}, "usage"), ({"in": "folder:"}, "unknown_id"),
     ({"hidden": "yes"}, "usage"),
 ])
 def test_a_listing_that_means_nothing_is_bad_args(listing, reason):
@@ -154,7 +155,7 @@ def test_todo_rows_are_the_items_todo_list_shows(lib):
 
 def test_a_bad_listing_is_a_problem_answer_not_a_crash(lib):
     r = cli_api(lib).select_listing({"group": "nowhere"})
-    assert (r["ok"], r["kind"], r["reason"]) == (False, "bad_args", "unknown_id")
+    assert (r["ok"], r["kind"], r["reason"]) == (False, "bad_args", "usage")
     assert cli_api(lib).select_listing("all")["reason"] == "usage"
 
 
@@ -245,7 +246,7 @@ def test_in_and_todo_name_two_lists_and_search_is_the_library_s(lib):
 
 def test_a_listing_the_engine_refuses_is_the_answer(lib):
     env = go(bulk_entry(), {}, cli_api(lib), rows=True, todo="nowhere")
-    assert (env["outcome"], env["reason"]) == ("bad_args", "unknown_id") and SEEN == []
+    assert (env["outcome"], env["reason"]) == ("bad_args", "usage") and SEEN == []
 
 
 def test_a_selection_that_picks_nothing_still_reaches_the_method(lib):
@@ -266,7 +267,7 @@ def stdin(monkeypatch, text: str) -> None:
 
 
 def test_a_dash_reads_ids_one_per_line_or_as_a_json_array(lib, monkeypatch):
-    track = lambda self, text: text  # noqa: E731
+    track = lambda self, text, state=None: text  # noqa: E731
     monkeypatch.setattr(CliApi, "_resolve_track", track)
     api = cli_api(lib)
     stdin(monkeypatch, "t1\n\n  t2  \n")
@@ -280,7 +281,7 @@ def test_a_dash_reads_ids_one_per_line_or_as_a_json_array(lib, monkeypatch):
 
 @pytest.mark.parametrize("text", ["", "  \n", "[1, 2]", "[\"a\", \"\"]", "[\"a\""])
 def test_a_dash_with_no_ids_on_stdin_is_a_usage_error(lib, monkeypatch, text):
-    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, t: t)
+    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, t, state=None: t)
     stdin(monkeypatch, text)
     env = go(bulk_entry(), {"track_ids": ["-"]}, cli_api(lib))
     assert (env["outcome"], env["reason"]) == ("bad_args", "usage") and SEEN == []

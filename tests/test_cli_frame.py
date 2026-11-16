@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from hub_helpers import LOSSLESS, choose_music, make_root
+from hub_helpers import LOSSLESS, choose_music, make_root, write_state
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
@@ -217,9 +217,14 @@ def test_resolve_turns_a_path_into_the_song_key_and_a_key_stays(tmp_path, monkey
     choose_music(tmp_path, monkeypatch)
     api = bind.default()
     absolute = str(paths.root / LOSSLESS)
-    answer = api.resolve("track", [absolute, LOSSLESS, "local:7", "qobuz:12"])
+    state = library.load_state(paths)
+    state["tracks"]["qobuz:12"] = {**state["tracks"]["t1"], "path": "Library/Hard_Bounce/Other - Song.aiff"}
+    write_state(paths, state)
+    answer = api.resolve("track", [absolute, LOSSLESS, "qobuz:12"])
     assert answer["ok"] and answer["kind"] == "track"
-    assert answer["resolved"] == ["t1", "t1", "local:7", "qobuz:12"]
+    assert answer["resolved"] == ["t1", "t1", "qobuz:12"]  # a key stays; one the library lacks is unknown_id
+    lacking = api.resolve("track", ["local:7"])
+    assert (lacking["outcome"], lacking["reason"]) == ("bad_args", "unknown_id") and "local:7" in lacking["message"]
 
 
 def test_resolve_refuses_what_it_cannot_make_an_id_of(tmp_path, monkeypatch):
@@ -237,7 +242,7 @@ def test_resolve_refuses_what_it_cannot_make_an_id_of(tmp_path, monkeypatch):
 def test_resolve_of_a_path_needs_the_library(capsys):
     answer = bind.default().resolve("track", ["/some/file.aiff"])
     assert (answer["ok"], answer["reason"]) == (False, "no_library")
-    assert bind.default().resolve("track", ["local:3"])["resolved"] == ["local:3"]  # a key needs nothing
+    assert bind.default().resolve("track", ["local:3"])["reason"] == "no_library"  # a key is looked up in the records too
 
 
 def test_call_run_resolves_what_was_typed_and_never_looks_up_itself(tmp_path, monkeypatch):

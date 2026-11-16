@@ -125,7 +125,7 @@ remember=False)` (the command line's) acts on a write's record as it is, with no
   one automatic read of this session has started, whatever its outcome; kept in Python, so also true after a window
   reload: the Sync page then never reads by itself).
 - **Budget** (`qobuz_today`, `today`): `used, allowance, limit, carry_over, extra, remaining` (ints). "37 of 80 · 60 + 20 carried over".
-- **RunSummary**: `run_id` (`YYYY-MM-DD_HHMMSS`), `started`, `finished`, `duration_s`, `exit_code` (0 ok, 1 some failed,
+- **RunSummary**: `run_id` (`YYYY-MM-DD_HHMMSS`), `id` (`report:<run_id>`, the id the command line takes; the window ignores it), `started`, `finished`, `duration_s`, `exit_code` (0 ok, 1 some failed,
   130 stopped), `counts {lossless, lossy, problems, moved}`, `stopped_after` int|null ("stopped by you after N tracks"),
   `kind` (`"sync"`, or `"auto_upgrade_only"` for a run of the command line's `sync run --auto-upgrade-only`: only the
   Auto-upgrade phase, a report titled "Discjockey Auto-upgrade run" that holds the `auto_upgrade` block; a report without
@@ -282,6 +282,7 @@ remember=False)` (the command line's) acts on a write's record as it is, with no
  "last_runs": [
   {
    "run_id": "2026-10-19_214700",
+   "id": "report:2026-10-19_214700",
    "started": "2026-10-19T21:47:00",
    "finished": "2026-10-19T22:11:00",
    "duration_s": 1440,
@@ -1303,6 +1304,7 @@ Qobuz `days_to_load` is null.
  "ok": true,
  "run": {
   "run_id": "2026-10-19_214700",
+  "id": "report:2026-10-19_214700",
   "started": "2026-10-19T21:47:00",
   "finished": "2026-10-19T22:11:00",
   "duration_s": 1440,
@@ -2039,7 +2041,7 @@ latest is sent). The pause card's source is the latest `SourceChosen` of the cur
 - **Problem kind `rekordbox_open`**: a batch or an undo needs rekordbox closed ("rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed."; stopped mid-way: "rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and press Resume."). `JobFinished.result` is the stopped `AiffBatchResult` (or the `UndoResult`) when items ran.
 - **`upgrade` block** (`track().upgrade`): `swap_possible` now means "Same track can run now" (the quick answer: a parked upgrade, the file there, a stored alignment `exact`/`shifted`, and for a file that isn't AIFF a rekordbox library Discjockey can open or none); new `swap_how` (`in_place` for an AIFF, `new_aiff`), `why_not` (an eligibility reason key, null when possible), `rekordbox: {state: ready\|none\|unreadable, running}` (cached, see below), `auto_refused` (stage C, see "Auto-upgrade" below). `upgrade_status` says "cues can stay" whenever Same track is possible.
 - **`check_view`** (`check`): gains `person_steps` (issue 39, the command line's): `[{id, say, then}]`, the steps only the person can do in rekordbox. An added file (New track) is `step:relocate_new`, its `say` the check's text ending with the new file's absolute path; a swap, Same track or Convert is `step:reload_tag`, its `say` the check's text (with the USB step for a repointed or converted file rekordbox has tracks of); `then` is `check done <track_id>`; a clean name and a wrong song have none (`words.person_steps`). The window words its own numbered steps and ignores it. Reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
-- **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
+- **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, aiff_id (`aiff:<id>`, the id the command line takes; the window ignores it), size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
 - **Cached rekordbox state**: `HubApi._rekordbox_status()` keyed on master.db's modified time and size plus whether rekordbox runs; one read open per change. A reader takes `rekordbox.lock` shared and without waiting (`rekordbox.lock.reader_lock`); while a writer of any Discjockey process (a batch's session, a restore, a recovery of analysis files) holds it, master.db is never opened and the answer is the last value (`writing`, see `rekordbox_status()`). The same goes for the plan behind To-do's CDJ group and the `aiff_plan` read: with a writer holding the lock they plan on rekordbox's cached state and no lookup. A write job that holds no rekordbox session does not stop the read. Services `rekordbox_running` and `rekordbox_place` are injected (tests and the fake never touch a real library).
 
 

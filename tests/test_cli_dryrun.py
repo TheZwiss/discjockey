@@ -4,6 +4,7 @@
 No built entry has a `dry_run` or `needs_yes` yet (the groups that build the writes add them), so the call path is tried
 through hand-made entries (kind `B`: no worker) whose methods are put on `CliApi` for the test, and never in the
 catalogue (T1 and the ceiling test would trip). The selection and `upgrade apply --dry-run` tests are part b's."""
+import re
 import hashlib
 import os
 import sqlite3
@@ -16,7 +17,7 @@ from hub_helpers import choose_music, make_root
 from discjockey import db, library, report as rep, run as run_mod
 from discjockey.cli import bind, call
 from discjockey.cli.parser import Flags
-from discjockey.hub import catalog, plan_store
+from discjockey.hub import catalog, ids, plan_store
 from discjockey.hub.api import CliApi, cli_first
 from discjockey.hub.catalog import Entry
 
@@ -405,7 +406,7 @@ def upgrade_row() -> Entry:
 
 @pytest.fixture
 def upgrades(tmp_path, monkeypatch):
-    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, text: text)  # the fixture's keys are not real song keys
+    monkeypatch.setattr(ids, "SPOTIFY_ID", re.compile(r"[A-Za-z0-9]{2,22}"))  # the fixture's keys (t1, t2…) pass as song keys; the real resolver runs
     lib = make_lib(tmp_path, monkeypatch, KINDS)
     use(lib, monkeypatch)
     monkeypatch.setattr(align, "compare_files", lambda a, b: EXACT)

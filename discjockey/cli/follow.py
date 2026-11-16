@@ -42,6 +42,8 @@ START_WAIT_S = 15.0  # how long a client waits for a worker to leave `queued` (w
 POLL_S = 0.05
 SHOWN_EVENTS = 20  # the last events `job show` prints
 FIRST_LINE = "Job {job} started (follow: {path} job follow {job})"
+NO_JOB = "No job of this music folder is running."
+NO_JOB_YET = "There is no job here yet. `job list --all` lists every job."
 WINDOW_STOP = "{job} belongs to the window, which stops its jobs with its own Stop button."
 
 
@@ -416,7 +418,7 @@ def _pick(command: str, text: str, reg: registry.Registry, music: str | None, *,
     running = [r for r in rows if r.get("status") in registry.ACTIVE and _is_write(r)]
     chosen = running[0] if running else None if running_only else rows[0] if rows else None
     if chosen is None:
-        return None, envelope.problem(command, "refused", "not_running")
+        return None, envelope.problem(command, "refused", "not_running", NO_JOB if running_only else NO_JOB_YET)
     return reg.get(chosen["id"]), None
 
 

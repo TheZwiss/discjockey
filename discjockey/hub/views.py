@@ -287,7 +287,7 @@ def run_summary(run_id: str, data: dict) -> dict:
     if code == 130:
         # every "queued" result was not done: stopped before it, left out by the user, or over the daily limit
         stopped_after = sum(1 for r in results if r.get("track_id") and r.get("section") != "queued")
-    return {"run_id": run_id, "started": started, "finished": finished, "duration_s": seconds, "exit_code": code,
+    return {"run_id": run_id, "id": f"report:{run_id}", "started": started, "finished": finished, "duration_s": seconds, "exit_code": code,
             "kind": data.get("kind") or "sync",
             "counts": {"lossless": lossless, "lossy": lossy, "problems": count(PROBLEM_SECTIONS),
                        "moved": count(MOVED_SECTIONS)},
@@ -1742,7 +1742,7 @@ def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None
     how = _batch_how(started_by, kind, tracks)
     return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
             "detail": f"{started or ''} · {how}".strip(" ·"),
-            "batch": {"id": batch_id, "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
+            "batch": {"id": batch_id, "aiff_id": f"aiff:{batch_id}", "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
                       "tracks": tracks}}
 
 

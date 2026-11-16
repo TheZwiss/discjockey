@@ -19,21 +19,33 @@ GROUP_KEYS = ("key", "label", "hint", "items")  # a group's own fields besides w
 
 
 def _item(item: Mapping) -> dict:
-    """An item's placed fields: the payload's own words, and for a check what to do in rekordbox."""
-    return {**{key: item.get(key) for key, _ in ITEM_COLUMNS}, "hidden": item.get("hidden"),
-            "what_to_do": (item.get("check") or {}).get("text")}
+    """An item's placed fields: the payload's own words, and for a check what to do in rekordbox. A batch of checks is
+    one item whose own key (`batch:<n>`) no command takes: it shows the id `check done --batch` takes and says so."""
+    placed = {**{key: item.get(key) for key, _ in ITEM_COLUMNS}, "hidden": item.get("hidden"),
+              "what_to_do": (item.get("check") or {}).get("text")}
+    batch = item.get("batch")
+    if batch and batch.get("aiff_id"):
+        placed["track_id"] = batch["aiff_id"]
+        placed["detail"] = f"{item.get('detail')} · {batch.get('size')} tracks · check done --batch {batch['aiff_id']}"
+    return placed
 
 
-def _group(group: Mapping, *, verbose: bool, show_hidden: bool, limit: int, offset: int) -> Section:
+def _group(group: Mapping, *, verbose: bool, show_hidden: bool, limit: int, offset: int) -> list[Section]:
     items = group.get("items") or []
     if verbose:
         rows = generic.scalar_rows(group, ("items", "label", "hint"), verbose=True)
-        return Section(group.get("label"), rows, generic.table(items, verbose=True, limit=limit, offset=offset),
-                       lead=group.get("hint"))
+        return [Section(group.get("label"), rows, generic.table(items, verbose=True, limit=limit, offset=offset),
+                        lead=group.get("hint"))]
     columns = [*ITEM_COLUMNS, *([HIDDEN_COLUMN] if show_hidden else []),
                *([CHECK_COLUMN] if any((i.get("check") or {}).get("text") for i in items) else [])]
-    return Section(group.get("label"), table=generic.table([_item(i) for i in items], columns=columns, limit=limit,
-                                                           offset=offset), lead=group.get("hint"))
+    sections = [Section(group.get("label"), table=generic.table([_item(i) for i in items], columns=columns, limit=limit,
+                                                                offset=offset), lead=group.get("hint"))]
+    for item in items:  # a batch of checks lists its own songs, each with the id its commands take
+        batch = item.get("batch")
+        if batch and batch.get("aiff_id"):
+            sections.append(Section(batch["aiff_id"], table=generic.table([_item(t) for t in batch.get("tracks") or []],
+                                                                         columns=columns)))
+    return sections
 
 
 def page(payload: Mapping, *, message: str | None = None, verbose: bool = False, limit: int = generic.DEFAULT_LIMIT,
@@ -50,7 +62,7 @@ def page(payload: Mapping, *, message: str | None = None, verbose: bool = False,
         if payload.get("empty"):
             rows.append(Row("Nothing to show", generic.scalar(payload["empty"])))
         sections.append(Section(None, rows))
-    sections += [_group(g, verbose=verbose, show_hidden=bool(payload.get("show_hidden")), limit=limit, offset=offset)
-                 for g in payload.get("groups") or []]
+    for g in payload.get("groups") or []:
+        sections += _group(g, verbose=verbose, show_hidden=bool(payload.get("show_hidden")), limit=limit, offset=offset)
     sections += generic.rest(payload, placed, verbose=verbose, limit=limit, offset=offset)
     return Page(message, sections)

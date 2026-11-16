@@ -46,6 +46,9 @@ NOUN_WORDS = {
 }
 
 NO_PLAYLIST = "No playlist called “{name}”."
+NO_SONG = "Your library has no song {key}. `track find <words>` finds a song's id."
+NO_REPORT_YET = "There is no run report yet."
+NO_REPORT = "There is no report {stamp}. `report list` lists them."
 NO_FOLDER = "No folder at {path}."
 NOT_WATCHED = "{path} is not one of the watched folders. `folder list` names them."
 LIBRARY_NOT_REMOVABLE = "{path} is your Library: it is always watched and cannot be removed."

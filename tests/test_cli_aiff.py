@@ -21,12 +21,12 @@ from convert_helpers import EXACT, OWN, song
 from discjockey import aiff_plan, db, importer, library, quality
 from discjockey.cli import bind
 from discjockey.events import CancelToken
-from discjockey.hub import plan_store
+from discjockey.hub import ids, plan_store
 from discjockey.hub.api import CliApi
 from discjockey.library import Paths
 from hub_helpers import choose_music, make_root, wait_job
 from rekordbox_helpers import save_library
-from test_cli_upgrade import inline_workers, run, run_json  # noqa: F401 - the fixture and helpers of the other command tests
+from test_cli_upgrade import inline_workers, run, run_json, stale_keys  # noqa: F401 - the fixture and helpers of the other command tests
 
 FIXTURES = Path(__file__).parent / "fixtures"
 OK, FAILED, BAD_ARGS, BUSY, REFUSED = 0, 1, 2, 3, 7
@@ -513,7 +513,7 @@ def world(tmp_path, monkeypatch, inline_workers):
     """`make(kinds)`: a library of own songs and a fixture rekordbox, as the command line finds them. Every file gets a
     content key of its own, so no duplicate group takes a song out (the tests are about the convert side only)."""
     from discjockey.hub.api import CliApi
-    monkeypatch.setattr(CliApi, "_resolve_track", lambda self, text: text)  # the fixture's keys are not real song keys
+    monkeypatch.setattr(ids, "SPOTIFY_ID", re.compile(r"[A-Za-z0-9]{2,22}"))  # the fixture's keys (t1, t2…) pass as song keys; the real resolver runs
 
     def make(kinds=KINDS) -> Lib:
         found = make_own_library(tmp_path, monkeypatch, kinds)
@@ -700,7 +700,7 @@ def test_files_rekordbox_does_not_hold_need_no_closing(world, capsys, monkeypatc
     assert code == OK and env["data"]["plan"]["rekordbox"] == {"state": "ready", "running": True, "needs_closed": False}
 
 
-def test_a_named_song_left_as_it_is_says_its_own_words(world, capsys):
+def test_a_named_song_left_as_it_is_says_its_own_words(world, stale_keys, capsys):
     found = world()
     code, env = run_json(["aiff", "convert", found.tracks[0], found.tracks[4], "nope", "--dry-run"], capsys)
     assert code == OK
@@ -938,7 +938,7 @@ def test_a_facts_less_library_runs_after_the_run_stores_the_facts(world, capsys)
 
 # --- nothing to do, skipped, refused ---
 
-def test_nothing_to_change_is_refused_with_the_engines_words_one_song_in_its_own(world, capsys):
+def test_nothing_to_change_is_refused_with_the_engines_words_one_song_in_its_own(world, stale_keys, capsys):
     found = world(["named", "mp3"])
     before = untouched(found)
     code, env = run_json(["aiff", "convert", found.tracks[0]], capsys)
@@ -952,7 +952,7 @@ def test_nothing_to_change_is_refused_with_the_engines_words_one_song_in_its_own
     assert untouched(found) == before
 
 
-def test_several_songs_left_as_they_are_say_so_and_are_partial_after_the_rest_ran(world, capsys):
+def test_several_songs_left_as_they_are_say_so_and_are_partial_after_the_rest_ran(world, stale_keys, capsys):
     found = world()
     code, env = run_json(["aiff", "convert", found.tracks[0], found.tracks[4], "nope"], capsys)
     assert (code, env["outcome"]) == (PARTIAL, "partial")

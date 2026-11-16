@@ -76,6 +76,8 @@ export type CdjWhy = { reason: 'format' | 'bitrate' | 'bits' | 'rate_high' | 'ra
 export type CdjWords = { short: string; words: string };
 /** A `BatchCheckItem`'s batch: `size` open checks, `started` the earliest check's date, `tracks` them as single items. */
 export type BatchCheck = { id: number; size: number; started: string | null;
+  /** `aiff:<id>`, the id the command line takes for this batch (the window ignores it) */
+  aiff_id?: string;
   /** who started the batch (`aiff_batches.started_by`): `auto_upgrade` is the sync's Auto-upgrade phase (its item says
    *  "Upgraded during your sync" and its foot "Undo all from this sync"); null when unknown */
   started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all' | 'auto_upgrade' | (string & {}) | null;
@@ -223,6 +225,8 @@ export type AutoUpgradeBlock = { batch: number | null; backup: string | null; do
 export type RunSummary = {
   run_id: string; started: string; finished: string | null; duration_s: number | null; exit_code: number;
   counts: RunCounts; stopped_after: number | null;
+  /** the typed id the command line takes, `report:<run_id>` (the window ignores it) */
+  id?: string;
   /** what the run was: a whole sync, or only its Auto-upgrade phase (`sync run --auto-upgrade-only`, the command line's;
    *  a run from before it is a sync); the window never starts the second */
   kind?: 'sync' | 'auto_upgrade_only';

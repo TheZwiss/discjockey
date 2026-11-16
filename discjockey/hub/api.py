@@ -3083,7 +3083,8 @@ class CliApi(HubApi):
     (tests/test_hub_api.py): the window's `HubApi` has none of these."""
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
-                 "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch"}  # kind -> the method that makes it (grows per group)
+                 "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch",
+                 "report": "_resolve_report"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -3387,7 +3388,8 @@ class CliApi(HubApi):
         resolver = self.RESOLVERS.get(kind)
         if resolver is None:
             raise OpProblem(f"Discjockey cannot turn {kind} words into an id yet.", "failed")
-        return {"kind": kind, "resolved": [getattr(self, resolver)(text) for text in values]}
+        extra = {"state": self._state()} if kind == "track" else {}  # the records once for the whole call
+        return {"kind": kind, "resolved": [getattr(self, resolver)(text, **extra) for text in values]}
 
     @cli_first
     def fill_facts(self) -> dict:
@@ -3458,15 +3460,21 @@ class CliApi(HubApi):
             scanned, read = db.freshness(conn) if conn is not None else (None, None)
         return {"scanned_at": scanned, "read_at": read}
 
-    def _resolve_track(self, text: str) -> str:
+    def _resolve_track(self, text: str, state: dict | None = None) -> str:
+        """A song key as typed, or the path of a file of the library as its key; a well-formed key the records lack is
+        `unknown_id` (nothing was looked at: the whole command is `bad_args`)."""
+        state = state if state is not None else self._state()
         found = parse_id(text, ("track",))
         if found.kind == "track" and found.value != "-":
-            return str(found.value)
-        if found.kind != "path":
+            key = str(found.value)
+        elif found.kind != "path":
             raise BadId("unknown_id", "A song key is missing: say a key or the path of a file of your library.")
-        key = self._song_holding(text)
-        if key is None:
-            raise BadId("unknown_id", f"Your library has no track with the file {text}.")
+        else:
+            key = self._song_holding(text, state)
+            if key is None:
+                raise BadId("unknown_id", f"Your library has no track with the file {text}.")
+        if key not in state["tracks"]:
+            raise BadId("unknown_id", engine_words.NO_SONG.format(key=key))
         return key
 
     def _resolve_collection(self, text: str) -> dict:
@@ -3541,6 +3549,19 @@ class CliApi(HubApi):
         reads it again and says when no batch has it."""
         parse_id(text, BATCH_KINDS)
         return text.strip()
+
+    def _resolve_report(self, text: str) -> str:
+        """`report show`, `open report`: `report:<stamp>`, the bare stamp or `last` (the newest report) as the bare
+        stamp. Another kind of id is `bad_id_kind`; a stamp with no report, or `last` with none at all, `unknown_id`."""
+        found = parse_id(text, ("report",))
+        stamps = [stamp for stamp, _ in self._reports()]
+        if found.value == "last":
+            if not stamps:
+                raise BadId("unknown_id", engine_words.NO_REPORT_YET)
+            return max(stamps)
+        if found.value not in stamps:
+            raise BadId("unknown_id", engine_words.NO_REPORT.format(stamp=found.value))
+        return str(found.value)
 
     def _resolve_upgrade_way(self, text: str) -> str:
         """`--way`: `same-track` or `new-track` (the snake_case spellings too) as the bridge's mode."""
@@ -3810,7 +3831,7 @@ class CliApi(HubApi):
         was picked for an AIFF batch: `selection`, `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the batch that
         undid it). `limit` 0 is every batch."""
         if kind not in (None, *BATCH_KINDS):
-            raise BadId("bad_id_kind", f"A batch kind is aiff or moves, not {kind}.")
+            raise BadId("usage", f"A batch kind is aiff or moves, not {kind}.")
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
             raise BadId("usage", "--limit takes a number: 0 for every batch.")
         fetch = limit or -1  # SQLite's LIMIT -1 is no limit
