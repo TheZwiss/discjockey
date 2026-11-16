@@ -1,6 +1,6 @@
 """The old command line's output helpers (`say`, `failed`, `no_library`), moved unchanged out of `rekordbox_cmd.py` when
-`rekordbox preview` became the new command line's (issue 39, group 1.9). `batch_cmd.py`, `convert_cmd.py` and
-`settings_cmd.py` still print through them; this module goes with the last of those (groups 1.12 to 1.14)."""
+`rekordbox preview` became the new command line's (issue 39, group 1.9). `convert_cmd.py` and
+`settings_cmd.py` still print through them; this module goes with the last of those (groups 1.13 and 1.14)."""
 from __future__ import annotations
 
 import argparse

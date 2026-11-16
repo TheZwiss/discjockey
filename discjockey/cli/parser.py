@@ -18,8 +18,12 @@ from ..hub import catalog
 from ..hub.api import CliApi
 from ..hub.catalog import Entry
 
-LEGACY_WORDS = frozenset(("setup", "update", "upgrades", "upgrade", "batch", "convert", "rename", "rekordbox",
-                          "settings"))
+LEGACY_WORDS = frozenset(("setup", "update", "convert", "rename", "settings"))
+# Old words that are gone: what the usage error tells a person (or an agent) who still types one (design §12)
+MOVED = {("upgrades",): "`upgrades` is not a command any more: say `upgrade …` (`upgrade list`, `upgrade apply`, "
+                        "`upgrade discard`).",
+         ("upgrade", "undo"): "`upgrade undo` is not a command any more: say `track undo`.",
+         ("rekordbox", "checked"): "`rekordbox checked` is not a command any more: say `check done`."}
 GLOBAL_BOOL = {"--json": "json", "--jsonl": "jsonl", "--detach": "detach", "--verbose": "verbose",
                "--no-color": "no_color"}
 GLOBAL_VALUE = {"--wait": "wait", "--wait-busy": "wait_busy"}
@@ -283,6 +287,9 @@ def build() -> _Parser:
 
 def _check_words(words: list[str]) -> None:
     """A friendly usage error for a word that is not a command (argparse's own would list its internals)."""
+    for old, text in MOVED.items():
+        if tuple(words[:len(old)]) == old:
+            raise UsageError(text)
     known = [*commands(), *HOUSEKEEPING]
     nouns = sorted({c[0] for c in known})
     if not words:

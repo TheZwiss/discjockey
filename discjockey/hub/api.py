@@ -36,7 +36,7 @@ from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
 from .. import auto_upgrade, batches, rekordbox, report as rep, run, upgrades
-from ..rekordbox import lock as rb_lock, preview as rb_preview, process as rb_process
+from ..rekordbox import backup as rb_backup, lock as rb_lock, preview as rb_preview, process as rb_process
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
@@ -82,7 +82,7 @@ NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
 NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
 CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
-NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo"))  # run on what is there when --yes comes: no plan to run
+NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -333,6 +333,7 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
 class HubApi:
     _skipped_check_is_ok = False  # the window's job ends `changed` when no named track had a check; the command line's is ok, the rows skipped
     _resume_first = False  # the command line refuses Upgrade all while a stopped upgrade batch waits (the window hides it)
+    _via = "window"  # where the batches this api starts say they started (`CliApi`: terminal)
 
     def __init__(self, support: Path, events=None, services: Services | None = None, media=None,
                  remember: bool = True):
@@ -2052,9 +2053,10 @@ class HubApi:
 
     def _rekordbox_services(self) -> dict:
         """The sync's Auto-upgrade phase talks to rekordbox through the hub's services (tests and the fake never touch
-        a real one): whether it runs, where its library is, and how two files are compared."""
+        a real one): whether it runs, where its library is, and how two files are compared; `via` is where the sync's
+        Auto-upgrade batch says it started."""
         return {"running": self._svc.rekordbox_running, "place": self._svc.rekordbox_place(),
-                "compare": self._svc.compare, "now": self._svc.now}
+                "compare": self._svc.compare, "now": self._svc.now, "via": self._via}
 
     def _rekordbox_options(self, ctx, state: dict) -> dict:
         return {"emit": ctx.emit, "token": ctx.token, "now": self._svc.now, "state": state,
@@ -2071,6 +2073,9 @@ class HubApi:
         a plan left out of the batch (`_each_work`'s words: they end as skipped); `extra`: what else the result says."""
         def work(ctx) -> dict:
             state, recovered = self._begin()
+            if resume is not None and self._stopped_aiff(resume).state != "stopped":
+                # read under the library lock, after recovery: a batch a crash left `running` is stopped by now
+                raise OpProblem(NOT_STOPPED, "refused", reason="not_stopped")
             batch_id = resume if resume is not None else make()
             return self._run_batch(ctx, state, recovered, batch_id, resume is not None, alone, left, extra)
         return work
@@ -2122,7 +2127,7 @@ class HubApi:
                 raise OpProblem(str(batches.Refused(empty)) if scope["kind"] == "tracks" else plans.NOTHING_TO_CHANGE,
                                 "refused")
             batch_id = batches.start(self._paths, found.actions(), started_by=started_by, scope=batch_scope,
-                                     now=self._svc.now)
+                                     via=self._via, now=self._svc.now)
             return self._run_batch(ctx, state, recovered, batch_id, False, alone, left)
         return work
 
@@ -2281,8 +2286,8 @@ class HubApi:
         track = ids[0] if len(ids) == 1 and not left else None
         if mode == "same_track":
             work = self._batch_work(lambda: batches.start(
-                self._paths, [(t, "same_track") for t in ids], started_by="user", now=self._svc.now), None,
-                alone=len(ids) == 1, left=left, extra=extra)
+                self._paths, [(t, "same_track") for t in ids], started_by="user", scope="selection", via=self._via,
+                now=self._svc.now), None, alone=len(ids) == 1, left=left, extra=extra)
             return {"job_id": self._jobs.start("upgrade_batch", work, track_id=track, batch_kind="upgrade").id}
         action = NEW_TRACK_ACTION[mode]
         return {"job_id": self._jobs.start(f"upgrade_{action}", self._each_work(ids, action, left=left, extra=extra),
@@ -2311,8 +2316,8 @@ class HubApi:
         if plan_id is not None:
             ids, left, extra = self._plan_run(plan_id, "same_track", ids, state)
         work = self._batch_work(lambda: batches.start(
-            self._paths, [(t, "same_track") for t in ids], started_by="upgrade_all", now=self._svc.now), None,
-            alone=False, left=left, extra=extra)
+            self._paths, [(t, "same_track") for t in ids], started_by="upgrade_all", via=self._via,
+            now=self._svc.now), None, alone=False, left=left, extra=extra)
         return {"job_id": self._jobs.start("upgrade_batch", work, batch_kind="upgrade").id}
 
     def _selection_job(self, kind_only: str | None, track_ids: list[str], origin: str):
@@ -2322,7 +2327,8 @@ class HubApi:
         if origin not in AIFF_ORIGINS:
             raise ValueError(f"origin must be one of {', '.join(AIFF_ORIGINS)}")
         scope = self._aiff_scope({"kind": "tracks", "tracks": track_ids})
-        work = self._aiff_work(scope, only=kind_only, started_by="user", batch_scope=f"{origin}:selection")
+        work = self._aiff_work(scope, only=kind_only, started_by="user",
+                               batch_scope="selection" if self._via == "terminal" else f"{origin}:selection")
         return {"job_id": self._jobs.start("aiff_batch", work,
                                            track_id=scope["tracks"][0] if len(scope["tracks"]) == 1 else None,
                                            batch_kind="convert").id}
@@ -2367,10 +2373,13 @@ class HubApi:
     @bridge
     def batch_resume(self, batch_id: int) -> dict:
         """Carries on a stopped Same track batch (its planned tracks, their eligibility asked again): a write job (kind
-        "batch_resume"); the result is a BatchResult. The job snapshot's `batch_kind` is the stopped batch's own kind."""
+        "batch_resume"); the result is a BatchResult. The job snapshot's `batch_kind` is the stopped batch's own kind.
+        A batch that ended (`done`) is `refused` / `not_stopped` at once; for any other the job decides after its
+        recovery, under the library lock: a batch a crash left `running` is stopped by then and resumes, one that is
+        still not stopped is `not_stopped`, one that really runs in another process is `busy`."""
         row = self._stopped_aiff(batch_id)
-        if row.state != "stopped":
-            raise ValueError(NOT_STOPPED)
+        if row.state == "done":  # a stopped or running one starts the job: whether it is stopped is read under the lock
+            raise OpProblem(NOT_STOPPED, "refused", reason="not_stopped")
         return {"job_id": self._jobs.start("batch_resume", self._batch_work(None, batch_id, alone=False),
                                            batch_kind=row.kind).id}
 
@@ -2962,6 +2971,7 @@ class CliApi(HubApi):
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
+    _via = "terminal"
 
     # --- plans (design §7.1): the command line's call path saves a dry run's plan (`save_plan`) and says when its scan
     # was (`scan_next`); a write method that takes `plan_id` binds it (`HubApi._bind_plan`). Plain methods, not bridge
@@ -2991,11 +3001,24 @@ class CliApi(HubApi):
         method with no words says nothing."""
         if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
             return self._upgrade_words(result)
-        if method == "undo_upgrade" and isinstance(result.get("results"), list):
+        if method == "batch_resume" and isinstance(result.get("results"), list):
+            return self._upgrade_words(result)
+        if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
             return self._undo_words(result)
         if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
             return self._checked_words(result)
+        if method == "rekordbox_restore" and "saved_current" in result:
+            return self._restore_words(result)
         return {}
+
+    def _restore_words(self, result: dict) -> dict:
+        """`rekordbox restore`: what was put back, where the library as it was is saved, and (when some tracks now point
+        at files Discjockey moved to `Superseded/`) the batches to undo first."""
+        out: dict = {"message": engine_words.RESTORED.format(backup=result["restored"], saved=result["saved_current"])}
+        if result["missing_after"]:
+            out["message"] += " " + engine_words.MISSING_AFTER.format(n=len(result["missing_after"]))
+            out["next"] = [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
+        return out
 
     def _upgrade_words(self, result: dict) -> dict:
         out: dict = {}
@@ -3003,8 +3026,11 @@ class CliApi(HubApi):
         if isinstance(result.get("batch"), int):
             batch = f"aiff:{result['batch']}"
             out["data"] = {"batch_id": batch}
+            if result.get("state") == "stopped" and result.get("stop_reason") == "busy":
+                out["next"] = [{"run": f"batch resume {batch}",
+                                "why": "carries on where it stopped, once the other Discjockey is done"}]
             if result.get("done"):
-                out["next"] = [{"run": f"batch show {batch}", "why": "every song of this batch"},
+                out["next"] = [*out.get("next", ()), {"run": f"batch show {batch}", "why": "every song of this batch"},
                                {"run": "check list", "why": "what is left to do in rekordbox"}]
         parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
         parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed"))) if n]
@@ -3291,6 +3317,84 @@ class CliApi(HubApi):
         return batches.track_undo_preview(self._state(), ids, self._svc.rekordbox_running(), self._paths.root)
 
     @cli_first
+    def batch_undo_preview(self, batch_id: int) -> dict:
+        """What `batch_undo` of this AIFF batch would do, before it runs (design §7.4: the dry run of `batch undo
+        aiff:<n>`): `{batch: "aiff:<n>", total, planned, skipped, items, rekordbox}` as `undo_upgrade_preview` answers it, one
+        item per `done` song of the batch, newest first (the order an undo goes). A song `upgrades.can_undo` says no to is
+        `skipped` with its reason and words. Reads only; whether a file changed since is only known when the undo runs."""
+        self._stopped_aiff(batch_id)
+        return batches.batch_undo_preview(self._paths, self._state(), batch_id, self._svc.rekordbox_running())
+
+    @cli_first
+    def rekordbox_backups(self) -> dict:
+        """The copies of rekordbox's library Discjockey made, newest first (each batch that wrote rekordbox keeps one; a
+        restore saves the library it replaced as one): `{backups: [{id, created, batches, tracks, size}]}`. `id` is the name
+        `rekordbox_restore` takes, `batches` the AIFF batches (ids) that wrote under it, `tracks` how many tracks' analysis
+        files it holds and `size` its bytes. Reads only the backups' own folders under `.discjockey/`: no lock, rekordbox's
+        library is never opened."""
+        return {"backups": [{"id": b.id, "created": b.created, "batches": b.batches, "tracks": b.tracks, "size": b.size}
+                            for b in rb_backup.backups(self._paths)]}
+
+    @cli_first
+    def rekordbox_restore(self, backup: str) -> dict:
+        """The last resort (design §7.4: `rekordbox restore <backup> --yes`): puts rekordbox's whole library back as the
+        backup holds it, as one write job (kind "rekordbox_restore"). Needs rekordbox closed (`rekordbox_open`); another
+        Discjockey process changing rekordbox's library is `busy`; a library that is not this Mac's, a damaged backup, one
+        left by a crash (`unclean`) or no rekordbox library at all is `refused` (`data.why` names which). Saves the current
+        library first. The result is `{restored, saved_current, missing_after, recovered}`; `missing_after` lists the tracks
+        that now point at a file that is not there (`[{id, path, was}]`: Discjockey moved it to `Superseded/` since). A
+        name no backup has is `bad_args` / `unknown_id`, before anything starts."""
+        if rb_backup.find(self._paths, backup) is None:
+            raise BadId("unknown_id", engine_words.RESTORE_REFUSED["not_found"])
+
+        def work(ctx) -> dict:
+            state, recovered = self._begin()
+            try:
+                done = rb_backup.restore(self._paths, self._svc.rekordbox_place(), backup,
+                                         running=self._svc.rekordbox_running)
+            except rb_backup.RestoreRefused as e:
+                raise self._restore_refusal(e) from None
+            except rb_backup.WriteRefused as e:  # master.db changed while the current library was saved: nothing written
+                raise OpProblem(engine_words.RESTORE_REFUSED["changed"], "refused", data={"why": e.reason}) from None
+            return {"restored": backup, "saved_current": done.saved_current, "missing_after": done.missing_after,
+                    "recovered": recovered}
+        return {"job_id": self._jobs.start("rekordbox_restore", work).id}
+
+    @cli_first
+    def rekordbox_restore_preview(self, backup: str) -> dict:
+        """What `rekordbox_restore` of this backup would leave behind, before it runs (the dry run of `rekordbox restore`):
+        `{backup, missing_after, rekordbox}`. `missing_after` is the restore's own list (`[{id, path, was}]`: the tracks
+        that would point at a file that is not there), `rekordbox` is `{running, needs_rekordbox_closed}`: a restore only
+        runs with rekordbox quit. Takes no lock beyond the shared `rekordbox.lock` while master.db is read; with a writer
+        holding it master.db is not opened: `missing_after` is null and `rekordbox.writing` true; a library that can't be read
+        (it is what a restore can repair) gives null and `rekordbox.unreadable` true. Nothing is saved or
+        changed. The refusals of the restore itself (a damaged backup, another library, no rekordbox library) are
+        `refused`; a name no backup has is `bad_args` / `unknown_id`."""
+        running = bool(self._svc.rekordbox_running())
+        shown = {"running": running, "needs_rekordbox_closed": True}
+        with rb_lock.reader_lock(self._support.support) as free:
+            if not free:
+                return {"backup": backup, "missing_after": None, "rekordbox": {**shown, "writing": True}}
+            try:
+                missing = rb_backup.preview(self._paths, self._svc.rekordbox_place(), backup, running)
+            except rb_backup.RestoreRefused as e:
+                if e.reason == "not_found":
+                    raise BadId("unknown_id", engine_words.RESTORE_REFUSED["not_found"]) from None
+                raise self._restore_refusal(e) from None
+        if missing is None:  # the current library can't be read: what a restore would leave missing is not known
+            return {"backup": backup, "missing_after": None, "rekordbox": {**shown, "unreadable": True}}
+        return {"backup": backup, "missing_after": missing, "rekordbox": shown}
+
+    @staticmethod
+    def _restore_refusal(e: "rb_backup.RestoreRefused") -> OpProblem:
+        """A restore's refusal as the problem the answer carries: rekordbox open needs the person; the rest is `refused`
+        with the engine's words and `data.why` (`unclean` is also its own reason)."""
+        words = engine_words.RESTORE_REFUSED[e.reason]
+        if e.reason == "rekordbox_open":
+            return OpProblem(words, "rekordbox_open")
+        return OpProblem(words, "refused", reason="unclean" if e.reason == "unclean" else None, data={"why": e.reason})
+
+    @cli_first
     def batches(self, kind: str | None = None, limit: int = 20) -> dict:
         """The batches Discjockey made, AIFF batches (Same track, Convert, Rename) and move batches (tidy-ups, saves,
         folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them). `{batches, total}`;
@@ -3298,7 +3402,8 @@ class CliApi(HubApi):
         `moves:12`, the id every other command takes), `kind`, `what` (an AIFF batch's `upgrade` | `convert` | `mixed`; a
         move batch's title), `started_by`, `state` (`running` | `stopped` | `done`), `stop_reason`, `started`, `ended`,
         `total`, `done`, `skipped`, `failed`, `planned`, `undone` (items; for a move batch `done` is the files moved),
-        `backup` (the rekordbox backup an AIFF batch made), and for a move batch `undone_by` (the id of the batch that
+        `backup` (the rekordbox backup an AIFF batch made), `via` (`window` | `terminal`: where it started), `scope` (what
+        was picked for an AIFF batch: `selection`, `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the batch that
         undid it). `limit` 0 is every batch."""
         if kind not in (None, *BATCH_KINDS):
             raise BadId("bad_id_kind", f"A batch kind is aiff or moves, not {kind}.")

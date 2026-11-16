@@ -31,7 +31,8 @@ def test_help_json_lists_every_built_entry_with_what_an_agent_needs(capsys):
     assert data["command"] == housekeeping.command_path() and data["version"] == __version__
     listed = {c["command"]: c for c in data["commands"]}
     assert set(listed) == {" ".join(c) for c in parser.commands()} | {" ".join(c) for c in parser.HOUSEKEEPING}
-    planned = {" ".join(e.command) for e in catalog.ENTRIES if e.planned and e.command}
+    built = {" ".join(c) for c in parser.commands()}
+    planned = {" ".join(e.command) for e in catalog.ENTRIES if e.planned and e.command} - built  # `batch undo` is built for AIFF batches
     assert not planned & set(listed)  # nothing that is not built
     for command, found in listed.items():
         assert set(found) >= {"command", "kind", "writes", "job", "args", "flags", "needs_yes", "dry_run", "locks",
@@ -73,7 +74,8 @@ def test_the_short_help_starts_with_the_agents_line_and_lists_the_words(capsys):
 
 def test_help_of_one_noun_or_command(capsys):
     code, env = run_json(["help", "rekordbox"], capsys)
-    assert code == 0 and [c["command"] for c in env["data"]["commands"]] == ["rekordbox preview", "rekordbox status"]
+    assert code == 0 and [c["command"] for c in env["data"]["commands"]] == [
+        "rekordbox backups", "rekordbox preview", "rekordbox restore", "rekordbox status"]
     code, env = run_json(["help", "rekordbox", "status"], capsys)
     assert code == 0 and env["data"]["commands"][0]["example"] == "rekordbox status"
     code, env = run_json(["help", "app", "open"], capsys)

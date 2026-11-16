@@ -28,7 +28,7 @@ from .models import (FILE_AUDIO_KEYS, OWN_PREFIX, AddedFolder, AiffBatchRow, Aif
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -197,6 +197,14 @@ FILE_AUDIO_COLUMNS = FILE_AUDIO_KEYS  # the four columns carry the entry keys' n
 SCHEMA_V9_STEP = (
     "ALTER TABLE files ADD COLUMN facts_failed TEXT",
 )
+# Issue 39 (command line, group 1.12): where a batch started, on both batch tables (`window` | `terminal`). A batch the old
+# console started (scope `console`, the scope that goes with this step) was the terminal's, and its scope is cleared (a
+# real scope is never recorded for it); every other old batch was the window's
+SCHEMA_V10_STEP = (
+    "ALTER TABLE aiff_batches ADD COLUMN via TEXT NOT NULL DEFAULT 'window' CHECK (via IN ('window', 'terminal'))",
+    "ALTER TABLE move_batches ADD COLUMN via TEXT NOT NULL DEFAULT 'window' CHECK (via IN ('window', 'terminal'))",
+    "UPDATE aiff_batches SET via = 'terminal', scope = NULL WHERE scope = 'console'",
+)
 _FACT_COLUMNS = (*FILE_AUDIO_COLUMNS, "facts_failed")  # what a row's old facts say nothing about once the audio changes
 
 
@@ -216,7 +224,8 @@ UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHE
                                                            5: _statements(SCHEMA_V6_STEP),
                                                            6: _statements(SCHEMA_V7_STEP),
                                                            7: _statements(SCHEMA_V8_STEP),
-                                                           8: _statements(SCHEMA_V9_STEP)}
+                                                           8: _statements(SCHEMA_V9_STEP),
+                                                           9: _statements(SCHEMA_V10_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -1039,6 +1048,7 @@ def set_quality(conn: sqlite3.Connection, file_id: int, status: str, cutoff_hz: 
 SKIP_REASONS = frozenset({"offline", "not_found", "name_taken", "changed", "failed", "stopped", "moved_on",
                           "place_taken", "playlist_renamed"})
 STARTED_BY = frozenset({"tidy", "save", "rename", "undo"})
+VIA = frozenset({"window", "terminal"})  # where a batch started (both batch tables, schema 10)
 _MOVE_COLUMNS = ("id", "batch", "seq", "kind", "file", "label", "src", "dst", "content_key", "placed_before",
                  "placed_after", "state", "reason", "detail", "files")
 
@@ -1050,13 +1060,15 @@ def _reason_code(reason: str) -> str:
 
 
 def start_batch(conn: sqlite3.Connection, *, started_by: str, about: dict | None, undoes: int | None,
-                moves: Sequence[PlannedMove], now: datetime) -> int:
+                moves: Sequence[PlannedMove], now: datetime, via: str = "window") -> int:
     """Records a batch and every move it plans, in one transaction, before anything moves: each move `planned`, or
     `skipped` with its reason when its `skip` is set; `seq` is its position in `moves`. Paths are stored as snapshot
     paths (NFC); an unknown `started_by`, a planned move's path in no watched folder, a file move that would rename its file, a
-    folder move between two watched folders or an unknown skip reason is a ValueError (nothing written). Returns the batch id."""
+    folder move between two watched folders or an unknown skip reason is a ValueError (nothing written). `via` is where
+    the batch started (`window` | `terminal`). Returns the batch id."""
     if started_by not in STARTED_BY:
         raise ValueError(f"{started_by!r} is not a kind of batch")
+    _one_of(via, VIA, "place a batch starts")
     folders = _Folders(conn)
     rows = []
     for seq, m in enumerate(moves):
@@ -1072,9 +1084,9 @@ def start_batch(conn: sqlite3.Connection, *, started_by: str, about: dict | None
         rows.append((seq, m.kind, m.file_id, m.label, src, dst, m.content_key, m.placed_before, m.placed_after, state,
                      reason, detail, m.files))
     with transaction(conn):
-        batch = conn.execute("INSERT INTO move_batches (started, started_by, about, undoes) VALUES (?, ?, ?, ?)",
+        batch = conn.execute("INSERT INTO move_batches (started, started_by, about, undoes, via) VALUES (?, ?, ?, ?, ?)",
                              (now.isoformat(timespec="seconds"), started_by,
-                              None if about is None else _dumps(about), undoes)).lastrowid
+                              None if about is None else _dumps(about), undoes, via)).lastrowid
         conn.executemany(f"INSERT INTO moves (batch, {', '.join(_MOVE_COLUMNS[2:])}) "
                          f"VALUES (?, {', '.join('?' * len(_MOVE_COLUMNS[2:]))})", [(batch, *r) for r in rows])
     return batch
@@ -1209,7 +1221,7 @@ def _undoable(conn: sqlite3.Connection, folders: _Folders, batch_id: int) -> int
     return n
 
 
-_BATCH_SELECT = ("SELECT b.id, b.started, b.finished, b.started_by, b.about, b.undoes, "
+_BATCH_SELECT = ("SELECT b.id, b.started, b.finished, b.started_by, b.about, b.undoes, b.via, "
                  "(SELECT COALESCE(SUM(CASE WHEN m.kind = 'folder' THEN COALESCE(m.files, 1) ELSE 1 END), 0) "
                  "FROM moves m WHERE m.batch = b.id AND m.state = 'done'), "
                  "(SELECT COUNT(*) FROM moves m WHERE m.batch = b.id AND m.state = 'skipped'), "
@@ -1220,8 +1232,8 @@ def _batch_rows(conn: sqlite3.Connection, tail: str, args: tuple) -> list[BatchR
     folders = _Folders(conn)
     return [BatchRow(id=i, started=started, finished=finished, started_by=started_by,
                      about=None if about is None else json.loads(about), undoes=undoes, moved=moved,
-                     skipped=skipped, undoable=_undoable(conn, folders, i), undone_by=undone_by)
-            for i, started, finished, started_by, about, undoes, moved, skipped, undone_by
+                     skipped=skipped, undoable=_undoable(conn, folders, i), undone_by=undone_by, via=via)
+            for i, started, finished, started_by, about, undoes, via, moved, skipped, undone_by
             in conn.execute(_BATCH_SELECT + tail, args).fetchall()]
 
 
@@ -1782,7 +1794,7 @@ AIFF_ACTIONS = frozenset({"same_track", "convert", "rename"})
 AIFF_ITEM_STATES = ("planned", "done", "skipped", "failed", "undone")
 AIFF_BATCH_STATES = frozenset({"running", "stopped", "done"})
 AIFF_STOP_REASONS = frozenset({"stop", "rekordbox_open", "busy", "crash"})
-_AIFF_COLUMNS = ("id", "kind", "started_by", "scope", "started", "ended", "state", "stop_reason", "backup")
+_AIFF_COLUMNS = ("id", "kind", "started_by", "scope", "started", "ended", "state", "stop_reason", "backup", "via")
 
 
 def _one_of(value, allowed, what: str):
@@ -1792,18 +1804,20 @@ def _one_of(value, allowed, what: str):
 
 
 def start_aiff_batch(conn: sqlite3.Connection, kind: str, started_by: str, scope: str | None,
-                     items: Sequence[tuple[str, str]], now: datetime) -> int:
+                     items: Sequence[tuple[str, str]], now: datetime, via: str = "window") -> int:
     """Records an AIFF batch and every item it plans, in one transaction, before anything runs: `items` are
-    (song key, action) pairs, each `planned`, `seq` its position. An unknown kind, starter or action is a ValueError
-    (nothing written). The batch starts `running`. Returns its id."""
+    (song key, action) pairs, each `planned`, `seq` its position. `via` is where it started (`window` | `terminal`).
+    An unknown kind, starter, place or action is a ValueError (nothing written). The batch starts `running`. Returns
+    its id."""
     _one_of(kind, AIFF_KINDS, "kind of AIFF batch")
     _one_of(started_by, AIFF_STARTED_BY, "way to start an AIFF batch")
+    _one_of(via, VIA, "place a batch starts")
     for _, action in items:
         _one_of(action, AIFF_ACTIONS, "kind of AIFF action")
     with transaction(conn):
-        batch_id = conn.execute("INSERT INTO aiff_batches (kind, started_by, scope, started, state) "
-                                "VALUES (?, ?, ?, ?, 'running')",
-                                (kind, started_by, scope, now.isoformat(timespec="seconds"))).lastrowid
+        batch_id = conn.execute("INSERT INTO aiff_batches (kind, started_by, scope, started, state, via) "
+                                "VALUES (?, ?, ?, ?, 'running', ?)",
+                                (kind, started_by, scope, now.isoformat(timespec="seconds"), via)).lastrowid
         conn.executemany("INSERT INTO aiff_items (batch, seq, track, action, state) VALUES (?, ?, ?, ?, 'planned')",
                          [(batch_id, seq, track, action) for seq, (track, action) in enumerate(items)])
     return batch_id

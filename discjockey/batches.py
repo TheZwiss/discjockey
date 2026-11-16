@@ -49,7 +49,7 @@ rekordbox write when its file is in rekordbox's library, whatever its format; op
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -84,7 +84,7 @@ STOPPED_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped after {done
                         "press Resume.")
 # the console's variant of the line above: there is no Resume button to press
 STOPPED_BY_REKORDBOX_CONSOLE = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox "
-                                "and run: discjockey batch resume {batch}.")
+                                "and run: discjockey batch resume aiff:{batch}.")
 STOPPED_UNDO_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped the undo after {done} of {total}. Quit "
                              "rekordbox and undo the rest.")
 _DEFAULT = object()
@@ -244,8 +244,8 @@ def _batch_result(row: AiffBatchRow) -> BatchResult:
                        counts["failed"], [_item_result(i) for i in row.items], row.backup)
 
 
-def _row(paths, batch_id: int) -> AiffBatchRow:
-    with db.connect(paths.db_file) as conn:
+def _row(paths, batch_id: int, *, read_only: bool = False) -> AiffBatchRow:
+    with db.connect(paths.db_file, read_only=read_only) as conn:
         row = db.aiff_batch(conn, batch_id)
     if row is None:
         raise ValueError(f"there is no AIFF batch {batch_id}")
@@ -254,7 +254,18 @@ def _row(paths, batch_id: int) -> AiffBatchRow:
 
 def result_of(paths, batch_id: int) -> BatchResult:
     """A stored batch as `run` returns it (`batch show`, the To-do page). ValueError when there is no such batch."""
-    return _batch_result(_row(paths, batch_id))
+    return _batch_result(_row(paths, batch_id, read_only=True))
+
+
+NEWER_BATCH = ("A later batch ({later}) changed this track again, so this batch's step can't be undone first. "
+               "Undo that batch first (`batch undo {later}`).")
+
+
+def _later_batch(conn, track: str, batch_id: int) -> int | None:
+    """The id of the batch that did `track` after `batch_id` (its newest `done` item is not this batch's), or None:
+    an undo of `batch_id` would put back that later batch's step, not this one's."""
+    found = db.aiff_item_of(conn, track)
+    return found[0] if found is not None and found[0] != batch_id else None
 
 
 def tracks_of(paths, batch_id: int) -> list[str]:
@@ -263,11 +274,13 @@ def tracks_of(paths, batch_id: int) -> list[str]:
 
 
 def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", scope: str | None = None,
-          now: Callable[[], datetime] = datetime.now) -> int:
+          via: str = "window", now: Callable[[], datetime] = datetime.now) -> int:
     """Records a batch of `items` ((song key, action) pairs, all `planned`) before anything runs; it starts
     `running`. Returns its id. The batch's kind follows its actions (plan stage D §0.13): `same_track` only →
-    `upgrade`, `convert` / `rename` only → `convert`, both → `mixed`. ValueError for no items, an action no batch
-    runs or an unknown starter."""
+    `upgrade`, `convert` / `rename` only → `convert`, both → `mixed`. `via` is where it started: `window` for a batch
+    the window starts, `terminal` for one a command starts; `scope` is what was picked (`selection`,
+    `library:<view>[:<key>]`, `todo:cdj`). ValueError for no items, an action no batch runs, an unknown starter or
+    an unknown place."""
     if not items:
         raise ValueError("a batch needs at least one track")
     for _, action in items:
@@ -277,7 +290,7 @@ def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", 
     kind = "upgrade" if actions == {"same_track"} else "convert" if "same_track" not in actions else "mixed"
     _close_planned_elsewhere(paths, {track for track, _ in items}, now)
     with db.connect(paths.db_file) as conn:
-        return db.start_aiff_batch(conn, kind, started_by, scope, list(items), now())
+        return db.start_aiff_batch(conn, kind, started_by, scope, list(items), now(), via)
 
 
 def _close_planned_elsewhere(paths, tracks: set[str], now: Callable[[], datetime]) -> None:
@@ -400,19 +413,24 @@ def discard_preview(paths, state: dict, tracks: Sequence[str]) -> dict:
     return {"mode": "discard", "total": len(rows), "planned": planned, "skipped": len(rows) - planned, "items": rows}
 
 
-def track_undo_preview(state: dict, tracks: Sequence[str], rekordbox_running: bool, root) -> dict:
+def track_undo_preview(state: dict, tracks: Sequence[str], rekordbox_running: bool, root,
+                       newer: Mapping[str, int] | None = None) -> dict:
     """What `undo_upgrade` of `tracks` would do: `{total, planned, skipped, items, rekordbox}`. One item per song,
     `{key, action: "undo", state: planned | skipped, reason, message, file, step}`: a track that `upgrades.can_undo`
     skips with `reason` and its words (`upgrades.UNDO_BLOCKED`); `step` is the kind of file step an undo would put back
     (`swap`, `add_new`, `convert`, `rename`). `rekordbox.needs_rekordbox_closed`: a step that wrote rekordbox can only be
-    undone with rekordbox quit. Whether the files changed since is only known when the undo runs."""
+    undone with rekordbox quit. Whether the files changed since is only known when the undo runs. `newer` ({song key:
+    id of the later AIFF batch that did it again}, `batch_undo_preview` only): such a song is `skipped` with the reason
+    `newer_batch` and `NEWER_BATCH`'s words, as `undo` refuses it."""
     rows = []
     for key in dict.fromkeys(tracks):
         e = state["tracks"].get(key)
-        blocked = upgrades.undo_blocker(e)
+        later = (newer or {}).get(key)
+        blocked = "newer_batch" if later else upgrades.undo_blocker(e)
+        words = NEWER_BATCH.format(later=f"aiff:{later}") if later else upgrades.UNDO_BLOCKED.get(blocked)
         u = upgrades.upgrade_undo(e)
         rows.append({"key": key, "action": "undo", "state": "skipped" if blocked else "planned", "reason": blocked,
-                     "message": upgrades.UNDO_BLOCKED[blocked] if blocked else None,
+                     "message": words,
                      "file": str(root / e["path"]) if e and e.get("path") else None,
                      "step": None if blocked else u["kind"]})
     planned = [r for r in rows if r["state"] == "planned"]
@@ -420,6 +438,21 @@ def track_undo_preview(state: dict, tracks: Sequence[str], rekordbox_running: bo
                                              for r in planned)
     return {"total": len(rows), "planned": len(planned), "skipped": len(rows) - len(planned), "items": rows,
             "rekordbox": {"running": rekordbox_running, "needs_rekordbox_closed": needs_closed}}
+
+
+def batch_undo_preview(paths, state: dict, batch_id: int, rekordbox_running: bool) -> dict:
+    """What `undo` of the whole batch would do (design §7.4: the dry run of `batch undo aiff:<n>`): `track_undo_preview`
+    of the batch's `done` items, newest first (the order an undo goes), with `batch` (`aiff:<n>`). A done item the
+    undo cannot put back is `skipped` with its reason and words (`upgrades.undo_blocker`). ValueError for a batch
+    that is not there. A done item whose song a later batch did again is `skipped` as `newer_batch` (`undo` refuses it
+    the same way). Opens library.db read only."""
+    with db.connect(paths.db_file, read_only=True) as conn:
+        row = db.aiff_batch(conn, batch_id)
+        if row is None:
+            raise ValueError(f"there is no AIFF batch {batch_id}")
+        tracks = [i.track for i in reversed(row.items) if i.state == "done"]
+        newer = {t: later for t in tracks if (later := _later_batch(conn, t, batch_id))}
+    return {"batch": f"aiff:{batch_id}", **track_undo_preview(state, tracks, rekordbox_running, paths.root, newer)}
 
 
 def _needs_write(paths, state: dict, items: Sequence[tuple[str, str]]) -> Callable:
@@ -795,6 +828,12 @@ def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: Can
                 e = state["tracks"].get(track)
                 if batch is not None:
                     emit(BatchProgress(batch, n, len(tracks), track, _name(e, track)))
+                    with db.connect(paths.db_file, read_only=True) as conn:
+                        later = _later_batch(conn, track, batch)
+                    if later:  # the track's newest step is a later batch's: undoing now would put that one back
+                        results.append(UndoItem(track, "refused", "newer_batch",
+                                                NEWER_BATCH.format(later=f"aiff:{later}")))
+                        continue
                 kind = _undo_kind(e)
                 try:
                     done = upgrades.undo(paths, state, track, session=session)

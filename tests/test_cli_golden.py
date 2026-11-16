@@ -19,6 +19,7 @@ from hub_helpers import LOSSY, choose_music, make_root
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
+from discjockey import library
 from test_cli_batches import with_batches, with_report
 from test_cli_reads import rich_library
 from discjockey.cli import bind, parser
@@ -27,7 +28,7 @@ from discjockey.hub import catalog
 
 GOLDEN = Path(__file__).parent / "cli_golden"
 READS = [e for e in parser.built() if e.kind == "R"]
-WRITES = ["upgrade_apply", "upgrade_discard", "track_undo", "check_done"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
+WRITES = ["upgrade_apply", "upgrade_discard", "track_undo", "check_done", "batch_resume", "batch_undo", "rekordbox_restore"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
 
 
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
@@ -50,6 +51,21 @@ def utc():
     time.tzset()
 
 
+def with_backups(tmp_path, monkeypatch):
+    """Two backups of the fixture rekordbox library, made at fixed times (their names are the time), one of them by two
+    batches: what `rekordbox backups` lists."""
+    from datetime import UTC, datetime
+
+    from discjockey.rekordbox import backup as rb_backup
+    from discjockey.rekordbox.locate import Place
+    folder = tmp_path / "rekordbox"
+    place = Place(folder / "master.db", folder / "share", "override", None)
+    paths = library.resolve_paths().paths
+    monkeypatch.setattr(rb_backup, "__version__", "0")  # the manifest holds the app's version: its size must not move
+    for batch, stamp in ((1, datetime(2026, 11, 10, 9, 0, 1, tzinfo=UTC)), (2, datetime(2026, 11, 12, 18, 30, 0, tzinfo=UTC))):
+        rb_backup.Backup.ensure(paths, place, dbid=None, batch_id=batch, tracks=[], now=lambda stamp=stamp: stamp)
+
+
 @pytest.fixture
 def fixture(tmp_path, monkeypatch, request, utc):
     """The hub fixtures every read runs on: a library of three songs, a rekordbox library with no tracks, rekordbox
@@ -66,6 +82,8 @@ def fixture(tmp_path, monkeypatch, request, utc):
     make_master(tmp_path / "rekordbox", [])
     os.utime(tmp_path / "rekordbox" / "master.db", (MASTER_TIME, MASTER_TIME))
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(tmp_path / "rekordbox"))
+    if entry is not None and entry.command == ("rekordbox", "backups"):
+        with_backups(tmp_path, monkeypatch)
     shutil.copyfile(CLICKS, tmp_path / LOSSY)  # a real file where the fake one was: `rekordbox preview` decodes it
     return tmp_path
 

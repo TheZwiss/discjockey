@@ -805,12 +805,14 @@ time: open rekordbox once and quit it normally).
   This drops every change you made in rekordbox since that backup, and Discjockey saves your current library first
   (its name is printed). Tracks Discjockey replaced after the backup point at their old files, which are in
   `Superseded/`: undo those replaces first (`batch list` shows them: `aiff:12` is batch 12), or Relocate them in rekordbox.
+  `--dry-run` shows which tracks that would be, and changes nothing.
 
 ```
 /Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups
+/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox restore <name> --dry-run
 /Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox restore <name> --yes
 /Applications/Discjockey.app/Contents/MacOS/Discjockey batch list
-/Applications/Discjockey.app/Contents/MacOS/Discjockey batch undo <number>
+/Applications/Discjockey.app/Contents/MacOS/Discjockey batch undo aiff:<number> --yes
 # In a checkout of the code, bin/discjockey takes the place of the long path.
 ```
 

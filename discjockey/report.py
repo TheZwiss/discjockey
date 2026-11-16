@@ -19,7 +19,7 @@ SECTIONS = [
     ("new_lossless", "New lossless tracks"),
     ("new_not_lossless", "New tracks that are not lossless"),
     ("fake", "Fake lossless (the Qobuz file is really lossy)"),
-    ("upgrade_ready", "Better version found, waiting for you (run discjockey upgrades)"),
+    ("upgrade_ready", "Better version found, waiting for you (run discjockey upgrade list)"),
     ("swapped", "Swapped in the better version (cue points stay)"),
     ("added_new", "Better version added as a new file"),
     ("upgraded", "Upgraded (your cues stayed)"),
@@ -314,8 +314,8 @@ def upgrades_waiting(state: dict) -> int:
 
 def ready_hint(count: int) -> str:
     if count == 1:
-        return "1 better version is ready: run `discjockey upgrades`."
-    return f"{count} better versions are ready: run `discjockey upgrades`."
+        return "1 better version is ready: run `discjockey upgrade list`."
+    return f"{count} better versions are ready: run `discjockey upgrade list`."
 
 
 def summary(log: RunLog, path: Path, upgrades_ready: int = 0) -> str:
@@ -364,7 +364,7 @@ def render_not_lossless(state: dict) -> str:
                            + (f" (uploaded by {f['uploader']})" if f.get("uploader") else ""))
             if e.get("upgrade"):
                 text = (e["upgrade"].get("alignment") or {}).get("text")
-                out.append("  - Better version ready: run `discjockey upgrades`" + (f" ({text})" if text else ""))
+                out.append("  - Better version ready: run `discjockey upgrade list`" + (f" ({text})" if text else ""))
             out.append(f"  - Bought copy goes to: `Library/{folder}/{expected_stem(e['artist'], e['title'])}.wav` "
                        "(or `.aiff`)")
         out.append("")

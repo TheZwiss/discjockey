@@ -186,7 +186,7 @@ class Executor:
 
     def _park(self, a: Action, e: dict, res, tracker: Tracker) -> Result:
         """A lossless version (or a clearly better ~256 kbps stream of a lossy file) was found: measure how it lines up
-        with the current file and park it in Upgrades ready/ for the user (discjockey upgrades). Nothing in Library/ or
+        with the current file and park it in Upgrades ready/ for the user (discjockey upgrade list). Nothing in Library/ or
         Superseded/ changes."""
         r = res.ready
         tracker.step("compare")

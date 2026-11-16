@@ -159,13 +159,6 @@ def test_one_press_delivered_twice_still_stops_safely(root, monkeypatch):
     assert (root / "Library" / "Hard_Bounce" / "Artist - Song.aiff").exists()  # not killed half-way
 
 
-def test_help_calls_upgrades_better_versions(capsys):
-    with pytest.raises(SystemExit):
-        cli.parse_args(["--help"])
-    out = " ".join(capsys.readouterr().out.split())
-    assert "upgrades: go through the better versions found for your lossy tracks" in out
-
-
 def test_limit_must_be_positive(capsys):
     with pytest.raises(SystemExit):
         cli.parse_args(["--limit", "0"])
@@ -289,13 +282,13 @@ def test_sync_says_when_lossless_versions_wait(root, monkeypatch, capsys):
     save_settings(paths.settings_file, Settings(auto_upgrade=False))  # switched on, the sync would put it in place
     assert cli.main([]) == 0  # nothing to do: the parked upgrade stops further checks
     out = capsys.readouterr().out
-    assert "1 better version is ready: run `discjockey upgrades`." in out
+    assert "1 better version is ready: run `discjockey upgrade list`." in out
     assert "Better version ready" in (root / ".discjockey" / "not_lossless.md").read_text()
 
 
 def test_without_a_music_folder_the_console_says_where_to_choose_it(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(tmp_path / "support"))
-    for command in ([], ["upgrades"], ["update"], ["--dry-run"]):
+    for command in ([], ["update"], ["--dry-run"]):
         assert cli.main(command) == 2
         assert cli.NOT_CHOSEN_TEXT in capsys.readouterr().out
     assert not (tmp_path / "support" / "config.json").exists()
@@ -465,48 +458,26 @@ def run_json(argv, capsys):
 
 
 def test_the_legacy_words_still_parse():
-    for argv in (["setup"], ["upgrade", "discard", "x"], ["batch", "resume", "1"], ["convert", "--all", "lossless"],
-                 ["rekordbox", "backups"], ["settings", "auto-upgrade"]):
+    for argv in (["setup"], ["update"], ["convert", "--all", "lossless"], ["settings", "auto-upgrade"]):
         assert cli.parse_args(argv).command == argv[0]
 
 
 def test_the_sync_flags_work_before_and_after_a_command():
-    assert cli.parse_args(["--yes", "upgrades"]).yes is True
-    assert cli.parse_args(["upgrades", "--yes"]).yes is True
-    assert cli.parse_args(["--limit", "3", "upgrades"]).limit == 3
-    assert cli.parse_args(["upgrades", "--limit", "4"]).limit == 4
+    assert cli.parse_args(["--yes", "update"]).yes is True
+    assert cli.parse_args(["update", "--yes"]).yes is True
+    assert cli.parse_args(["--limit", "3", "update"]).limit == 3
+    assert cli.parse_args(["update", "--limit", "4"]).limit == 4
     assert cli.parse_args(["--dry-run"]).command is None
     assert cli.parse_args(["update"]).yes is False
 
 
-def test_rekordbox_commands_need_their_arguments(capsys):
-    for argv in (["rekordbox"], ["rekordbox", "restore"], ["rekordbox", "nonsense"],
-                 ["rekordbox", "preview", "a"]):  # `preview` is not an old word any more
+def test_the_old_parser_has_no_word_of_the_removed_commands(capsys):
+    """`upgrades`, `upgrade`, `batch` and `rekordbox` left with group 1.12 (the new parser answers them: tests/test_cli_batch_write.py)."""
+    for argv in (["upgrades"], ["upgrade", "apply"], ["batch", "resume", "1"], ["rekordbox", "backups"]):
         with pytest.raises(SystemExit) as e:
             cli.parse_args(argv)
         assert e.value.code == 2, argv
     capsys.readouterr()
-
-
-# --- discjockey upgrade / batch / rekordbox checked | backups | restore (issue 33 stage B) ---
-
-def test_apply_needs_song_keys_or_all_and_a_way(capsys):
-    for argv in (["upgrade", "apply", "--way", "same-track"],                       # nothing named
-                 ["upgrade", "apply", "t1", "--all", "--way", "same-track"],        # both
-                 ["upgrade", "apply", "t1"],                                        # no way
-                 ["upgrade", "apply", "t1", "--way", "both"],
-                 ["upgrade", "discard"], ["upgrade", "undo"], ["upgrade"], ["batch"], ["batch", "show"],
-                 ["batch", "resume", "one"], ["rekordbox", "checked"],
-                 ["rekordbox", "checked", "t1", "--batch", "2"], ["rekordbox", "restore"]):
-        with pytest.raises(SystemExit) as e:
-            cli.parse_args(argv)
-        assert e.value.code == 2, argv
-    capsys.readouterr()
-    ok = cli.parse_args(["upgrade", "apply", "t1", "t2", "--way", "new-track", "--json"])
-    assert (ok.tracks, ok.all, ok.way, ok.json) == (["t1", "t2"], False, "new-track", True)
-    assert cli.parse_args(["upgrade", "apply", "--all", "--way", "same-track", "--dry-run"]).dry_run is True
-    assert cli.parse_args(["rekordbox", "checked", "--batch", "3"]).batch == 3
-    assert cli.parse_args(["rekordbox", "restore", "id", "--yes"]).yes is True
 
 
 # --- Auto-upgrade in the console (issue 33 stage C; plan stage C §2, §5 C3) ---
@@ -659,7 +630,7 @@ def test_with_the_switch_off_the_sync_moves_no_file_and_says_nothing_of_upgrades
     monkeypatch.setattr(process, "running", lambda: pytest.fail("asked whether rekordbox runs"))
     before = (lib.music(), lib.dump())
     code, data, err = sync_json(["--yes", "--json"], capsys)
-    assert code == 0 and data["auto_upgrade"] is None and "upgrade" not in err.lower().replace("upgrades", "")
+    assert code == 0 and data["auto_upgrade"] is None and "upgrade" not in err.lower().replace("upgrade list", "")
     assert (lib.music(), lib.dump()) == before and batches_in(lib) == 0
     assert "auto_upgrade" not in json.loads(open(data["report"].replace(".md", ".json")).read())
 

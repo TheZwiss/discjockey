@@ -47,7 +47,7 @@ def test_a_batch_records_every_item_planned_in_order_and_starts_running(conn):
     row = db.aiff_batch(conn, batch)
     assert row == AiffBatchRow(id=batch, kind="upgrade", started_by="user", scope="3 selected",
                                started="2026-11-08T12:00:00", ended=None, state="running", stop_reason=None,
-                               backup=None, counts={"planned": 3, "done": 0, "skipped": 0, "failed": 0, "undone": 0},
+                               backup=None, via="window", counts={"planned": 3, "done": 0, "skipped": 0, "failed": 0, "undone": 0},
                                items=tuple(AiffItemRow(i, t, a, "planned", None, None)
                                            for i, (t, a) in enumerate(ITEMS)))
     assert db.running_aiff_batches(conn) == [batch]

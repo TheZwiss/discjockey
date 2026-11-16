@@ -1132,7 +1132,7 @@ def test_an_upgrade_parked_and_done_in_one_sync_is_told_once(tmp_path, monkeypat
     assert ("upgrade_ready", "elsewhere") in sections
     text = path.read_text()
     assert "## Upgraded (your cues stayed) (2)" in text
-    assert "## Better version found, waiting for you (run discjockey upgrades) (2)" in text   # stale + elsewhere
+    assert "## Better version found, waiting for you (run discjockey upgrade list) (2)" in text   # stale + elsewhere
 
 
 @needs_ffmpeg

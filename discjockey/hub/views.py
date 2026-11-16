@@ -1789,7 +1789,8 @@ def stopped_batch(rows: Sequence[AiffBatchRow], *, scope: str | None = None,
     """(id, items left) of the newest stopped AIFF batch that still has items to do, else None: a group's or the Library
     header's "Resume · k left". `rows`: `db.aiff_batches` (newest first). `scope`: only a batch whose scope starts with
     it (`todo:` for the CDJ group, `library:` for the Library's header); `kinds`: only these `aiff_batches.kind`s
-    (`("upgrade",)` for Upgrade ready's)."""
+    (`("upgrade",)` for Upgrade ready's). A batch counts wherever it started (`via`): the window shows a stopped
+    batch of the terminal's too, when its real scope (`library:<view>[:<key>]`, `todo:cdj`) is the one asked for."""
     for row in rows:
         if row.state != "stopped" or not row.counts["planned"]:
             continue
@@ -2368,12 +2369,14 @@ def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | N
 
 
 def aiff_batch_row(b: AiffBatchRow) -> dict:
-    """An AIFF batch as `HubApi.batches` lists it (the console's own key names, plus the typed `id`)."""
+    """An AIFF batch as `HubApi.batches` lists it (the console's own key names, plus the typed `id`, `via`: where it
+    started, and `scope`: what was picked)."""
     c = b.counts
     return {"id": f"aiff:{b.id}", "kind": "aiff", "batch": b.id, "what": b.kind, "started_by": b.started_by,
             "state": b.state, "stop_reason": b.stop_reason, "started": b.started, "ended": b.ended,
             "total": sum(c.values()), "done": c["done"], "skipped": c["skipped"], "failed": c["failed"],
-            "planned": c["planned"], "undone": c["undone"], "backup": b.backup, "undone_by": None}
+            "planned": c["planned"], "undone": c["undone"], "backup": b.backup, "undone_by": None, "via": b.via,
+            "scope": b.scope}
 
 
 def moves_batch_row(b: BatchRow, title: str, planned: int) -> dict:
@@ -2383,7 +2386,7 @@ def moves_batch_row(b: BatchRow, title: str, planned: int) -> dict:
             "state": "done" if b.finished else "running", "stop_reason": None, "started": b.started,
             "ended": b.finished, "total": b.moved + b.skipped + planned, "done": b.moved, "skipped": b.skipped,
             "failed": 0, "planned": planned, "undone": 0, "backup": None,
-            "undone_by": None if b.undone_by is None else f"moves:{b.undone_by}"}
+            "undone_by": None if b.undone_by is None else f"moves:{b.undone_by}", "via": b.via, "scope": None}
 
 
 def batch_moves(moves: list[MoveRow]) -> list[dict]:

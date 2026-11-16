@@ -105,6 +105,59 @@ def _parked(api, rec, *, all_of_them: bool = False):
     assert wait_job(api, rec, answer).ok
 
 
+def _batch_of_one(api, rec, *, stopped: bool = False):
+    """Batch 1 of the parked song `t2`, against a fixture rekordbox library: done (Same track), or `stopped` with its item
+    still planned (what `batch resume` runs); the recorder is cleared, so a driver measures only the call after it."""
+    from datetime import datetime
+
+    from rekordbox_helpers import make_master
+    from discjockey import batches, db
+    from discjockey.align import Alignment
+    hub_helpers.make_root(api._paths.root, upgrade=True)
+    folder = api._paths.root / "rekordbox"
+    make_master(folder, [])
+    api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
+    api._svc.rekordbox_place = lambda: locate_in(folder)
+    if stopped:
+        batch = batches.start(api._paths, [("t2", "same_track")], via="terminal")
+        with db.connect(api._paths.db_file) as conn:
+            db.set_aiff_batch(conn, batch, state="stopped", stop_reason="stop")
+    else:
+        assert wait_job(api, rec, api.upgrade_all()).ok
+    api.lock_recorder.words.clear()
+
+
+def _resume(api, rec):
+    _batch_of_one(api, rec, stopped=True)
+    assert wait_job(api, rec, api.batch_resume(1)).ok
+
+
+def _batch_undo(api, rec):
+    _batch_of_one(api, rec)
+    assert wait_job(api, rec, api.batch_undo(1)).ok
+
+
+def _a_backup(api, rec) -> str:
+    """The id of a backup of the fixture rekordbox library (the one `rekordbox_place` answers); the recorder is cleared."""
+    from rekordbox_helpers import make_master
+    from discjockey.rekordbox import backup as rb_backup
+    folder = api._paths.root / "rekordbox"
+    make_master(folder, [])
+    place = locate_in(folder)
+    api._svc.rekordbox_place = lambda: place
+    with rb_backup.master.open_read(place, False) as m:
+        dbid = m.dbid
+    made = rb_backup.Backup.ensure(api._paths, place, dbid=dbid, batch_id=None, tracks=[])
+    made.close(place)
+    api.lock_recorder.words.clear()
+    return made.id
+
+
+def _restore(api, rec):
+    backup = _a_backup(api, rec)
+    assert wait_job(api, rec, api.rekordbox_restore(backup)).ok
+
+
 def _after_new_track(api, rec):
     """A song whose upgrade was added as a new track (library lock only), then the recorder cleared: what follows is
     only the call a driver measures."""
@@ -163,7 +216,13 @@ DRIVERS = {
     "upgrade_all": lambda api, rec: _parked(api, rec, all_of_them=True),
     "undo_upgrade": _undo,
     "undo_upgrade_preview": lambda api, rec: api.undo_upgrade_preview(["t2"]),
+    "batch_resume": _resume,
+    "batch_undo": _batch_undo,
+    "batch_undo_preview": lambda api, rec: (_batch_of_one(api, rec), api.batch_undo_preview(1)),
     "rekordbox_checked": _checked,
+    "rekordbox_backups": lambda api, rec: api.rekordbox_backups(),
+    "rekordbox_restore": _restore,
+    "rekordbox_restore_preview": lambda api, rec: api.rekordbox_restore_preview(_a_backup(api, rec)),
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 

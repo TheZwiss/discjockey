@@ -119,7 +119,7 @@ def test_parked_upgrades_are_listed_near_the_top_of_the_report():
     assert keys.index("upgrade_ready") < keys.index("checked")
     log = RunLog(STARTED)
     log.add(Result("upgrade_ready", "A", "Artist", "Song", "t1", "matches exactly · waiting in Upgrades ready/A/x.aiff"))
-    assert "## Better version found, waiting for you (run discjockey upgrades) (1)" in render_report(log, FINISHED)
+    assert "## Better version found, waiting for you (run discjockey upgrade list) (1)" in render_report(log, FINISHED)
 
 
 def test_not_lossless_md_says_when_a_lossless_version_is_ready():
@@ -127,7 +127,7 @@ def test_not_lossless_md_says_when_a_lossless_version_is_ready():
     text = render_not_lossless({"tracks": {"t1": entry("not_lossless", source="youtube_music", upgrade=up),
                                            "t2": entry("not_lossless", title="Other")}})
     assert text.count("Better version ready") == 1
-    assert "  - Better version ready: run `discjockey upgrades` (matches exactly)" in text
+    assert "  - Better version ready: run `discjockey upgrade list` (matches exactly)" in text
 
 
 def test_summary_points_to_waiting_upgrades(tmp_path):
@@ -135,7 +135,7 @@ def test_summary_points_to_waiting_upgrades(tmp_path):
                         "t3": entry("not_lossless", upgrade={"file": "y"})}}
     assert upgrades_waiting(state) == 2
     text = summary(RunLog(STARTED), tmp_path / "r.md", upgrades_waiting(state))
-    assert text.endswith("2 better versions are ready: run `discjockey upgrades`.")
+    assert text.endswith("2 better versions are ready: run `discjockey upgrade list`.")
     assert "ready" not in summary(RunLog(STARTED), tmp_path / "r.md")
 
 

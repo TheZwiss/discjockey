@@ -2714,7 +2714,7 @@ def test_a_batch_item_says_what_the_batch_did_by_its_kind():
 
 def aiff_batch(batch_id, state="stopped", scope=None, kind="convert", planned=2):
     return AiffBatchRow(batch_id, kind, "user", scope, "2026-11-13T10:00:00", None, state, "stop", None,
-                        {"planned": planned, "done": 1, "skipped": 0, "failed": 0, "undone": 0})
+                        "window", {"planned": planned, "done": 1, "skipped": 0, "failed": 0, "undone": 0})
 
 
 def test_stopped_batch_is_the_newest_stopped_one_with_items_left_in_its_scope():

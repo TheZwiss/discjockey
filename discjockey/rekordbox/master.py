@@ -159,7 +159,8 @@ def leftovers(db: Path) -> list[Path]:
     return [p for p in (db.with_name(db.name + "-wal"), db.with_name(db.name + "-shm")) if p.exists()]
 
 
-def _immutable(db: Path, running: bool) -> bool:
+def immutable_for(db: Path, running: bool) -> bool:
+    """Whether `db` is opened `immutable`: not when rekordbox runs and both `-wal` and `-shm` are there (a live writer's pages)."""
     return not (running and len(leftovers(db)) == 2)
 
 
@@ -300,7 +301,7 @@ def _same_file(a: str, b: str) -> bool:
 
 
 def _open_keyed(db: Path, running: bool):
-    immutable = _immutable(db, running)
+    immutable = immutable_for(db, running)
     for key in KEYS:
         try:
             return connect(db, key, immutable=immutable)

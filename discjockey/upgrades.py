@@ -1,7 +1,7 @@
 """Parked upgrades: what the user can do with a better version an upgrade check found (spec "Upgrades"): a lossless
 one, or a clearly better ~256 kbps stream of a lossy file (spec §4).
 
-Front-end independent: `discjockey upgrades` (console) and the hub's "Upgrade ready" group use it.
+Front-end independent: `discjockey upgrade …` (console) and the hub's "Upgrade ready" group use it.
 Callers hold the run lock and have recovered pending operations first. Every action re-checks its
 precondition and returns one events.Result; problems the user should read raise UpgradeProblem.
 

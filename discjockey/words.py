@@ -9,7 +9,7 @@ the USB step where the check has one: `report.usb_step`). The track's name is it
 command."""
 from __future__ import annotations
 
-from . import report
+from . import convert, rbstep, report
 from .hub.outcomes import person_step
 from .rekordbox.preview import REASON_WORDS
 
@@ -25,6 +25,24 @@ REKORDBOX_PROBLEM = {
 
 # a dry run plans on the last scan; this is what it says when a folder has changed since (design §7.1)
 SCAN_OLDER = "Library/ or a watched folder changed after the last scan, so this plan is on the files as that scan saw them."
+
+# `rekordbox restore` (design §7.4): why a restore was refused (`RestoreRefused.reason`), what it says when done, and what
+# it says of the tracks that now point at files Discjockey moved
+RESTORE_REFUSED = {
+    "no_rekordbox": "There is no rekordbox library on this Mac, so nothing was changed.",
+    "not_found": "There is no backup with that name; `rekordbox backups` lists them. Nothing was changed.",
+    "damaged": "This backup is damaged (its copy of rekordbox's library is not the one its notes name), so nothing "
+               "was changed.",
+    "other_library": "This backup was made from another rekordbox library than this Mac's, so nothing was changed.",
+    "rekordbox_open": convert.REKORDBOX_OPEN,
+    "unclean": rbstep.REFUSED["unclean"],
+    "changed": "rekordbox's library changed while it was being saved, so nothing was changed. Try again.",
+}
+RESTORED = "Restored rekordbox's library from {backup}. Your library as it was is saved as {saved}."
+MISSING_AFTER = ("{n} of your rekordbox tracks now point at files that Discjockey has since moved to Superseded/. "
+                 "Undo those batches first (`batch undo`), or Relocate them in rekordbox.")
+WOULD_MISSING = ("{n} of your rekordbox tracks would point at files that Discjockey has since moved to Superseded/. "
+                 "Undo those batches first (`batch undo`), or Relocate them in rekordbox.")
 
 SWAP_REASONS = ("swapped", "repointed", "converted")  # the old rekordbox track keeps its file: Reload Tag
 ADDED_REASON = "added_as_new"                          # a new file: the old rekordbox track is pointed at it by hand
