@@ -68,12 +68,12 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
     ([], "legacy"), (["--dry-run"], "legacy"), (["--json"], "legacy"), (["--limit", "3"], "legacy"),
     (["setup"], "legacy"), (["upgrade", "list", "--json"], "new"), (["--json", "upgrade", "list"], "new"),
     (["upgrade", "apply", "--all"], "new"), (["upgrade", "discard", "t1"], "new"),
-    (["upgrade", "undo", "t1"], "legacy"), (["rekordbox", "checked", "t1"], "legacy"), (["track", "undo", "t1"], "new"),
+    (["upgrade", "undo", "t1"], "new"), (["rekordbox", "checked", "t1"], "new"), (["upgrades"], "new"), (["track", "undo", "t1"], "new"),
     (["check", "done", "--all"], "new"),
     (["batch", "list"], "new"), (["batch", "show", "aiff:1"], "new"), (["batch", "resume", "aiff:1"], "new"),
     (["batch", "undo", "aiff:1", "--yes"], "new"),
     (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
-    (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "legacy"), (["settings", "auto-upgrade"], "legacy"),
+    (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "new"), (["settings", "auto-upgrade"], "legacy"),
     (["rekordbox", "status"], "new"), (["--json", "rekordbox", "status"], "new"), (["call", "quit"], "new"),
     (["nonsense"], "new"), (["--wait", "5", "setup"], "legacy"), (["help"], "new"), (["help", "setup"], "new"),
     (["where", "--json"], "new"), (["app", "open"], "new"),
@@ -340,11 +340,6 @@ def test_the_bare_sync_goes_to_the_old_parser_unchanged(capsys):
 def test_the_old_commands_still_answer_with_their_old_shapes(tmp_path, monkeypatch, capsys):
     choose_music(tmp_path, monkeypatch)
     make_root(tmp_path)
-    code, out, err = run(["rekordbox", "backups", "--json"], capsys)
-    data = json.loads(out)
-    assert code == 0 and data["ok"] is True and "outcome" not in data
-    code, out, err = run(["--json", "rekordbox", "backups"], capsys)  # as today: the old parser drops this --json
-    assert code == 0 and not out.lstrip().startswith("{")
     code, out, err = run(["convert", "--all", "lossless", "--dry-run", "--json"], capsys)
     data = json.loads(out)
     assert data["ok"] is True and "outcome" not in data and code == 0
@@ -446,3 +441,31 @@ def test_a_write_checks_nothing_against_how_a_page_showed_it_when_remember_is_of
         finished = hub_helpers.wait_job(api, rec, api.hide("t1", True))  # no page ever showed t1
         results[remember] = finished.ok
     assert results == {True: False, False: True}
+
+
+# --- the removal of `batch_cmd` and `upgrades_cmd` (issue 39, group 1.12) ---
+
+def test_the_deleted_modules_are_gone_and_no_module_names_them():
+    import importlib.util
+    import re
+    from pathlib import Path
+    for name in ("discjockey.batch_cmd", "discjockey.upgrades_cmd"):
+        assert importlib.util.find_spec(name) is None, name
+    package = Path(__file__).resolve().parent.parent / "discjockey"
+    named = [str(p.relative_to(package)) for p in package.rglob("*.py")
+             if re.search(r"\b(batch_cmd|upgrades_cmd)\b", p.read_text(encoding="utf-8"))]
+    assert named == []
+
+
+@pytest.mark.parametrize("argv,say", [
+    (["upgrades"], "say `upgrade …`"), (["upgrades", "--yes"], "say `upgrade …`"),
+    (["rekordbox", "checked", "t1"], "say `check done`"), (["rekordbox", "checked", "--batch", "1"], "say `check done`"),
+    (["upgrade", "undo", "t1"], "say `track undo`"),
+])
+def test_the_removed_words_are_bad_args_that_say_what_to_say_instead(argv, say, capsys):
+    assert parser.route(argv) == "new"  # no route reaches the old parser
+    code, out, err = run([*argv, "--json"], capsys)
+    env = json.loads(out)
+    assert (code, env["outcome"], env["reason"]) == (2, "bad_args", "usage") and say in env["message"]
+    code, out, err = run(argv, capsys)  # the plain page says it too, on stderr
+    assert code == 2 and out == "" and say in err

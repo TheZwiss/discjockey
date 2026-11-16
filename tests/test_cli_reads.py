@@ -244,3 +244,103 @@ def test_every_list_prints_the_ids_a_command_takes_next(rich, capsys):
     assert all(any(line.startswith(i + " ") for line in text.splitlines()) for i in ids)
     _, found, _ = run(["track", "find", "naughty"], capsys)
     assert any(line.startswith("t2 ") for line in found.splitlines())
+
+
+# --- `upgrade list` on a library of parked upgrades (ported from the retired console tests of `batch_cmd`) ---
+
+from batch_helpers import make_lib, needs_ffmpeg, use  # noqa: E402
+from convert_helpers import EXACT  # noqa: E402
+from discjockey import align, db  # noqa: E402
+from discjockey.library import load_state, save_state  # noqa: E402
+from discjockey.rekordbox import backup as rbbackup  # noqa: E402
+
+
+def parked_lib(tmp_path, monkeypatch, kinds):
+    """A library of songs that each have a parked upgrade of the same edit (`stale`: a different edit), the fixture rekordbox
+    holding them, and the real compare of two files answering "the same edit"."""
+    found = make_lib(tmp_path, monkeypatch, kinds)
+    use(found, monkeypatch)
+    monkeypatch.setattr(align, "compare_files", lambda a, b: EXACT)
+    return found
+
+
+def listed(capsys, *argv: str) -> list[dict]:
+    """The items `upgrade list` answers, in its one group."""
+    code, text, _ = run(["upgrade", "list", *argv, "--json"], capsys)
+    env = json.loads(text)
+    assert code == 0 and env["outcome"] == "ok"
+    return [item for g in env["data"]["groups"] for item in g["items"]]
+
+
+@needs_ffmpeg
+def test_upgrade_list_shows_what_waits_and_why_same_track_cannot_run(tmp_path, monkeypatch, capsys):
+    found = parked_lib(tmp_path, monkeypatch, ["mp3", "stale", "aiff", "mp3"])
+    state = load_state(found.paths)
+    state["tracks"][found.tracks[3]]["hidden"] = True                  # hidden upgrades aren't listed (as in To-do)
+    save_state(found.paths, state)
+    with db.connect(found.paths.db_file) as conn:
+        batches_before = db.aiff_batches(conn)[1]
+    before = found.music(), found.dump(), load_state(found.paths)["tracks"], rbbackup.backups(found.paths)
+    with library.run_lock(found.paths.lock):                            # a read takes no lock: busy doesn't matter
+        items = listed(capsys)
+    assert [i["track_id"] for i in items] == found.tracks[:3]
+    first, stale, third = items
+    assert (first["artist"], first["title"], first["folder"], first["path"]) == ("Artist", "Song 0", "A", found.olds[0])
+    assert first["upgrade_ready"] is True and first["same_track"] is None and third["same_track"] is None
+    assert (stale["same_track"], stale["detail"]) == ("needs_choice", "Lossless ready · different edit")
+    code, out, _ = run(["upgrade", "list"], capsys)
+    assert code == 0 and "Artist" in out and "Song 0" in out and "Upgrade ready" in out
+    with db.connect(found.paths.db_file) as conn:
+        assert db.aiff_batches(conn)[1] == batches_before
+    assert (found.music(), found.dump(), load_state(found.paths)["tracks"], rbbackup.backups(found.paths)) == before
+
+
+@needs_ffmpeg
+def test_the_waiting_mark_is_listed_only_while_same_track_can_run(tmp_path, monkeypatch, capsys):
+    found = parked_lib(tmp_path, monkeypatch, ["mp3", "stale"])      # the second one is stored as a different edit
+    state = load_state(found.paths)
+    for key in found.tracks:
+        state["tracks"][key]["upgrade"]["auto_waits"] = "2026-11-09T10:00:00"
+    save_state(found.paths, state)
+    items = listed(capsys)
+    assert [(i["same_track"], i["detail"] == "Waits for rekordbox to be closed") for i in items] == [
+        (None, True), ("needs_choice", False)]                        # the hub's To-do shows no "waits" over it either
+    code, out, _ = run(["upgrade", "list"], capsys)
+    assert out.count("Waits for rekordbox to be closed") == 1
+
+
+@needs_ffmpeg
+def test_upgrade_list_shows_the_syncs_refusal_and_the_waiting_mark_while_the_switch_is_on(tmp_path, monkeypatch, capsys):
+    from dataclasses import replace
+
+    from discjockey.settings import load_settings, save_settings
+    found = parked_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3"])
+    state = load_state(found.paths)
+    record = {"reason": "not_analysed", "message": "rekordbox hasn't analysed this track yet.",
+              "at": "2026-11-09T10:00:00", "anlz": {}, "free": None, "files": None}
+    state["tracks"][found.tracks[0]]["upgrade"]["auto_refused"] = record
+    state["tracks"][found.tracks[1]]["upgrade"]["auto_waits"] = "2026-11-09T10:00:00"
+    save_state(found.paths, state)
+    first, second, third = listed(capsys)
+    assert first["detail"] == "Not analysed in rekordbox · not upgraded at your sync"
+    assert second["detail"] == "Waits for rekordbox to be closed" and third["detail"] != second["detail"]
+    code, out, _ = run(["upgrade", "list"], capsys)
+    assert "Not analysed in rekordbox · not upgraded at your sync" in out
+    assert "Waits for rekordbox to be closed" in out
+    save_settings(found.paths.settings_file, replace(load_settings(found.paths.settings_file), auto_upgrade=False))
+    first, second, third = listed(capsys)                              # switch off: the waiting mark is hidden
+    assert second["detail"] != "Waits for rekordbox to be closed"
+    assert first["detail"] == "Not analysed in rekordbox · not upgraded at your sync"
+
+
+@needs_ffmpeg
+def test_upgrade_list_with_nothing_waiting(tmp_path, monkeypatch, capsys):
+    found = parked_lib(tmp_path, monkeypatch, ["mp3"])
+    state = load_state(found.paths)
+    state["tracks"][found.tracks[0]]["upgrade"] = None
+    save_state(found.paths, state)
+    code, text, _ = run(["upgrade", "list", "--json"], capsys)
+    env = json.loads(text)
+    assert code == 0 and env["outcome"] == "ok" and env["data"]["groups"] == []
+    code, out, _ = run(["upgrade", "list"], capsys)
+    assert code == 0 and "Upgrade ready" not in out

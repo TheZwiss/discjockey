@@ -1,7 +1,7 @@
 """The old command line, moved here unchanged by issue 39 group 1.2: the sync (no command) and the words whose
-replacement is not built yet (`setup`, `update`, `upgrades`, `upgrade`, `batch`, `convert`, `rename`, `settings`,
-`rekordbox checked | backups | restore`). `discjockey/cli/__init__.py` routes those words here
-unchanged; each leaves with the group that lands its replacement. Started by `python -m discjockey`
+replacement is not built yet (`setup`, `update`, `convert`, `rename`, `settings`). `discjockey/cli/__init__.py` routes
+those words here unchanged; each leaves with the group that lands its replacement (`upgrades`, `upgrade`, `batch` and
+`rekordbox checked | backups | restore` left with group 1.12). Started by `python -m discjockey`
 (discjockey/__main__.py), which prepares the tools first.
 
 The sync (no command) prints its plan, with Auto-upgrade's part (how many upgrades go in at the end, the list in a dry
@@ -10,8 +10,8 @@ run), runs, and ends with the report's summary and Auto-upgrade's summary line. 
 "counts", "auto_upgrade"}` or `{"ok": false, "kind", "message"}` for a problem, and every human line goes to stderr
 (CONTRIBUTING.md > "Commands for scripts and agents" > "Not rebuilt yet"). Exit codes: 0 done (also when upgrades wait for rekordbox), 1
 errors in the run, a crash or `needs_yes`, 2 setup problem or no music folder, 3 another run holds the library lock,
-130 stopped. The other commands live in `batch_cmd.py` (`upgrade`, `batch resume | undo`, `rekordbox checked | backups | restore`),
-`convert_cmd.py` (`convert`, `rename`), `settings_cmd.py` (`settings`) and `setup_cmd.py`/`upgrades_cmd.py`."""
+130 stopped. The other commands live in `convert_cmd.py` (`convert`, `rename`), `settings_cmd.py` (`settings`) and
+`setup_cmd.py`."""
 from __future__ import annotations
 
 import argparse
@@ -39,7 +39,7 @@ def _positive_int(text: str) -> int:
 
 
 def _sync_flags(p: argparse.ArgumentParser, *, repeated: bool = False) -> None:
-    """The flags of a sync run. A sub-command repeats them (`discjockey upgrades --yes` keeps working) without
+    """The flags of a sync run. A sub-command repeats them (`discjockey update --yes` keeps working) without
     overwriting what was given before it: `repeated` leaves a flag out of the namespace unless it is typed."""
     extra = {"default": argparse.SUPPRESS} if repeated else {}
     p.add_argument("--yes", action="store_true", help="don't ask before starting", **extra)
@@ -62,30 +62,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     commands = p.add_subparsers(
         dest="command", metavar="command", title="commands",
         description="setup: one-time logins; update: get the newest yt-dlp; "
-                    "upgrades: go through the better versions found for your lossy tracks; "
-                    "upgrade: the same, without prompts (list, apply, discard, undo); "
-                    "batch: look at, resume or undo an AIFF batch; "
                     "convert: make files clean AIFFs; rename: give files their clean names; "
-                    "settings: change a setting without the window (auto-upgrade); "
-                    "rekordbox: rekordbox's library (look at it, check tracks, "
-                    "backups)")
-    for name, help_text in (("setup", "One-time logins."), ("update", "Get the newest yt-dlp."),
-                            ("upgrades", "Go through the better versions found for your lossy tracks.")):
+                    "settings: change a setting without the window (auto-upgrade)")
+    for name, help_text in (("setup", "One-time logins."), ("update", "Get the newest yt-dlp.")):
         _sync_flags(commands.add_parser(name, description=help_text), repeated=True)
-    box = commands.add_parser("rekordbox", description="rekordbox's library: checked, backups and restore belong to "
-                                                       "Same track batches (`status` and `preview` are the new "
-                                                       "command line's).")
-    box_commands = box.add_subparsers(dest="rekordbox_command", metavar="command", required=True)
-    from .. import batch_cmd
-    batch_parsers = batch_cmd.add_commands(commands, box_commands)
     from .. import convert_cmd
     convert_parsers = convert_cmd.add_commands(commands)
     from .. import settings_cmd
     settings_cmd.add_commands(commands)
     args = p.parse_args(argv)
-    batch_cmd.check_args(args, batch_parsers)
     convert_cmd.check_args(args, convert_parsers)
-    if args.json and args.command in ("setup", "update", "upgrades"):
+    if args.json and args.command in ("setup", "update"):
         p.error(f"--json belongs to the sync, not to `{args.command}`")
     return args
 
@@ -269,9 +256,6 @@ def _print_json(data: dict, out) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    if args.command in ("upgrade", "batch", "rekordbox"):  # each takes the library lock itself where it writes
-        from .. import batch_cmd
-        return batch_cmd.run(args)
     if args.command in ("convert", "rename"):  # take the lock themselves (a dry run only when facts are missing)
         from .. import convert_cmd
         return convert_cmd.run(args)
@@ -311,7 +295,7 @@ def _main(args: argparse.Namespace) -> tuple[int, dict | None]:
                 return 2, _problem("refused", NOT_CHOSEN_TEXT, reason="no_library")
             from .. import setup_cmd
             paths = setup_cmd.ask_music_folder(resolved.support)
-        # setup, update and upgrades take the same lock: nothing may change under a running sync
+        # setup and update take the same lock: nothing may change under a running sync
         with library.run_lock(paths.lock):
             if args.command == "setup":
                 from .. import setup_cmd
@@ -319,9 +303,6 @@ def _main(args: argparse.Namespace) -> tuple[int, dict | None]:
             if args.command == "update":
                 from .. import setup_cmd
                 return setup_cmd.run_update(paths.support), None
-            if args.command == "upgrades":
-                from .. import upgrades_cmd
-                return upgrades_cmd.run_upgrades(paths), None
             return sync(paths, args)
     except NoLibrary as e:
         print(e)

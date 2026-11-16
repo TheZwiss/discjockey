@@ -36,7 +36,7 @@ from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
 from .. import auto_upgrade, batches, rekordbox, report as rep, run, upgrades
-from ..rekordbox import lock as rb_lock, preview as rb_preview, process as rb_process
+from ..rekordbox import backup as rb_backup, lock as rb_lock, preview as rb_preview, process as rb_process
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
@@ -82,7 +82,7 @@ NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
 NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
 CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
-NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo"))  # run on what is there when --yes comes: no plan to run
+NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -3001,7 +3001,18 @@ class CliApi(HubApi):
             return self._undo_words(result)
         if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
             return self._checked_words(result)
+        if method == "rekordbox_restore" and "saved_current" in result:
+            return self._restore_words(result)
         return {}
+
+    def _restore_words(self, result: dict) -> dict:
+        """`rekordbox restore`: what was put back, where the library as it was is saved, and (when some tracks now point
+        at files Discjockey moved to `Superseded/`) the batches to undo first."""
+        out: dict = {"message": engine_words.RESTORED.format(backup=result["restored"], saved=result["saved_current"])}
+        if result["missing_after"]:
+            out["message"] += " " + engine_words.MISSING_AFTER.format(n=len(result["missing_after"]))
+            out["next"] = [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
+        return out
 
     def _upgrade_words(self, result: dict) -> dict:
         out: dict = {}
@@ -3304,6 +3315,70 @@ class CliApi(HubApi):
         `skipped` with its reason and words. Reads only; whether a file changed since is only known when the undo runs."""
         self._stopped_aiff(batch_id)
         return batches.batch_undo_preview(self._paths, self._state(), batch_id, self._svc.rekordbox_running())
+
+    @cli_first
+    def rekordbox_backups(self) -> dict:
+        """The copies of rekordbox's library Discjockey made, newest first (each batch that wrote rekordbox keeps one; a
+        restore saves the library it replaced as one): `{backups: [{id, created, batches, tracks, size}]}`. `id` is the name
+        `rekordbox_restore` takes, `batches` the AIFF batches (ids) that wrote under it, `tracks` how many tracks' analysis
+        files it holds and `size` its bytes. Reads only the backups' own folders under `.discjockey/`: no lock, rekordbox's
+        library is never opened."""
+        return {"backups": [{"id": b.id, "created": b.created, "batches": b.batches, "tracks": b.tracks, "size": b.size}
+                            for b in rb_backup.backups(self._paths)]}
+
+    @cli_first
+    def rekordbox_restore(self, backup: str) -> dict:
+        """The last resort (design §7.4: `rekordbox restore <backup> --yes`): puts rekordbox's whole library back as the
+        backup holds it, as one write job (kind "rekordbox_restore"). Needs rekordbox closed (`rekordbox_open`); another
+        Discjockey process changing rekordbox's library is `busy`; a library that is not this Mac's, a damaged backup, one
+        left by a crash (`unclean`) or no rekordbox library at all is `refused` (`data.why` names which). Saves the current
+        library first. The result is `{restored, saved_current, missing_after, recovered}`; `missing_after` lists the tracks
+        that now point at a file that is not there (`[{id, path, was}]`: Discjockey moved it to `Superseded/` since). A
+        name no backup has is `bad_args` / `unknown_id`, before anything starts."""
+        if rb_backup.find(self._paths, backup) is None:
+            raise BadId("unknown_id", engine_words.RESTORE_REFUSED["not_found"])
+
+        def work(ctx) -> dict:
+            state, recovered = self._begin()
+            try:
+                done = rb_backup.restore(self._paths, self._svc.rekordbox_place(), backup,
+                                         running=self._svc.rekordbox_running)
+            except rb_backup.RestoreRefused as e:
+                raise self._restore_refusal(e) from None
+            return {"restored": backup, "saved_current": done.saved_current, "missing_after": done.missing_after,
+                    "recovered": recovered}
+        return {"job_id": self._jobs.start("rekordbox_restore", work).id}
+
+    @cli_first
+    def rekordbox_restore_preview(self, backup: str) -> dict:
+        """What `rekordbox_restore` of this backup would leave behind, before it runs (the dry run of `rekordbox restore`):
+        `{backup, missing_after, rekordbox}`. `missing_after` is the restore's own list (`[{id, path, was}]`: the tracks
+        that would point at a file that is not there), `rekordbox` is `{running, needs_rekordbox_closed}`: a restore only
+        runs with rekordbox quit. Takes no lock beyond the shared `rekordbox.lock` while master.db is read; with a writer
+        holding it master.db is not opened: `missing_after` is null and `rekordbox.writing` true. Nothing is saved or
+        changed. The refusals of the restore itself (a damaged backup, another library, no rekordbox library) are
+        `refused`; a name no backup has is `bad_args` / `unknown_id`."""
+        running = bool(self._svc.rekordbox_running())
+        shown = {"running": running, "needs_rekordbox_closed": True}
+        with rb_lock.reader_lock(self._support.support) as free:
+            if not free:
+                return {"backup": backup, "missing_after": None, "rekordbox": {**shown, "writing": True}}
+            try:
+                missing = rb_backup.preview(self._paths, self._svc.rekordbox_place(), backup, running)
+            except rb_backup.RestoreRefused as e:
+                if e.reason == "not_found":
+                    raise BadId("unknown_id", engine_words.RESTORE_REFUSED["not_found"]) from None
+                raise self._restore_refusal(e) from None
+        return {"backup": backup, "missing_after": missing, "rekordbox": shown}
+
+    @staticmethod
+    def _restore_refusal(e: "rb_backup.RestoreRefused") -> OpProblem:
+        """A restore's refusal as the problem the answer carries: rekordbox open needs the person; the rest is `refused`
+        with the engine's words and `data.why` (`unclean` is also its own reason)."""
+        words = engine_words.RESTORE_REFUSED[e.reason]
+        if e.reason == "rekordbox_open":
+            return OpProblem(words, "rekordbox_open")
+        return OpProblem(words, "refused", reason="unclean" if e.reason == "unclean" else None, data={"why": e.reason})
 
     @cli_first
     def batches(self, kind: str | None = None, limit: int = 20) -> dict:

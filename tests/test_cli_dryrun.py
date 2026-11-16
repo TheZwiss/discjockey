@@ -451,6 +451,7 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "upgrade discard": [({"track_ids": "all-tracks"}, {})],
     "track undo": [({"track_ids": "all-tracks"}, {})],
     "batch undo": [({"batch_id": "a-batch"}, {})],
+    "rekordbox restore": [({"backup": "a-backup"}, {})],
 }
 
 
@@ -470,6 +471,11 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_and_cache(upgrades, command,
                                         datetime(2026, 11, 16, 9, 0, 0))
             db.set_aiff_item(conn, batch, 0, "done", None, {})
         args["batch_id"] = f"aiff:{batch}"
+    if args.get("backup") == "a-backup":  # a copy of the fixture rekordbox library (what a restore would put back)
+        from discjockey.rekordbox import backup as rb_backup
+        made = rb_backup.Backup.ensure(lib.paths, lib.place, dbid=None, batch_id=None, tracks=[])
+        made.close(lib.place)
+        args["backup"] = made.id
     support, music, rekordbox = lib.paths.support, lib.paths.root, lib.folder
     skip = (support / "plans", support / "cache")
     before = [snapshot(f, skip) for f in (support, music, rekordbox)]

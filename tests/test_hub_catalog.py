@@ -15,12 +15,13 @@ from discjockey.hub.catalog import Arg, Entry
 # and takes `move_batches` out of the plan (it has no command: `batches` is `batch list`); 1.10 builds the two methods
 # its dry runs and selections need (`select_listing`, `upgrade_preview`: no command of their own); 1.11 builds `upgrade apply`
 # and `upgrade_all` (part a), `upgrade discard`, `track undo` and `check done` (part b) and `undo_upgrade_preview`;
-# 1.12 builds `batch resume`, `batch undo aiff:<n>` and `batch_undo_preview` (the moves forms are phase 4's).
-PHASE_1_CEILING = 95
+# 1.12 builds `batch resume`, `batch undo aiff:<n>` and `batch_undo_preview` (the moves forms are phase 4's), then (part b)
+# `rekordbox backups`, `rekordbox restore` and `rekordbox_restore_preview`.
+PHASE_1_CEILING = 93
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
-             "rekordbox_backups", "rekordbox_restore"}
+             "rekordbox_backups", "rekordbox_restore", "rekordbox_restore_preview"}
 
 
 def bridge_methods() -> dict[str, inspect.Signature]:

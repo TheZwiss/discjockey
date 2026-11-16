@@ -81,6 +81,8 @@ CONFIRM: dict[str, str] = {
     "upgrade discard": "Throw away the new versions? Your current files stay. These versions are not offered again.",
     "track undo": "Undo the last step of these tracks? Your old files go back where they were.",
     "batch undo": "Undo every step this batch did? Your old files go back where they were.",
+    "rekordbox restore": "Put rekordbox's whole library back as this backup holds it? Every change made in rekordbox "
+                         "since is dropped. Your library as it is now is saved first.",
 }
 
 
@@ -319,8 +321,10 @@ ENTRIES: tuple[Entry, ...] = (
     _e("auto_upgrade_preview", "", "R", cli_first=True),
     _e("auto_upgrade_run", "", "J", cli_first=True),
     _e("settings_view", "settings show", "R", cli_first=True),
-    _e("rekordbox_backups", "rekordbox backups", "R", cli_first=True),
-    _e("rekordbox_restore", "rekordbox restore", "J", cli_first=True, needs_yes=True),
+    _e("rekordbox_backups", "rekordbox backups", "R", "rekordbox backups", cli_first=True, built=True),
+    _e("rekordbox_restore", "rekordbox restore", "J", "rekordbox restore 20261110T090001Z --dry-run", cli_first=True,
+       needs_yes=True, dry_run="rekordbox_restore_preview", built=True, locks={"library", "rekordbox_w"}),
+    _e("rekordbox_restore_preview", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
 )
 
 def by_method(method: str) -> list[Entry]:

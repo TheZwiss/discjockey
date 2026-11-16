@@ -267,26 +267,51 @@ def restore(paths, place: Place | None, backup_id: str, *, running: Callable[[],
         return _restore(paths, place, backup_id, running or process.running, now)
 
 
-def _restore(paths, place: Place | None, backup_id: str, running: Callable[[], bool],
-             now: Callable[[], datetime]) -> RestoreResult:
+def _backup_of(paths, place: Place | None, backup_id: str) -> Backup:
+    """The backup `backup_id` names, or `RestoreRefused` (`no_rekordbox`, `not_found`)."""
     if place is None or not place.db.is_file():
         raise RestoreRefused("no_rekordbox")
     b = find(paths, backup_id)
     if b is None or not (b.folder / "master.db").is_file():
         raise RestoreRefused("not_found")
-    if running():
-        raise RestoreRefused("rekordbox_open")
-    if master.leftovers(place.db):
+    return b
+
+
+def _verified(b: Backup, place: Place, running: bool) -> tuple[str | None, str | None]:
+    """What a restore of `b` checks of the two libraries, in this order: `-wal`/`-shm` beside the current one (`unclean`;
+    with rekordbox running they are normal and not looked at), the backup's own `master.db` against its manifest
+    (`damaged`), the library it was made from against this Mac's (`other_library`). Answers (dbid, db_version) of the
+    current library, None where it can't be read."""
+    if not running and master.leftovers(place.db):
         raise RestoreRefused("unclean")
     if sha256_file(b.folder / "master.db") != b.manifest.get("master_sha256_before"):
         raise RestoreRefused("damaged")
     try:
-        with master.open_read(place, False) as m:
+        with master.open_read(place, running) as m:
             dbid, db_version = m.dbid, m.db_version
     except master.Unreadable:
         dbid, db_version = None, None
     if b.manifest.get("dbid") and dbid and b.manifest["dbid"] != dbid:
         raise RestoreRefused("other_library")
+    return dbid, db_version
+
+
+def preview(paths, place: Place | None, backup_id: str, running: bool) -> list[dict]:
+    """What `restore` would leave missing, before it runs (the dry run): the tracks whose path the backup changes and
+    whose path in the backup names no file, `[{"id", "path", "was"}]` as `RestoreResult.missing_after`. The same refusals
+    as `restore` except `rekordbox_open` (`running` says rekordbox runs: the caller says so beside the list). Reads only:
+    no lock, nothing is saved or written; the caller holds `rekordbox.lock` shared while master.db is read."""
+    b = _backup_of(paths, place, backup_id)
+    _verified(b, place, running)
+    return _missing_after(place.db, b.folder / "master.db")
+
+
+def _restore(paths, place: Place | None, backup_id: str, running: Callable[[], bool],
+             now: Callable[[], datetime]) -> RestoreResult:
+    b = _backup_of(paths, place, backup_id)
+    if running():
+        raise RestoreRefused("rekordbox_open")
+    dbid, db_version = _verified(b, place, False)
     folders = [(t["track"], [place.share / rel for rel in t["folders"]]) for t in b.manifest.get("tracks") or []]
     saved = Backup._new(paths, place, dbid=dbid, batch_id=None, tracks=folders, db_version=db_version, now=now)
     saved.close(place)

@@ -13,12 +13,14 @@ finds the files, asks the plan, starts the batch and prints the way it ended. It
 
 `--dry-run` prints the plan (human lines, or `{"ok": true, "dry_run": true, "plan": AiffPlan.to_dict()}`) and starts
 nothing. A run takes the library lock, finishes interrupted steps (`library.recover_pending`), plans and starts one
-AIFF batch (`batches.start`, `via` terminal, scope as `_batch_scope` says) that `batch_cmd._finish` runs: the exit codes 0-5, the `--json` shapes and
-Ctrl-C are exactly those of `upgrade apply` (batch_cmd's docstring). A plan with nothing in it is exit 1,
+AIFF batch (`batches.start`, `via` terminal, scope as `_batch_scope` says) that `_finish` runs. Exit codes: 0 done for
+every file, or a dry run; 1 refused or failed, or some files skipped or failed (each result says why); 2 no music folder;
+3 busy (the library lock or `rekordbox.lock` is held); 4 rekordbox is open (quit it, then `batch resume`); 5 stopped
+(Ctrl-C between files: `batch resume aiff:<n>`). A plan with nothing in it is exit 1,
 `{"ok": false, "kind": "refused", "reason": "nothing_to_do", "message", "batch": null, "results": [], "plan"}`;
 `bad_args` (exit 1) is a combination of arguments that means nothing, or an `--in` playlist or folder that doesn't exist
 ("No playlist called “X”."; an existing empty one is "Nothing to change"). `batch list | show | resume | undo` and
-`rekordbox checked --batch` work for these batches as for any other.
+`check done --batch` work for these batches as for any other.
 
 A library whose own files come from before schema 8 has no stored audio facts until an import ran, and the plan reads
 them. So both commands, a dry run included, first fill the missing facts (`importer.fill_facts`: it only reads the
@@ -29,20 +31,26 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import sqlite3
 import sys
+import threading
+import time
 from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from . import aiff_plan, batch_cmd, batches, convert, db, importer, library, rekordbox, scanner
-from .batch_cmd import BUSY, FAILED, LOCK_HELD, NO_LIBRARY, OK, STOPPED
-from .events import BatchProgress, Cancelled, CancelToken, ImportProgress
+from . import aiff_plan, batches, convert, db, importer, library, rbstep, rekordbox, report as rep, scanner
+from .events import CTRL_C_REPEAT_S, BatchProgress, Cancelled, CancelToken, ImportProgress
 from .hub import views
 from .library import LockHeld, NoLibrary, Paths, StateError
 from .rekordbox import process
+from .rekordbox.preview import REASON_WORDS
 from .cli.legacy_out import failed, no_library, say
 
+OK, FAILED, NO_LIBRARY, BUSY, REKORDBOX_OPEN, STOPPED = 0, 1, 2, 3, 4, 5
+LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
 GROUPS = ("lossless", "cdj")
 NOTHING_TO_DO = aiff_plan.NOTHING_TO_CHANGE
 STOPPED_WORDS = "Stopped. Everything finished so far is saved."
@@ -54,6 +62,203 @@ NO_PLAYLIST = "No playlist called “{name}”."
 NO_FOLDER = "No folder at {path}."
 BAD_IN_WITH_TRACKS = "--in narrows --all; it means nothing with named songs."
 BAD_IN_WITH_CDJ = "--all cdj is the whole group of files CDJs won't play well; --in can't narrow it."
+
+
+# --- the batch run's console output and exit codes, shared by `convert` and `rename` (moved here from the deleted
+# old console module for `upgrade`, `batch` and `rekordbox`; those words are the new command line's) ---
+
+def _name(state: dict, track: str) -> str:
+    e = state["tracks"].get(track)
+    return f"{e['artist']} - {e['title']}" if e else track
+
+
+def _words(reason: str | None) -> str:
+    return REASON_WORDS.get(reason or "", reason or "")
+
+
+def _say(args: argparse.Namespace, data: dict, lines: list[str], recovered: Sequence = ()) -> None:
+    if recovered:
+        data = {**data, "recovered": [[m, ok] for m, ok in recovered]}
+    say(args, data, lines)
+
+
+def _in_library(args: argparse.Namespace, work: Callable[[Paths, dict, list], int]) -> int:
+    """Runs `work(paths, state, recovered)` with the library lock held, after interrupted steps were finished
+    (recovery comes before a batch is recorded, or the new batch would be marked crashed)."""
+    resolved = library.resolve_paths()
+    if resolved.paths is None:
+        return no_library(args, resolved)
+    paths = resolved.paths
+    try:
+        with library.run_lock(paths.lock):
+            state = library.open_state(paths)
+            recovered = library.recover_pending(paths, state)
+            library.clear_tmp(paths, state)
+            if not args.json:
+                for message, _ok in recovered:
+                    print(message)
+            return work(paths, state, recovered)
+    except NoLibrary as e:
+        return failed(args, str(e), "refused", "no_library", code=NO_LIBRARY)
+    except LockHeld:
+        return failed(args, LOCK_HELD, "busy", code=BUSY)
+    except StateError as e:
+        return failed(args, str(e))
+    except KeyboardInterrupt:  # outside a batch's own handling (recovery, reading): nothing is half done
+        return failed(args, "Stopped. Everything finished so far is saved.", "stopped", code=STOPPED)
+
+
+@contextmanager
+def _interruptible(token: CancelToken):
+    """Ctrl-C once stops between tracks (the track in work finishes or rolls back); a second one, a second later,
+    raises KeyboardInterrupt, which the batch turns into the same stop."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    first: list[float] = []
+
+    def on_ctrl_c(signum, frame):
+        now = time.monotonic()
+        if not first:
+            first.append(now)
+            token.cancel()
+            print("\nStopping safely after the current track... (press Ctrl-C again to stop immediately)",
+                  file=sys.stderr)
+        elif now - first[0] >= CTRL_C_REPEAT_S:
+            raise KeyboardInterrupt
+
+    previous = signal.signal(signal.SIGINT, on_ctrl_c)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+def _item_lines(state: dict, item: batches.ItemResult) -> list[str]:
+    name = _name(state, item.track)
+    if item.state == "done":
+        where = f" → {PurePosixPath(item.path).name}" if item.path else ""
+        lines = [f"{'Upgraded' if item.action == 'same_track' else 'Done'}: {name}{where}"]
+        rb = item.rekordbox
+        if item.action == "same_track" and rb is None:
+            lines.append("  " + rbstep.NO_TRACK_NOTE)
+        elif kept := convert.kept_note((rb or {}).get("kept") or []):
+            lines.append("  " + kept)
+        return lines
+    if item.state == "skipped":  # a Convert or Rename item says its own words (no "upgrade"); Same track the preview's
+        why = item.message if item.action != "same_track" and item.message else _words(item.reason)
+        return [f"Skipped: {name} ({why})"]
+    if item.state == "failed":
+        return [f"Failed: {name} ({item.message})"]
+    if item.state == "undone":
+        return [f"Undone: {name}"]
+    return [f"Waiting: {name}"]
+
+
+def _done_line(items: Sequence[batches.ItemResult], done: int, label: str | None) -> str:
+    """The summary line of the finished items: a batch with a Same track item (or `label`, "done" for New track and
+    Discard) as always, a Convert / Rename batch in plan stage D's §3 words."""
+    if label == "done":
+        return f"{done} done."
+    if label is None and any(i.action == "same_track" for i in items):
+        return f"{done} upgraded, your cues stayed."
+    made = sum(1 for i in items if i.state == "done" and i.action == "convert")
+    named = sum(1 for i in items if i.state == "done" and i.action == "rename")
+    plural = lambda n: f"{n} file{'s' if n != 1 else ''}"  # noqa: E731
+    parts = ([f"made {plural(made)} AIFF"] if made else []) + (
+        [f"gave {plural(named)} {'its' if named == 1 else 'their'} clean name"] if named else [])
+    return f"{parts[0][:1].upper()}{parts[0][1:]}{''.join(', ' + p for p in parts[1:])}."
+
+
+def _batch_lines(state: dict, result: dict, label: str | None = None) -> list[str]:
+    """The human text of a batch-shaped dict (`BatchResult.to_dict()` or `_each`'s). `label` "done" is `_each`'s."""
+    items = [batches.ItemResult(**i) for i in result["results"]]
+    lines = [line for item in items for line in _item_lines(state, item)]
+    if result["done"]:
+        lines.append(_done_line(items, result["done"], label))
+    not_done = result["skipped"] + result["failed"]
+    if not_done:
+        convert_only = label is None and not any(i.action == "same_track" for i in items)
+        lines.append(f"{not_done} left as they are." if convert_only else
+                     f"{not_done} not {'done' if label == 'done' else 'upgraded'}.")
+    if any(i.state == "done" and i.action != "rename" and (i.rekordbox or {}).get("entries") for i in items):
+        # (a clean name keeps the file itself: the USB step is for a file rekordbox's tracks were pointed away from)
+        lines.append(rep.USB_STEP)
+    return lines
+
+
+def _code_of(result: dict) -> int:
+    return OK if not result["skipped"] and not result["failed"] else FAILED
+
+
+def _problem(args: argparse.Namespace, state: dict, kind: str, message: str, code: int, result: dict,
+             recovered: Sequence, reason: str | None = None, hint: str | None = None, items: bool = True) -> int:
+    """A batch ended without finishing: its fields stay in the JSON, the human text is its tracks (`items`) and the
+    way on."""
+    data = {"ok": False, "kind": kind, **({"reason": reason} if reason else {}), "message": message, **result}
+    lines = (_batch_lines(state, result) if items else []) + [message] + ([hint] if hint else [])
+    _say(args, data, lines, recovered)
+    return code
+
+
+def _resume_hint(result: dict) -> str | None:
+    return f"Resume it with: discjockey batch resume aiff:{result['batch']}" if result.get("batch") else None
+
+
+def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequence, batch_id: int,
+            call: Callable[[CancelToken], batches.BatchResult], alone: bool = False,
+            left: Sequence[batches.ItemResult] = ()) -> int:
+    """Runs `call(token)` (batches.run or resume) and turns every way a batch can end into the output and exit code.
+    `alone`: a batch of one track the user named (as the window's single Replace). When it meets rekordbox open or
+    `Busy` before anything ran it is closed (`batches.close_unrun`) instead of left `stopped`: the track simply stays
+    in Upgrade ready, there is nothing to resume. `left`: tracks the caller named that never became a batch item
+    (`convert` / `rename`'s plan left them as they are): a batch that ends normally lists them as skipped, so the exit
+    code is 1 as for any skipped track."""
+    def unrun(kind: str, error: Exception, d: dict, code: int) -> int | None:
+        if not alone or d["total"] != 1 or d["done"]:
+            return None
+        closed = batches.close_unrun(paths, batch_id, kind, str(error)).to_dict()
+        return _problem(args, state, kind, str(error), code, closed, recovered,
+                        "rekordbox_open" if kind == "rekordbox_open" else None, items=False)
+
+    token = CancelToken()
+    try:
+        with _interruptible(token):
+            result = call(token)
+    except batches.Stopped as e:
+        d = e.result.to_dict()
+        left = sum(1 for i in d["results"] if i["state"] == "planned")
+        return _problem(args, state, "stopped", f"Stopped after {d['total'] - left} of {d['total']}.", STOPPED, d,
+                        recovered, hint=_resume_hint(d))
+    except KeyboardInterrupt:  # the second Ctrl-C: the batch is `stopped` already (batches.run)
+        d = batches.result_of(paths, batch_id).to_dict()
+        return _problem(args, state, "stopped", "Stopped. Everything finished so far is saved.", STOPPED, d,
+                        recovered, hint=_resume_hint(d))
+    except batches.RekordboxOpen as e:
+        d = e.result.to_dict()
+        if (closed := unrun("rekordbox_open", e, d, REKORDBOX_OPEN)) is not None:
+            return closed
+        done = d["total"] - sum(1 for i in d["results"] if i["state"] == "planned")
+        if done:
+            message = batches.STOPPED_BY_REKORDBOX_CONSOLE.format(done=done, total=d["total"], batch=d["batch"])
+            return _problem(args, state, "rekordbox_open", message, REKORDBOX_OPEN, d, recovered, "rekordbox_open")
+        return _problem(args, state, "rekordbox_open", str(e), REKORDBOX_OPEN, d, recovered, "rekordbox_open",
+                        "After you quit rekordbox: discjockey batch resume aiff:" + str(d["batch"]))
+    except batches.Busy as e:
+        d = batches.result_of(paths, batch_id).to_dict()
+        if (closed := unrun("busy", e, d, BUSY)) is not None:
+            return closed
+        return _problem(args, state, "busy", str(e), BUSY, d, recovered, hint=_resume_hint(d))
+    except batches.Refused as e:
+        d = e.result.to_dict()
+        only = d["results"][0]["reason"] if len(d["results"]) == 1 else None
+        return _problem(args, state, "refused", str(e), FAILED, d, recovered, only)
+    d = result.to_dict()
+    if left:
+        d = {**d, "total": d["total"] + len(left), "skipped": d["skipped"] + len(left),
+             "results": [*d["results"], *(r.to_dict() for r in left)]}
+    _say(args, {"ok": True, **d}, _batch_lines(state, d), recovered)
+    return _code_of(d)
 
 
 class BadArgs(Exception):
@@ -148,7 +353,7 @@ def _fill_facts(paths: Paths) -> bool:
     read stays stored."""
     token = CancelToken()
     try:
-        with batch_cmd._interruptible(token):
+        with _interruptible(token):
             importer.fill_facts(paths, emit=_facts_progress, token=token)
     except (Cancelled, KeyboardInterrupt):
         return False
@@ -238,7 +443,7 @@ def _nothing(args: argparse.Namespace, plan: aiff_plan.AiffPlan, job: Job, recov
     message = _nothing_message(plan, job)
     lines = [f"Left as it is: {s.name} ({s.message})" for s in plan.skipped if len(job.named) != 1]
     lines += [f"Waiting ({w['n']}): {w['message']}" for w in plan.waiting]
-    batch_cmd._say(args, {"ok": False, "kind": "refused", "reason": "nothing_to_do", "message": message,
+    _say(args, {"ok": False, "kind": "refused", "reason": "nothing_to_do", "message": message,
                           "batch": None, "results": [], "plan": plan.to_dict()}, [message, *lines], recovered)
     return FAILED
 
@@ -303,7 +508,7 @@ def _run(args: argparse.Namespace, paths: Paths, state: dict, recovered: list, j
     batch_id = batches.start(paths, plan.actions(), started_by=job.started_by, scope=_batch_scope(job.scope),
                              via="terminal")
     emit = _progress(plan)
-    return batch_cmd._finish(
+    return _finish(
         args, paths, state, recovered, batch_id,
         lambda token: batches.run(paths, batch_id, emit=emit, token=token, state=state),
         alone=len(job.named) == 1, left=left)
@@ -320,4 +525,4 @@ def run(args: argparse.Namespace) -> int:
         return no_library(args, resolved)
     if getattr(args, "dry_run", False):
         return _dry_run(args, resolved.paths, job)
-    return batch_cmd._in_library(args, lambda paths, state, recovered: _run(args, paths, state, recovered, job))
+    return _in_library(args, lambda paths, state, recovered: _run(args, paths, state, recovered, job))

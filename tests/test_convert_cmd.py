@@ -1,7 +1,7 @@
 """The console commands of issue 33's stage D (discjockey/convert_cmd.py; plan stage D §2, §5 D5): `convert` and `rename`
 through `cli.main` on a library and a fixture rekordbox built in tmp_path (tests/batch_helpers.py `make_own_lib`).
 Every scope, the `--in` forms, `--dry-run` changing nothing, exit codes 0-5, `nothing_to_do`, `bad_args`, the facts fill
-before a plan, and `batch list | show | resume | undo` / `rekordbox checked --batch` on a stopped convert batch. Nothing
+before a plan, and `batch list | show | resume | undo` / `check done --batch` on a stopped convert batch. Nothing
 real is read: the music folder and rekordbox come from `DISCJOCKEY_SUPPORT` / `DISCJOCKEY_REKORDBOX`."""
 from __future__ import annotations
 
@@ -12,17 +12,18 @@ from datetime import datetime
 import pytest
 
 from batch_helpers import Lib, make_own_lib, needs_ffmpeg, use
-from discjockey import batch_cmd, batches, cli, convert_cmd, db, library
-from discjockey.cli import legacy
+from discjockey import batches, cli, convert_cmd, db, library
 from discjockey.events import CancelToken
 from discjockey.library import load_state
 from discjockey.rekordbox import backup as rbbackup
 from discjockey.rekordbox import process
 from discjockey.rekordbox import session as rbsession
+from test_cli_upgrade import inline_workers  # noqa: F401 - the jobs of `batch resume | undo` and `check done` run in this process
 
 pytestmark = needs_ffmpeg
 
 OK, FAILED, NO_LIBRARY, BUSY, REKORDBOX_OPEN, STOPPED = 0, 1, 2, 3, 4, 5
+PARTIAL = 6
 # make_own_lib's songs, by index: 0 mp3 (in rekordbox), 1 mp3_free, 2 clean (a messy name), 3 clean_free, 4 named (a
 # clean AIFF at its clean name), 5 chain (an AIFF 24/96 at its clean name, in rekordbox)
 KINDS = ["mp3", "mp3_free", "clean", "clean_free", "named", "chain"]
@@ -44,11 +45,13 @@ def make(tmp_path, monkeypatch, kinds: list[str] = KINDS) -> Lib:
     return lib
 
 
+@pytest.fixture(autouse=True)
+def _jobs_run_here(inline_workers):
+    """`batch resume`, `batch undo` and `check done` are the new command line's jobs: their worker runs in this process."""
+
+
 def run(argv: list[str], capsys) -> tuple[int, str, str]:
-    """`batch resume` and `batch undo` of an AIFF batch are the new command line's (tests/test_cli_batch_write.py); this
-    file pins the old handler's words for a convert batch, which stay until `batch_cmd.py` goes, so those words go through
-    the old parser here."""
-    code = legacy.main(argv) if argv[:2] in (["batch", "resume"], ["batch", "undo"]) else cli.main(argv)
+    code = cli.main(argv)
     out = capsys.readouterr()
     return code, out.out, out.err
 
@@ -56,6 +59,13 @@ def run(argv: list[str], capsys) -> tuple[int, str, str]:
 def run_json(argv: list[str], capsys) -> tuple[int, dict]:
     code, out, _err = run([*argv, "--json"], capsys)
     return code, json.loads(out)          # exactly one JSON object on stdout
+
+
+def batch_run(argv: list[str], capsys) -> tuple[int, dict]:
+    """A command of the new command line (`batch resume | undo`, `check done`): its exit code and the envelope's `data`
+    (what the batch's own answer holds)."""
+    code, env = run_json(argv, capsys)
+    return code, env["data"]
 
 
 def batch_rows(capsys) -> list[dict]:
@@ -109,13 +119,13 @@ def _no_ctrl_c(token: CancelToken):
     yield
 
 
-REAL_INTERRUPTIBLE, REAL_PROGRESS = batch_cmd._interruptible, convert_cmd._progress
+REAL_INTERRUPTIBLE, REAL_PROGRESS = convert_cmd._interruptible, convert_cmd._progress
 
 
 def normal(monkeypatch) -> None:
     """No Stop any more: the real Ctrl-C handling and progress (never `monkeypatch.undo()`: it would also drop the
     environment that points the tests away from the real rekordbox)."""
-    monkeypatch.setattr(batch_cmd, "_interruptible", REAL_INTERRUPTIBLE)
+    monkeypatch.setattr(convert_cmd, "_interruptible", REAL_INTERRUPTIBLE)
     monkeypatch.setattr(convert_cmd, "_progress", REAL_PROGRESS)
 
 
@@ -131,7 +141,7 @@ def stopping(monkeypatch, *, after: int) -> None:
             token.cancel()
         yield
 
-    monkeypatch.setattr(batch_cmd, "_interruptible", fake)
+    monkeypatch.setattr(convert_cmd, "_interruptible", fake)
     real = REAL_PROGRESS
 
     def progress(plan):
@@ -359,7 +369,7 @@ def test_a_dry_run_fills_the_missing_facts_first_under_the_lock(tmp_path, monkey
     music, dump = lib.music(), lib.dump()
     with library.run_lock(lib.paths.lock):                  # the fill is a write: a run holding the lock is busy
         code, data = run_json(["convert", "--all", "lossless", "--dry-run"], capsys)
-        assert code == BUSY and (data["ok"], data["kind"], data["message"]) == (False, "busy", batch_cmd.LOCK_HELD)
+        assert code == BUSY and (data["ok"], data["kind"], data["message"]) == (False, "busy", convert_cmd.LOCK_HELD)
     assert all(row[1] is None for row in facts_of(lib))
     code, out, err = run(["convert", "--all", "lossless", "--dry-run"], capsys)
     assert code == OK and "3 files would be changed" in out
@@ -544,7 +554,7 @@ def test_the_library_lock_held_is_exit_3_and_nothing_starts(tmp_path, monkeypatc
         with library.run_lock(lib.paths.lock):
             code, data = run_json(argv, capsys)
         assert code == BUSY, argv
-        assert (data["ok"], data["kind"], data["message"]) == (False, "busy", batch_cmd.LOCK_HELD), argv
+        assert (data["ok"], data["kind"], data["message"]) == (False, "busy", convert_cmd.LOCK_HELD), argv
     assert untouched(lib) == before
 
 
@@ -556,7 +566,7 @@ def test_rekordbox_lock_held_leaves_the_batch_stopped_and_resumable(tmp_path, mo
         assert code == BUSY and (data["ok"], data["kind"], data["message"]) == (False, "busy", rbsession.BUSY)
         assert (data["state"], data["stop_reason"], data["done"]) == ("stopped", "busy", 0)
     assert (lib.music(), lib.dump()) == before
-    code, data = run_json(["batch", "resume", str(data["batch"])], capsys)
+    code, data = batch_run(["batch", "resume", f"aiff:{data['batch']}"], capsys)
     assert code == OK and (data["state"], data["done"]) == ("done", 2)
 
 
@@ -573,10 +583,10 @@ def test_rekordbox_open_is_exit_4_and_resume_finishes_after_it_quit(tmp_path, mo
     code, out, _ = run(["rename", "--all"], capsys)                       # the same two files again: a new try, a new batch
     assert code == REKORDBOX_OPEN and "discjockey batch resume aiff:2" in out
     rekordbox_open(monkeypatch, False)
-    code, data = run_json(["batch", "resume", "2"], capsys)
+    code, data = batch_run(["batch", "resume", "aiff:2"], capsys)
     assert code == OK and (data["state"], data["done"]) == ("done", 2)
-    code, data = run_json(["batch", "resume", "1"], capsys)                # batch 1 gave those two up (later_batch)
-    assert (code, data["state"], data["done"], data["skipped"]) == (FAILED, "done", 1, 2)
+    code, data = batch_run(["batch", "resume", "aiff:1"], capsys)          # batch 1 gave those two up (later_batch)
+    assert (code, data["state"], data["done"], data["skipped"]) == (PARTIAL, "done", 1, 2)
 
 
 def test_one_named_song_that_meets_rekordbox_open_is_closed_not_left_to_resume(tmp_path, monkeypatch, capsys):
@@ -617,7 +627,7 @@ def test_stop_is_exit_5_and_resume_goes_on(tmp_path, monkeypatch, capsys):
     assert data["message"] == "Stopped after 0 of 3." and [r["state"] for r in data["results"]] == ["planned"] * 3
     assert (lib.music(), lib.dump()) == before
     normal(monkeypatch)
-    code, done = run_json(["batch", "resume", str(data["batch"])], capsys)
+    code, done = batch_run(["batch", "resume", f"aiff:{data['batch']}"], capsys)
     assert code == OK and (done["state"], done["done"]) == ("done", 3)
 
 
@@ -638,16 +648,16 @@ def test_batch_commands_work_on_a_stopped_convert_batch(tmp_path, monkeypatch, c
     code, out, _ = run(["batch", "show", "aiff:1"], capsys)
     assert code == OK and "Artist - Song 0" in out and "Artist - Song 2" in out
     # "Done, checked in rekordbox" for the batch's done tracks
-    code, data = run_json(["rekordbox", "checked", "--batch", "1"], capsys)
-    assert code == OK and data["checked"] == [lib.tracks[0]] and data["not_checked"] == []
+    code, data = batch_run(["check", "done", "--batch", "aiff:1"], capsys)
+    assert code == OK and [r["track"] for r in data["results"] if r["state"] == "done"] == [lib.tracks[0]] and data["skipped"] == 0
     assert lib.entry(0).get("rekordbox_check") is None
     normal(monkeypatch)
-    code, data = run_json(["batch", "resume", "1"], capsys)
+    code, data = batch_run(["batch", "resume", "aiff:1"], capsys)
     assert code == OK and (data["state"], data["done"], data["batch"]) == ("done", 3, 1)
     assert [r["action"] for r in data["results"]] == ["convert", "rename", "convert"]
     done_files = lib.music()
-    code, data = run_json(["batch", "undo", "1"], capsys)        # song 0 was checked in rekordbox: its undo is gone
-    assert code == FAILED and (data["total"], data["undone"], data["refused"]) == (3, 2, 1)
+    code, data = batch_run(["batch", "undo", "aiff:1", "--yes"], capsys)  # song 0 was checked in rekordbox: its undo is gone
+    assert code == PARTIAL and (data["total"], data["undone"], data["refused"]) == (3, 2, 1)
     assert lib.entry(1)["path"] == lib.olds[1] and lib.entry(2)["path"] == lib.olds[2]
     assert lib.entry(0)["path"] == final(lib, 0)
     assert lib.music() != done_files
@@ -658,7 +668,7 @@ def test_undo_of_a_chain_item_gives_the_original_file_back(tmp_path, monkeypatch
     original = (lib.paths.root / lib.olds[0]).read_bytes()
     code, data = run_json(["convert", "--all", "lossless"], capsys)
     assert code == OK and data["done"] == 2 and (lib.paths.root / "Superseded/A/Artist - Song 0.aiff").read_bytes() == original
-    code, data = run_json(["batch", "undo", "1"], capsys)
+    code, data = batch_run(["batch", "undo", "aiff:1", "--yes"], capsys)
     assert code == OK and (data["total"], data["undone"], data["refused"]) == (2, 2, 0)
     assert (lib.paths.root / lib.olds[0]).read_bytes() == original and lib.entry(0)["path"] == lib.olds[0]
     assert lib.row(0)["FolderPath"].endswith("A/Artist - Song 0.aiff") and lib.entry(1)["path"] == lib.olds[1]

@@ -14,6 +14,7 @@ from discjockey.library import load_state, save_state
 from discjockey.rekordbox import backup as rbbackup
 from discjockey.rekordbox import session as rbsession
 from discjockey.rekordbox.eligible import REASONS
+from test_cli_upgrade import inline_workers  # noqa: F401 - the job of `check done` runs in this process
 
 pytestmark = needs_ffmpeg
 
@@ -408,14 +409,14 @@ def test_checked_over_a_batch_clears_the_converted_and_renamed_checks(tmp_path, 
     assert batches.checked(lib.paths, lib.tracks) == []
 
 
-def test_checked_batch_through_the_command_line(tmp_path, monkeypatch, capsys):
+def test_checked_batch_through_the_command_line(tmp_path, monkeypatch, capsys, inline_workers):
     from batch_helpers import use
     from discjockey import cli
     lib = make_own_lib(tmp_path, monkeypatch, ["mp3", "clean"])
     use(lib, monkeypatch)
     batch_id = start(lib, [(0, "convert"), (1, "rename")])
     go(lib, batch_id)
-    assert cli.main(["rekordbox", "checked", "--batch", str(batch_id), "--json"]) == 0
+    assert cli.main(["check", "done", "--batch", f"aiff:{batch_id}", "--json"]) == 0
     assert all(lib.entry(i)["rekordbox_check"] is None for i in range(2))
 
 

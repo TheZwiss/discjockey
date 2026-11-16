@@ -279,6 +279,36 @@ def test_rekordbox_open_midway_leaves_a_stopped_batch_and_the_step_says_to_resum
     assert env["next"][0]["run"] == "batch resume aiff:1" and len(batches_of(found)) == 1
 
 
+def test_new_track_with_every_name_taken_fails_that_song_and_still_does_the_next(lib, capsys):
+    """Engine behaviour of the retired console (`upgrades_cmd`): a song whose new file has no free name is a failed item with
+    its words (no traceback), nothing of it changes, and the next song is still done."""
+    found = lib(["mp3", "mp3"])
+    for stem in ("Artist - Song 0", f"Artist - Song 0 [{found.tracks[0][:6]}]", f"Artist - Song 0 [{found.tracks[0]}]"):
+        (found.paths.root / f"Library/A/{stem}.aiff").write_bytes(b"user file")
+    code, env = run_json(["upgrade", "apply", *found.tracks, *NEW], capsys)
+    assert (code, env["outcome"]) == (PARTIAL, "partial"), env
+    first, second = env["data"]["results"]
+    assert (first["state"], second["state"]) == ("failed", "done") and first["message"] == "Could not add Artist - Song 0."
+    assert found.entry(0)["path"] == found.olds[0] and found.entry(0)["upgrade"]  # nothing changed for the first
+    assert (found.paths.root / "Library/A/Artist - Song 0.aiff").read_bytes() == b"user file"
+
+
+def test_a_same_track_swap_that_breaks_midway_fails_the_item_and_leaves_the_song_as_it_was(lib, capsys, monkeypatch):
+    found = lib(["aiff"])  # an AIFF: Same track swaps the audio under the file (`upgrades.build_staged`)
+
+    def broken(parked, staged, n):
+        raise OSError("Input/output error")
+
+    monkeypatch.setattr(upgrades, "build_staged", broken)
+    before = found.music(), found.dump()
+    code, env = run_json(["upgrade", "apply", found.tracks[0], *SAME], capsys)
+    assert (code, env["outcome"]) == (FAILED, "failed"), env
+    [row] = env["data"]["results"]
+    assert row["state"] == "failed" and "Input/output error" in row["message"]
+    assert (found.music(), found.dump()) == before and found.entry(0)["upgrade"]
+    assert library.load_state(found.paths)["pending"] == []
+
+
 def test_an_unknown_song_is_skipped_and_a_batch_of_skips_is_refused(lib, capsys):
     found = lib(["mp3", "stale"])
     code, env = run_json(["upgrade", "apply", "nope", found.tracks[0], *SAME], capsys)
