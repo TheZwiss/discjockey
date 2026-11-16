@@ -364,8 +364,9 @@ def test_timeline_offset_measures_real_decodes_exactly(tmp_path, m4a, monkeypatc
 
 
 @needs_ffmpeg
-@pytest.mark.real_tools  # the time of the real ffmpeg decodes is what this pins
-@pytest.mark.real_sqlcipher_kdf  # the time of the real key derivation is part of it
+@pytest.mark.real_tools  # the time of the real ffmpeg decodes is what this pins,
+@pytest.mark.real_sqlcipher_kdf  # of the real key derivation
+@pytest.mark.real_durability  # and of the real drive flushes
 def test_a_six_minute_file_is_measured_in_a_few_seconds(tmp_path):
     """Plan §1.7 aims at 3 s for a 6-minute file, decode included; the guard is looser so a slow machine passes and a
     regression still shows. The real time is printed with `pytest -s`."""
