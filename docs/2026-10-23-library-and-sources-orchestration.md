@@ -513,6 +513,12 @@ Results:
     gap U12, real-copy rehearsal session, cost, Qobuz "Use this" note). AFTER phase 1: discuss Opus plan + Fable
     advisor + Sonnet build vs current setup. Suite now ~1 min (interim background wakes: no report to the user).
     Issue 39 ~13.07M (incl. V1.15 review 117k), phase 1 ~10.95M.
+    V1.15 fix round done 7f1ad71a: Sonnet **89k** (all 8 fixed; 5539 passed in 52.5 s). V1.15 MERGED into the phase
+    branch + main merged in: c9213e6e, pushed. Issue 39 ~13.16M, phase 1 ~11.04M. Phase review measured on c9213e6e
+    (diff vs merge-base, tokens = chars/4): SAFETY api 32k + engine 61k + call/worker 10k + registry/plan_store/jobs
+    11k + scripts 16k + harness 2k = 132k (+ tests by grep, design by grep: material ~150k, expected Opus 230-300k);
+    SURFACE cli 25k + hub surface 17k + words 3k + contract 10k + hub-ui 25k + docs 20k = 100k (material ~115k,
+    expected 180-250k). Tests diff 183k (grep only). Waiting for the user's go on these sizes.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
