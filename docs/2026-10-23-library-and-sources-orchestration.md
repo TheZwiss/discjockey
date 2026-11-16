@@ -518,7 +518,8 @@ Results:
     (diff vs merge-base, tokens = chars/4): SAFETY api 32k + engine 61k + call/worker 10k + registry/plan_store/jobs
     11k + scripts 16k + harness 2k = 132k (+ tests by grep, design by grep: material ~150k, expected Opus 230-300k);
     SURFACE cli 25k + hub surface 17k + words 3k + contract 10k + hub-ui 25k + docs 20k = 100k (material ~115k,
-    expected 180-250k). Tests diff 183k (grep only). Waiting for the user's go on these sizes.
+    expected 180-250k). Tests diff 183k (grep only). I stopped for a go on the sizes; user: "why did you stop?" (the
+    standing go covers it; telling the size is enough). Safety half (Opus) RUNNING → phase1/phase-review-safety.md.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
