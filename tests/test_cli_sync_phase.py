@@ -331,6 +331,6 @@ def test_golden_the_page_of_the_phase_alone(lib, capsys, tmp_path):
     assert code == OK and "sync_run" in WRITES
     text = out.replace(str(tmp_path), "<tmp>")
     text = re.sub(r"report:\d{4}-\d{2}-\d{2}_\d{6}", "report:<stamp>", text)
-    text = re.sub(r"\d{8}T\d{6}Z", "<backup>", text)
+    text = re.sub(r"\d{8}T\d{6}Z(?:-\d+)?", "<backup>", text)
     check_golden("sync_run", text)
     assert "Your turn: " in err and "Next: batch show aiff:1" in err
