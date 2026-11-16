@@ -566,7 +566,11 @@ Results:
     FD done a7fb373a + static 100c7365: Sonnet **162k** (76 calls; pytest 5645 passed + 1 check_public fail from the
     uncommitted static, green after the static commit; svelte-check 0, vitest 1595): W-1 (b) documented + test,
     W-2..W-8, W-10 (views search via search_fold); L-3 nothing (settings set auto-upgrade is built). Issue 39
-    ~15.22M, phase 1 ~13.10M. FE (docs D-2..D-19 + D-1 text + U9 + S3 + W-9 + W-11) RUNNING.
+    ~15.22M, phase 1 ~13.10M. FE (docs D-2..D-19 + D-1 text + U9 + S3 + W-9 + W-11)
+    FE done b937aa19: Sonnet **158k** (62 calls; 5646 passed in 73.8 s): all docs findings applied, texts checked
+    against the code now; D-8 skip also covers the aiff/preview lock drivers. D-3 not applied (its pick is a code
+    change: job flags silently accepted on commands that answer at once) → FF small Sonnet round. Issue 39 ~15.38M,
+    phase 1 ~13.26M. FF RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
