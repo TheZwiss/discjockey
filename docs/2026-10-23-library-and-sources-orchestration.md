@@ -718,6 +718,15 @@ Results:
     by the review's own "otherwise leave"); finding-9 tests checked by mutation. FOR PHASE REVIEW: `check done` with
     nothing open ends `ok` on the CLI's api but `changed` in the window's job (same method, two outcomes).
     Merged + main → 90cc0afe, pushed. Issue 39 ~8.67M.
+    V1.12 split in two (plan 200k). Part a 8a980af0: Sonnet **325k** (est. 190-260k; 130 calls; full 5356 passed).
+    Schema 10 `via` + scope (old console batches → terminal, scope null; terminal selections scope `selection`, not
+    shown in the window's Library Resume link; window `upgrade` now records `selection`); `batch resume aiff:<n>`,
+    `batch undo aiff:<n> --yes` + cli_first `batch_undo_preview`; not-stopped resume = refused/not_stopped; rehearsal
+    script's batch undo calls → `aiff:<n> --yes --wait 3600`; ceiling 95. Some early runs had DISCJOCKEY_SUPPORT=""
+    (shell vars not kept): checked, conftest's autouse `_scratch_support` covers every test and nothing in the real
+    support folder or library changed. FOR PHASE REVIEW: `parse_id("track:1", ("aiff",))` → unknown_id not
+    bad_id_kind; `batch resume` without id = argparse words; window "Undo all" still sends `undo_upgrade` with track
+    ids (design row wants `batch_undo`). Issue 39 ~8.99M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
