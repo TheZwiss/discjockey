@@ -10,6 +10,7 @@ from discjockey.rekordbox import process as rekordbox_process
 # Tests that do not wait for what a test does not need (each module says what it changes and the marker that turns it
 # off): importing a fixture here is what registers it.
 import tool_memo
+from speed_durability import _durability  # noqa: F401
 from speed_locks import _short_lock_waits  # noqa: F401
 from speed_sqlcipher import _fast_sqlcipher_key  # noqa: F401
 from tool_memo import _real_tools  # noqa: F401
