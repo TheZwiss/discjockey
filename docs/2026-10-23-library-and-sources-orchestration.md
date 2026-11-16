@@ -553,7 +553,11 @@ Results:
     FB done baa6d4fc: Sonnet **195k** (68 calls; 5625 passed in 85.2 s): C-3..C-7, C-15, C-19, S-9 recorder fixed;
     C-2 except `report show` (needs C-9's resolver → FC1); login rows folded into one command (C-5 pick a).
     Issue 39 ~14.70M, phase 1 ~12.58M. FC split by the record (13 items ≈ 240k > 190k): FC1 ids C-1, C-9 (+ C-2's
-    report show), C-10, C-11, C-16, C-17; FC2 render/words C-8, C-12, C-13, C-14, C-18, C-20. FC1 RUNNING.
+    report show), C-10, C-11, C-16, C-17; FC2 render/words C-8, C-12, C-13, C-14, C-18, C-20.
+    FC1 done 9f67721a: Sonnet **142k** (80 calls; 5631 passed in 82.2 s; svelte-check 0, bridge vitest 211): C-1
+    (unknown key = bad_args/unknown_id, real resolver in write fixtures), C-2 report show, C-9 (report:<stamp>|stamp|
+    last; run_summary.id), C-10, C-11 (aiff_id on check items), C-16, C-17. Leftovers to FC2: report page prints Run
+    id + Id twice; NO_REPORT words name the unbuilt `report list`. Issue 39 ~14.84M, phase 1 ~12.72M. FC2 RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
