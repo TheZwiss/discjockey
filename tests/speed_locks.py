@@ -4,8 +4,8 @@ import pytest
 # A lock another process holds is answered "busy" after a short wait, not after two seconds.
 #
 # Production waits up to 2 s for `rekordbox.lock` and the support lock (a reader's shared hold is brief) before it
-# answers busy. About a hundred tests hold the lock themselves and expect exactly that answer, and each one used to sit
-# out the full 2 s. Here the waits are 0.4 s; the production values stay as they are, and
+# answers busy. The tests that hold the lock themselves expect exactly that answer, and each one used to sit out the
+# full 2 s. Here the waits are 0.4 s; the production values stay as they are, and
 # tests/test_locks.py pins them and the full 2 s wait (`real_lock_waits`).
 
 TEST_LOCK_WAIT_S = 0.4

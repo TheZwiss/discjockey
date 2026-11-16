@@ -67,7 +67,7 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `scripts/import_signing_identity.sh` | CI: imports the "Discjockey Release" identity from its `.p12` (`SIGNING_P12_PASSWORD`) into its own keychain in `DISCJOCKEY_SIGNING_DIR` |
 | `.github/workflows/` | `check.yml`: every push and pull request (public check, pytest with the pinned tools, committed `hub/static` matches a fresh hub-ui build; not `npm run verify`); `release.yml`: a `v*` tag → the same checks, the signed app, its self-test, the .dmg on a **draft** release. Both run only in `TheZwiss/discjockey` |
 | `dist/` | Build output (gitignored): `app/`, the .dmg, `tools/`, `licenses/` + `bundled-sources.txt` (what they cover), `ui/` (the check build), `cache/` (downloads by hash, the ffmpeg build by its recipe), `build/venv`, `work/` |
-| `tests/` | pytest. `conftest.py` blocks network + PyPI, stubs yt-dlp, points `DISCJOCKEY_REKORDBOX` at an empty folder and answers "rekordbox isn't running"; helpers `hub_`, `audio_`, `tools_`, `rekordbox_helpers.py` (`make_master` builds a rekordbox library) |
+| `tests/` | pytest. `conftest.py` blocks network + PyPI, stubs yt-dlp, points `DISCJOCKEY_REKORDBOX` at an empty folder and answers "rekordbox isn't running"; helpers `hub_`, `audio_`, `tools_`, `rekordbox_helpers.py` (`make_master` builds a rekordbox library); the speed-ups of `speed_*.py` and `tool_memo.py` (SQLCipher key once per key, lock waits 0.4 s, repeated ffprobe/ffmpeg answered from memory, no drive flushes) each have an opt-out marker `real_*` for the test that pins the real thing (CONTRIBUTING.md, Tests) |
 | `docs/hub-design-language.md` | **Living. Read first for any UI work:** the hub's design rules with do/don't, the blocks, the rule checker, Sync as the reference page |
 | `docs/hub-page-brief.md` | The playbook a page agent follows to redesign one hub page (phase 2) |
 | `docs/hub-bridge-contract.md` | Living contract between `discjockey/hub` and `hub-ui`, pinned by tests |
@@ -178,7 +178,7 @@ their Qobuz daily limit. Long commands run in the background with a status line.
   show it) looked at by you. Ask the user only for what needs a human: sound, feel, rekordbox, decisions.
 - **Scale the checks to the change; the full suite runs once.** `npm run verify` takes about 20 minutes (its rule
   checker shoots every page), so it runs **once per branch, before the merge**, never after each fix or review round.
-  The full Python suite runs in parallel (pytest-xdist, `-n auto` is the default) in about 25 s: run it once at the
+  The full Python suite runs in parallel (pytest-xdist, `-n auto --dist worksteal` is the default) in about a minute: run it once at the
   end of a task, with `| tail -3`, never after each edit. CI (`check.yml`) runs it again on every branch push.
   While working and for a fix, check only what changed: `npm run check`, the touched tests
   (`npx vitest run <file>`, `uv run pytest -q tests/test_<x>.py`), `npm run rules -- --page P --only <shots>` for

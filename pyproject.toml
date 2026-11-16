@@ -28,8 +28,9 @@ package = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-# Parallel by default (pytest-xdist): the full suite drops from many minutes to about 25 s.
-addopts = ["-n", "auto"]
+# Parallel by default (pytest-xdist; worksteal hands the slow tests of a busy worker to an idle one): the full suite
+# runs in about a minute on an M1 Pro. tests/conftest.py makes it that fast (see CONTRIBUTING.md, Tests).
+addopts = ["-n", "auto", "--dist", "worksteal"]
 markers = [
     "real_durability: the test runs with the real drive flushes (F_FULLFSYNC, synchronous = FULL, fullfsync); tests/speed_durability.py turns them off otherwise",
     "real_tools: the test runs every ffprobe and ffmpeg for real (tests/tool_memo.py answers a repeat on the same bytes otherwise)",
