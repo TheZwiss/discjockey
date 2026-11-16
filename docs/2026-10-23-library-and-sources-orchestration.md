@@ -493,8 +493,7 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     **STATE 2026-11-16 ~midday (before a compact): USER SAID "pause after this agent is done".** RUNNING: V1.14 fix
-    round DONE 8ebb70f9 (200k, 5489 passed, logged below the V1.14 review entry). PAUSED: wait for the user's go
-    (no rehearse-sync until then).
+    round DONE 8ebb70f9; rehearse-sync PASS; V1.14 MERGED (1444f8fe). User go again 2026-11-16 afternoon → V1.15 next.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
@@ -823,6 +822,11 @@ Results:
     hold_library=False, `*_held` variants; set_music_folder reordered); sync's own Qobuz config/Spotify token saves
     still take support inside library → issue 42 in docs/issues.md (number free on main; check other branches at
     merge). Lock-order sentence in CLAUDE.md. Issue 39 ~12.25M. Paused by the user after it.
+    User go 2026-11-16 afternoon ("continue"): through to phase 1 merged into main; AFTER phase 1 discuss with the
+    user: Opus plan + Fable advisor + Sonnet build vs the current setup (bring measured cost per role).
+    V1.14 rehearse-sync (made-up): Sonnet **96k** (est. 120-200k; 14 calls): 152 PASS, 0 FAIL, 8 NOTE; first runs
+    failed only on the fake (spare MP3 had no cues → correctly upgraded, not refused); build_fake.py fixed in
+    scratchpad/rehearsal-v1.14/; repo unchanged. V1.14 merged → phase branch 1444f8fe (issue 42 unique). Issue 39 ~12.35M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
