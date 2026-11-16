@@ -493,7 +493,7 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
-    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). RUNNING: V1.13a.
+    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). V1.13a fa5da9be. RUNNING: V1.13b.
    
     NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
     master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
@@ -766,6 +766,11 @@ Results:
     V1.13 split: part a = facts split (`read_facts`/`store_facts`, `HubApi.fill_facts`, `library facts`), dry-run facts
     in memory + 50-file limit, `HubApi.resolve("collection")`, `plan_id` on convert/rename/make_aiff; part b = `aiff
     convert`/`aiff rename` commands, convert_cmd.py removal + rehearse-convert + docs, carry #9.
+    Part a fa5da9be: Sonnet **303k** (est. 190-260k; 90 calls; full 5383 passed). `read_facts`/`store_facts`,
+    `aiff_plan.with_facts` (≤50 in memory, else `FactsMissing` → refused/facts_missing), `CliApi.fill_facts` +
+    `facts_preview`, `library facts`; `resolve("collection")` → `{view, key}`; `plan_id` on convert/rename/make_aiff
+    (a plan with nothing left = refused/changed; only an empty plan = ok total 0); contract doc only (window sends no
+    plan_id); ceiling 92. Issue 39 ~10.21M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
