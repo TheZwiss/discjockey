@@ -493,7 +493,7 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
-    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). V1.13a fa5da9be + b e0968bea. Review done. RUNNING: V1.13 fix round.
+    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). V1.13a fa5da9be + b e0968bea. Review done. Fix 9dbd3472. RUNNING: V1.13 rehearse-convert.
    
     NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
     master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
@@ -784,6 +784,9 @@ Results:
     refuses, the window plans on stored facts as before; #3 T9 exempts jobs/ for every RJ dry run, non-RJ dry runs
     leave no jobs/ (FOR PHASE REVIEW: amend the design/plan sentence "exactly its plan"); #5 leave, document. Next: fix
     round, then rehearse-convert on made-up data. Issue 39 ~10.89M.
+    V1.13 fix 9dbd3472: fix-round **193k** (est. 150-200k; 116 calls; full 5429 passed): all 10 fixed, Importants
+    test-first; rename --all --plan follows the plan rule; window plans on stored facts; `folder:` outside Library =
+    unknown_id. Issue 39 ~11.08M. Next: rehearse-convert (Sonnet, made-up source).
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
