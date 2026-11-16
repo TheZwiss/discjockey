@@ -347,7 +347,6 @@ def test_prepare_decides_the_scan_from_dry_run_unless_told(lib, monkeypatch):
 
 # --- the dry run of `upgrade apply` (part b): the engine's preview, through the real catalogue rows ---
 
-import dataclasses  # noqa: E402
 
 from discjockey.hub import api as api_module  # noqa: E402
 
@@ -451,6 +450,7 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "upgrade apply": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
     "upgrade discard": [({"track_ids": "all-tracks"}, {})],
     "track undo": [({"track_ids": "all-tracks"}, {})],
+    "batch undo": [({"batch_id": "a-batch"}, {})],
 }
 
 
@@ -462,9 +462,14 @@ def t9_cases():
 @pytest.mark.parametrize("command,args,flags", t9_cases(), ids=lambda v: str(v) if isinstance(v, str) else "")
 def test_t9_a_dry_run_changes_no_byte_outside_plans_and_cache(upgrades, command, args, flags):
     lib = upgrades
-    (entry,) = [dataclasses.replace(e, planned=None) for e in catalog.ENTRIES
-                if " ".join(e.command) == command and e.dry_run]
+    (entry,) = [e for e in catalog.ENTRIES if " ".join(e.command) == command and e.dry_run and e.planned is None]
     args = {k: (lib.tracks if v == "all-tracks" else v) for k, v in args.items()}
+    if args.get("batch_id") == "a-batch":  # a batch of the first song, done (what an undo would look at)
+        with db.connect(lib.paths.db_file) as conn:
+            batch = db.start_aiff_batch(conn, "upgrade", "user", "selection", [(lib.tracks[0], "same_track")],
+                                        datetime(2026, 11, 16, 9, 0, 0))
+            db.set_aiff_item(conn, batch, 0, "done", None, {})
+        args["batch_id"] = f"aiff:{batch}"
     support, music, rekordbox = lib.paths.support, lib.paths.root, lib.folder
     skip = (support / "plans", support / "cache")
     before = [snapshot(f, skip) for f in (support, music, rekordbox)]

@@ -82,7 +82,7 @@ NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
 NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
 CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
-NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo"))  # run on what is there when --yes comes: no plan to run
+NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -333,6 +333,7 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
 class HubApi:
     _skipped_check_is_ok = False  # the window's job ends `changed` when no named track had a check; the command line's is ok, the rows skipped
     _resume_first = False  # the command line refuses Upgrade all while a stopped upgrade batch waits (the window hides it)
+    _via = "window"  # where the batches this api starts say they started (`CliApi`: terminal)
 
     def __init__(self, support: Path, events=None, services: Services | None = None, media=None,
                  remember: bool = True):
@@ -2052,9 +2053,10 @@ class HubApi:
 
     def _rekordbox_services(self) -> dict:
         """The sync's Auto-upgrade phase talks to rekordbox through the hub's services (tests and the fake never touch
-        a real one): whether it runs, where its library is, and how two files are compared."""
+        a real one): whether it runs, where its library is, and how two files are compared; `via` is where the sync's
+        Auto-upgrade batch says it started."""
         return {"running": self._svc.rekordbox_running, "place": self._svc.rekordbox_place(),
-                "compare": self._svc.compare, "now": self._svc.now}
+                "compare": self._svc.compare, "now": self._svc.now, "via": self._via}
 
     def _rekordbox_options(self, ctx, state: dict) -> dict:
         return {"emit": ctx.emit, "token": ctx.token, "now": self._svc.now, "state": state,
@@ -2122,7 +2124,7 @@ class HubApi:
                 raise OpProblem(str(batches.Refused(empty)) if scope["kind"] == "tracks" else plans.NOTHING_TO_CHANGE,
                                 "refused")
             batch_id = batches.start(self._paths, found.actions(), started_by=started_by, scope=batch_scope,
-                                     now=self._svc.now)
+                                     via=self._via, now=self._svc.now)
             return self._run_batch(ctx, state, recovered, batch_id, False, alone, left)
         return work
 
@@ -2281,8 +2283,8 @@ class HubApi:
         track = ids[0] if len(ids) == 1 and not left else None
         if mode == "same_track":
             work = self._batch_work(lambda: batches.start(
-                self._paths, [(t, "same_track") for t in ids], started_by="user", now=self._svc.now), None,
-                alone=len(ids) == 1, left=left, extra=extra)
+                self._paths, [(t, "same_track") for t in ids], started_by="user", scope="selection", via=self._via,
+                now=self._svc.now), None, alone=len(ids) == 1, left=left, extra=extra)
             return {"job_id": self._jobs.start("upgrade_batch", work, track_id=track, batch_kind="upgrade").id}
         action = NEW_TRACK_ACTION[mode]
         return {"job_id": self._jobs.start(f"upgrade_{action}", self._each_work(ids, action, left=left, extra=extra),
@@ -2311,8 +2313,8 @@ class HubApi:
         if plan_id is not None:
             ids, left, extra = self._plan_run(plan_id, "same_track", ids, state)
         work = self._batch_work(lambda: batches.start(
-            self._paths, [(t, "same_track") for t in ids], started_by="upgrade_all", now=self._svc.now), None,
-            alone=False, left=left, extra=extra)
+            self._paths, [(t, "same_track") for t in ids], started_by="upgrade_all", via=self._via,
+            now=self._svc.now), None, alone=False, left=left, extra=extra)
         return {"job_id": self._jobs.start("upgrade_batch", work, batch_kind="upgrade").id}
 
     def _selection_job(self, kind_only: str | None, track_ids: list[str], origin: str):
@@ -2322,7 +2324,8 @@ class HubApi:
         if origin not in AIFF_ORIGINS:
             raise ValueError(f"origin must be one of {', '.join(AIFF_ORIGINS)}")
         scope = self._aiff_scope({"kind": "tracks", "tracks": track_ids})
-        work = self._aiff_work(scope, only=kind_only, started_by="user", batch_scope=f"{origin}:selection")
+        work = self._aiff_work(scope, only=kind_only, started_by="user",
+                               batch_scope="selection" if self._via == "terminal" else f"{origin}:selection")
         return {"job_id": self._jobs.start("aiff_batch", work,
                                            track_id=scope["tracks"][0] if len(scope["tracks"]) == 1 else None,
                                            batch_kind="convert").id}
@@ -2370,7 +2373,7 @@ class HubApi:
         "batch_resume"); the result is a BatchResult. The job snapshot's `batch_kind` is the stopped batch's own kind."""
         row = self._stopped_aiff(batch_id)
         if row.state != "stopped":
-            raise ValueError(NOT_STOPPED)
+            raise OpProblem(NOT_STOPPED, "refused", reason="not_stopped")
         return {"job_id": self._jobs.start("batch_resume", self._batch_work(None, batch_id, alone=False),
                                            batch_kind=row.kind).id}
 
@@ -2962,6 +2965,7 @@ class CliApi(HubApi):
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
+    _via = "terminal"
 
     # --- plans (design §7.1): the command line's call path saves a dry run's plan (`save_plan`) and says when its scan
     # was (`scan_next`); a write method that takes `plan_id` binds it (`HubApi._bind_plan`). Plain methods, not bridge
@@ -2991,7 +2995,9 @@ class CliApi(HubApi):
         method with no words says nothing."""
         if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
             return self._upgrade_words(result)
-        if method == "undo_upgrade" and isinstance(result.get("results"), list):
+        if method == "batch_resume" and isinstance(result.get("results"), list):
+            return self._upgrade_words(result)
+        if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
             return self._undo_words(result)
         if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
             return self._checked_words(result)
@@ -3291,6 +3297,15 @@ class CliApi(HubApi):
         return batches.track_undo_preview(self._state(), ids, self._svc.rekordbox_running(), self._paths.root)
 
     @cli_first
+    def batch_undo_preview(self, batch_id: int) -> dict:
+        """What `batch_undo` of this AIFF batch would do, before it runs (design §7.4: the dry run of `batch undo
+        aiff:<n>`): `{batch: "aiff:<n>", total, planned, skipped, items, rekordbox}` as `undo_upgrade_preview` answers it, one
+        item per `done` song of the batch, newest first (the order an undo goes). A song `upgrades.can_undo` says no to is
+        `skipped` with its reason and words. Reads only; whether a file changed since is only known when the undo runs."""
+        self._stopped_aiff(batch_id)
+        return batches.batch_undo_preview(self._paths, self._state(), batch_id, self._svc.rekordbox_running())
+
+    @cli_first
     def batches(self, kind: str | None = None, limit: int = 20) -> dict:
         """The batches Discjockey made, AIFF batches (Same track, Convert, Rename) and move batches (tidy-ups, saves,
         folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them). `{batches, total}`;
@@ -3298,7 +3313,8 @@ class CliApi(HubApi):
         `moves:12`, the id every other command takes), `kind`, `what` (an AIFF batch's `upgrade` | `convert` | `mixed`; a
         move batch's title), `started_by`, `state` (`running` | `stopped` | `done`), `stop_reason`, `started`, `ended`,
         `total`, `done`, `skipped`, `failed`, `planned`, `undone` (items; for a move batch `done` is the files moved),
-        `backup` (the rekordbox backup an AIFF batch made), and for a move batch `undone_by` (the id of the batch that
+        `backup` (the rekordbox backup an AIFF batch made), `via` (`window` | `terminal`: where it started), `scope` (what
+        was picked for an AIFF batch: `selection`, `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the batch that
         undid it). `limit` 0 is every batch."""
         if kind not in (None, *BATCH_KINDS):
             raise BadId("bad_id_kind", f"A batch kind is aiff or moves, not {kind}.")

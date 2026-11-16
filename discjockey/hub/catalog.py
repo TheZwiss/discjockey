@@ -80,6 +80,7 @@ PHASE = "phase 1"
 CONFIRM: dict[str, str] = {
     "upgrade discard": "Throw away the new versions? Your current files stay. These versions are not offered again.",
     "track undo": "Undo the last step of these tracks? Your old files go back where they were.",
+    "batch undo": "Undo every step this batch did? Your old files go back where they were.",
 }
 
 
@@ -273,8 +274,11 @@ ENTRIES: tuple[Entry, ...] = (
     _e("convert", "aiff convert", "J", params={"track_ids": TRACKS}, dry_run="aiff_plan"),
     _e("rename", "aiff rename", "J", params={"track_ids": TRACKS}, dry_run="aiff_plan"),
     _e("make_aiff", "aiff convert", "J", params=SCOPE, dry_run="aiff_plan"),
-    _e("batch_resume", "batch resume", "J", params={"batch_id": _positional("aiff", type="int")}),
-    _e("batch_undo", "batch undo", "J", params={"batch_id": _positional("aiff", type="int")}, needs_yes=True),
+    _e("batch_resume", "batch resume", "J", "batch resume aiff:1", params={"batch_id": _positional("aiff", type="int")},
+       built=True, locks={"library", "rekordbox_w"}, partial=UPGRADE_PARTIAL),
+    _e("batch_undo", "batch undo", "J", "batch undo aiff:1 --dry-run", params={"batch_id": _positional("aiff", type="int")},
+       needs_yes=True, dry_run="batch_undo_preview", built=True, locks={"library", "rekordbox_w"},
+       partial=UNDO_PARTIAL),
     _e("undo_upgrade", "track undo", "J", "track undo t1aaaaaaa --dry-run", params={"track_ids": TRACKS}, needs_yes=True,
        dry_run="undo_upgrade_preview", built=True, locks={"library", "rekordbox_w"}, partial=UNDO_PARTIAL),
     _e("upgrade", "upgrade apply", "J",
@@ -309,6 +313,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("upgrade_preview", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("undo_upgrade_preview", "", "R", cli_first=True, built=True),
+    _e("batch_undo_preview", "", "R", cli_first=True, built=True),
     _e("result_words", "", "R", cli_first=True, built=True),
     _e("fill_facts", "", "J", cli_first=True),
     _e("auto_upgrade_preview", "", "R", cli_first=True),

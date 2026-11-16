@@ -810,7 +810,7 @@ time: open rekordbox once and quit it normally).
 /Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups
 /Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox restore <name> --yes
 /Applications/Discjockey.app/Contents/MacOS/Discjockey batch list
-/Applications/Discjockey.app/Contents/MacOS/Discjockey batch undo <number>
+/Applications/Discjockey.app/Contents/MacOS/Discjockey batch undo aiff:<number> --yes
 # In a checkout of the code, bin/discjockey takes the place of the long path.
 ```
 

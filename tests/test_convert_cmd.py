@@ -13,6 +13,7 @@ import pytest
 
 from batch_helpers import Lib, make_own_lib, needs_ffmpeg, use
 from discjockey import batch_cmd, batches, cli, convert_cmd, db, library
+from discjockey.cli import legacy
 from discjockey.events import CancelToken
 from discjockey.library import load_state
 from discjockey.rekordbox import backup as rbbackup
@@ -44,7 +45,10 @@ def make(tmp_path, monkeypatch, kinds: list[str] = KINDS) -> Lib:
 
 
 def run(argv: list[str], capsys) -> tuple[int, str, str]:
-    code = cli.main(argv)
+    """`batch resume` and `batch undo` of an AIFF batch are the new command line's (tests/test_cli_batch_write.py); this
+    file pins the old handler's words for a convert batch, which stay until `batch_cmd.py` goes, so those words go through
+    the old parser here."""
+    code = legacy.main(argv) if argv[:2] in (["batch", "resume"], ["batch", "undo"]) else cli.main(argv)
     out = capsys.readouterr()
     return code, out.out, out.err
 
@@ -421,7 +425,8 @@ def test_convert_songs_is_one_batch_started_by_the_user(tmp_path, monkeypatch, c
         "A/Artist - Song 2.aiff")
     with db.connect(lib.paths.db_file) as conn:
         row = db.aiff_batch(conn, 1)
-    assert (row.kind, row.started_by, row.scope, row.state) == ("convert", "user", "console", "done")
+    assert (row.kind, row.started_by, row.scope, row.via, row.state) == (
+        "convert", "user", "selection", "terminal", "done")
     assert [(i.action, i.state) for i in row.items] == [("convert", "done"), ("convert", "done"), ("rename", "done")]
 
 
@@ -452,7 +457,7 @@ def test_make_all_lossless_files_aiff_is_started_by_make_aiff_and_the_cdj_group_
     assert code == OK and [r["track"] for r in data["results"]] == [lib.tracks[0]]
     with db.connect(lib.paths.db_file) as conn:
         assert [(b.kind, b.started_by, b.scope) for b in (db.aiff_batch(conn, 1), db.aiff_batch(conn, 2))] == [
-            ("convert", "make_aiff", "console"), ("convert", "cdj_all", "console")]
+            ("convert", "make_aiff", "library:folder:Library/A"), ("convert", "cdj_all", "todo:cdj")]
 
 
 def test_rename_all_gives_the_names_and_is_started_by_the_user(tmp_path, monkeypatch, capsys):
@@ -566,7 +571,7 @@ def test_rekordbox_open_is_exit_4_and_resume_finishes_after_it_quit(tmp_path, mo
     (row,) = batch_rows(capsys)
     assert (row["state"], row["stop_reason"], row["planned"]) == ("stopped", "rekordbox_open", 3)
     code, out, _ = run(["rename", "--all"], capsys)                       # the same two files again: a new try, a new batch
-    assert code == REKORDBOX_OPEN and "discjockey batch resume 2" in out
+    assert code == REKORDBOX_OPEN and "discjockey batch resume aiff:2" in out
     rekordbox_open(monkeypatch, False)
     code, data = run_json(["batch", "resume", "2"], capsys)
     assert code == OK and (data["state"], data["done"]) == ("done", 2)
@@ -625,7 +630,7 @@ def test_batch_commands_work_on_a_stopped_convert_batch(tmp_path, monkeypatch, c
     assert code == STOPPED
     assert out.splitlines()[0] == "Done: Artist - Song 0 → Artist - Song 0.aiff"
     assert "Waiting: Artist - Song 1" in out and "Stopped after 1 of 3." in out
-    assert "Resume it with: discjockey batch resume 1" in out
+    assert "Resume it with: discjockey batch resume aiff:1" in out
     [row] = batch_rows(capsys)
     assert (row["id"], row["what"], row["started_by"], row["state"], row["stop_reason"], row["done"], row["planned"]) == (
         "aiff:1", "convert", "user", "stopped", "stop", 1, 2)

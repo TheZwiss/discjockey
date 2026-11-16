@@ -45,7 +45,8 @@ def run(argv: list[str], capsys) -> tuple[int, str, str]:
     """`upgrade apply` and `upgrade discard` are the new command line's now (tests/test_cli_upgrade.py); this file pins
     the old handler, which stays until V1.12 deletes it with `batch_cmd.py`, so those words go through the old parser
     here."""
-    code = legacy.main(argv) if argv[:2] in (["upgrade", "apply"], ["upgrade", "discard"]) else cli.main(argv)
+    old = (["upgrade", "apply"], ["upgrade", "discard"], ["batch", "resume"], ["batch", "undo"])  # V1.12: the new ones
+    code = legacy.main(argv) if argv[:2] in old else cli.main(argv)
     out = capsys.readouterr()
     return code, out.out, out.err
 
@@ -226,7 +227,7 @@ def test_rekordbox_lock_held_leaves_the_batch_stopped_and_resumable(tmp_path, mo
         assert [r["state"] for r in data["results"]] == ["planned", "planned"]
         batch = data["batch"]
         code, out, _ = run(["upgrade", "apply", "--all", *SAME], capsys)
-        assert code == BUSY and f"discjockey batch resume {batch + 1}" in out    # the human text names the way on
+        assert code == BUSY and f"discjockey batch resume aiff:{batch + 1}" in out    # the human text names the way on
         code, data = run_json(["batch", "undo", str(batch)], capsys)               # an undo writes rekordbox too
         assert code == BUSY and (data["ok"], data["kind"], data["message"]) == (False, "busy", rbsession.BUSY)
     assert (lib.music(), lib.dump()) == before
@@ -254,7 +255,7 @@ def test_rekordbox_open_is_exit_4_and_resume_finishes_after_it_quit(tmp_path, mo
     (row,) = batch_list(capsys)
     assert (row["id"], row["state"], row["stop_reason"], row["planned"]) == (f"aiff:{batch}", "stopped", "rekordbox_open", 2)
     code, out, _ = run(["batch", "resume", str(batch)], capsys)               # still open: still exit 4
-    assert code == REKORDBOX_OPEN and f"discjockey batch resume {batch}" in out
+    assert code == REKORDBOX_OPEN and f"discjockey batch resume aiff:{batch}" in out
     rekordbox_open(monkeypatch, False)
     code, data = run_json(["batch", "resume", str(batch)], capsys)
     assert code == OK and (data["state"], data["done"], data["batch"]) == ("done", 2, batch)
@@ -314,7 +315,7 @@ def test_a_batch_stopped_by_rekordbox_midway_tells_the_console_way_on(tmp_path, 
     code = batch_cmd._finish(args, lib.paths, load_state(lib.paths), (), batch, call)
     out = capsys.readouterr().out
     assert code == REKORDBOX_OPEN
-    assert f"stopped after 1 of 2. Quit rekordbox and run: discjockey batch resume {batch}." in out
+    assert f"stopped after 1 of 2. Quit rekordbox and run: discjockey batch resume aiff:{batch}." in out
     assert "press Resume" not in out                                      # that is the window's button
 
 
@@ -406,7 +407,7 @@ def test_stop_between_tracks_keeps_what_is_done_and_resume_goes_on(tmp_path, mon
     assert code == STOPPED
     assert out.splitlines()[0] == "Upgraded: Artist - Song 0 → Artist - Song 0.aiff"
     assert "Waiting: Artist - Song 1" in out and "Stopped after 1 of 3." in out
-    assert "Resume it with: discjockey batch resume 1" in out
+    assert "Resume it with: discjockey batch resume aiff:1" in out
     assert lib.entry(0)["path"].endswith("Song 0.aiff") and lib.entry(1)["path"] == lib.olds[1]
     code, env = run_json(["batch", "show", "aiff:1"], capsys)
     data = env["data"]

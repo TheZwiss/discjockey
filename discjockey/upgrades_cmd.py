@@ -76,7 +76,7 @@ def _choices(paths: Paths, state: dict, track_id: str, entry: dict, compare) -> 
 
 def _same_track(paths: Paths, state: dict, track_id: str, compare, now: Callable[[], datetime]) -> Result:
     """Same track as a batch of one (batches.run: the same session, backup and journal as a bigger batch)."""
-    batch = batches.start(paths, [(track_id, "same_track")], now=now)
+    batch = batches.start(paths, [(track_id, "same_track")], via="terminal", now=now)
     try:
         outcome = batches.run(paths, batch, compare=compare, now=now, state=state)
     except batches.Refused as err:

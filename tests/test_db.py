@@ -60,7 +60,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 9
+    assert int(version) == db.SCHEMA_VERSION == 10
     assert created == "2026-10-23T12:00:00"
 
 
@@ -1232,6 +1232,7 @@ def test_a_writer_upgrades_a_version_8_database_with_one_null_column_and_nothing
                                                                                             monkeypatch):
     path = version_8(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     before = everything(path)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 9)  # this step alone; 9 -> 10 has its own test
     with db.connect(path) as conn:
         assert "facts_failed" not in {r[1] for r in conn.execute("PRAGMA table_info(files)")}
         db.check(conn, upgrade=True)
@@ -1258,6 +1259,83 @@ def test_fresh_and_v8_upgraded_databases_have_the_same_schema(tmp_path, library,
 
 def test_a_reader_refuses_a_version_8_database(tmp_path, library, monkeypatch):
     path = version_8(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
+
+
+# --- issue 39 (command line, group 1.12): the schema step 9 -> 10 (`via` on both batch tables) ---
+
+def version_9(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as before the command line built it: version 9, batches without `via`."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 9)
+        m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in (1, 2, 3, 4, 5, 6, 7, 8)})
+        return fresh(tmp_path, library, state, facts)
+
+
+def old_batches(path):
+    """Two AIFF batches (one the console's, scope `console`, one the window's) and one move batch, as version 9 kept them."""
+    with db.connect(path) as conn:
+        conn.execute("INSERT INTO aiff_batches (kind, started_by, scope, started, state) VALUES "
+                     "('upgrade', 'user', 'console', '2026-11-01T10:00:00', 'done'), "
+                     "('convert', 'make_aiff', 'library:all', '2026-11-02T10:00:00', 'stopped')")
+        conn.execute("INSERT INTO aiff_items (batch, seq, track, action, state) VALUES (2, 0, 'sp1', 'convert', 'planned')")
+        conn.execute("INSERT INTO move_batches (started, started_by) VALUES ('2026-11-03T10:00:00', 'tidy')")
+
+
+def test_a_writer_upgrades_a_version_9_database_and_keeps_every_old_batch(tmp_path, library, monkeypatch):
+    path = version_9(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    old_batches(path)
+    before = everything(path)
+    with db.connect(path) as conn:
+        for table in ("aiff_batches", "move_batches"):
+            assert "via" not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        db.check(conn, upgrade=True)
+    after = everything(path)
+    meta = dict(after.pop("meta"))
+    assert meta.pop("schema_version") == "10"
+    assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
+    with db.connect(path) as conn:
+        for table in ("aiff_batches", "move_batches"):
+            assert [r[1] for r in conn.execute(f"PRAGMA table_info({table})")][-1] == "via"
+        # the console's batch was the terminal's and loses the scope that goes; every other old batch was the window's
+        assert conn.execute("SELECT id, scope, via FROM aiff_batches ORDER BY id").fetchall() == [
+            (1, None, "terminal"), (2, "library:all", "window")]
+        assert conn.execute("SELECT via FROM move_batches").fetchall() == [("window",)]
+    assert [row[:3] + row[4:-1] for row in after.pop("aiff_batches")] == [  # every other old column as it was
+        row[:3] + row[4:] for row in before.pop("aiff_batches")]
+    assert [row[:-1] for row in after.pop("move_batches")] == before.pop("move_batches")
+    assert after == before  # the items and everything else untouched
+
+
+def test_a_batch_says_where_it_started_and_only_window_or_terminal(tmp_path, library):
+    path = fresh(tmp_path, library)
+    with db.connect(path) as conn:
+        first = db.start_aiff_batch(conn, "upgrade", "user", "selection", [("sp1", "same_track")], NOW)
+        second = db.start_aiff_batch(conn, "upgrade", "user", "selection", [("sp1", "same_track")], NOW, via="terminal")
+        assert [db.aiff_batch(conn, b).via for b in (first, second)] == ["window", "terminal"]
+        moved = db.start_batch(conn, started_by="tidy", about=None, undoes=None, moves=[], now=NOW, via="terminal")
+        assert db.batch(conn, moved).via == "terminal"
+        with pytest.raises(ValueError, match="place a batch starts"):
+            db.start_aiff_batch(conn, "upgrade", "user", None, [("sp1", "same_track")], NOW, via="phone")
+        with pytest.raises(ValueError, match="place a batch starts"):
+            db.start_batch(conn, started_by="tidy", about=None, undoes=None, moves=[], now=NOW, via="phone")
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute("UPDATE aiff_batches SET via = 'phone'")  # the column refuses it too
+
+
+def test_fresh_and_v9_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_9(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
+
+
+def test_a_reader_refuses_a_version_9_database(tmp_path, library, monkeypatch):
+    path = version_9(tmp_path, library, monkeypatch)
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == db.OLDER

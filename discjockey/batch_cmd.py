@@ -262,7 +262,7 @@ def _problem(args: argparse.Namespace, state: dict, kind: str, message: str, cod
 
 
 def _resume_hint(result: dict) -> str | None:
-    return f"Resume it with: discjockey batch resume {result['batch']}" if result.get("batch") else None
+    return f"Resume it with: discjockey batch resume aiff:{result['batch']}" if result.get("batch") else None
 
 
 def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequence, batch_id: int,
@@ -303,7 +303,7 @@ def _finish(args: argparse.Namespace, paths: Paths, state: dict, recovered: Sequ
             message = batches.STOPPED_BY_REKORDBOX_CONSOLE.format(done=done, total=d["total"], batch=d["batch"])
             return _problem(args, state, "rekordbox_open", message, REKORDBOX_OPEN, d, recovered, "rekordbox_open")
         return _problem(args, state, "rekordbox_open", str(e), REKORDBOX_OPEN, d, recovered, "rekordbox_open",
-                        "After you quit rekordbox: discjockey batch resume " + str(d["batch"]))
+                        "After you quit rekordbox: discjockey batch resume aiff:" + str(d["batch"]))
     except batches.Busy as e:
         d = batches.result_of(paths, batch_id).to_dict()
         if (closed := unrun("busy", e, d, BUSY)) is not None:
@@ -473,7 +473,7 @@ def run_upgrade_apply(args: argparse.Namespace) -> int:
                          lambda key, e, up: upgrades.add_new(paths, state, key, up, align.compare_files,
                                                              now=datetime.now), "add")
         batch_id = batches.start(paths, [(t, "same_track") for t in tracks],
-                                 started_by="upgrade_all" if args.all else "user")
+                                 started_by="upgrade_all" if args.all else "user", via="terminal")
         return _finish(args, paths, state, recovered, batch_id, lambda token: batches.run(
             paths, batch_id, emit=_progress, token=token, compare=align.compare_files, state=state),
             alone=not args.all and len(tracks) == 1)

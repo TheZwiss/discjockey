@@ -84,7 +84,7 @@ STOPPED_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped after {done
                         "press Resume.")
 # the console's variant of the line above: there is no Resume button to press
 STOPPED_BY_REKORDBOX_CONSOLE = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox "
-                                "and run: discjockey batch resume {batch}.")
+                                "and run: discjockey batch resume aiff:{batch}.")
 STOPPED_UNDO_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped the undo after {done} of {total}. Quit "
                              "rekordbox and undo the rest.")
 _DEFAULT = object()
@@ -263,11 +263,13 @@ def tracks_of(paths, batch_id: int) -> list[str]:
 
 
 def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", scope: str | None = None,
-          now: Callable[[], datetime] = datetime.now) -> int:
+          via: str = "window", now: Callable[[], datetime] = datetime.now) -> int:
     """Records a batch of `items` ((song key, action) pairs, all `planned`) before anything runs; it starts
     `running`. Returns its id. The batch's kind follows its actions (plan stage D §0.13): `same_track` only →
-    `upgrade`, `convert` / `rename` only → `convert`, both → `mixed`. ValueError for no items, an action no batch
-    runs or an unknown starter."""
+    `upgrade`, `convert` / `rename` only → `convert`, both → `mixed`. `via` is where it started: `window` for a batch
+    the window starts, `terminal` for one a command starts; `scope` is what was picked (`selection`,
+    `library:<view>[:<key>]`, `todo:cdj`). ValueError for no items, an action no batch runs, an unknown starter or
+    an unknown place."""
     if not items:
         raise ValueError("a batch needs at least one track")
     for _, action in items:
@@ -277,7 +279,7 @@ def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", 
     kind = "upgrade" if actions == {"same_track"} else "convert" if "same_track" not in actions else "mixed"
     _close_planned_elsewhere(paths, {track for track, _ in items}, now)
     with db.connect(paths.db_file) as conn:
-        return db.start_aiff_batch(conn, kind, started_by, scope, list(items), now())
+        return db.start_aiff_batch(conn, kind, started_by, scope, list(items), now(), via)
 
 
 def _close_planned_elsewhere(paths, tracks: set[str], now: Callable[[], datetime]) -> None:
@@ -420,6 +422,16 @@ def track_undo_preview(state: dict, tracks: Sequence[str], rekordbox_running: bo
                                              for r in planned)
     return {"total": len(rows), "planned": len(planned), "skipped": len(rows) - len(planned), "items": rows,
             "rekordbox": {"running": rekordbox_running, "needs_rekordbox_closed": needs_closed}}
+
+
+def batch_undo_preview(paths, state: dict, batch_id: int, rekordbox_running: bool) -> dict:
+    """What `undo` of the whole batch would do (design §7.4: the dry run of `batch undo aiff:<n>`): `track_undo_preview`
+    of the batch's `done` items, newest first (the order an undo goes), with `batch` (`aiff:<n>`). A done item the
+    undo cannot put back is `skipped` with its reason and words (`upgrades.undo_blocker`). ValueError for a batch
+    that is not there."""
+    row = _row(paths, batch_id)
+    tracks = [i.track for i in reversed(row.items) if i.state == "done"]
+    return {"batch": f"aiff:{batch_id}", **track_undo_preview(state, tracks, rekordbox_running, paths.root)}
 
 
 def _needs_write(paths, state: dict, items: Sequence[tuple[str, str]]) -> Callable:

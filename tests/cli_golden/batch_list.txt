@@ -1,8 +1,8 @@
 Total  3
 
 Batches
-Id       Kind   Batch  What     Started by  State    Stop reason     Started              Ended                Total  Done  Skipped  Failed  Planned  Undone  Backup             Undone by
-aiff:2   aiff   2      convert  make_aiff   stopped  rekordbox_open  2026-11-12T18:30:00  none                 1      0     0        0       1        0       none               none
-moves:1  moves  1      Tidy-up  tidy        done     none            2026-11-11T12:00:00  2026-11-11T12:00:05  1      0     1        0       0        0       none               none
-aiff:1   aiff   1      upgrade  user        done     none            2026-11-10T09:00:00  2026-11-10T09:01:00  2      1     1        0       0        0       2026-11-10_090001  none
+Id       Kind   Batch  What     Started by  State    Stop reason     Started              Ended                Total  Done  Skipped  Failed  Planned  Undone  Backup             Undone by  Via     Scope
+aiff:2   aiff   2      convert  make_aiff   stopped  rekordbox_open  2026-11-12T18:30:00  none                 1      0     0        0       1        0       none               none       window  none
+moves:1  moves  1      Tidy-up  tidy        done     none            2026-11-11T12:00:00  2026-11-11T12:00:05  1      0     1        0       0        0       none               none       window  none
+aiff:1   aiff   1      upgrade  user        done     none            2026-11-10T09:00:00  2026-11-10T09:01:00  2      1     1        0       0        0       2026-11-10_090001  none       window  none
 3 of 3 shown

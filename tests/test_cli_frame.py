@@ -70,7 +70,8 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
     (["upgrade", "apply", "--all"], "new"), (["upgrade", "discard", "t1"], "new"),
     (["upgrade", "undo", "t1"], "legacy"), (["rekordbox", "checked", "t1"], "legacy"), (["track", "undo", "t1"], "new"),
     (["check", "done", "--all"], "new"),
-    (["batch", "list"], "new"), (["batch", "show", "aiff:1"], "new"), (["batch", "resume", "1"], "legacy"),
+    (["batch", "list"], "new"), (["batch", "show", "aiff:1"], "new"), (["batch", "resume", "aiff:1"], "new"),
+    (["batch", "undo", "aiff:1", "--yes"], "new"),
     (["convert", "--all", "lossless"], "legacy"), (["hub"], "new"),
     (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "legacy"), (["settings", "auto-upgrade"], "legacy"),
     (["rekordbox", "status"], "new"), (["--json", "rekordbox", "status"], "new"), (["call", "quit"], "new"),
@@ -271,7 +272,7 @@ def test_call_reads_its_arguments_from_stdin(monkeypatch, capsys):
     (["call", "quit"], "closes the window"),
     (["call", "pick_folder"], "dialog"),
     (["call", "media_url"], "not offered"),
-    (["call", "batch_resume"], "not built yet"),
+    (["call", "tidy_up"], "not built yet"),
     (["call", "no_such_method"], "no method"),
     (["call", "rekordbox_status", "--args", "{\"nope\": 1}"], "no argument nope"),
     (["call", "rekordbox_status", "--args", "not json"], "not JSON"),
@@ -305,12 +306,12 @@ def test_call_refuses_a_secret_inside_args(capsys):
 
 
 def test_call_and_noun_verb_refuse_without_yes(monkeypatch):
-    entry = replace(catalog.by_method("batch_undo")[0], planned=None, kind="B")
-    env = call.run(entry, {"batch_id": 1}, parser.Flags())
-    assert (env["outcome"], env["reason"]) == ("refused", "needs_yes") and env["command"] == "batch undo"
+    entry = replace(catalog.by_method("setup_forget_account")[0], planned=None, kind="B")  # needs --yes, no dry run
+    env = call.run(entry, {"service": "youtube"}, parser.Flags())
+    assert (env["outcome"], env["reason"]) == ("refused", "needs_yes") and env["command"] == "login sign-out"
     monkeypatch.setattr(catalog, "ENTRIES", (entry,))
     flags = parser.Flags()
-    env = call.run_method("batch_undo", {"batch_id": 1}, flags)
+    env = call.run_method("setup_forget_account", {"service": "youtube"}, flags)
     assert env["reason"] == "needs_yes"
 
 

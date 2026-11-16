@@ -13,7 +13,7 @@ finds the files, asks the plan, starts the batch and prints the way it ended. It
 
 `--dry-run` prints the plan (human lines, or `{"ok": true, "dry_run": true, "plan": AiffPlan.to_dict()}`) and starts
 nothing. A run takes the library lock, finishes interrupted steps (`library.recover_pending`), plans and starts one
-AIFF batch (`batches.start`, scope `console`) that `batch_cmd._finish` runs: the exit codes 0-5, the `--json` shapes and
+AIFF batch (`batches.start`, `via` terminal, scope as `_batch_scope` says) that `batch_cmd._finish` runs: the exit codes 0-5, the `--json` shapes and
 Ctrl-C are exactly those of `upgrade apply` (batch_cmd's docstring). A plan with nothing in it is exit 1,
 `{"ok": false, "kind": "refused", "reason": "nothing_to_do", "message", "batch": null, "results": [], "plan"}`;
 `bad_args` (exit 1) is a combination of arguments that means nothing, or an `--in` playlist or folder that doesn't exist
@@ -278,6 +278,16 @@ def _dry_run(args: argparse.Namespace, paths: Paths, job: Job) -> int:
     return OK
 
 
+def _batch_scope(scope: dict) -> str:
+    """What the batch records as its scope: `selection` for named songs, `todo:cdj` for the CDJ group, else
+    `library:<view>[:<key>]`."""
+    if scope["kind"] == "tracks":
+        return "selection"
+    if scope["kind"] == "cdj":
+        return "todo:cdj"
+    return "library:" + ":".join(p for p in (scope["view"], scope.get("key")) if p)
+
+
 def _run(args: argparse.Namespace, paths: Paths, state: dict, recovered: list, job: Job) -> int:
     try:
         _check_view(paths, state, job)  # before the fill: a typo costs no reading
@@ -290,7 +300,8 @@ def _run(args: argparse.Namespace, paths: Paths, state: dict, recovered: list, j
     if not plan.total:
         return _nothing(args, plan, job, recovered)
     left = [batches.ItemResult(s.track, job.action, "skipped", s.reason, s.message, None, None) for s in plan.skipped]
-    batch_id = batches.start(paths, plan.actions(), started_by=job.started_by, scope="console")
+    batch_id = batches.start(paths, plan.actions(), started_by=job.started_by, scope=_batch_scope(job.scope),
+                             via="terminal")
     emit = _progress(plan)
     return batch_cmd._finish(
         args, paths, state, recovered, batch_id,

@@ -17,8 +17,8 @@ beside the library it starts from.
 copies in `W/music/Library/Rehearsal/` with Discjockey's own writer (and edits one title, a user edit to keep), makes
 a scratch Discjockey library (`W/support`, music folder `W/music`) with the copies as own songs and per track a parked
 upgrade rendered from its own audio, takes the "before" picture, runs `bin/discjockey upgrade apply --all --way
-same-track --json` and `bin/discjockey batch undo <id> --json` with `DISCJOCKEY_SUPPORT` and `DISCJOCKEY_REKORDBOX`
-pointing into `W`, and checks each step with Discjockey's reader. It prints one PASS/FAIL line per check (tracks by
+same-track --json` and `bin/discjockey batch undo aiff:<id> --yes --json` with `DISCJOCKEY_SUPPORT` and
+`DISCJOCKEY_REKORDBOX` pointing into `W`, and checks each step with Discjockey's reader. It prints one PASS/FAIL line per check (tracks by
 their labels only) and writes `W/report.json`. Exit code 0 when every check passes, 1 otherwise, 2 when it refuses.
 `rehearse-sync` (plan stage C §7 RH): the same copies, but the sync's Auto-upgrade phase instead of `upgrade apply`;
 see its docstring. `rehearse-convert` (plan stage D §7.1): Convert to AIFF, Give it its clean name, Make all lossless
@@ -694,7 +694,7 @@ def check_backup(work: Path, picks: list[dict], ctx: dict, before_sha: str, batc
 def check_undo(work: Path, picks: list[dict], ctx: dict, before: dict, undone: dict, music_before: dict,
                share_before: dict, code: int, result: dict, checks: Checks, own: bool = False) -> None:
     """`own`: the songs are the user's own files (Convert, Rename): no parked downloads, no upgrade waiting."""
-    checks.add("step 7 batch undo ran", code == 0, f"exit {code}, ok {result.get('ok')}")
+    checks.add("step 7 batch undo ran", code == 0, f"exit {code}, outcome {result.get('outcome')}")
     music_now = tree(ctx["paths"].root, skip=".discjockey")
     checks.add("step 7 every audio file back, byte-identical", music_now == music_before,
                f"{len(music_before)} files before, {len(music_now)} now; differing "
@@ -802,7 +802,7 @@ def rehearse(work: Path, edit_title: str | None) -> int:
         check_backup(work, picks, ctx, before_sha, run["batch"], checks)
 
         print(f"Step 7: batch undo {run['batch']}")
-        code, result = discjockey(work, "batch", "undo", str(run["batch"]), "--json")
+        code, result = discjockey(work, "batch", "undo", f"aiff:{run['batch']}", "--yes", "--wait", "3600", "--json")
         checks.add("step 7 no -wal/-shm beside the copy after the undo", not master.leftovers(rb_db))
         check_undo(work, picks, ctx, before, dump(rb_db), music_before, share_before, code, result, checks)
     (work / "report.json").write_text(json.dumps(checks.items, indent=1, ensure_ascii=False), encoding="utf-8")
@@ -1083,13 +1083,15 @@ def rh7_undo(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Check
     rb_db = work / "rb" / "master.db"
     if state.get("batch2"):  # the newest batch first
         before = state["before6"]
-        code, result, _, _ = run_cli(work, "rh7-undo2", "batch", "undo", str(state["batch2"]), "--json", offline=True)
+        code, result, _, _ = run_cli(work, "rh7-undo2", "batch", "undo", f"aiff:{state['batch2']}", "--yes",
+                                     "--wait", "3600", "--json", offline=True)
         sub = only(ctx, {drop["label"]})
         sub["created"] = state["created2"]
         checks.add("RH7 no -wal/-shm beside the copy after the second batch's undo", not master.leftovers(rb_db))
         check_undo(work, [drop], sub, before["dump"], dump(rb_db), before["music"], before["share"], code, result, checks)
     block_batch = state["batch1"]
-    code, result, _, _ = run_cli(work, "rh7-undo1", "batch", "undo", str(block_batch), "--json", offline=True)
+    code, result, _, _ = run_cli(work, "rh7-undo1", "batch", "undo", f"aiff:{block_batch}", "--yes", "--wait",
+                                 "3600", "--json", offline=True)
     checks.add("RH7 no -wal/-shm beside the copy after the undo", not master.leftovers(rb_db))
     final = {**ctx, "created": {**ctx["created"], **{t: ctx["created"].get(t, []) + state.get("created2", {}).get(t, [])
                                                      for t in state.get("created2", {})}}}
@@ -1705,7 +1707,8 @@ def rh6_undo(work: Path, ctx: dict, batches: list[dict], checks: Checks, state: 
     for b in reversed(batches):
         run, before = b["run"], b["before"]
         news = state[f"{b['tag']}-new"]
-        code, result, _ = cli(work, f"rh6-undo-{b['tag'].lower()}", "batch", "undo", str(run["batch"]))
+        code, result, _ = cli(work, f"rh6-undo-{b['tag'].lower()}", "batch", "undo", f"aiff:{run['batch']}",
+                               "--yes", "--wait", "3600")
         checks.add(f"RH6 {b['tag']}: no -wal/-shm beside the copy after the undo", not master.leftovers(rb_db))
         sub = only(ctx, b["labels"])
         sub["created"] = b["created"]

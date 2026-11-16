@@ -335,8 +335,8 @@ def _batch_rows(result: batches.BatchResult, before: Mapping[str, dict]) -> list
 def run_phase(paths, state: dict, held: Collection[str], settings: Settings, log: rep.RunLog, *,
               emit: Emit = no_emit, token: CancelToken | None = None, running: Callable[[], bool],
               place: Place | None, compare=align.compare_files, now: Callable[[], datetime] = datetime.now,
-              where: Callable[[str], str] | None = None, dry_run: bool = False) -> Outcome | None:
-    """The sync's Auto-upgrade phase (see the module docstring). `state` is the run's snapshot, kept current by the
+              where: Callable[[str], str] | None = None, dry_run: bool = False, via: str = "terminal") -> Outcome | None:
+    """The sync's Auto-upgrade phase (see the module docstring). `via`: where the sync started (its batch says so). `state` is the run's snapshot, kept current by the
     batch's steps and saved by the caller; `held` the plan's question keys; `running` / `place` rekordbox's process
     check and library, `where` names an own song's folder for the results. Returns None when the switch is off
     (nothing is read or written), else the run's block, which is also `log.auto_upgrade` (not in a dry run, which
@@ -362,7 +362,7 @@ def run_phase(paths, state: dict, held: Collection[str], settings: Settings, log
         n = len(planned.run)
         emit(Message("info", f"Upgrading {n} track{'s' if n != 1 else ''} at the end of the sync..."))
         batch_id = batches.start(paths, [(k, "same_track") for k in planned.run], started_by=batches.AUTO,
-                                 scope="sync", now=now)
+                                 scope="sync", via=via, now=now)
         result, stopped, interrupted = _batch(paths, state, batch_id, emit=emit, token=token, running=running,
                                               place=place, compare=compare, now=now)
         backup = result.backup

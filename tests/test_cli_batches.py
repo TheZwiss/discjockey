@@ -13,7 +13,7 @@ from discjockey import db
 from discjockey.models import PlannedMove
 
 LISTED = {"id", "kind", "batch", "what", "started_by", "state", "stop_reason", "started", "ended", "total", "done",
-          "skipped", "failed", "planned", "undone", "backup", "undone_by"}
+          "skipped", "failed", "planned", "undone", "backup", "undone_by", "via", "scope"}
 
 
 def with_batches(paths) -> tuple[int, int]:
