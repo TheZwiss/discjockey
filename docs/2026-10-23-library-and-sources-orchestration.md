@@ -519,7 +519,12 @@ Results:
     11k + scripts 16k + harness 2k = 132k (+ tests by grep, design by grep: material ~150k, expected Opus 230-300k);
     SURFACE cli 25k + hub surface 17k + words 3k + contract 10k + hub-ui 25k + docs 20k = 100k (material ~115k,
     expected 180-250k). Tests diff 183k (grep only). I stopped for a go on the sizes; user: "why did you stop?" (the
-    standing go covers it; telling the size is enough). Safety half (Opus) RUNNING → phase1/phase-review-safety.md.
+    standing go covers it; telling the size is enough). Safety half (Opus) done: **390k** (117 calls; over its 230-300k, 2.6x material) → phase1/phase-review-safety.md:
+    0 C, 1 I (S-4 `check done --batch aiff:N` ends a later batch's check + undo), 9 M (S-1 = S10 flake: worker start
+    races the 1 s wait, tests only); decisions S-7 (login saves wait up to 60 s for the lock) and S-8 (rekordbox
+    analysis folder as a fifth root): coordinator takes the reviewer's picks (technical). Issue 39 ~13.55M, phase 1
+    ~11.43M. Surface half split before dispatch (same ratio → ~300k): Ua CLI surface (46k diff + CLAUDE.md 11k +
+    design greps, expected 150-200k), Ub contract/window/docs (56k diff, expected 150-200k). Ua RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
