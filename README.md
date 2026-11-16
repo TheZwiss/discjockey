@@ -738,9 +738,9 @@ Playing on XDJ players (XDJ-RX3, XDJ-XZ, XDJ-700) or an older CDJ? They stop at 
 all lossless files AIFF makes every lossless file one they play.
 
 **In the Terminal:** `discjockey aiff convert <track>…`, `aiff convert --all [--in playlist:<name> | folder:<path> |
-unlisted]`, `aiff convert --all --todo cdj` and `aiff rename <track>… | --all [--in …]` do the same, each with `--dry-run`
-to see the plan first (`discjockey help aiff` lists them with their JSON). They are for scripts and agents; the window's
-buttons are the way for everyone else.
+unlisted]`, `aiff convert --all --todo cdj` and `aiff rename <track>… | --all [--in …]` do the same, each with
+`--dry-run` to see the plan first (`discjockey help aiff` lists them; add `--json` to any of them for one JSON answer).
+They are for scripts and agents; the window's buttons are the way for everyone else.
 
 ## rekordbox
 

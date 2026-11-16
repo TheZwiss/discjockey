@@ -7,6 +7,7 @@ a built entry without a driver fails, so the column cannot be forgotten.
 The probes (`jobs.lock_free`, the console watch) are not takes: they never hold a lock for work."""
 from __future__ import annotations
 
+import shutil
 import sys
 import threading
 
@@ -336,8 +337,18 @@ DRIVERS = {
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 
 
+AUDIO_METHODS = {"rekordbox_preview", "convert", "rename", "make_aiff", "aiff_plan"}  # their drivers decode or write real audio
+
+
+def skip_without_tools(entry):
+    """These drivers run ffmpeg and ffprobe on a real file: without them the test skips, like the other audio tests."""
+    if entry.method in AUDIO_METHODS and (shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None):
+        pytest.skip("ffmpeg not installed")
+
+
 @pytest.mark.parametrize("entry", BUILT, ids=lambda e: f"{e.method}:{' '.join(e.command)}")
 def test_the_locks_a_built_entry_takes_are_its_locks_column(entry, box):
+    skip_without_tools(entry)
     if entry.kind in ("W", "dropped"):  # no command: nothing to take
         assert entry.locks == frozenset()
         return
@@ -391,6 +402,7 @@ def disorder_of(events: list[tuple[str, str, int]]) -> str | None:
 def test_a_built_entry_takes_its_locks_in_the_stated_order(entry, box):
     """Lock order is support, library, rekordbox.lock: a lock taken while another is held comes later in that order
     (a reader after a writer is allowed: both are `rekordbox.lock`). Only holds that are open together count."""
+    skip_without_tools(entry)
     if entry.kind in ("W", "dropped"):
         return
     own = f"{entry.method}:{' '.join(entry.command)}"

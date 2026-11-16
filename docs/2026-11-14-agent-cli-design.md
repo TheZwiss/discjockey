@@ -331,8 +331,8 @@ window's canvas uses, exported once from the engine (§8) so both draw the same 
 ### 5.2 Every bridge method → its command
 
 Kinds: **R** read (no lock; writes nothing but caches under `<support>/cache/` (`version search`'s candidates, `version
-preview`'s clip, spectra, covers), the one folder besides `<support>/plans/` that T9 allows, §13), **RJ** a read that can take minutes and runs as a read job (§6.1: no
-lock, same `--wait` rules as a write), **J** write job (§6), **B** brief save (no library lock, answers at once),
+preview`'s clip, spectra, covers), one of the folders T9 allows besides `<support>/plans/` and a read job's `<support>/jobs/`, §13), **RJ** a read that can take minutes and runs as a read job (§6.1: no
+lock, same `--wait` rules as a write), **J** write job (§6), **B** brief save (answers at once, starts no job; no library lock, except `setup skip-import`, whose settings save takes it for the moment of the save like every settings write),
 **W** window only. Which locks each J takes is the catalogue's `locks` column (§6.1). "New args" names bridge
 signature changes the design needs (contract changes, §16).
 
@@ -421,7 +421,7 @@ signature changes the design needs (contract changes, §16).
 | `rename(ids)` | `aiff rename <tracks> \| --all \| --rows …` | J | |
 | `make_aiff(scope)` | `aiff convert --all [--in C \| --todo cdj]` | J | Make all lossless files AIFF / Convert all |
 | `batch_resume(b)` | `batch resume aiff:<n>` | J | |
-| `batch_undo(b)` | `batch undo aiff:<n> --yes` | J | the window's "Undo all" uses it too (today it sends track ids, T §1.2) |
+| `batch_undo(b)` | `batch undo aiff:<n> --yes` | J | the command line's. The window's "Undo all {n}" / "Undo {n}" sends `undo_upgrade` with the ids the engine offers for undo (today each item's `can_undo`; after §9's row for `undoFoot` (line 1001), the batch's `undo.tracks`): the same foot serves a batch card and a selection of checks from several batches (no one batch id), and `batch_undo` would also try the batch's tracks already marked Done and list them as refused |
 | `undo_upgrade(ids)` | `track undo <tracks> --yes` | J | undoes the last file step of each track (replace, Same track, Convert, clean name) |
 | `upgrade(ids,mode)` | `upgrade apply <tracks> --way same-track\|new-track`, `upgrade discard <tracks> --yes` | J | mode enum becomes `same_track\|new_track\|discard`; `--way` omitted = each track's `recommended` way from `upgrade.ways[]` (the only way when there is no choice), as the window's Replace does (C5) |
 | `upgrade_all()` | `upgrade apply --all` | J | Upgrade all, Same track only: `--all --way new-track` is `bad_args` with the window's reason (C5); refused while a stopped upgrade batch waits (`not_stopped` → `next: batch resume`), as the window hides it |
@@ -474,7 +474,7 @@ declares the locks it takes.
 | **person job** | — | at its save only | — | `login sign-in`, `login use` (it may wait for the Keychain question) |
 | **settings write** | briefly while a music folder is bound (today's `lock_briefly`: a running library job never sees its settings change under it) | around the read-change-write | — | `settings set`, `limits set/seen`, `login qobuz/skip/sign-out/spotify`, `setup music`, `sync scope` |
 | **support-only job** | — | the whole job; refused `busy` while a write job of this support folder runs (a sync imports yt-dlp lazily) | — | `tools update`, `tools rollback` |
-| **brief save** (B) | — (library.db waits ≤ 1.5 s, today's rule) | for `setup skip-import` (it writes settings) | — | `library favourites …`, `folder crates …`, `setup skip-import` |
+| **brief save** (B) | — (library.db waits ≤ 1.5 s, today's rule); `setup skip-import` briefly, as a settings write | for `setup skip-import` (it writes settings) | — | `library favourites …`, `folder crates …`, `setup skip-import` |
 
 - The **support lock** is an `flock` on `<support>/.support.lock`, waited for ≤ 2 s, then `busy`
   (`reason: "support_lock"`). It guards `settings.json`, `config.json`, `tools/` and the login files against a
@@ -615,9 +615,11 @@ during a (fake) write never opens master.db.
   a sync will do has `--dry-run`.** A dry run takes no lock and answers exactly what the window shows before the
   person presses the button: the AIFF plan, the tidy rows, the undo preview, the removal preview, the playlist
   change's preview with its save question, the limit's what-if, the upgrade's ways and outcomes.
-- **What a dry run may write: exactly one file, its plan, `<support>/plans/<plan id>.json`.** Nothing in the music
-  folder, rekordbox's folder, `settings.json` or `library.db` (T9 compares every byte outside `<support>/plans/` and
-  `<support>/cache/`). Three rules make that true:
+- **What a dry run may write: its plan, `<support>/plans/<plan id>.json` (when its answer lists items), caches under
+  `<support>/cache/` and, when it runs as a read job (kind RJ: today `aiff convert|rename --dry-run`), that job's own
+  record under `<support>/jobs/`.** Nothing in the music folder, rekordbox's folder, `settings.json` or `library.db` (T9
+  compares every byte outside `<support>/plans/`, `<support>/cache/` and `<support>/jobs/`, and a dry run that is not a
+  read job leaves no `jobs/` at all). Three rules make that true:
   - **No scan.** A dry run plans on the last scan, says when in `as_of.scanned_at`, and puts `library scan` in `next`
     when a watched folder's or `Library/`'s modified time is newer. (Today `prepare(dry_run=True)` stores a scan when it
     gets the lock.)
@@ -1208,7 +1210,7 @@ The model of the app's concepts an agent needs is part of the agent guide (§14.
 | T6 schemas | a payload field lacks its `F(shown, doc)`; a command's real output or a fake payload doesn't validate against its schema; `types.ts` is stale against `shapes.py` |
 | T7 text shows everything | a field marked `shown` is not placed by its schema's text layout, on the real fixture outputs and on a generated sample with every optional field set (R43); the golden text of a schema changes without its file (a review aid, R30) |
 | T8 outcomes | a command exits with a code not matching its `outcome`; a `ProblemKind` has no row in the outcome map; a reason a command raises is not in the closed list of `hub/outcomes.py` (§4.3); the precedence `bad_args` > `busy` > `refused` > `needs_person` > `stopped` > `failed` > `partial` > `ok` is not what `outcomes.py` applies when several outcomes apply; a repeated "nothing to do" run is not `ok`; `--json` prints anything but one object (also for usage errors and crashes) |
-| T9 safety | a dry run writes a byte outside `<support>/plans/` and `<support>/cache/` (every command's `--dry-run` on a fixture library: all files, library.db and the rekordbox fixture compared); a `needs_yes` command acts without `--yes`; any of the sandbox cases of §10.3 |
+| T9 safety | a dry run writes a byte outside `<support>/plans/`, `<support>/cache/` and, for a read job (RJ), `<support>/jobs/`, or a dry run that is no read job leaves a `jobs/` (every command's `--dry-run` on a fixture library: all files, library.db and the rekordbox fixture compared); a `needs_yes` command acts without `--yes`; any of the sandbox cases of §10.3 |
 | T10 jobs and locks | any of the cases of §6.6 (stop files, killed clients, lost workers, `--now` safety, the locks table, two writers, window and terminal seeing each other, rekordbox readers during a write) |
 | T11 docs | `docs/agent-commands.md` differs from `discjockey help --markdown`; a catalogue entry has no example in it |
 | T12 app binary | a built app with any argument but `-psn_…` or `app open` doesn't reach the CLI (self-test round trip); no argument from a shell (parent not launchd) opens a window instead of printing the short help with exit 0; no argument from a Finder start (`-psn_…`) doesn't open it |

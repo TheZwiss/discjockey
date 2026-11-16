@@ -41,9 +41,10 @@ folders a file is found again by its content key, with no new download or import
 
 The user's wish: any AI agent they point at Discjockey (Claude Code, Codex, …) can run it fully and safely: sync,
 upgrades, the To-do answers, Library and folder actions, Settings, and reading every screen's state. The development
-rule is in `CLAUDE.md` ("Agent-ready"). Today the console covers little more than a sync run (`cli.py`: `--yes`,
-`--dry-run`, `--limit`, …). Background: on 2026-10-31 an agent repointed 38 rekordbox entries for the user with
-throwaway scripts of its own rather than through Discjockey.
+rule is in `CLAUDE.md` ("Agent-ready"). Phase 1 of plan v2 (`docs/2026-11-15-agent-cli-plan-v2.md`) built the command
+line's frame (`discjockey/cli/`, `discjockey help --json`) and the rekordbox, upgrade, AIFF, batch, check, folder,
+settings, library, report, to-do and track commands; the other phases follow. Background: on 2026-10-31 an agent
+repointed 38 rekordbox entries for the user with throwaway scripts of its own rather than through Discjockey.
 - **Audit:** list every hub bridge method (`hub/api.py`) and screen (`hub/views.py`). For each, say whether an agent
   can reach it today and how (command, flags, output, exit code), and where it can't.
 - **Design the agent surface:** console commands that run without prompts, `--json` output, exit codes for ok, busy
@@ -54,17 +55,10 @@ throwaway scripts of its own rather than through Discjockey.
   them where agents look (e.g. `AGENTS.md` at the repo root, plus a README section for users who point their agent
   at the app).
 - **Pin it:** a test that fails when a bridge method has no command or no agent-docs entry.
-- The 33 work (rekordbox repoint) gets its command under the rule from the start. Stage B's commands (`upgrade
-  list | apply | discard | undo`, `batch list | show | resume | undo`, `rekordbox checked | backups | restore`) and
-  stage A's (`rekordbox status`, `rekordbox preview`) are in `CONTRIBUTING.md` › Commands for scripts and agents, with
-  the exit codes and the rule that JSON `ok` stays true when a batch ran to its end with skipped tracks (exit 1);
-  gather them into the agent docs. Stage C adds the sync's own `--json` (`discjockey --yes --json`, with the run's
-  Auto-upgrade block; `--json` without `--yes` or `--dry-run` is refused) and `settings auto-upgrade [on|off] [--json]`,
-  the first of a `settings` group the other settings join; also in `CONTRIBUTING.md`, and in the agent docs once
-  they exist.
-- **Flaky test (found in V1.7, not caused by it):** `tests/test_cli_job.py::test_a_follower_reads_the_head_then_the_rolling_tail_through_a_compaction`
-  times out ("timed out waiting") on most runs, also at f341c4f5; it passed once in a full run. Look at `follow.EventReader`
-  against `registry.EventsWriter`'s compaction (V1.5 code).
+- The 33 work (rekordbox repoint) has its commands under the rule (phase 1): `rekordbox status | preview | backups |
+  restore`, `upgrade list | apply | discard`, `track undo`, `batch list | show | resume | undo`, `check list | done`,
+  `aiff convert | rename`, `settings show | set auto-upgrade`, `sync run --auto-upgrade-only`. The sync's own `--json`
+  (`discjockey --yes --json`) stays the old command line's until V4.1.
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stage E open (issue 40)
 

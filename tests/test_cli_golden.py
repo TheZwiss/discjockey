@@ -36,6 +36,14 @@ WRITES = ["library_facts", "aiff_convert", "aiff_rename", "upgrade_apply", "upgr
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
                                                                                         # parked and checks open
 CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file: a preview decodes it
+
+
+def skip_without_tools(entry):
+    """`rekordbox preview` decodes a real file: without ffmpeg and ffprobe it skips, like the other audio tests."""
+    if entry.method == "rekordbox_preview" and (shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None):
+        pytest.skip("ffmpeg not installed")
+
+
 MASTER_TIME = 1_700_000_000  # master.db's modified time in the fixture: a fixed one, in UTC, so its page is the same everywhere
 
 
@@ -112,6 +120,7 @@ def words(entry) -> list[str]:
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
 def test_golden_text(entry, fixture, capsys):
+    skip_without_tools(entry)
     code, out, err = run(words(entry), capsys)
     assert code == 0 and err == ""
     check_golden("_".join(entry.command), out.replace(str(fixture), "<tmp>"))
@@ -119,6 +128,7 @@ def test_golden_text(entry, fixture, capsys):
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
 def test_t7_prime_every_leaf_of_data_is_in_the_verbose_text(entry, fixture, capsys):
+    skip_without_tools(entry)
     _, out, _ = run([*words(entry), "--json"], capsys)
     data = json.loads(out)["data"]
     code, text, _ = run([*words(entry), "--verbose", "--limit", "0"], capsys)
@@ -150,6 +160,7 @@ def test_dropped_finds_a_boolean_a_null_and_a_small_number_a_substring_would_fin
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
 def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
+    skip_without_tools(entry)
     parsed = parser.parse(words(entry))
     api = bind.default()
     kwargs = dict(parsed.args)
