@@ -15,7 +15,7 @@ original file.
 
 Click tracks (the live tests of the rekordbox stages B to D need files that are not made from a library track):
 
-    uv run python scripts/make_upgrade_test.py --click mp3|m4a48|flac|aiff|aac [--bpm 120] [--same-edit] --into <scratch>
+    uv run python scripts/make_upgrade_test.py --click mp3|m4a48|flac|aiff|aac|wav96 [--bpm 120] [--same-edit] [--messy-name] --into <scratch>
     uv run python scripts/make_upgrade_test.py --attach-upgrades --into <scratch>
 
 `--click` writes a synthetic click track (a quiet noise bed and one decaying noise burst per beat, a few ms off the beat;
@@ -30,17 +30,31 @@ import in between: `--click ...`, then `folder add <scratch>` and its import, th
 which parks the upgrade on each imported click track of that folder (measuring how the two lines up now). A stage that
 needs no upgrade (stage D) simply does not attach it.
 
-Removing it afterwards: remove the test track from rekordbox's collection, quit Discjockey, then delete by hand the
-folders `Library/_Upgrade test/`, `Superseded/_Upgrade test/` and `Upgrades ready/_Upgrade test/` (whichever
-exist), and remove the entry:
+Stage D's click tracks also need `wav96` (24-bit 96 kHz WAV) and `--messy-name`, which names the file
+`click_final (upgrade test).<ext>` instead of the tidy name (the marker stays, so `--clean` finds it; the title tag
+still carries it). The AAC at 420 kbit/s the plan asks for is not reachable: ffmpeg's `aac` writes about 225 kbit/s on a
+click track and the AudioToolbox encoder (`aac_at`) stops at about 322 kbit/s for 44.1 or 48 kHz stereo, so `aac` is
+the kind with the highest AAC rate this machine can make.
 
-    uv run python scripts/make_upgrade_test.py --remove upgrade-test-<n>
+Cleaning up afterwards: remove the test tracks from rekordbox's collection and quit rekordbox, remove the scratch folder
+from Discjockey (`folder remove <scratch> --yes`), then
 
-`--remove` only takes a test entry this script made (its key and its "(upgrade test)" title) and changes no file.
+    uv run python scripts/make_upgrade_test.py --clean upgrade-test-<n> [--into <scratch>] [--json]
+    uv run python scripts/make_upgrade_test.py --all-marked [--into <scratch>] [--json]
+
+`--clean ID` and `--all-marked` refuse unless rekordbox is closed (exit 2) and no other Discjockey run holds the lock
+(exit 3). They remove the test entries this script made (key `upgrade-test-<n>` and a title with the marker) from
+library.db and move to the macOS Trash every file whose name carries " (upgrade test)" inside Library/, Superseded/,
+Upgrades ready/ and each `--into` scratch folder (`--clean ID` only those named like that entry's track; `--all-marked`
+all of them), then remove the `_Upgrade test/` folders once they are empty and list what was moved. A file without the
+marker beside them stays. The Trash is not a deletion: the script never deletes an audio file, whoever empties the
+Trash does. It ends with `library scan` as the next step (`--json`: one object with `moved` and `next`).
 """
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import shutil
 import subprocess
 import sys
@@ -55,12 +69,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from mutagen.aiff import AIFF  # noqa: E402
 from mutagen.id3 import COMM, TIT2, TPE1  # noqa: E402
 from mutagen.mp4 import MP4  # noqa: E402
+from mutagen.wave import WAVE  # noqa: E402
 
 from discjockey import audio, library, quality, upgrades  # noqa: E402
 from discjockey.align import compare_files  # noqa: E402
 from discjockey.library import LockHeld, NoLibrary, Paths  # noqa: E402
-from discjockey.names import fold  # noqa: E402
+from discjockey.names import expected_stem, fold  # noqa: E402
 from discjockey.planner import ENTRY_KEYS  # noqa: E402
+from discjockey.rekordbox import process as rb_process  # noqa: E402
 
 FOLDER = "_Upgrade test"
 SUFFIX = " (upgrade test)"
@@ -74,7 +90,9 @@ CLICK_KINDS = {
     "flac": ("flac", "flac", 44100, ["-c:a", "flac", "-sample_fmt", "s16"]),
     "aiff": ("aiff", "aiff", 44100, ["-c:a", "pcm_s16be"]),
     "aac": ("m4a", "ipod", 44100, ["-c:a", "aac", "-b:a", "420k"]),
+    "wav96": ("wav", "wav", 96000, ["-c:a", "pcm_s24le"]),
 }
+MESSY_STEM = "click_final"  # --messy-name: the file's stem before the marker (stage D: a name that needs the clean name)
 CLICK_SECONDS = 40  # the alignment check needs 30 s at least (align.MIN_DURATION_S)
 CLICK_ARTIST = "Click Test"
 UPGRADE_SHIFT_MS = 30  # the parked click upgrade without --same-edit starts this much later than the click file
@@ -211,27 +229,19 @@ def make(paths: Paths, source: str, now: datetime, keep_lossy: str | None = None
     return track_id
 
 
-def remove(paths: Paths, track_id: str) -> str:
-    """Removes a test entry this script made (no file is changed). Returns its title; ValueError for anything else."""
-    state = library.open_state(paths)
-    e = state["tracks"].get(track_id)
-    if not track_id.startswith("upgrade-test-") or not e or not e["title"].endswith(SUFFIX):
-        raise ValueError(f"{track_id} is not a test track this script made, so nothing was removed.")
-    del state["tracks"][track_id]
-    library.save_state(paths, state)
-    return e["title"]
-
-
 # --- click tracks (--click, --attach-upgrades) ---
 
-def click_names(kind: str, bpm: float) -> tuple[str, str, str]:
-    """(artist, title, file name) of a click track: `Artist - Title.<ext>` with the marker in the title."""
+def click_names(kind: str, bpm: float, messy: bool = False) -> tuple[str, str, str]:
+    """(artist, title, file name) of a click track: `Artist - Title.<ext>` with the marker in the title, or with
+    `messy` `click_final (upgrade test).<ext>` (the tags stay the same, the marker stays in the name)."""
     title = f"Click {kind} {bpm:g} BPM{SUFFIX}"
-    return CLICK_ARTIST, title, f"{CLICK_ARTIST} - {title}.{CLICK_KINDS[kind][0]}"
+    stem = f"{MESSY_STEM}{SUFFIX}" if messy else f"{CLICK_ARTIST} - {title}"
+    return CLICK_ARTIST, title, f"{stem}.{CLICK_KINDS[kind][0]}"
 
 
-def _tag_aiff(path: Path, artist: str, title: str) -> None:
-    f = AIFF(str(path))
+def _tag_id3(path: Path, artist: str, title: str) -> None:
+    """Artist and title as plain ID3 in an AIFF or a WAV (what Discjockey's import reads there)."""
+    f = WAVE(str(path)) if path.suffix == ".wav" else AIFF(str(path))
     if f.tags is None:
         f.add_tags()
     f.tags.add(TPE1(encoding=1, text=artist))
@@ -260,7 +270,8 @@ def _click_audio(kind: str, bpm: float) -> tuple[np.ndarray, int]:
     return clicks(CLICK_SECONDS, sr, bpm, zlib.crc32(f"{kind} {bpm:g}".encode())), sr
 
 
-def make_click(paths: Paths, kind: str, bpm: float, into: Path, same_edit: bool = False) -> tuple[Path, Path]:
+def make_click(paths: Paths, kind: str, bpm: float, into: Path, same_edit: bool = False,
+               messy_name: bool = False) -> tuple[Path, Path]:
     """Writes the click track into `into` and its lossless upgrade into Upgrades ready/_Upgrade test/ (nothing exists
     to attach it to until the click track is imported: `attach_upgrades`). Returns both paths; ValueError with a plain
     message when something is in the way."""
@@ -273,7 +284,7 @@ def make_click(paths: Paths, kind: str, bpm: float, into: Path, same_edit: bool 
         if here == (paths.root / taken).resolve() or (paths.root / taken).resolve() in here.parents:
             raise ValueError(f"{into} is inside {taken}/. Make the click track in a scratch folder outside the music "
                              "folder's own folders.")
-    artist, title, name = click_names(kind, bpm)
+    artist, title, name = click_names(kind, bpm, messy_name)
     ext, muxer, _, codec = CLICK_KINDS[kind]
     target = into / name
     parked = paths.root / "Upgrades ready" / FOLDER / f"{target.stem}.aiff"
@@ -287,11 +298,11 @@ def make_click(paths: Paths, kind: str, bpm: float, into: Path, same_edit: bool 
     try:
         made, twin = work / f"click.{ext}", work / "upgrade.aiff"
         _ffmpeg_from_floats(x, sr, made, muxer, [*codec, "-metadata", f"title={title}", "-metadata", f"artist={artist}"])
-        if ext == "aiff":
-            _tag_aiff(made, artist, title)
+        if ext in ("aiff", "wav"):
+            _tag_id3(made, artist, title)
         delay = None if same_edit else f"adelay=delays={round(UPGRADE_SHIFT_MS * sr / 1000)}S:all=1"
         _ffmpeg_from_floats(x, sr, twin, "aiff", ["-c:a", "pcm_s16be"], filters=delay, out_rate=UPGRADE_RATE)
-        _tag_aiff(twin, artist, title)
+        _tag_id3(twin, artist, title)
         into.mkdir(parents=True, exist_ok=True)
         parked.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(made), target)
@@ -342,13 +353,156 @@ def attach_upgrades(paths: Paths, into: Path, now: datetime) -> list[str]:
     return attached
 
 
+# --- clean-up (--clean, --all-marked) ---
+
+REKORDBOX_OPEN = ("rekordbox is open. Remove the test tracks from its collection and quit it, then run this "
+                  "again.")
+LOCK_HELD = "Another Discjockey run is still going. Wait until it has finished."
+ENTRY_PREFIX = "upgrade-test-"
+
+
+class CleanFailed(ValueError):
+    """A file could not be moved to the Trash; `moved` is what had gone before it (nothing else was changed)."""
+
+    def __init__(self, message: str, moved: list[Path]):
+        super().__init__(message)
+        self.moved = moved
+
+
+def rekordbox_open() -> bool:
+    return rb_process.running()
+
+
+def trash_item(path: Path) -> None:
+    """Moves one file to the macOS Trash (the person empties it; nothing is deleted). Through NSFileManager when
+    pyobjc is there (pywebview brings it), else by asking the Finder. Raises OSError when it cannot."""
+    try:
+        from Foundation import NSURL, NSFileManager
+    except ImportError:
+        script = ["on run argv", 'tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)', "end run"]
+        r = subprocess.run(["osascript", *(a for line in script for a in ("-e", line)), str(path)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise OSError(r.stderr.strip() or "the Finder would not move it")
+        return
+    ok, _, error = NSFileManager.defaultManager().trashItemAtURL_resultingItemURL_error_(
+        NSURL.fileURLWithPath_(str(path)), None, None)
+    if not ok:
+        raise OSError(str(error.localizedDescription()) if error is not None else "the Trash would not take it")
+
+
+def own_entry(state: dict, track_id: str) -> dict:
+    """The state entry of a test track this script made (key `upgrade-test-<n>`, a title with the marker);
+    ValueError for anything else."""
+    e = state["tracks"].get(track_id)
+    if not track_id.startswith(ENTRY_PREFIX) or not e or not e["title"].endswith(SUFFIX):
+        raise ValueError(f"{track_id} is not a test track this script made, so nothing was changed.")
+    return e
+
+
+def marked_files(roots: list[Path], stem: str | None = None) -> list[Path]:
+    """The files under `roots` whose names carry the marker (with `stem`: only those whose name starts with it, a
+    song's clean name, so its Superseded and collision names count too). Symbolic links are not followed or taken;
+    each file once."""
+    found: dict[str, Path] = {}
+    for root in roots:
+        for here, dirs, names in os.walk(root, followlinks=False):
+            for name in names:
+                path = Path(here) / name
+                folded = fold(name)
+                if fold(SUFFIX) in folded and (stem is None or folded.startswith(fold(stem))) and not path.is_symlink():
+                    found.setdefault(str(path.resolve()), path)
+    return sorted(found.values())
+
+
+def drop_empty_folders(paths: Paths) -> list[Path]:
+    """Removes the `_Upgrade test/` folders of Library/, Superseded/ and Upgrades ready/ (and the folders in them)
+    that hold nothing now; a folder with anything in it stays. Returns the ones it removed."""
+    gone = []
+    for top in (paths.library, paths.root / "Superseded", paths.root / "Upgrades ready"):
+        base = top / FOLDER
+        if not base.is_dir() or base.is_symlink():
+            continue
+        for here, _, _ in os.walk(base, topdown=False):
+            try:
+                os.rmdir(here)
+                gone.append(Path(here))
+            except OSError:
+                pass
+    return gone
+
+
+def clean(paths: Paths, entry: str | None, into: list[Path]) -> dict:
+    """The clean-up: moves the marked files to the Trash, then removes the test entries from library.db, then the
+    empty `_Upgrade test/` folders. `entry`: one test track (its entry and the files named like its song), None for
+    everything marked. `into`: the scratch folders to look in besides Library/, Superseded/ and Upgrades ready/.
+    Returns {"moved", "entries", "folders", "next"}; ValueError when `entry` is no test track or a folder is missing
+    (nothing changed); CleanFailed when the Trash would not take a file (the entries stay, so running it again
+    finishes)."""
+    state = library.open_state(paths)
+    if entry is not None:
+        e = own_entry(state, entry)
+        entries, stem = [entry], expected_stem(e["artist"], e["title"])
+    else:
+        entries = [k for k, e in state["tracks"].items() if k.startswith(ENTRY_PREFIX) and e["title"].endswith(SUFFIX)]
+        stem = None
+    for folder in into:
+        if not folder.is_dir():
+            raise ValueError(f"{folder} is not a folder.")
+    roots = [paths.library, paths.root / "Superseded", paths.root / "Upgrades ready", *into]
+    files = marked_files([r for r in roots if r.is_dir()], stem)
+    moved: list[Path] = []
+    for f in files:
+        try:
+            trash_item(f)
+        except OSError as err:
+            raise CleanFailed(f"{f.name} could not be moved to the Trash ({err}). Nothing else was changed: run it "
+                              "again to finish.", moved) from err
+        moved.append(f)
+    titles = {k: state["tracks"].pop(k)["title"] for k in entries}
+    if titles:
+        library.save_state(paths, state)
+    return {"moved": moved, "entries": titles, "folders": drop_empty_folders(paths),
+            "next": [{"run": "library scan", "why": "the files are gone from the folders: let Discjockey see it"}]}
+
+
+def shown(paths: Paths, p: Path) -> str:
+    try:
+        return p.resolve().relative_to(paths.root.resolve()).as_posix()
+    except ValueError:
+        return str(p)
+
+
+def print_clean(paths: Paths, done: dict, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps({"ok": True, "moved": [str(p) for p in done["moved"]], "entries": list(done["entries"]),
+                          "folders": [str(p) for p in done["folders"]], "next": done["next"]}, indent=2))
+        return
+    if done["moved"]:
+        print(f"Moved {len(done['moved'])} file(s) to the Trash (empty it yourself when you are sure):")
+        for p in done["moved"]:
+            print(f"  {shown(paths, p)}")
+    else:
+        print("No file with the marker was found.")
+    for k, title in done["entries"].items():
+        print(f"Removed the test entry {k}: {title}")
+    for p in done["folders"]:
+        print(f"Removed the empty folder {shown(paths, p)}")
+    for n in done["next"]:
+        print(f"Next: {n['run']}  ({n['why']})")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Make a test upgrade from one lossless AIFF in Library/, or click tracks.")
     p.add_argument("source", nargs="?",
                    help="a lossless AIFF in Library/, e.g. \"Library/Hard_Bounce/Artist - Title.aiff\"")
     p.add_argument("--root", type=Path, default=None, help="the music folder (default: the one Discjockey uses)")
     p.add_argument("--keep-lossy", choices=["m4a"], default=None, help="keep the lossy copy as an .m4a file")
-    p.add_argument("--remove", metavar="ID", default=None, help="remove the test entry ID (its files go by hand)")
+    p.add_argument("--clean", nargs="?", const="", metavar="ID", default=None,
+                   help="clean up after the tests: remove the test entry ID (or, with --all-marked, all of them) "
+                        "and move the files with the marker to the Trash (rekordbox closed)")
+    p.add_argument("--all-marked", action="store_true", help="--clean for every test entry and every marked file")
+    p.add_argument("--json", action="store_true", help="with --clean: the answer as one JSON object")
     p.add_argument("--click", choices=list(CLICK_KINDS), default=None,
                    help="make a click track of this kind in --into, and its parked lossless upgrade")
     p.add_argument("--bpm", type=float, default=120, help="the click track's tempo (default 120)")
@@ -356,34 +510,58 @@ def main(argv: list[str] | None = None) -> int:
                    help="with --click: the parked upgrade is the very same audio (default: 30 ms later)")
     p.add_argument("--attach-upgrades", action="store_true",
                    help="park the upgrade of each imported click track in --into on its library track")
-    p.add_argument("--into", type=Path, default=None, help="the scratch folder (--click, --attach-upgrades)")
+    p.add_argument("--messy-name", action="store_true",
+                   help="with --click: name the file click_final (upgrade test) instead of the tidy name")
+    p.add_argument("--into", type=Path, action="append", default=None,
+                   help="the scratch folder (--click, --attach-upgrades); with --clean, a scratch folder to clean "
+                        "too (repeat for more)")
     args = p.parse_args(argv)
-    if sum(map(bool, (args.source, args.remove, args.click, args.attach_upgrades))) != 1:
-        p.error("give one of: a source file, --click KIND, --attach-upgrades, --remove ID")
-    if (args.click or args.attach_upgrades) and args.into is None:
-        p.error("--click and --attach-upgrades need --into <scratch folder>")
+    cleaning = args.clean is not None or args.all_marked
+    if sum(map(bool, (args.source, cleaning, args.click, args.attach_upgrades))) != 1:
+        p.error("give one of: a source file, --click KIND, --attach-upgrades, --clean ID, --all-marked")
+    if cleaning and bool(args.clean) == args.all_marked:
+        p.error("--clean takes a test entry ID, or give --all-marked alone")
+    if (args.click or args.attach_upgrades) and (args.into is None or len(args.into) != 1):
+        p.error("--click and --attach-upgrades need one --into <scratch folder>")
     if args.same_edit and not args.click:
         p.error("--same-edit belongs to --click")
+    if args.messy_name and not args.click:
+        p.error("--messy-name belongs to --click")
+    if args.json and not cleaning:
+        p.error("--json belongs to --clean")
+    if args.into and not (cleaning or args.click or args.attach_upgrades):
+        p.error("--into belongs to --click, --attach-upgrades and --clean")
     resolved = library.resolve_paths()
     paths = Paths(args.root, support=resolved.support) if args.root else resolved.paths
     if paths is None:
         print("No music folder: choose one in Discjockey's Setup first, or pass --root.")
         return 2
+    if cleaning and rekordbox_open():
+        print(json.dumps({"ok": False, "message": REKORDBOX_OPEN}) if args.json else REKORDBOX_OPEN)
+        return 2
     try:
         with library.run_lock(paths.lock):
-            if args.remove:
-                print(f"Removed the test entry {args.remove}: {remove(paths, args.remove)}")
+            if cleaning:
+                print_clean(paths, clean(paths, args.clean or None, args.into or []), args.json)
             elif args.click:
-                make_click(paths, args.click, args.bpm, args.into, args.same_edit)
+                make_click(paths, args.click, args.bpm, args.into[0], args.same_edit, args.messy_name)
             elif args.attach_upgrades:
-                attach_upgrades(paths, args.into, datetime.now())
+                attach_upgrades(paths, args.into[0], datetime.now())
             else:
                 make(paths, args.source, datetime.now(), args.keep_lossy)
     except LockHeld:
-        print("Another Discjockey run is still going. Wait until it has finished.")
+        print(json.dumps({"ok": False, "message": LOCK_HELD}) if args.json else LOCK_HELD)
         return 3
+    except CleanFailed as e:
+        if args.json:
+            print(json.dumps({"ok": False, "message": str(e), "moved": [str(m) for m in e.moved]}))
+        else:
+            print(e)
+            for m in e.moved:
+                print(f"  moved before it stopped: {shown(paths, m)}")
+        return 2
     except (ValueError, NoLibrary) as e:
-        print(e)
+        print(json.dumps({"ok": False, "message": str(e)}) if args.json else e)
         return 2
     return 0
 
