@@ -544,7 +544,12 @@ Results:
     ~12.24M. FIX ROUNDS (Sonnet, fix-round agent, one branch feat/cli-1-pr, worktree cli1-pr, sequential):
     FA safety S-1..S-10 + D-1 code; FB CLI help/catalogue/parser C-2..C-7, C-15, C-19; FC CLI ids/render/words
     C-1, C-8..C-14, C-16..C-18, C-20; FD window/contract W-1..W-11 (+ npm run check); FE docs D-1..D-19 + U9 + S3
-    + W-11 design row (last: help texts change in FB). Each 150-220k → ~0.9-1.1M. FA RUNNING.
+    + W-11 design row (last: help texts change in FB). Each 150-220k → ~0.9-1.1M.
+    FA done 9b8ee280: Sonnet **141k** (cut once by the 5-hour limit, resumed; 5595 passed in 81.9 s): S-1..S-8, S-10,
+    D-1 code (dry run saves no --extra) fixed, each test fails without its fix; S-9's new lock-order test found 5
+    drivers taking a scoped rekordbox_r read hold, already released, before `library` (xfail strict). Coordinator
+    decides (technical): the order rule is about holds held at the same time (deadlock); the recorder records
+    releases and checks nested holds only → done in FB. Issue 39 ~14.50M, phase 1 ~12.38M. FB RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
