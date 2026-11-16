@@ -524,7 +524,13 @@ Results:
     races the 1 s wait, tests only); decisions S-7 (login saves wait up to 60 s for the lock) and S-8 (rekordbox
     analysis folder as a fifth root): coordinator takes the reviewer's picks (technical). Issue 39 ~13.55M, phase 1
     ~11.43M. Surface half split before dispatch (same ratio → ~300k): Ua CLI surface (46k diff + CLAUDE.md 11k +
-    design greps, expected 150-200k), Ub contract/window/docs (56k diff, expected 150-200k). Ua RUNNING.
+    design greps, expected 150-200k), Ub contract/window/docs (56k diff, expected 150-200k). Ua done: **298k**
+    (100 calls; ~4x material) → phase1/phase-review-surface-cli.md: 0 C, 9 I (C-1 unknown song key = refused/changed;
+    C-2 help shows method args not what to type; C-3 reasons miss real ones; C-4 help names no methods; C-5 parser
+    breaks on two-method commands; C-6 noun --help usage error; C-8 golden checks substrings; C-11 check batch id
+    batch:N; C-12 To-do page hides Upgrade all/Resume facts), 11 M; decisions C-1/C-5 → reviewer's picks. Issue 39
+    ~13.85M, phase 1 ~11.73M. Ub split again by the record (~4x material → ~280k): Ub1 contract + hub-ui (Opus),
+    Ub2 docs + U9/U10/U12 + S6 design row + S3 plan note (Opus). Ub1 RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
