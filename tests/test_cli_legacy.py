@@ -709,3 +709,20 @@ def test_hub_is_no_legacy_word_any_more(capsys):
         cli.parse_args(["hub"])
     import discjockey.cli as the_command_line
     assert the_command_line.main(["hub"]) == 2 and "hub is not a command" in capsys.readouterr().err
+
+
+def test_a_busy_support_lock_in_the_terminals_update_and_the_sync_is_a_busy_answer_not_a_traceback(root, capsys, monkeypatch):
+    """The tail of the old settings test: the legacy `update` prints the busy words (exit 3) and the legacy sync's own
+    saves (`--extra`) answer `busy` with the reason `support_lock`."""
+    from discjockey import tool_updates
+
+    def busy(support):
+        raise library.SupportBusy()
+
+    monkeypatch.setattr(tool_updates, "update", busy)
+    assert cli.main(["update"]) == 3  # the terminal's update: busy words, no traceback
+    out = capsys.readouterr()
+    assert "Another Discjockey process" in out.out and "Traceback" not in out.out + out.err
+    monkeypatch.setattr(cli, "sync", lambda paths, args: busy(None))  # a sync's own saves (--extra)
+    code, data, _ = sync_json(["--yes", "--json"], capsys)
+    assert code == 3 and (data["kind"], data["reason"]) == ("busy", "support_lock") and data["ok"] is False

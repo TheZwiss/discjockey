@@ -3,6 +3,15 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
+
+Lock order is support, library, `rekordbox.lock` (CLAUDE.md). Every settings write follows it now (`_settings_job`,
+`_update_settings`, `set_music_folder`; pinned by `test_cli_locks`). Not yet: the saves a sync or download job makes
+while it holds the library lock for the whole run: Qobuz's `config.toml` (`qobuz._write_config`, `_save_login`,
+`_save_secrets`) and Spotify's token (`sources/spotify._save_token`). They take the support lock inside the library
+lock. No deadlock is possible (the support lock is a leaf, waited for 2 s, then `busy`), but the order is the other
+way. Fix: take the support lock before the library lock for a run that logs in, or move the saves out of the run.
+
 ## 41. To-do multi-select for the other groups' actions (Hide, Find a version, …) (2026-11-08)
 
 Issue 33's stage B gives To-do a selection model and a selection panel for the Upgrade ready group (Replace, Discard)

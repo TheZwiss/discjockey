@@ -139,7 +139,10 @@ their Qobuz daily limit. Long commands run in the background with a status line.
   other settings save outside a job take the library lock only for the moment of the save (`lock_briefly`: `busy` while
   a job writes, `console` while a terminal run does). Every read-change-write of a support-folder file (settings,
   config, the login files, `tools/`) holds the support lock (`.support.lock`) for the change: it waits 2 s, then
-  answers `busy` with the reason `support_lock`. rekordbox readers take `rekordbox.lock` shared and without waiting,
+  answers `busy` with the reason `support_lock`. **Lock order: support lock, then library lock, then `rekordbox.lock`**
+  (never a lock after a later one): a settings write (`HubApi._update_settings`, `set_music_folder`) takes the support
+  lock around the read-change-write and the library lock briefly inside it (`lock_briefly`), so a settings job
+  (`_settings_job`, `hold_library=False`) holds no library lock for its run. rekordbox readers take `rekordbox.lock` shared and without waiting,
   and never open master.db while a writer holds it (they answer `writing`); a writer retries for 2 s.
 - **Bridge methods never reject:** `{"ok": true, …}` or `{"ok": false, "kind", "message"}`; write methods return a
   `job_id` and finish with a `JobFinished` event, except the brief saves above, which answer their result at once

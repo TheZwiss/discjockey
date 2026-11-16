@@ -75,6 +75,15 @@ def test_folder_add_with_a_dry_run_says_whether_the_folder_can_be_watched_and_ch
     assert env["message"] == env["data"]["message"] == "This is inside your music folder, which Discjockey watches already."
 
 
+def test_folder_add_dry_run_of_a_parent_of_a_watched_folder_says_what_it_would_take_over(music, capsys):
+    paths, folder = music
+    add(folder, capsys)
+    code, env = run_json(["folder", "add", str(folder.parent), "--dry-run"], capsys)
+    assert (code, env["outcome"], env["data"]["usable"]) == (OK, "ok", True)
+    assert env["data"]["merge_hints"] == ["Music is inside it and becomes part of it."]
+    assert env["message"] == "Music is inside it and becomes part of it."
+
+
 def test_folder_add_of_a_folder_that_cannot_be_watched_is_refused_in_the_windows_words(music, capsys):
     paths, folder = music
     code, env = run_json(["folder", "add", str(folder / "nope")], capsys)
@@ -178,7 +187,27 @@ def test_settings_show_with_a_music_folder_and_a_login_names_them_in_the_windows
     assert (code, data["music_folder"], data["auto_upgrade"], data["daily_qobuz_limit"]) == (OK, str(paths.root), False, 40)
     assert data["read_liked_music"] is True  # on, and a YouTube login to read it with
     assert data["accounts"]["youtube"] == {"browser": "chrome", "browser_name": "Chrome", "profile": None,
-                                           "profile_name": None, "daily_limit": 30}
+                                           "profile_name": None, "daily_limit": 30, "extra": None, "last_check": None,
+                                           "liked_only": False}
+
+
+def test_settings_show_holds_the_whole_file_the_checks_the_extras_and_the_seen_warnings(music, capsys):
+    paths, _ = music
+    from discjockey.settings import Account
+    check = {"ok": False, "problem": "no_premium", "kbps": None, "at": "2026-11-01T10:00:00"}
+    save_settings(paths.settings_file, replace(
+        Settings(), extra_date="2026-11-02", extra_amount=25, qobuz_last_check={"ok": True, "problem": None, "kbps": 1411,
+                                                                                "at": "2026-11-01T09:00:00"},
+        warnings_seen={"qobuz": "2026-11-01T08:00:00"},
+        accounts={"youtube": Account("chrome", 30, "2026-11-02", 5, None, check, True)}))
+    code, env = run_json(["settings", "show"], capsys)
+    data = env["data"]
+    assert code == OK and data["extra"] == {"date": "2026-11-02", "amount": 25}
+    assert data["qobuz_last_check"] == {"ok": True, "problem": None, "kbps": 1411, "at": "2026-11-01T09:00:00"}
+    assert data["warnings_seen"] == {"qobuz": "2026-11-01T08:00:00"}
+    youtube = data["accounts"]["youtube"]
+    assert (youtube["extra"], youtube["last_check"], youtube["liked_only"]) == (
+        {"date": "2026-11-02", "amount": 5}, check, True)
 
 
 def test_settings_show_reads_without_the_library_lock_even_while_another_run_holds_it(music, capsys):

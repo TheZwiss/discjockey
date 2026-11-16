@@ -373,10 +373,11 @@ class Jobs:
         job = self.current
         return job if job is not None and not job.done.is_set() else None
 
-    def _busy(self) -> Busy | None:
-        """Busy when a write job runs, or only the preview's scan holds the lock (its own words). The mutex is held."""
+    def _busy(self, own: Job | None = None) -> Busy | None:
+        """Busy when a write job runs, or only the preview's scan holds the lock (its own words). The mutex is held.
+        `own`: the calling thread's own job, which does not count (a job that holds no library lock takes it briefly)."""
         job = self.running()
-        if job is not None:
+        if job is not None and job is not own:
             return Busy(BUSY_WORDS.get(job.kind, BUSY_TEXT), "busy")
         return Busy(SCANNING_TEXT, "busy") if self._scanning else None
 
@@ -392,12 +393,14 @@ class Jobs:
     def lock_briefly(self):
         """The engine lock for one short change made outside a write job: a sign-in's or a page check's settings save
         (spec settings-setup §13, one writer at a time). In a write job's own thread the lock is held already, so
-        nothing is taken. Raises Busy (busy: the hub's write job; console: a terminal run) instead of waiting."""
+        nothing is taken. A job that holds no library lock (`start(hold_library=False)`: a settings job) takes it here,
+        and its own run does not make it busy. Raises Busy (busy: the hub's write job; console: a terminal run)
+        instead of waiting."""
         if getattr(self._holder, "on", False):
             yield
             return
         with self._mutex, ExitStack() as stack:  # no write job can start meanwhile (start takes the mutex)
-            if (busy := self._busy()) is not None:
+            if (busy := self._busy(getattr(self._holder, "job", None))) is not None:
                 raise busy
             self._brief, self._briefs = True, self._briefs + 1
             stack.callback(setattr, self, "_brief", False)
@@ -447,9 +450,10 @@ class Jobs:
         `batch_kind`: for an AIFF batch job ("upgrade_batch", "aiff_batch", "batch_resume") the batch's kind, so the
         snapshot of a reloaded window says whose batch runs. Raises Busy at once if another write job runs or the console holds the lock.
         Adopted by a worker process (`adopt`): the same checks, then the work runs here, on the calling thread, and the
-        job is finished when this returns. `hold_library=False` is a support-only job (`tools update`, design §6.1): it
-        waits for the hub's other jobs like any write job but takes no library lock (its own work takes the support
-        lock), so it runs without a music folder and never makes a library job busy."""
+        job is finished when this returns. `hold_library=False` is a support-only job (`tools update`, design §6.1; the
+        settings jobs): it waits for the hub's other jobs like any write job but holds no library lock for its run (its
+        own work takes the support lock, and a settings write takes the library lock briefly inside it: lock order
+        support, library, rekordbox.lock), so it runs without a music folder and never makes a library job busy."""
         with self._mutex:
             if (busy := self._busy()) is not None:
                 raise busy
@@ -552,7 +556,7 @@ class Jobs:
             if write:
                 lock = library.run_lock(self.lock) if self.lock is not None and hold_library else nullcontext()
                 with lock, self.keep_awake("Discjockey is changing your library"):
-                    self._holder.on = hold_library
+                    self._holder.on, self._holder.job = hold_library, job
                     try:
                         if self.inline is not None:  # the worker has the library: the registry says so
                             self.inline.update(status="running", kind=job.kind)
@@ -560,7 +564,7 @@ class Jobs:
                             self._at_lock()
                         result = work(ctx)
                     finally:
-                        self._holder.on = False
+                        self._holder.on, self._holder.job = False, None
             else:
                 result = work(ctx)
             message = ctx.message

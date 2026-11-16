@@ -416,8 +416,10 @@ def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, ru
     """Writes the records into `state` (plan §0.6). Returns whether anything changed."""
     changed = False
     at = now().isoformat(timespec="seconds")
+    waited = {r["track"] for r in rows if r["state"] == "waiting" and r["reason"] in WAITS}  # not tried: kept as they were
     for key in planned.run:  # tried now: what was recorded earlier is out of date
-        changed |= _change(state, key, drop=("auto_refused", "auto_waits"))
+        if key not in waited:
+            changed |= _change(state, key, drop=("auto_refused", "auto_waits"))
     for key, _ in planned.refused:  # reached with rekordbox closed
         changed |= _change(state, key, drop=("auto_waits",))
     new = [r for r in rows if r["track"] in planned.run and r["state"] == "refused" and r["reason"] in REFUSALS

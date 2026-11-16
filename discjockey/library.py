@@ -531,8 +531,14 @@ def save_state(paths: Paths, state: dict, *, rekeyed: Collection[str] = ()) -> N
 def write_music_folder(support: Path, folder: Path) -> None:
     """config.json: the music folder this Mac uses. Written whole or not at all, under the support lock."""
     with support_lock(support):
-        write_json_atomic(SupportPaths(support=support).config_file, {"music_folder": str(folder)}, parents=True,
-                          indent=2, ensure_ascii=False)
+        write_music_folder_held(support, folder)
+
+
+def write_music_folder_held(support: Path, folder: Path) -> None:
+    """`write_music_folder` for a caller that holds the support lock already (the hub takes the library lock briefly
+    inside it: lock order support, library, rekordbox.lock)."""
+    write_json_atomic(SupportPaths(support=support).config_file, {"music_folder": str(folder)}, parents=True,
+                      indent=2, ensure_ascii=False)
 
 
 def _walk_files(paths: Paths) -> list[str]:

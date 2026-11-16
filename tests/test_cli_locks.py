@@ -330,8 +330,61 @@ def test_a_driver_exists_only_for_a_built_entry():
 
 # --- the design's table, for the kinds of job that exist in the engine today ---
 
-def test_a_write_job_holds_the_library_and_takes_the_support_lock_only_for_its_save(box):
+def test_a_settings_job_takes_the_library_and_the_support_lock_and_the_brief_save_too(box):
     assert taken_by(box, lambda api, rec: wait_job(api, rec, api.setup_skip_qobuz())) == {"library", "support"}
+
+
+LOCK_ORDER = ("support", "library", "rekordbox_r", "rekordbox_w")  # the stated order: a lock is never taken after a later one
+
+
+def order_of(box, drive) -> list[str]:
+    """The locks `drive` takes, in the order it takes them (the recorder notes each take as it happens)."""
+    api, events, rec = box
+    rec.words.clear()
+    drive(api, events)
+    return list(rec.words)
+
+
+def _music_elsewhere(api, rec):
+    other = api._paths.root.parent / "other music"
+    assert api.set_music_folder(str(other))["ok"]
+
+
+SETTINGS_WRITES = {  # every settings write of the hub that takes both the support lock and the library lock
+    "set_auto_upgrade (settings set)": lambda api, rec: wait_job(api, rec, api.set_auto_upgrade(False)),
+    "setup_skip_qobuz": lambda api, rec: wait_job(api, rec, api.setup_skip_qobuz()),
+    "setup_skip_spotify": lambda api, rec: wait_job(api, rec, api.setup_skip_spotify()),
+    "setup_forget_account": lambda api, rec: wait_job(api, rec, api.setup_forget_account("youtube")),
+    "setup_skip_import (brief save, no job)": lambda api, rec: api.setup_skip_import(),
+    "set_music_folder (setup music)": _music_elsewhere,
+}
+
+
+@pytest.mark.parametrize("name", sorted(SETTINGS_WRITES))
+def test_a_settings_write_takes_the_support_lock_first_then_the_library_lock_briefly_inside_it(name, box):
+    """Lock order is support, library, rekordbox.lock (design §6.1): a settings write takes the support lock around its
+    read-change-write and the library lock inside it, in a job and outside one, on the command line's path and the
+    window's."""
+    words = order_of(box, SETTINGS_WRITES[name])
+    assert words == ["support", "library"], words
+    ranks = [LOCK_ORDER.index(w) for w in words]
+    assert ranks == sorted(ranks)
+
+
+def test_a_settings_job_holds_no_library_lock_while_it_waits_for_the_support_lock(box):
+    """The order's other half: with the support lock held by another process the job answers busy (support_lock)
+    without ever having taken the library lock."""
+    from discjockey import library as lib
+    api, events, rec = box
+    rec.words.clear()
+    old, lib.SUPPORT_WAIT_S = lib.SUPPORT_WAIT_S, 0.2
+    try:
+        with lib.support_lock(api._support.support):
+            rec.words.clear()
+            job = wait_job(api, events, api.set_auto_upgrade(False))
+    finally:
+        lib.SUPPORT_WAIT_S = old
+    assert (job.ok, job.problem) == (False, "busy") and "library" not in rec.words
 
 
 def test_a_brief_settings_save_outside_a_job_takes_the_library_briefly_and_the_support_lock(box):

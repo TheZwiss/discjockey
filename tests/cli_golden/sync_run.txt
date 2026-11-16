@@ -2,6 +2,7 @@ Upgraded 2 tracks; your cues stayed.
 
 Exit code  0
 Report     report:<stamp>
+Recovered  none
 Batch id   aiff:1
 
 Auto upgrade

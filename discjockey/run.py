@@ -495,10 +495,12 @@ def finish_quietly(prep: Prepared, emit: Emit = no_emit, token: CancelToken | No
 @dataclass(frozen=True)
 class PhaseRun:
     """What `auto_upgrade_only` did: the exit code (0, 1 some track failed, 130 stopped), the report (None: a dry run, or
-    the switch was off) and the phase's block (None: the switch was off)."""
+    the switch was off), the phase's block (None: the switch was off) and the steps recovered at the start (a dry run and
+    the switch off recover nothing)."""
     code: int
     report: Path | None
     outcome: auto_upgrade.Outcome | None
+    recovered: tuple[tuple[str, bool], ...] = ()  # what the start finished or undid: (message, ok), as the report says
 
 
 def auto_upgrade_only(paths: Paths, settings: Settings, *, emit: Emit = no_emit, token: CancelToken | None = None,
@@ -563,7 +565,7 @@ def auto_upgrade_only(paths: Paths, settings: Settings, *, emit: Emit = no_emit,
     emit(RunFinished(code, str(path)))
     if crash is not None:
         raise RunCrashed(crash, path) from crash
-    return PhaseRun(code, path, outcome)
+    return PhaseRun(code, path, outcome, tuple(recovered))
 
 
 STEP_VERBS = {"acquire": "downloading", "upgrade": "looking for a better version of",

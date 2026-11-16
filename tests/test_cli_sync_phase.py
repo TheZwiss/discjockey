@@ -16,12 +16,12 @@ import pytest
 from batch_helpers import needs_ffmpeg
 from discjockey import library
 from discjockey import words as engine_words
-from discjockey.cli import parser
+from discjockey.cli import bind, parser
 from discjockey.hub import catalog
 from discjockey.hub.api import CliApi
 from discjockey.rekordbox import process
 from discjockey.settings import Settings, load_settings, save_settings
-from test_cli_upgrade import batches_of, inline_workers, lib, run, run_json  # noqa: F401 - fixtures
+from test_cli_upgrade import STOP, batches_of, inline_workers, lib, run, run_json  # noqa: F401 - fixtures
 
 pytestmark = needs_ffmpeg
 
@@ -103,6 +103,86 @@ def test_a_track_that_fails_makes_the_run_partial_and_a_wait_does_not():
     assert catalog.AUTO_UPGRADE_PARTIAL == ("failed",)
 
 
+def test_a_stop_during_the_phase_ends_it_stopped_with_exit_130_keeps_the_block_and_saves_the_records(lib, capsys):
+    found = lib(["mp3", "mp3"])
+    STOP["after"] = 1  # Stop is pressed while the first track is being measured
+    code, env = run_json(PHASE, capsys)
+    assert (code, env["outcome"], env["reason"]) == (5, "stopped", "stop"), env
+    assert env["data"]["exit_code"] == 130 and env["data"]["report"]
+    block = env["data"]["auto_upgrade"]
+    assert block["stopped"] is True and (block["done"], block["waiting"]) == (1, 1)
+    assert [(r["state"], r["reason"]) for r in block["results"]] == [("done", None), ("waiting", "not_reached")]
+    assert found.entry(0)["path"].endswith("Song 0.aiff") and found.entry(1)["path"] == found.olds[1]  # saved as it stood
+    assert found.entry(1)["upgrade"]  # the second still waits in To-do
+    [row] = batches_of(found)
+    assert (row.started_by, row.state) == ("auto_upgrade", "done")  # `end_auto` closed it: no Resume, the rest skipped
+
+
+def test_a_crash_in_the_phase_is_filed_as_a_report_with_its_note_and_answers_failed_with_no_block(lib, capsys, monkeypatch):
+    from discjockey import auto_upgrade
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("disk fell off")
+    found = lib(["mp3", "mp3"])
+    monkeypatch.setattr(auto_upgrade, "run_phase", boom)
+    code, env = run_json(PHASE, capsys)
+    assert code != OK and env["outcome"] == "failed", env
+    assert env["data"]["exit_code"] == 1 and env["data"]["auto_upgrade"] is None and env["data"]["recovered"] == []
+    stamp = env["data"]["report"].removeprefix("report:")
+    md = (found.paths.reports / f"{stamp}.md").read_text()
+    assert "disk fell off" in md and auto_upgrade.STEP in md  # the crash note names what the run was doing
+    assert found.entry(0)["path"] == found.olds[0] and batches_of(found) == []
+
+
+def test_a_track_that_fails_makes_the_run_partial_with_exit_code_1_and_the_other_track_is_done(lib, capsys, monkeypatch):
+    found = lib(["mp3", "mp3"])
+    inline = bind.headless
+    calls: list[int] = []
+
+    def headless(resolved, **kw):
+        api = inline(resolved, **kw)
+        measure = api._svc.compare
+
+        def compare(a, b):  # the first track's two files cannot be measured
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("cannot read the file")
+            return measure(a, b)
+        api._svc.compare = compare
+        return api
+    monkeypatch.setattr(bind, "headless", headless)
+    code, env = run_json(PHASE, capsys)
+    assert (code, env["outcome"]) == (6, "partial"), env
+    assert env["data"]["exit_code"] == 1
+    block = env["data"]["auto_upgrade"]
+    assert (block["done"], block["failed"]) == (1, 1)
+    assert sorted(r["state"] for r in block["results"]) == ["done", "failed"]
+    assert found.entry(1)["path"].endswith("Song 1.aiff") and found.entry(0)["path"] == found.olds[0]
+
+
+def test_steps_recovered_at_the_start_of_the_phase_are_in_the_result(lib, capsys, monkeypatch):
+    lib(["mp3"])
+    monkeypatch.setattr(library, "recover_pending", lambda paths, state: [("Finished moving Song 0.", True)])
+    code, env = run_json(PHASE, capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert env["data"]["recovered"] == [["Finished moving Song 0.", True]]
+
+
+def test_a_track_whose_batch_never_ran_keeps_its_recorded_refusal(lib, capsys):
+    from discjockey.rekordbox import lock
+    found = lib(["mp3"])
+    state = library.load_state(found.paths)
+    record = {"reason": "timing", "message": "its timing cannot be measured", "at": "2026-11-01T10:00:00",
+              "anlz": {"ANLZ0000.DAT": 1}, "free": None, "files": None}
+    state["tracks"][found.tracks[0]]["upgrade"]["auto_refused"] = record
+    library.save_state(found.paths, state)
+    with lock.writer_lock(found.paths.support):  # another window or the Terminal is changing rekordbox's library
+        code, env = run_json(PHASE, capsys)
+    assert code == OK, env
+    assert [(r["state"], r["reason"]) for r in env["data"]["auto_upgrade"]["results"]] == [("waiting", "busy")]
+    assert found.entry(0)["upgrade"]["auto_refused"] == record  # not tried, so what was recorded still stands
+
+
 # --- the dry run ---
 
 def test_the_dry_run_writes_nothing_and_has_the_start_note_and_the_block(lib, capsys, monkeypatch):
@@ -150,6 +230,15 @@ def test_a_settings_file_the_sync_cannot_read_is_config_invalid_and_moves_nothin
     found.paths.settings_file.write_text('{"auto_upgrade": "yes"}')
     code, env = run_json(PHASE, capsys)
     assert code != OK and env["outcome"] == "failed" and env["reason"] == "config_invalid", env
+    assert batches_of(found) == [] and found.entry(0)["path"] == found.olds[0]
+
+
+def test_a_plan_with_a_settings_file_that_cannot_be_read_is_config_invalid_not_changed(lib, capsys):
+    found = lib(["mp3"])
+    _, dry = run_json([*PHASE, "--dry-run"], capsys)
+    found.paths.settings_file.write_text('{"auto_upgrade": "yes"}')
+    code, env = run_json([*PHASE, "--plan", dry["data"]["plan_id"]], capsys)
+    assert (code, env["outcome"], env["reason"]) == (1, "failed", "config_invalid"), env
     assert batches_of(found) == [] and found.entry(0)["path"] == found.olds[0]
 
 

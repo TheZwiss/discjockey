@@ -74,8 +74,9 @@ the same order; kind `track` takes a song key (kept as it is) or the path of a l
 the music folder) and answers the song key. Kind `folder` takes a watched import folder's path (absolute, `~` or relative to where the command runs; `folder:<path>` too) and
 answers its folder id; the Library, a folder nobody watches and a path of no folder are `unknown_id`, no music folder is `no_library`. The command line's `settings_view()` (`@cli_first`; works without a music
 folder) answers what Settings holds, in the page's words: `{music_folder, auto_upgrade, read_liked_music, daily_qobuz_limit, qobuz_skipped,
-spotify_skipped, import_skipped, accounts: {service: {browser, browser_name, profile, profile_name, daily_limit}}, labels: {auto_upgrade,
-read_liked_music}}`; a settings file that cannot be read is `config_invalid`. A text no id can be made of answers `{ok: false, kind: "bad_args",
+spotify_skipped, import_skipped, qobuz_last_check, extra, warnings_seen, accounts: {service: {browser, browser_name, profile, profile_name,
+daily_limit, extra, last_check, liked_only}}, labels: {auto_upgrade, read_liked_music}}` (`qobuz_last_check` and `last_check` are `{ok, problem, kbps, at}`
+or null, `extra` is `{date, amount}` or null, `warnings_seen` maps a service to the time its warning signs were last seen); a settings file that cannot be read is `config_invalid`. A text no id can be made of answers `{ok: false, kind: "bad_args",
 outcome: "bad_args", reason: "unknown_id" | "bad_id_kind"}`; a kind nobody resolves yet is `failed`. A `HubApi(…,
 remember=False)` (the command line's) acts on a write's record as it is, with no check against how a page last showed it.
 
