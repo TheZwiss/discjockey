@@ -513,6 +513,64 @@ Results:
     gap U12, real-copy rehearsal session, cost, Qobuz "Use this" note). AFTER phase 1: discuss Opus plan + Fable
     advisor + Sonnet build vs current setup. Suite now ~1 min (interim background wakes: no report to the user).
     Issue 39 ~13.07M (incl. V1.15 review 117k), phase 1 ~10.95M.
+    V1.15 fix round done 7f1ad71a: Sonnet **89k** (all 8 fixed; 5539 passed in 52.5 s). V1.15 MERGED into the phase
+    branch + main merged in: c9213e6e, pushed. Issue 39 ~13.16M, phase 1 ~11.04M. Phase review measured on c9213e6e
+    (diff vs merge-base, tokens = chars/4): SAFETY api 32k + engine 61k + call/worker 10k + registry/plan_store/jobs
+    11k + scripts 16k + harness 2k = 132k (+ tests by grep, design by grep: material ~150k, expected Opus 230-300k);
+    SURFACE cli 25k + hub surface 17k + words 3k + contract 10k + hub-ui 25k + docs 20k = 100k (material ~115k,
+    expected 180-250k). Tests diff 183k (grep only). I stopped for a go on the sizes; user: "why did you stop?" (the
+    standing go covers it; telling the size is enough). Safety half (Opus) done: **390k** (117 calls; over its 230-300k, 2.6x material) → phase1/phase-review-safety.md:
+    0 C, 1 I (S-4 `check done --batch aiff:N` ends a later batch's check + undo), 9 M (S-1 = S10 flake: worker start
+    races the 1 s wait, tests only); decisions S-7 (login saves wait up to 60 s for the lock) and S-8 (rekordbox
+    analysis folder as a fifth root): coordinator takes the reviewer's picks (technical). Issue 39 ~13.55M, phase 1
+    ~11.43M. Surface half split before dispatch (same ratio → ~300k): Ua CLI surface (46k diff + CLAUDE.md 11k +
+    design greps, expected 150-200k), Ub contract/window/docs (56k diff, expected 150-200k). Ua done: **298k**
+    (100 calls; ~4x material) → phase1/phase-review-surface-cli.md: 0 C, 9 I (C-1 unknown song key = refused/changed;
+    C-2 help shows method args not what to type; C-3 reasons miss real ones; C-4 help names no methods; C-5 parser
+    breaks on two-method commands; C-6 noun --help usage error; C-8 golden checks substrings; C-11 check batch id
+    batch:N; C-12 To-do page hides Upgrade all/Resume facts), 11 M; decisions C-1/C-5 → reviewer's picks. Issue 39
+    ~13.85M, phase 1 ~11.73M. Ub split again by the record (~4x material → ~280k): Ub1 contract + hub-ui (Opus),
+    Ub2 docs + U9/U10/U12 + S6 design row + S3 plan note (Opus). Ub1 done: **263k**
+    (135 calls) → phase1/phase-review-window.md: 0 C, 1 I (W-1 decision: the window's aiff_plan now ffprobes up
+    to 50 fact-less files per panel open, undocumented, untested; pick (b) keep + document + test, as design §7.1
+    wants panel = dry run = run; coordinator takes it), 10 M; S6 → change design row 424 (W-11); U8 → views search
+    via names.search_fold (W-10); vitest 553 touched ok; fix round runs npm run check. Issue 39 ~14.11M, phase 1
+    ~11.99M. Ub2 (docs) done: **248k** (92 calls)
+    → phase1/phase-review-docs.md: 0 C, 1 I (D-1 CONTRIBUTING says the old sync's --dry-run changes nothing, but
+    prepare saves --extra N even in a dry run → a dry run grants Qobuz downloads; coordinator adds a CODE fix: no
+    --extra save in a dry run), 18 M; decisions D-3/D-16/D-17 → reviewer's picks; U12: kit's aac = native ~225k,
+    live step 2 needs >320 kbps (CDJ limit) → kit can't make it. PHASE REVIEW TOTAL ~1.20M (4 Opus parts; plan
+    est. 300-500k). Findings 60: safety 1I+9M, CLI 9I+11M, window 1I+10M, docs 1I+18M. Issue 39 ~14.36M, phase 1
+    ~12.24M. FIX ROUNDS (Sonnet, fix-round agent, one branch feat/cli-1-pr, worktree cli1-pr, sequential):
+    FA safety S-1..S-10 + D-1 code; FB CLI help/catalogue/parser C-2..C-7, C-15, C-19; FC CLI ids/render/words
+    C-1, C-8..C-14, C-16..C-18, C-20; FD window/contract W-1..W-11 (+ npm run check); FE docs D-1..D-19 + U9 + S3
+    + W-11 design row (last: help texts change in FB). Each 150-220k → ~0.9-1.1M.
+    FA done 9b8ee280: Sonnet **141k** (cut once by the 5-hour limit, resumed; 5595 passed in 81.9 s): S-1..S-8, S-10,
+    D-1 code (dry run saves no --extra) fixed, each test fails without its fix; S-9's new lock-order test found 5
+    drivers taking a scoped rekordbox_r read hold, already released, before `library` (xfail strict). Coordinator
+    decides (technical): the order rule is about holds held at the same time (deadlock); the recorder records
+    releases and checks nested holds only → done in FB. Issue 39 ~14.50M, phase 1 ~12.38M.
+    FB done baa6d4fc: Sonnet **195k** (68 calls; 5625 passed in 85.2 s): C-3..C-7, C-15, C-19, S-9 recorder fixed;
+    C-2 except `report show` (needs C-9's resolver → FC1); login rows folded into one command (C-5 pick a).
+    Issue 39 ~14.70M, phase 1 ~12.58M. FC split by the record (13 items ≈ 240k > 190k): FC1 ids C-1, C-9 (+ C-2's
+    report show), C-10, C-11, C-16, C-17; FC2 render/words C-8, C-12, C-13, C-14, C-18, C-20.
+    FC1 done 9f67721a: Sonnet **142k** (80 calls; 5631 passed in 82.2 s; svelte-check 0, bridge vitest 211): C-1
+    (unknown key = bad_args/unknown_id, real resolver in write fixtures), C-2 report show, C-9 (report:<stamp>|stamp|
+    last; run_summary.id), C-10, C-11 (aiff_id on check items), C-16, C-17. Leftovers to FC2: report page prints Run
+    id + Id twice; NO_REPORT words name the unbuilt `report list`. Issue 39 ~14.84M, phase 1 ~12.72M.
+    FC2 done d3003c78 + b50f7f2c: Sonnet **216k** (115 calls; 5643 passed in 73.1 s): C-8 (whole-word golden check,
+    found a real dropped 0), C-12 (To-do group facts, empty_text), C-13 (next.run/then with the program path), C-14,
+    C-18 (autouse opener guard), C-20, L-1, L-2; plus a test that every backticked command in words.py is built.
+    Leftover → FD: parser's removed-word text names `settings set auto-upgrade`. Issue 39 ~15.06M, phase 1
+    ~12.94M. FD (window/contract W-1..W-10; W-11 design row → FE)
+    FD done a7fb373a + static 100c7365: Sonnet **162k** (76 calls; pytest 5645 passed + 1 check_public fail from the
+    uncommitted static, green after the static commit; svelte-check 0, vitest 1595): W-1 (b) documented + test,
+    W-2..W-8, W-10 (views search via search_fold); L-3 nothing (settings set auto-upgrade is built). Issue 39
+    ~15.22M, phase 1 ~13.10M. FE (docs D-2..D-19 + D-1 text + U9 + S3 + W-9 + W-11)
+    FE done b937aa19: Sonnet **158k** (62 calls; 5646 passed in 73.8 s): all docs findings applied, texts checked
+    against the code now; D-8 skip also covers the aiff/preview lock drivers. D-3 not applied (its pick is a code
+    change: job flags silently accepted on commands that answer at once) → FF small Sonnet round. Issue 39 ~15.38M,
+    phase 1 ~13.26M. FF RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
