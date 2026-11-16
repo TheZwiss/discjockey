@@ -557,7 +557,12 @@ Results:
     FC1 done 9f67721a: Sonnet **142k** (80 calls; 5631 passed in 82.2 s; svelte-check 0, bridge vitest 211): C-1
     (unknown key = bad_args/unknown_id, real resolver in write fixtures), C-2 report show, C-9 (report:<stamp>|stamp|
     last; run_summary.id), C-10, C-11 (aiff_id on check items), C-16, C-17. Leftovers to FC2: report page prints Run
-    id + Id twice; NO_REPORT words name the unbuilt `report list`. Issue 39 ~14.84M, phase 1 ~12.72M. FC2 RUNNING.
+    id + Id twice; NO_REPORT words name the unbuilt `report list`. Issue 39 ~14.84M, phase 1 ~12.72M.
+    FC2 done d3003c78 + b50f7f2c: Sonnet **216k** (115 calls; 5643 passed in 73.1 s): C-8 (whole-word golden check,
+    found a real dropped 0), C-12 (To-do group facts, empty_text), C-13 (next.run/then with the program path), C-14,
+    C-18 (autouse opener guard), C-20, L-1, L-2; plus a test that every backticked command in words.py is built.
+    Leftover → FD: parser's removed-word text names `settings set auto-upgrade`. Issue 39 ~15.06M, phase 1
+    ~12.94M. FD (window/contract W-1..W-10; W-11 design row → FE) RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
