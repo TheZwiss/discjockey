@@ -581,7 +581,15 @@ Results:
     (Sonnet, branch feat/cli-1-ci, worktree cli1-ci)
     CI fix done 044279b0: Sonnet **65k** (10 calls; 5651 passed in 90.3 s): shipped ffmpeg has no libmp3lame; kit
     checks the encoder first (exit 2 with the kinds that work), refusal test uses flac, MP3 cases skip without the
-    encoder. Merged into the phase branch + main: 092c1f16, pushed; CI running. Issue 39 ~15.53M, phase 1 ~13.41M.
+    encoder. Merged into the phase branch + main: 092c1f16, pushed; CI green (43968805033). Issue 39 ~15.53M, phase 1 ~13.41M.
+    **PHASE 1 MERGED INTO MAIN 169457c0** (CI green 43969608840; verify 1216 shots 0 problems, smoke ok). No release.
+    STOPPED here per the go: next the A-D live tests + real-copy rehearsals with the user, then the setup discussion.
+    Phase 1 measured agent sizes (11.43M of the ~13.41M logged): builds 22 agents 6.20M (54%, avg 281k), group
+    reviews 6 = 1.13M, group fixes 7 = 1.06M, made-up rehearsals 3 = 0.35M, suite speed 0.33M, phase review 4 Opus
+    = 1.20M (avg 299k), phase fixes 8 = 1.16M (avg 145k). Plan said 5.4M for phase 1 (2.5x).
+    Morning summary told: real-copy rehearsal session (rehearse, rehearse-convert, rehearse-sync; rekordbox closed);
+    cost; Qobuz "Use this" note before phase 2 (V2.6); AAC 420 gap (kit's aac ~225 kbps, aac_at ~322; live step 2
+    needs >320); CI was red since the V1.15 merge until 092c1f16 (lesson: check CI after every phase-branch push).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
