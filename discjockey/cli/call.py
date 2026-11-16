@@ -194,6 +194,9 @@ def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
     if env["outcome"] == "ok":
         if (plan_id := api.save_plan(command, answer, command)) is not None:
             env["data"]["plan_id"] = plan_id
+        words = api.result_words(entry.dry_run, answer)  # a dry run that has something to say beside its facts
+        if words.get("ok") and words.get("message"):
+            env["message"] = words["message"]
         env["next"] += [n for n in api.scan_next() if n not in env["next"]]
     return env
 

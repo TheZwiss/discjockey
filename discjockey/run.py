@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import logging
 import sqlite3
+from collections.abc import Collection
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field, replace
@@ -286,14 +287,19 @@ def folder_names(prep: Prepared) -> Callable[[str], str] | None:
     """A file's path -> the name of the folder it sits in, as Sync names it (`hub.views.Sites.place`): what the run
     report, the console's plan and the dry run file an own song under (it has no playlist). None when the records
     can't be read: they then say "your music"."""
-    if not prep.paths.db_file.exists():
+    return folder_places(prep.paths, prep.state, prep.lines)
+
+
+def folder_places(paths: Paths, state: dict, lines: list[PlaylistLine]) -> Callable[[str], str] | None:
+    """`folder_names` for a caller that has the records and the playlist lines but no `Prepared`."""
+    if not paths.db_file.exists():
         return None
     try:
-        with db.connect(prep.paths.db_file, read_only=True) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             watched = db.watched_folders(conn)
     except (OSError, sqlite3.Error):
         return None
-    return views.sites(prep.state, prep.lines, watched).place
+    return views.sites(state, lines, watched).place
 
 
 def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked: set[tuple[str, str, str]],
@@ -484,6 +490,82 @@ def finish_quietly(prep: Prepared, emit: Emit = no_emit, token: CancelToken | No
     path = rep.write_crash(prep.paths, prep.log, datetime.now(), auto_upgrade.STEP, crash, prep.state)
     emit(RunFinished(code, str(path)))
     raise RunCrashed(crash, path) from crash
+
+
+@dataclass(frozen=True)
+class PhaseRun:
+    """What `auto_upgrade_only` did: the exit code (0, 1 some track failed, 130 stopped), the report (None: a dry run, or
+    the switch was off), the phase's block (None: the switch was off) and the steps recovered at the start (a dry run and
+    the switch off recover nothing)."""
+    code: int
+    report: Path | None
+    outcome: auto_upgrade.Outcome | None
+    recovered: tuple[tuple[str, bool], ...] = ()  # what the start finished or undid: (message, ok), as the report says
+
+
+def auto_upgrade_only(paths: Paths, settings: Settings, *, emit: Emit = no_emit, token: CancelToken | None = None,
+                      rekordbox: dict | None = None, dry_run: bool = False, only: Collection[str] | None = None,
+                      changed: Collection[str] = ()) -> PhaseRun:
+    """The Auto-upgrade phase alone (`sync run --auto-upgrade-only`, issue 39 design §5.2): the sync's last phase with no
+    plan and no read of the playlists, so it never calls the planner (with no fetched playlists the planner would mark
+    every song as gone from its playlists). It opens the records, finishes interrupted steps (`recover_pending`), runs
+    `auto_upgrade.run_phase`, saves, refreshes not_lossless.md and files a report that holds the phase's results and
+    its block (`kind` `auto_upgrade_only`). The switch off: nothing is read or written. A dry run (`dry_run`) opens the
+    records read only and writes nothing, not even a report.
+
+    `held` is empty on purpose: a song the plan holds for "Is this the same song?" is one with no record or one whose
+    status is `missing` (the planner's two places for a question), so it has no file, and the phase's set only takes a
+    song whose file is there (`batches.present`, `eligible.same_track_quick`): a held song can never be among the
+    upgrades the phase would run. `only` / `changed`: a run with a plan (`run_phase`). `rekordbox` replaces the real
+    rekordbox services as for `upgrade_phase` (and `via`: where the batch says it started). Stop or Ctrl-C ends it with
+    exit code 130 once the records are saved; an unexpected error is filed like a sync's (a report with a crash note,
+    `RunFinished`, `RunCrashed`)."""
+    if not settings.auto_upgrade:
+        return PhaseRun(0, None, None)
+    token = token or CancelToken()
+    options = {"running": process.running, "place": locate(), "compare": align.compare_files, "now": datetime.now,
+               **(rekordbox or {})}
+    log = rep.RunLog(datetime.now(), kind=rep.AUTO_UPGRADE_ONLY)
+    if dry_run:
+        state = library.open_state(paths, read_only=True)
+        outcome = auto_upgrade.run_phase(paths, state, (), settings, log, emit=emit, token=token, dry_run=True,
+                                         only=only, changed=changed, **options)
+        return PhaseRun(0, None, outcome)
+    migrated: list[tuple[str, bool]] = []
+    state = library.open_state(paths, emit, recovered=migrated)
+    recovered = migrated + library.recover_pending(paths, state)
+    for message, ok in recovered:
+        log.add_text("recovered" if ok else "errors", message)
+        emit(Message("info" if ok else "warning", message))
+    library.clear_tmp(paths, state)
+    try:
+        lines = config.load_playlists(paths.playlists_file)
+    except config.ConfigError:  # no playlists.txt: an own song is then filed under its folder's name or "your music"
+        lines = []
+    where = folder_places(paths, state, lines)
+    code, crash, outcome = 0, None, None
+    try:
+        token.check()
+        outcome = auto_upgrade.run_phase(paths, state, (), settings, log, emit=emit, token=token, where=where,
+                                         only=only, changed=changed, **options)
+        if outcome is not None and outcome.stopped:
+            code = 130
+    except (Cancelled, KeyboardInterrupt):
+        code = 130
+    except Exception as e:  # noqa: BLE001 - filed with a crash note below, then raised as RunCrashed
+        code, crash = 1, e
+    library.save_state(paths, state)
+    rep.write_not_lossless(paths, state)
+    if code == 0 and log.section("errors"):
+        code = 1
+    if crash is None:
+        path = rep.write_run(paths, log, datetime.now(), code, state)
+    else:
+        path = rep.write_crash(paths, log, datetime.now(), auto_upgrade.STEP, crash, state)
+    emit(RunFinished(code, str(path)))
+    if crash is not None:
+        raise RunCrashed(crash, path) from crash
+    return PhaseRun(code, path, outcome, tuple(recovered))
 
 
 STEP_VERBS = {"acquire": "downloading", "upgrade": "looking for a better version of",

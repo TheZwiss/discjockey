@@ -18,7 +18,7 @@ from ..hub import catalog
 from ..hub.api import CliApi
 from ..hub.catalog import Entry
 
-LEGACY_WORDS = frozenset(("setup", "update", "settings"))
+LEGACY_WORDS = frozenset(("setup", "update"))
 # Old words that are gone: what the usage error tells a person (or an agent) who still types one (design §12)
 MOVED = {("upgrades",): "`upgrades` is not a command any more: say `upgrade …` (`upgrade list`, `upgrade apply`, "
                         "`upgrade discard`).",
@@ -26,6 +26,8 @@ MOVED = {("upgrades",): "`upgrades` is not a command any more: say `upgrade …`
          ("rekordbox", "checked"): "`rekordbox checked` is not a command any more: say `check done`.",
          ("convert",): "`convert` is not a command any more: say `aiff convert …` (`--all --in <collection>` is Make all "
                        "lossless files AIFF, `--all --todo cdj` is Convert all).",
+         ("settings", "auto-upgrade"): "`settings auto-upgrade` is not a command any more: say `settings set auto-upgrade "
+                                       "on|off` (`settings show` says which it is now).",
          ("rename",): "`rename` is not a command any more: say `aiff rename …` (`--all [--in <collection>]` is every "
                       "clean AIFF whose name isn't clean)."}
 GLOBAL_BOOL = {"--json": "json", "--jsonl": "jsonl", "--detach": "detach", "--verbose": "verbose",
@@ -84,6 +86,7 @@ class Flags:
     todo: str | None = None
     search: str | None = None
     quality: str | None = None
+    auto_upgrade_only: bool = False  # `sync run --auto-upgrade-only`: the phase alone (`catalog.PHASE_ONLY`)
 
 
 @dataclass
@@ -190,6 +193,10 @@ def _option_type(arg: catalog.Arg):
     return {"int": int, "float": float}.get(arg.type, str)
 
 
+PHASE_ONLY_WORDS = ("{command} runs only the sync's last phase for now: say {flag}. The whole sync is still "
+                    "`discjockey --yes` (or `discjockey --dry-run` to look first).")
+
+
 SELECTION_FLAGS = {"--rows": ("rows", True), "--in": ("where", False), "--todo": ("todo", False),
                    "--search": ("search", False), "--quality": ("quality", False)}  # flag -> (Flags field, switch?)
 
@@ -217,6 +224,8 @@ def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
     answers it, `--yes` when an entry needs it, `--limit` and `--offset` on a read (unless the method's own flags took
     the word). The parser and `help --json` both read this."""
     flags = _selection_flags(entries, taken)
+    if (switch := catalog.PHASE_ONLY.get(" ".join(entries[0].command))) is not None:
+        flags.append(switch)
     if any(e.dry_run for e in entries):
         flags.append("--dry-run")
     if any(e.needs_yes for e in entries):
@@ -224,6 +233,14 @@ def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
     if all(e.kind == "R" for e in entries):
         flags += [f"--{word}" for word in ("limit", "offset") if f"--{word}" not in taken]
     return flags
+
+
+def _switch(text: str) -> bool:
+    """A positional switch (`settings set auto-upgrade on|off`): the word `on` or `off` as the bool the method takes."""
+    word = text.strip().lower()
+    if word not in ("on", "off"):
+        raise argparse.ArgumentTypeError(f"say on or off, not {text}")
+    return word == "on"
 
 
 def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
@@ -234,7 +251,7 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
         optional = signature.parameters[name].default is not inspect.Parameter.empty
         if arg.positional:
             leaf.add_argument(name, nargs="*" if arg.many else "?" if optional else None, metavar=name.upper(),
-                              default=argparse.SUPPRESS)
+                              default=argparse.SUPPRESS, **({"type": _switch} if arg.type == "bool" else {}))
         elif arg.flag:
             taken.add(arg.flag)
             if arg.type == "bool":
@@ -249,6 +266,8 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
             field_name, switch = SELECTION_FLAGS[flag]
             leaf.add_argument(flag, dest=f"_sel_{field_name}", action="store_true" if switch else "store",
                               default=argparse.SUPPRESS)
+        elif flag in catalog.PHASE_ONLY.values():
+            leaf.add_argument(flag, dest=f"_{flag[2:].replace('-', '_')}", action="store_true", default=argparse.SUPPRESS)
         elif flag in ("--dry-run", "--yes"):
             leaf.add_argument(flag, dest=f"_{flag[2:].replace('-', '_')}", action="store_true", default=argparse.SUPPRESS)
         else:
@@ -315,7 +334,7 @@ def parse(argv: list[str]) -> Parsed:
     command = tuple(ns.pop("_command"))
     for key in [k for k in ns if k.startswith(("_noun", "_word"))]:
         del ns[key]
-    for key, attr in (("_dry_run", "dry_run"), ("_yes", "yes")):
+    for key, attr in (("_dry_run", "dry_run"), ("_yes", "yes"), ("_auto_upgrade_only", "auto_upgrade_only")):
         if ns.pop(key, False):
             setattr(flags, attr, True)
     selected = ns.get("batch_id") is not None  # `--batch` says which songs: the batch's
@@ -334,6 +353,8 @@ def parse(argv: list[str]) -> Parsed:
     entries = commands()[command]
     primary = catalog.primary(entries)
     signature = signature_of(primary.method)
+    if (switch := catalog.PHASE_ONLY.get(" ".join(command))) is not None and not flags.auto_upgrade_only:
+        raise UsageError(PHASE_ONLY_WORDS.format(command=" ".join(command), flag=switch))
     for name, arg in catalog.effective_params(primary, signature).items():
         if arg.positional and arg.many:
             if name in ns and not ns[name]:

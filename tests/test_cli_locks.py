@@ -12,7 +12,7 @@ import sys
 import pytest
 
 import hub_helpers
-from hub_helpers import make_root, wait_job
+from hub_helpers import wait_job
 from discjockey import library
 from discjockey.hub import catalog
 from discjockey.hub.api import CliApi
@@ -53,8 +53,9 @@ def fake_locks(monkeypatch):
 
 
 @pytest.fixture
-def box(tmp_path, fake_locks):
-    paths = make_root(tmp_path)
+def box(tmp_path, fake_locks, monkeypatch):
+    hub_helpers.fake_import(monkeypatch)  # `folder add`'s import reads no real audio
+    paths = hub_helpers.music_root(tmp_path)  # beside it, the folders `folder add` watches
     events = hub_helpers.Recorder()
     api = CliApi(paths.support, events, hub_helpers.services())  # the command line's api: the cli_first methods too
     hub_helpers._MADE.append(api)  # conftest stops its jobs at teardown
@@ -84,7 +85,7 @@ def _preview(api, rec):
     assert answer["ok"], answer
 
 
-def _parked(api, rec, *, all_of_them: bool = False):
+def _parked(api, rec, *, all_of_them: bool = False, phase: str | None = None):
     """`upgrade` / `upgrade_all` on a song with a parked upgrade, against a fixture rekordbox library that does not hold the
     song (the batch opens it for writing: its master.db is the one thing a Same track changes there)."""
     from pathlib import Path
@@ -97,7 +98,20 @@ def _parked(api, rec, *, all_of_them: bool = False):
     make_master(folder, [])
     api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
     api._svc.rekordbox_place = lambda: locate_in(folder)
-    if all_of_them:
+    if phase:  # the phase asks rekordbox's library only for a file that is not an AIFF (`auto_upgrade.plan`)
+        from discjockey import library
+        state = library.load_state(api._paths)
+        old = api._paths.root / state["tracks"]["t2"]["path"]
+        mp3 = old.with_suffix(".mp3")
+        old.rename(mp3)
+        state["tracks"]["t2"]["path"] = str(mp3.relative_to(api._paths.root))
+        library.save_state(api._paths, state)
+    if phase == "run":  # the sync's last phase alone: the plan reads rekordbox, the batch writes it
+        answer = api.auto_upgrade_run()
+    elif phase == "preview":  # its dry run: a read, no job
+        assert api.auto_upgrade_preview()["ok"]
+        return
+    elif all_of_them:
         answer = api.upgrade_all()
     else:  # with the plan of its dry run, as `--plan` runs it: that also reads rekordbox's state (`rekordbox_r`)
         plan_id = api.save_plan("upgrade apply", api.upgrade_preview(["t2"], "same_track"), "upgrade apply t2 --dry-run")
@@ -228,6 +242,28 @@ def locate_in(folder):
 
 
 # one driver per built entry's method: it does what the command's method does, once
+def _watch(api, rec):
+    """`folder add` on a folder of three audio files (the import's readers faked), through to the end of its job."""
+    import hub_helpers
+    from pathlib import Path
+    folder = hub_helpers.import_folder(Path(api._paths.root).parent, 3)
+    answer = api.add_watched_folder(str(folder))
+    assert wait_job(api, rec, answer).ok
+    return folder
+
+
+def _watched_id(api, rec) -> int:
+    """The id of a watched import folder made before the call that is measured (its locks are not the call's)."""
+    import hub_helpers
+    from pathlib import Path
+    folder = hub_helpers.import_folder(Path(api._paths.root).parent, 1, name="Measured")
+    assert wait_job(api, rec, api.add_watched_folder(str(folder))).ok
+    rec_words = getattr(api, "lock_recorder", None)
+    if rec_words is not None:
+        rec_words.words.clear()
+    return next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
+
+
 DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
@@ -253,6 +289,8 @@ DRIVERS = {
     "upgrade": lambda api, rec: _parked(api, rec),
     "upgrade:upgrade discard": _discard,  # a driver per command where two entries of one method take different locks
     "upgrade_all": lambda api, rec: _parked(api, rec, all_of_them=True),
+    "auto_upgrade_run": lambda api, rec: _parked(api, rec, phase="run"),
+    "auto_upgrade_preview": lambda api, rec: _parked(api, rec, phase="preview"),
     "undo_upgrade": _undo,
     "undo_upgrade_preview": lambda api, rec: api.undo_upgrade_preview(["t2"]),
     "batch_resume": _resume,
@@ -265,6 +303,11 @@ DRIVERS = {
     "convert": _aiff_run("convert"),
     "rename": _aiff_run("rename"),
     "make_aiff": _aiff_run("make_aiff"),
+    "settings_view": lambda api, rec: api.settings_view(),  # a read of the support folder's file: no lock
+    "set_auto_upgrade": lambda api, rec: wait_job(api, rec, api.set_auto_upgrade(False)),
+    "add_watched_folder": lambda api, rec: _watch(api, rec),
+    "removal_preview": lambda api, rec: api.removal_preview(_watched_id(api, rec)),
+    "remove_watched_folder": lambda api, rec: wait_job(api, rec, api.remove_watched_folder(_watched_id(api, rec))),
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
@@ -287,8 +330,61 @@ def test_a_driver_exists_only_for_a_built_entry():
 
 # --- the design's table, for the kinds of job that exist in the engine today ---
 
-def test_a_write_job_holds_the_library_and_takes_the_support_lock_only_for_its_save(box):
+def test_a_settings_job_takes_the_library_and_the_support_lock_and_the_brief_save_too(box):
     assert taken_by(box, lambda api, rec: wait_job(api, rec, api.setup_skip_qobuz())) == {"library", "support"}
+
+
+LOCK_ORDER = ("support", "library", "rekordbox_r", "rekordbox_w")  # the stated order: a lock is never taken after a later one
+
+
+def order_of(box, drive) -> list[str]:
+    """The locks `drive` takes, in the order it takes them (the recorder notes each take as it happens)."""
+    api, events, rec = box
+    rec.words.clear()
+    drive(api, events)
+    return list(rec.words)
+
+
+def _music_elsewhere(api, rec):
+    other = api._paths.root.parent / "other music"
+    assert api.set_music_folder(str(other))["ok"]
+
+
+SETTINGS_WRITES = {  # every settings write of the hub that takes both the support lock and the library lock
+    "set_auto_upgrade (settings set)": lambda api, rec: wait_job(api, rec, api.set_auto_upgrade(False)),
+    "setup_skip_qobuz": lambda api, rec: wait_job(api, rec, api.setup_skip_qobuz()),
+    "setup_skip_spotify": lambda api, rec: wait_job(api, rec, api.setup_skip_spotify()),
+    "setup_forget_account": lambda api, rec: wait_job(api, rec, api.setup_forget_account("youtube")),
+    "setup_skip_import (brief save, no job)": lambda api, rec: api.setup_skip_import(),
+    "set_music_folder (setup music)": _music_elsewhere,
+}
+
+
+@pytest.mark.parametrize("name", sorted(SETTINGS_WRITES))
+def test_a_settings_write_takes_the_support_lock_first_then_the_library_lock_briefly_inside_it(name, box):
+    """Lock order is support, library, rekordbox.lock (design §6.1): a settings write takes the support lock around its
+    read-change-write and the library lock inside it, in a job and outside one, on the command line's path and the
+    window's."""
+    words = order_of(box, SETTINGS_WRITES[name])
+    assert words == ["support", "library"], words
+    ranks = [LOCK_ORDER.index(w) for w in words]
+    assert ranks == sorted(ranks)
+
+
+def test_a_settings_job_holds_no_library_lock_while_it_waits_for_the_support_lock(box):
+    """The order's other half: with the support lock held by another process the job answers busy (support_lock)
+    without ever having taken the library lock."""
+    from discjockey import library as lib
+    api, events, rec = box
+    rec.words.clear()
+    old, lib.SUPPORT_WAIT_S = lib.SUPPORT_WAIT_S, 0.2
+    try:
+        with lib.support_lock(api._support.support):
+            rec.words.clear()
+            job = wait_job(api, events, api.set_auto_upgrade(False))
+    finally:
+        lib.SUPPORT_WAIT_S = old
+    assert (job.ok, job.problem) == (False, "busy") and "library" not in rec.words
 
 
 def test_a_brief_settings_save_outside_a_job_takes_the_library_briefly_and_the_support_lock(box):

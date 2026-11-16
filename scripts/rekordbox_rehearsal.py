@@ -21,8 +21,9 @@ same-track --json` and `bin/discjockey batch undo aiff:<id> --yes --json` with `
 `DISCJOCKEY_REKORDBOX` pointing into `W`, then (step 8) `rekordbox backups`, `restore <backup> --dry-run` and `restore
 <backup> --yes`, which must give back the "before" copy byte for byte; each step is checked with Discjockey's reader. It prints one PASS/FAIL line per check (tracks by
 their labels only) and writes `W/report.json`. Exit code 0 when every check passes, 1 otherwise, 2 when it refuses.
-`rehearse-sync` (plan stage C §7 RH): the same copies, but the sync's Auto-upgrade phase instead of `upgrade apply`;
-see its docstring. `rehearse-convert` (plan stage D §7.1): Convert to AIFF, Give it its clean name, Make all lossless
+`rehearse-sync` (plan stage C §7 RH): the same copies, but the sync's Auto-upgrade phase instead of `upgrade apply`
+(`bin/discjockey sync run --auto-upgrade-only [--dry-run] --wait 3600 --json`; the whole sync, `--yes`, only where a
+step is about the whole sync: RH1's dry run and RH2's switch off); see its docstring. `rehearse-convert` (plan stage D §7.1): Convert to AIFF, Give it its clean name, Make all lossless
 files AIFF and the CDJ group's Convert all (`bin/discjockey aiff convert … --dry-run`, then the same line with `--plan
 <id> --json`; each answer is the envelope, its `data` the plan or the batch); see its docstring. Run these on a work folder that only `copy-db` and
 `copy-tracks` have touched (they change the copies).
@@ -55,7 +56,7 @@ sys.path.insert(0, str(REPO))
 
 from mutagen.aiff import AIFF  # noqa: E402
 
-from discjockey import audio, auto_upgrade, config, library, quality, sources, upgrades  # noqa: E402
+from discjockey import audio, auto_upgrade, config, library, quality, sources, upgrades, words  # noqa: E402
 from discjockey.library import Paths  # noqa: E402
 from discjockey.models import OWN_PREFIX  # noqa: E402
 from discjockey.settings import load_settings  # noqa: E402
@@ -900,6 +901,24 @@ def real_sync(work: Path, tag: str) -> tuple[int, dict, str, float]:
     return run_cli(work, tag, "--yes", "--json", offline=True)
 
 
+def phase_run(work: Path, tag: str, *flags: str) -> tuple[int, dict, str, float]:
+    """The sync's last phase alone (`sync run --auto-upgrade-only [--dry-run]`, waited for to its end: the phase runs in a
+    job and a real one takes minutes). It reads no playlist and never plans an action, so it can't reach a network
+    (every run still has its proxies closed). Returns the exit code, the answer in the shape the checks below read ({ok,
+    dry_run, auto_upgrade, counts, report (the .md path), message, start_note}, from the envelope's `data`), the stderr
+    and the seconds."""
+    code, env, err, seconds = run_cli(work, tag, "sync", "run", "--auto-upgrade-only", *flags, "--wait", "3600", "--json",
+                                      offline=True)
+    data = env.get("data") or {}
+    block = data.get("auto_upgrade")
+    stem = (data.get("report") or "").removeprefix("report:")
+    reports = work / "music" / ".discjockey" / "reports"
+    shaped = {"ok": env.get("outcome") == "ok", "dry_run": bool(block and block.get("dry_run")), "auto_upgrade": block,
+              "counts": {}, "report": str(reports / f"{stem}.md") if stem else None, "message": env.get("message"),
+              "start_note": data.get("start_note"), "envelope": env}
+    return code, shaped, err, seconds
+
+
 def rh1_dry(work: Path, ctx: dict, checks: Checks) -> None:
     checks.tag = "RH1"
     print("RH1: a dry run on the prepared copy plans no action")
@@ -931,14 +950,20 @@ def rh1_dry(work: Path, ctx: dict, checks: Checks) -> None:
 def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
     checks.tag = "RH2"
     print("RH2: switch off")
-    code, data, _, _ = run_cli(work, "rh2-setting", "settings", "auto-upgrade", "off", "--json", offline=True)
-    checks.add("RH2 settings auto-upgrade off", code == 0 and data.get("auto_upgrade") is False, f"exit {code}")
+    code, data, _, _ = run_cli(work, "rh2-setting", "settings", "set", "auto-upgrade", "off", "--wait", "60", "--json",
+                               offline=True)
+    checks.add("RH2 settings set auto-upgrade off", code == 0 and (data.get("data") or {}).get("auto_upgrade") is False,
+               f"exit {code}")
     before = snapshot(work, ctx)
     code, data, _, seconds = real_sync(work, "rh2-sync")
     state["off_seconds"] = seconds
     checks.add("RH2 sync --yes --json: exit 0, the auto_upgrade block is null",
                code == 0 and data.get("ok") is True and "auto_upgrade" in data and data["auto_upgrade"] is None,
                f"exit {code}, {seconds:.1f} s")
+    code, data, _, _ = phase_run(work, "rh2-phase")
+    checks.add("RH2 sync run --auto-upgrade-only: exit 0, ok, no block, \"Auto-upgrade is off, so nothing was moved.\"",
+               code == 0 and data["ok"] and data["auto_upgrade"] is None and data["report"] is None
+               and data["message"] == words.AUTO_UPGRADE_OFF, f"exit {code}, message {data['message']!r}")
     ok, detail = same_snapshot(before, snapshot(work, ctx))
     checks.add("RH2 audio tree (Superseded/ and Upgrades ready/ with it), analysis files and master.db equal "
                "to before", ok, detail)
@@ -950,10 +975,12 @@ def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
 def rh3_dry_on(work: Path, ctx: dict, picks: list[dict], checks: Checks) -> None:
     checks.tag = "RH3"
     print("RH3: dry run with the switch on")
-    code, data, _, _ = run_cli(work, "rh3-setting", "settings", "auto-upgrade", "on", "--json", offline=True)
-    checks.add("RH3 settings auto-upgrade on", code == 0 and data.get("auto_upgrade") is True, f"exit {code}")
+    code, data, _, _ = run_cli(work, "rh3-setting", "settings", "set", "auto-upgrade", "on", "--wait", "60", "--json",
+                               offline=True)
+    checks.add("RH3 settings set auto-upgrade on", code == 0 and (data.get("data") or {}).get("auto_upgrade") is True,
+               f"exit {code}")
     before = snapshot(work, ctx)
-    code, data, _, _ = run_cli(work, "rh3-dry", "--dry-run", "--json", offline=True)
+    code, data, _, _ = phase_run(work, "rh3-dry", "--dry-run")
     block = data.get("auto_upgrade") or {}
     rows = block.get("results", [])
     would = [r for r in rows if r["state"] == "would"]
@@ -965,6 +992,8 @@ def rh3_dry_on(work: Path, ctx: dict, picks: list[dict], checks: Checks) -> None
                "new AIFF")
     ok, detail = same_snapshot(before, snapshot(work, ctx))
     checks.add("RH3 nothing changed", ok, detail)
+    checks.add("RH3 the Sync page's before-start line (rekordbox is closed)",
+               data["start_note"] == words.auto_plan_line(len(would)), f"{data['start_note']!r}")
 
 
 def rh4_phase(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Checks, state: dict) -> None:
@@ -976,12 +1005,12 @@ def rh4_phase(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Chec
     ctx["before"] = before["dump"]
     state["before"] = before
     t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    code, data, err, _ = real_sync(work, "rh4-sync")
+    code, data, err, _ = phase_run(work, "rh4-sync")
     t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
     block = data.get("auto_upgrade") or {}
     rows = by_track(block)
     tid = ctx["info"][drop["label"]]["tid"]
-    checks.add("RH4 sync --yes --json: exit 0, ok", code == 0 and data.get("ok") is True and bool(block),
+    checks.add("RH4 sync run --auto-upgrade-only: exit 0, ok", code == 0 and data.get("ok") is True and bool(block),
                f"exit {code}, counts {data.get('counts')}")
     checks.add("RH4 no -wal/-shm beside the copy", not master.leftovers(rb_db))
     checks.add(f"RH4 block: done {len(done_picks)}, refused 1, waiting 0, failed 0, not stopped",
@@ -1038,7 +1067,7 @@ def rh5_repeat(work: Path, ctx: dict, drop: dict, checks: Checks, state: dict) -
     paths = ctx["paths"]
     tid = ctx["info"][drop["label"]]["tid"]
     before = state["after4"]
-    code, data, err, seconds = real_sync(work, "rh5-sync")
+    code, data, err, seconds = phase_run(work, "rh5-sync")
     block = data.get("auto_upgrade") or {}
     rows = by_track(block)
     checks.add("RH5 no new batch, no new backup: batch null, backup null, done 0",
@@ -1084,7 +1113,7 @@ def rh6_reanalysed(work: Path, ctx: dict, drop: dict, checks: Checks, state: dic
     before = snapshot(work, ctx)
     state["before6"] = before
     t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    code, data, err, _ = real_sync(work, "rh6-sync")
+    code, data, err, _ = phase_run(work, "rh6-sync")
     t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
     block = data.get("auto_upgrade") or {}
     row_ = by_track(block).get(tid, {})
@@ -1141,8 +1170,8 @@ def rh7_undo(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Check
 def rehearse_sync(work: Path, no_analysis: str) -> int:
     """Plan stage C §7 RH. Over the copies `copy-db` and `copy-tracks` made: a scratch library with the copies as own
     songs and a parked same-edit upgrade each, the copy of rekordbox's library repointed at the copies, a
-    playlists.txt that reads nothing, and the sync (`bin/discjockey --yes --json`, every run with the proxies closed
-    and a real run only after a dry run planned no action) in five states: RH1 a dry run plans no action; RH2 switch off changes nothing; RH3 dry run with
+    playlists.txt that reads nothing, and the sync's last phase (`sync run --auto-upgrade-only --json`, every run with
+    the proxies closed; RH1 and RH2 also run the whole sync, `--yes`, and only after a dry run planned no action) in five states: RH1 a dry run plans no action; RH2 switch off changes nothing; RH3 dry run with
     the switch on; RH4 the phase (all but `--no-analysis`'s track, whose analysis files are removed, are upgraded;
     stage B's checks per track, the backup and the report); RH5 a second sync decodes nothing; RH6 the analysis
     files are back, the track is tried again; RH7 Undo all from this sync. Prints PASS/FAIL per check, tracks by

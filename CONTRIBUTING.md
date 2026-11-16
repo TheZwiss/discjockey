@@ -66,15 +66,15 @@ absolute path of the program.
 - **Scratch folders:** a command run by hand always sets `DISCJOCKEY_SUPPORT=<scratch folder>` and
   `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real
   library and the real rekordbox library. `where` prints what a process resolved.
-- **Not rebuilt yet:** the sync (no command), `setup`, `update` and `settings` still run the old command line
+- **Not rebuilt yet:** the sync (no command), `setup` and `update` still run the old command line
   (`cli/legacy.py`; `discjockey <word> --help` prints their flags and exit codes). The words that are gone answer `bad_args`
   and say what to say instead: `upgrades` (say `upgrade …`), `upgrade undo` (say `track undo`), `rekordbox checked` (say
-  `check done`), `convert` and `rename` (say `aiff convert …` and `aiff rename …`). The sync takes `--dry-run` (changes
+  `check done`), `convert` and `rename` (say `aiff convert …` and `aiff rename …`), `settings auto-upgrade` (say `settings set auto-upgrade on|off`; `settings show` reads). The sync takes `--dry-run` (changes
   nothing), `--yes` (no question), `--limit N` (at most N downloads), `--extra N` (N more Qobuz downloads today),
   `--verbose` and `--json` (needs `--yes` or `--dry-run`; one object `{"ok", "exit_code", "dry_run", "report",
   "counts", "auto_upgrade"}`, every human line on stderr); exit 0 done, 1 errors in the run, 2 setup problem or no
   music folder, 3 another run holds the library, 130 stopped (Ctrl-C once stops after the current step, twice stops at
-  once). `settings` takes `--json` too.
+  once).
   Each word leaves with the group that builds its replacement.
 
 `help --json` layout: `data` is `{command, version, global_flags: [{flag, says}], commands: [...]}`. Each command:

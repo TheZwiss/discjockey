@@ -369,7 +369,7 @@ def test_a_write_job_records_the_waiting_signs_when_it_holds_the_lock(root, monk
     real = lock_not_ours(api, monkeypatch)
     api.add_playlist(LM_LINK)
     monkeypatch.setattr(api._jobs, "scan_lock", real)  # the real lock again; the job below needs nothing from YouTube
-    assert wait_job(api, rec, api.set_read_liked_music(False)).ok
+    assert wait_job(api, rec, api.rescan_library()).ok  # a settings job holds no library lock: a scan does
     assert stored_kinds(root) == ["bot_check"] and not root.pending_signs.exists()
 
 

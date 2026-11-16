@@ -74,7 +74,7 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
     (["batch", "undo", "aiff:1", "--yes"], "new"),
     (["convert", "--all", "lossless"], "new"), (["rename", "--all"], "new"), (["aiff", "convert", "--all"], "new"),
     (["aiff", "rename", "--all", "--dry-run"], "new"), (["hub"], "new"),
-    (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "new"), (["settings", "auto-upgrade"], "legacy"),
+    (["rekordbox", "preview", "x"], "new"), (["rekordbox", "backups"], "new"), (["settings", "auto-upgrade"], "new"), (["settings", "show"], "new"),
     (["rekordbox", "status"], "new"), (["--json", "rekordbox", "status"], "new"), (["call", "quit"], "new"),
     (["nonsense"], "new"), (["--wait", "5", "setup"], "legacy"), (["help"], "new"), (["help", "setup"], "new"),
     (["where", "--json"], "new"), (["app", "open"], "new"),
@@ -93,7 +93,7 @@ def test_t3_a_cli_module_calls_only_what_its_entries_name():
     assert (CLI_DIR / "housekeeping.py").is_file()  # the command line's own words are checked like every module
     checked = 0
     for path in sorted(CLI_DIR.rglob("*.py")):
-        if path.name in ("legacy.py", "legacy_out.py"):
+        if path.name == "legacy.py":
             continue  # today's code, moved unchanged, until its routes are gone
         tree = ast.parse(path.read_text())
         checked += 1
@@ -336,14 +336,6 @@ def test_the_bare_sync_goes_to_the_old_parser_unchanged(capsys):
     data = json.loads(out)
     assert code == 2 and data["ok"] is False and data["kind"] == "refused" and data["reason"] == "no_library"
     assert "ok" in data and "outcome" not in data  # the old shape until the replacement lands
-
-
-def test_the_old_commands_still_answer_with_their_old_shapes(tmp_path, monkeypatch, capsys):
-    choose_music(tmp_path, monkeypatch)
-    make_root(tmp_path)
-    code, out, err = run(["settings", "auto-upgrade", "--json"], capsys)
-    data = json.loads(out)
-    assert data["ok"] is True and "outcome" not in data and code == 0
 
 
 def test_the_support_folder_of_a_test_is_a_scratch_folder():

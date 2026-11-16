@@ -52,7 +52,7 @@ from ..ops import OpProblem, snapshot
 from .. import pending_signs, words as engine_words
 from ..pacing import Budget
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
-from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
+from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, extra_json, load_settings, update_settings_held
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import catalog, media as media_mod, plan_store, registry, select, spectrum as spec, views
@@ -83,7 +83,7 @@ NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
 NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
 CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
-NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts"))  # run on what is there when --yes comes: no plan to run
+NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -116,6 +116,8 @@ LIBRARY_METHODS = frozenset((
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
 ))
+# the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
+CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
 
 
 @dataclass
@@ -189,7 +191,7 @@ def _answering(fn):
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
         try:
-            if fn.__name__ in LIBRARY_METHODS:
+            if fn.__name__ in LIBRARY_METHODS or fn.__name__ in CLI_LIBRARY_METHODS:
                 self._need_library()  # NoLibrary -> no_library before anything starts
             return {"ok": True, **(fn(self, *args, **kwargs) or {})}
         except Busy as e:
@@ -1882,7 +1884,7 @@ class HubApi:
                 lambda s: s.with_limit(service, limit, today.isoformat() if extra_today else None, extra_today))
             return {"service": service, "limit": limit, "extra_today": extra_today}
 
-        return {"job_id": self._jobs.start("save_limits", work).id}
+        return {"job_id": self._settings_job("save_limits", work).id}
 
     @bridge
     def mark_warnings_seen(self, service: str) -> dict:
@@ -1895,7 +1897,7 @@ class HubApi:
             self._update_settings(lambda s: s.with_seen(service, until))
             return {"service": service, "seen_until": until}
 
-        return {"job_id": self._jobs.start("mark_warnings_seen", work).id}
+        return {"job_id": self._settings_job("mark_warnings_seen", work).id}
 
     @bridge
     def hide(self, track_id: str, hidden: bool) -> dict:
@@ -1967,12 +1969,12 @@ class HubApi:
     @bridge
     def remove_watched_folder(self, folder_id: int) -> dict:
         """Stops watching an import folder (D12; its files stay where they are): a write job (kind "folders"), its
-        result `{files, redownload}`."""
+        result `{name, files, redownload}` (`name` is for the command line's words; the window ignores it)."""
         folder = self._import_folder(folder_id)
 
         def change(ctx) -> dict:
             counts = folders_mod.remove(self._paths, folder.id, self._today(), emit=ctx.emit)
-            return {"files": counts.files, "redownload": counts.redownload}
+            return {"name": folder.path.name or str(folder.path), "files": counts.files, "redownload": counts.redownload}
 
         return {"job_id": self._jobs.start("folders", replanned_work(self._store, change, self._svc.now)).id}
 
@@ -2511,7 +2513,7 @@ class HubApi:
             self._save_spotify_app(value, None)
             return {}
 
-        return {"job_id": self._jobs.start("setup_save_client_id", work).id}
+        return {"job_id": self._settings_job("setup_save_client_id", work).id}
 
     def _save_spotify_app(self, client_id: str, user: str | None) -> None:
         """.spotify_app.json: the Client ID and, after a login, the account's display name (Settings: "connected as")."""
@@ -2532,7 +2534,7 @@ class HubApi:
             self._save_spotify_app(client_id, None)
             return {}
 
-        return {"job_id": self._jobs.start("spotify_sign_out", work).id}
+        return {"job_id": self._settings_job("spotify_sign_out", work).id}
 
     @bridge
     def setup_spotify_login(self) -> dict:
@@ -2550,7 +2552,7 @@ class HubApi:
             self._store.clear_service("spotify")  # a read problem about Spotify's login is out of date now
             return {"user": name}
 
-        return {"job_id": self._jobs.start("setup_spotify_login", work).id}
+        return {"job_id": self._settings_job("setup_spotify_login", work).id}
 
     @bridge
     def setup_skip_spotify(self) -> dict:
@@ -2560,7 +2562,7 @@ class HubApi:
             self._update_settings(lambda s: replace(s, spotify_skipped=True))
             return {}
 
-        return {"job_id": self._jobs.start("setup_skip_spotify", work).id}
+        return {"job_id": self._settings_job("setup_skip_spotify", work).id}
 
     @bridge
     def set_read_liked_music(self, on: bool) -> dict:
@@ -2576,7 +2578,7 @@ class HubApi:
             self._update_settings(lambda s: replace(s, read_liked_music=on))
             return {}
 
-        return {"job_id": self._jobs.start("set_read_liked_music", work).id}
+        return {"job_id": self._settings_job("set_read_liked_music", work).id}
 
     @bridge
     def set_auto_upgrade(self, on: bool) -> dict:
@@ -2588,9 +2590,9 @@ class HubApi:
 
         def work(ctx) -> dict:
             self._update_settings(lambda s: replace(s, auto_upgrade=on))
-            return {}
+            return {"auto_upgrade": on}  # the value as saved: the command line says it (the window ignores it)
 
-        return {"job_id": self._jobs.start("set_auto_upgrade", work).id}
+        return {"job_id": self._settings_job("set_auto_upgrade", work).id}
 
     @bridge
     def add_liked_music(self) -> dict:
@@ -2630,7 +2632,7 @@ class HubApi:
             self._store.clear_service("qobuz")  # a read problem about Qobuz's login is out of date now
             return {}
 
-        return {"job_id": self._jobs.start("setup_qobuz_login", work).id}
+        return {"job_id": self._settings_job("setup_qobuz_login", work).id}
 
     def _check_record(self, check: dict) -> dict:
         """A login check as settings.json keeps it (Settings shows "checked today" without checking again)."""
@@ -2645,12 +2647,13 @@ class HubApi:
 
     def _update_settings(self, change: Callable[[Settings], Settings]) -> None:
         """The file as it is now, changed, saved: every settings write in the hub goes through here. One writer at a
-        time (spec settings-setup §13): a write job holds the engine lock already; a save from outside one (the
-        sign-in slot, a check from the page) takes it for the moment of the save and raises Busy (busy / console)
-        instead of waiting. The mutex keeps this process's saves in order; the support lock (inside `update_settings`)
-        keeps every other process's saves of settings.json from being lost."""
-        with self._settings_mutex, self._jobs.lock_briefly():
-            update_settings(self._support.settings_file, change)
+        time (spec settings-setup §13). Lock order is support, library, rekordbox.lock: the support lock is taken
+        first and keeps every other process's saves of settings.json from being lost; the library lock is taken inside
+        it for the moment of the save (`lock_briefly`: a settings job holds none for its run, a sign-in's or a page
+        check's save holds none at all) and raises Busy (busy / console) instead of waiting. The mutex keeps this
+        process's saves in order."""
+        with self._settings_mutex, library.support_lock(self._support.support), self._jobs.lock_briefly():
+            update_settings_held(self._support.settings_file, change)
 
     @bridge
     def setup_skip_qobuz(self) -> dict:
@@ -2659,7 +2662,7 @@ class HubApi:
             self._update_settings(lambda s: replace(s, qobuz_skipped=True))
             return {}
 
-        return {"job_id": self._jobs.start("setup_skip_qobuz", work).id}
+        return {"job_id": self._settings_job("setup_skip_qobuz", work).id}
 
     @bridge
     def setup_skip_import(self) -> dict:
@@ -2680,7 +2683,7 @@ class HubApi:
             check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(service, browser, profile)
             return self._account_result(service, browser, profile, check)
 
-        return {"job_id": self._jobs.start("setup_account", work).id}
+        return {"job_id": self._settings_job("setup_account", work).id}
 
     def _account_result(self, service: str, browser: str, profile: str | None, check: dict) -> dict:
         saved = check["ok"] or check["problem"] == "no_premium"
@@ -2813,7 +2816,7 @@ class HubApi:
                 raise OpProblem("Logged in to Qobuz, but a test search found nothing.", "failed")
             return {}
 
-        return {"job_id": self._jobs.start("qobuz_check_login", work).id}
+        return {"job_id": self._settings_job("qobuz_check_login", work).id}
 
     @bridge
     def setup_check_account(self, service: str) -> dict:
@@ -2837,7 +2840,7 @@ class HubApi:
             self._update_settings(lambda s: s.with_account(service, None))
             return {"service": service}
 
-        return {"job_id": self._jobs.start("setup_forget_account", work).id}
+        return {"job_id": self._settings_job("setup_forget_account", work).id}
 
     def _library_job_elsewhere(self) -> dict | None:
         """A write job of another process of this support folder, from the registry: a running job whose command holds
@@ -2851,6 +2854,14 @@ class HubApi:
             if any("library" in e.locks for e in entries):
                 return {"job": state["id"], "via": state.get("via"), "command": state.get("command")}
         return None
+
+    def _settings_job(self, kind: str, work) -> Job:
+        """A job whose work writes only the support folder (settings.json, the login files; Settings, Setup, Download
+        limits): it holds no library lock for its run, as the lock order is support, library, rekordbox.lock and a
+        settings write takes the support lock first, then the library lock briefly inside it (`_update_settings`).
+        It waits for the hub's other jobs like any write job (`busy`), and a terminal run holding the library answers
+        `console`."""
+        return self._jobs.start(kind, work, hold_library=False)
 
     def _support_job(self, kind: str, work) -> Job:
         """A support-only job (design §6.1: `tools update`, `tools rollback`): refused `busy` while a write job of this
@@ -2935,9 +2946,10 @@ class HubApi:
                 return {"music": self._music_status(), "restart": False}
             # the library lock sits in the music folder: with the bound folder gone there is nothing to wait for
             gone = bound is not None and not bound.root.is_dir()
-            with contextlib.nullcontext() if gone else self._jobs.lock_briefly():
+            with library.support_lock(self._support.support), \
+                    contextlib.nullcontext() if gone else self._jobs.lock_briefly():  # support first, then library
                 c.path.mkdir(parents=True, exist_ok=True)
-                library.write_music_folder(self._support.support, c.path)
+                library.write_music_folder_held(self._support.support, c.path)
             if bound is not None:
                 # another folder: restart on it; the open one again (config pointed elsewhere after an earlier
                 # change): config is right now, nothing to restart
@@ -3052,7 +3064,7 @@ class CliApi(HubApi):
     (tests/test_hub_api.py): the window's `HubApi` has none of these."""
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
-                 "collection": "_resolve_collection"}  # kind -> the method that makes it (grows per group)
+                 "collection": "_resolve_collection", "folder": "_resolve_folder"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -3069,6 +3081,8 @@ class CliApi(HubApi):
         items = plan_store.items_of(answer)
         if items is None and isinstance(answer.get("plan"), Mapping):
             items = self._aiff_items(answer["plan"])
+        if items is None and isinstance(answer.get("auto_upgrade"), Mapping):  # the phase alone: its rows, keyed by song
+            items = {r["track"]: dict(r) for r in answer["auto_upgrade"]["results"]}
         if items is None or kind in NO_PLAN_COMMANDS:
             return None
         extra = {**(answer.get("plan_extra") or {}), "command": command}
@@ -3112,6 +3126,21 @@ class CliApi(HubApi):
             return self._checked_words(result)
         if method == "rekordbox_restore" and "saved_current" in result:
             return self._restore_words(result)
+        if method == "auto_upgrade_run" and "auto_upgrade" in result:
+            return self._phase_words(result)
+        if method == "auto_upgrade_preview" and "auto_upgrade" in result:
+            return {"message": engine_words.AUTO_UPGRADE_OFF} if result["auto_upgrade"] is None else {}
+        if method == "set_auto_upgrade" and isinstance(result.get("auto_upgrade"), bool):
+            return {"message": engine_words.AUTO_UPGRADE_SET[result["auto_upgrade"]]}
+        if method == "removal_preview" and "files" in result:
+            return {"message": engine_words.removal_words(result["files"], result["redownload"])}
+        if method == "remove_watched_folder" and "files" in result:
+            return {"message": f"{engine_words.REMOVED.format(name=result['name'])} "
+                               f"{engine_words.removal_words(result['files'], result['redownload'])}"}
+        if method == "check_import_folder" and result.get("message"):  # a folder that cannot be watched says why
+            return {"message": result["message"]}
+        if method == "check_import_folder" and result.get("usable") and result.get("merge_hints"):
+            return {"message": " ".join(result["merge_hints"])}  # W5: the watched folders it would take over
         if method == "fill_facts" and "total" in result:
             return self._facts_words(result)
         if method in ("convert", "rename", "make_aiff") and result.get("batch") is None and result.get("total") == 0 \
@@ -3121,6 +3150,30 @@ class CliApi(HubApi):
         if method in ("convert", "rename", "make_aiff") and isinstance(result.get("results"), list) and result.get("total"):
             return self._upgrade_words(result, aiff=True)
         return {}
+
+    def _phase_words(self, result: dict) -> dict:
+        """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
+        (`report.auto_upgrade_line`), the run's outcome (`partial` or `failed` by the tracks that failed only: a track
+        that waits or was refused is not a failure), its batch (`batch_id`), the steps only a person can do in rekordbox
+        (the upgrade batch's own words, `_upgrade_words`) and the report to read."""
+        block = result["auto_upgrade"]
+        if block is None:
+            return {"message": engine_words.AUTO_UPGRADE_OFF}
+        rows = block["results"]
+        out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
+                     "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
+        batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
+                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"], "action": "same_track"}
+                                                        for r in rows if r["state"] in ("done", "failed")]}
+        words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
+        if "batch_id" in (words.get("data") or {}):
+            out["data"] = {"batch_id": words["data"]["batch_id"]}
+        out["next"] = [*(words.get("next") or ())]
+        if result.get("report"):
+            out["next"].append({"run": f"report show {result['report']}", "why": "what this run did, track by track"})
+        if words.get("person_steps"):
+            out["person_steps"] = words["person_steps"]
+        return out
 
     @staticmethod
     def _facts_words(result: dict) -> dict:
@@ -3219,6 +3272,62 @@ class CliApi(HubApi):
         return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
                                              "failed": 0}}
 
+    @cli_first
+    def auto_upgrade_preview(self) -> dict:
+        """`sync run --auto-upgrade-only --dry-run`: what the sync's last phase would do now (`run.auto_upgrade_only` with
+        `dry_run`: the records read only, nothing written, no report). `{auto_upgrade, start_note}`: the phase's block
+        (`auto_upgrade.Outcome`, `dry_run: true`; its rows are the plan's items) or null when Settings' switch is off,
+        and the Sync page's before-start line for it (`auto_upgrade.start_note`; null when no upgrade is coming).
+        Settings are read strictly, as a sync reads them: a file it cannot read is `config_invalid`."""
+        found = run.auto_upgrade_only(self._paths, load_settings(self._support.settings_file), dry_run=True,
+                                      rekordbox=self._rekordbox_services())
+        block = found.outcome.to_dict() if found.outcome else None
+        return {"auto_upgrade": block, "start_note": auto_upgrade.start_note(block)}
+
+    @cli_first
+    def auto_upgrade_run(self, plan_id: str | None = None) -> dict:
+        """`sync run --auto-upgrade-only`: the sync's last phase alone (`run.auto_upgrade_only`: no playlists are read,
+        the planner never runs) as a write job (kind "auto_upgrade"). The result is `{exit_code, report, auto_upgrade, recovered}`:
+        the report's id (`report:<stamp>`: `report show` takes it; null with the switch off) and the phase's block
+        (`auto_upgrade.Outcome`; null when Settings' switch is off, which is read inside the job under the library lock).
+        rekordbox open: every upgrade of the set waits (`rekordbox_open`), nothing is moved, the job is done. A Stop ends it
+        `stopped` once the records are saved. `plan_id` (`--plan`): only the tracks of that plan that still stand run; a
+        track whose answer changed waits (`changed`), the ones new since the plan are in `new_since_plan`."""
+        only, changed, extra = None, (), {}
+        if plan_id is not None:
+            preview = self.auto_upgrade_preview()  # a file it cannot read answers its own failure, not `changed`
+            if not preview.get("ok"):
+                return preview
+            only, changed, extra = self._phase_plan(plan_id, preview)
+
+        def work(ctx) -> dict:
+            settings = load_settings(self._support.settings_file)
+            try:
+                found = run.auto_upgrade_only(self._paths, settings, emit=ctx.emit, token=ctx.token,
+                                              rekordbox=self._rekordbox_services(), only=only, changed=changed)
+            except run.RunCrashed as e:
+                ctx.failed_result = {"exit_code": 1, "report": f"report:{e.report.stem}", "auto_upgrade": None,
+                                     "recovered": [], **extra}
+                raise
+            result = {"exit_code": found.code, "report": f"report:{found.report.stem}" if found.report else None,
+                      "auto_upgrade": found.outcome.to_dict() if found.outcome else None,
+                      "recovered": [[m, ok] for m, ok in found.recovered], **extra}
+            if found.code == 130:  # Stop: what was done is saved, the answer is `stopped` and still carries the block
+                ctx.failed_result = result
+                raise Cancelled()
+            return result
+        return {"job_id": self._jobs.start("auto_upgrade", work).id}
+
+    def _phase_plan(self, plan_id: str, preview: dict) -> tuple[set[str], tuple[str, ...], dict]:
+        """A run with a plan for the phase alone (design §7.1): the songs of the plan that still stand as the dry run saw
+        them (`_bind_plan` against the rows `preview`, today's `auto_upgrade_preview`, gives), those whose row is another
+        now, and what the result adds (`new_since_plan`). A plan none of whose rows stands is `changed`, as for `upgrade`."""
+        block = preview.get("auto_upgrade") or {}
+        plan, bound = self._bind_plan(plan_id, {r["track"]: r for r in block.get("results") or ()})
+        if plan.items and not bound.run:
+            raise OpProblem(PLAN_NOTHING, "changed")
+        return set(bound.run), bound.changed, {"new_since_plan": list(bound.new)} if bound.new else {}
+
     def scan_next(self) -> list[dict]:
         """The `next` of a dry run that planned on the last scan: `library scan` when Library/ or a watched folder was
         changed after that scan (or was never scanned), else nothing. Read only (the folders' modified times against the
@@ -3283,6 +3392,35 @@ class CliApi(HubApi):
             return {"total": db.facts_missing(conn) if conn is not None else 0}
 
     @cli_first
+    def settings_view(self) -> dict:
+        """`settings show`: what Settings holds, in the window's words where it has them. Needs no music folder (the
+        settings file is the support folder's). `{music_folder, auto_upgrade, read_liked_music, daily_qobuz_limit,
+        qobuz_skipped, spotify_skipped, import_skipped, qobuz_last_check, extra, warnings_seen, accounts, labels}`:
+        `music_folder` is the chosen folder (null: not chosen yet), `read_liked_music` is the switch as the page shows
+        it (on only with a YouTube login), `qobuz_last_check` the last Qobuz login check (`{ok, problem, kbps, at}` or
+        null), `extra` Qobuz's one-time extra (`{date, amount}` or null), `warnings_seen` per service the time its
+        warning signs were last seen ("Got it"), `accounts` the YouTube and SoundCloud logins that are set up, each
+        `{browser, browser_name, profile, profile_name, daily_limit, extra, last_check, liked_only}`, `labels` the
+        page's names of the two switches. The file is read strictly as a sync reads it: one that cannot be read is
+        `config_invalid`. A read: no lock."""
+        settings = load_settings(self._support.settings_file)
+        home = self._svc.home
+        accounts = {s: {"browser": a.browser, "browser_name": BROWSERS[a.browser], "profile": a.profile,
+                        "profile_name": profile_name(a.browser, a.profile, home), "daily_limit": a.daily_limit,
+                        "extra": extra_json(a.extra_date, a.extra_amount),
+                        "last_check": dict(a.last_check) if a.last_check else None, "liked_only": a.liked_only}
+                    for s, a in settings.accounts.items()}
+        return {"music_folder": self._music_status()["path"], "auto_upgrade": settings.auto_upgrade,
+                "read_liked_music": settings.reads_liked_music, "daily_qobuz_limit": settings.daily_qobuz_limit,
+                "qobuz_skipped": settings.qobuz_skipped, "spotify_skipped": settings.spotify_skipped,
+                "import_skipped": settings.import_skipped,
+                "qobuz_last_check": dict(settings.qobuz_last_check) if settings.qobuz_last_check else None,
+                "extra": extra_json(settings.extra_date, settings.extra_amount),
+                "warnings_seen": dict(settings.warnings_seen), "accounts": accounts,
+                "labels": {"auto_upgrade": engine_words.AUTO_UPGRADE_LABEL,
+                           "read_liked_music": engine_words.LIKED_MUSIC_LABEL}}
+
+    @cli_first
     def freshness(self) -> dict:
         """How fresh the answers are, for the command line's `as_of`: `{scanned_at, read_at}`, each an ISO time or None.
         `scanned_at` is when the index was last scanned (a watched folder's last scan), `read_at` when the playlists
@@ -3325,6 +3463,25 @@ class CliApi(HubApi):
                 raise BadId("unknown_id", engine_words.NO_PLAYLIST.format(name=name))
             return {"view": "playlist", "key": found}
         raise BadId("usage", engine_words.BAD_COLLECTION)
+
+    def _resolve_folder(self, text: str) -> int:
+        """`folder remove <folder>`: a watched import folder, typed as its path (absolute, `~` or relative to where the
+        command runs) or as `folder:<path>`, to its folder id. The Library, a folder nobody watches (or no music folder
+        yet) is `bad_args`, `unknown_id`, in the words `NOT_WATCHED` / `LIBRARY_NOT_REMOVABLE`."""
+        word = text.strip()
+        if word.startswith("folder:"):
+            word = word[len("folder:"):].strip()
+        if not word:
+            raise BadId("usage", engine_words.BAD_FOLDER)
+        typed = {fold(os.path.abspath(os.path.expanduser(word))), fold(os.path.realpath(os.path.expanduser(word)))}
+        with self._move_log() as conn:
+            rows = db.watched_folders(conn) if conn is not None else []
+        for f in rows:
+            if fold(os.path.normpath(str(f.path))) in typed:
+                if f.kind != "import":
+                    raise BadId("unknown_id", engine_words.LIBRARY_NOT_REMOVABLE.format(path=word))
+                return f.id
+        raise BadId("unknown_id", engine_words.NOT_WATCHED.format(path=word))
 
     def _collection_folder(self, name: str) -> str:
         """The key of the folder view for a typed path (see `_resolve_collection`); BadId when no folder is there."""

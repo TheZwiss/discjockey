@@ -223,6 +223,9 @@ export type AutoUpgradeBlock = { batch: number | null; backup: string | null; do
 export type RunSummary = {
   run_id: string; started: string; finished: string | null; duration_s: number | null; exit_code: number;
   counts: RunCounts; stopped_after: number | null;
+  /** what the run was: a whole sync, or only its Auto-upgrade phase (`sync run --auto-upgrade-only`, the command line's;
+   *  a run from before it is a sync); the window never starts the second */
+  kind?: 'sync' | 'auto_upgrade_only';
   /** the run's Auto-upgrade phase and its one-line account (`line`: "Upgraded 2 tracks; your cues stayed. 1 waits for
    *  rekordbox to be closed."; null when nothing happened); null when the switch was off for the run */
   auto_upgrade: (AutoUpgradeBlock & { line: string | null }) | null;
@@ -740,7 +743,7 @@ export type CheckedResult = { results: Result[]; checked: string[]; not_checked:
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };
 export type JobResults = {
-  import: ImportResult; folders: { files: number; redownload: number };
+  import: ImportResult; folders: { name?: string; files: number; redownload: number };
   answer: Record<string, never>; supersede: { result: Result; recovered: [string, boolean][] };
   refresh: { actions: number }; sync: SyncResult; save_playlists: { version: string; batches: BatchResult[] };
   tidy: BatchResult; undo_moves: BatchResult;
@@ -748,7 +751,7 @@ export type JobResults = {
   mark_warnings_seen: { service: Service; seen_until: string };
   setup_skip_qobuz: Record<string, never>; setup_skip_spotify: Record<string, never>;
   set_read_liked_music: Record<string, never>; add_liked_music: { folder: string };
-  set_auto_upgrade: Record<string, never>;
+  set_auto_upgrade: { auto_upgrade?: boolean };
   setup_account: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   account_sign_in: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;

@@ -620,7 +620,7 @@ file either way; the only difference is what rekordbox sees, which you pick unde
 With this switch on, which it is at first, the end of every sync does what **Upgrade all** does: **Same track** for the
 upgrades that need no decision, the ones measured as the same edit as your file. A different edit, or two files
 Discjockey can't compare, always waits for you on the To-do page. You see the switch in **Setup** (Downloads) and in
-**Settings** under **Upgrades**; in the Terminal, `settings auto-upgrade off` (or `on`; without a word it says which)
+**Settings** under **Upgrades**; in the Terminal, `settings set auto-upgrade off` (or `on`; `settings show` says which it is)
 does the same, with the program path from [When something breaks](#when-something-breaks) in front of it. Turned off,
 a sync moves no file at all; **Upgrade all** still works by hand. Turning it on also covers the upgrades already
 waiting.

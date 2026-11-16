@@ -46,23 +46,26 @@ from being decoded again at every sync, and the phase itself (`run_phase`), whic
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime
 from pathlib import PurePosixPath
 
 import sqlcipher3
 
-from . import align, batches, convert, library, report as rep, upgrades
+from . import align, batches, convert, library, report as rep, upgrades, words
 from .events import CancelToken, Emit, Message, Result, no_emit
 from .hub import views
+from .hub.outcomes import REASONS
 from .rekordbox import eligible, master
+from .rekordbox import lock as rb_lock
 from .rekordbox.eligible import Skip
 from .rekordbox.locate import Place
 from .rekordbox.offset import analysis_folder_files
 from .settings import Settings
+from .words import before_start_line, waiting_line  # the engine's words (`words.py`); console.py and the tests name them here
 
 __all__ = ["ANLZ_REFUSALS", "FILE_REFUSALS", "REFUSALS", "STEP", "WAITS", "Outcome", "Planned", "before_start_line",
-           "file_stamps", "free_now", "plan", "refusal_holds", "run_phase", "stamps", "waiting_line"]
+           "file_stamps", "free_now", "plan", "refusal_holds", "run_phase", "stamps", "start_note", "waiting_line"]
 
 ANLZ_REFUSALS = ("timing", "not_analysed", "cloud")  # recorded with the analysis files' stamps
 FILE_REFUSALS = ("needs_choice",)                    # the two files could not be compared: recorded with their stamps
@@ -75,6 +78,7 @@ WAITS = {
     "busy": "Another Discjockey window or the Terminal was changing your rekordbox library; it is upgraded at your "
             "next sync.",
 }
+PLAN_CHANGED = REASONS["changed"].text  # a track of a plan's run whose answer is another now (`upgrade apply --plan` says it too)
 
 
 @dataclass(frozen=True)
@@ -179,13 +183,16 @@ def stamps(paths, keys: Sequence[str], state: dict, *, running: Callable[[], boo
     if not keys or place is None or not place.db.is_file():
         return out
     try:
-        with master.open_read(place, bool(running())) as m:
-            index = m.index()
-            for key in keys:
-                e = state["tracks"].get(key)
-                if not e or not e.get("path"):
-                    continue
-                out[key] = _stamp(place, m.entries_for(paths.root / e["path"], index))
+        with rb_lock.reader_lock(paths.support) as free:  # shared, only while master.db is open (design §6.1)
+            if not free:  # another Discjockey is changing rekordbox's library: not read now, so no record holds
+                return dict.fromkeys(keys)
+            with master.open_read(place, bool(running())) as m:
+                index = m.index()
+                for key in keys:
+                    e = state["tracks"].get(key)
+                    if not e or not e.get("path"):
+                        continue
+                    out[key] = _stamp(place, m.entries_for(paths.root / e["path"], index))
     except (master.Unreadable, sqlcipher3.DatabaseError):
         return dict.fromkeys(keys)
     return out
@@ -220,7 +227,10 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
     if rb is None:
         rb = views.UNKNOWN_REKORDBOX
         if any(not _is_aiff(state["tracks"][k]) for k in eligible_keys(rb)):
-            rb = master.status(place, lambda: is_running)  # one keyed open, only for a file that isn't an AIFF
+            with rb_lock.reader_lock(paths.support) as free:  # shared, only while master.db is open (design §6.1)
+                # one keyed open, only for a file that isn't an AIFF; a library another Discjockey is changing is not
+                # opened: it is taken as readable, and the batch asks again under its own lock
+                rb = master.status(place, lambda: is_running) if free else views.UNKNOWN_REKORDBOX
     ready = eligible_keys(rb)
     unchecked = quick or is_running  # rekordbox's library is not read for the stamps: analysis records count as holding
 
@@ -243,18 +253,18 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
     return Planned(run, [], refused, False)
 
 
-def before_start_line(n: int) -> str:
-    """Plan stage C §3's Sync before-start Hint: said before a sync starts (the Sync page, the console's plan). The
-    check happens when the phase begins, at the end of the sync, so rekordbox may still be quit until then. The phase
-    itself, which meets rekordbox open at that moment, says `waiting_line` instead."""
-    return (f"rekordbox is open: quit it before the sync ends, so the sync can put {n} "
-            f"upgrade{'s' if n != 1 else ''} in place.")
-
-
-def waiting_line(n: int) -> str:
-    """What the phase says when it meets rekordbox open at the end of a sync (the same words as the summary line's
-    clause for n = 0): nothing was upgraded, `n` upgrades wait."""
-    return f"{n} upgrade{' waits' if n == 1 else 's wait'} for rekordbox to be closed."
+def start_note(block: dict | None) -> str | None:
+    """The Sync page's before-start line for the phase, from its dry-run block (`Outcome.to_dict()`; None: the switch is
+    off): `words.before_start_line` when rekordbox is open (an upgrade of the set waits for it), `words.auto_plan_line`
+    when it is closed, nothing when no upgrade is coming. The count is the one the page's `auto_upgrade.ready` has:
+    the upgrades that would run plus those that would wait, a held refusal not among them."""
+    rows = (block or {}).get("results") or []
+    coming = [r for r in rows if r["state"] in ("would", "waiting")]
+    if not coming:
+        return None
+    if any(r["state"] == "waiting" and r["reason"] == "rekordbox_open" for r in coming):
+        return words.before_start_line(len(coming))
+    return words.auto_plan_line(len(coming))
 
 
 # --- the phase ---
@@ -335,8 +345,12 @@ def _batch_rows(result: batches.BatchResult, before: Mapping[str, dict]) -> list
 def run_phase(paths, state: dict, held: Collection[str], settings: Settings, log: rep.RunLog, *,
               emit: Emit = no_emit, token: CancelToken | None = None, running: Callable[[], bool],
               place: Place | None, compare=align.compare_files, now: Callable[[], datetime] = datetime.now,
-              where: Callable[[str], str] | None = None, dry_run: bool = False, via: str = "terminal") -> Outcome | None:
-    """The sync's Auto-upgrade phase (see the module docstring). `via`: where the sync started (its batch says so). `state` is the run's snapshot, kept current by the
+              where: Callable[[str], str] | None = None, dry_run: bool = False, via: str = "terminal",
+              only: Collection[str] | None = None, changed: Collection[str] = ()) -> Outcome | None:
+    """The sync's Auto-upgrade phase (see the module docstring). `via`: where the sync started (its batch says so).
+    `only` (a run with a plan, `sync run --auto-upgrade-only --plan`): the tracks that still stand as the plan saw them;
+    the others of the set do not run: those the plan had and whose answer changed (`changed`) are rows that wait
+    (reason `changed`), the ones new since the plan are left out. `state` is the run's snapshot, kept current by the
     batch's steps and saved by the caller; `held` the plan's question keys; `running` / `place` rekordbox's process
     check and library, `where` names an own song's folder for the results. Returns None when the switch is off
     (nothing is read or written), else the run's block, which is also `log.auto_upgrade` (not in a dry run, which
@@ -347,11 +361,17 @@ def run_phase(paths, state: dict, held: Collection[str], settings: Settings, log
     token = token or CancelToken()
     before = {k: state["tracks"][k] for k in (*planned.run, *(k for k, _ in planned.refused),
                                                *(k for k, _ in planned.waiting))}
+    left_out = [k for k in planned.run if only is not None and k not in only]
+    if left_out:
+        planned = replace(planned, run=[k for k in planned.run if k not in left_out])
     if dry_run:
         rows = [_row(before[k], k, "would", None, None) for k in planned.run] + _rows(planned, before)
         return _outcome(None, None, rows, False, True)
 
     rows = _rows(planned, before)
+    shown = {r["track"] for r in rows} | set(planned.run)
+    rows += [_row(state["tracks"].get(k) or {}, k, "waiting", "changed", PLAN_CHANGED) for k in changed
+             if k not in shown]  # the plan had it, its answer is another now (or it is gone): the run leaves it as it is
     if planned.waiting:
         emit(Message("info", waiting_line(len(planned.waiting))))
     batch_id, backup, stopped, interrupted = None, None, False, False
@@ -396,8 +416,10 @@ def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, ru
     """Writes the records into `state` (plan §0.6). Returns whether anything changed."""
     changed = False
     at = now().isoformat(timespec="seconds")
+    waited = {r["track"] for r in rows if r["state"] == "waiting" and r["reason"] in WAITS}  # not tried: kept as they were
     for key in planned.run:  # tried now: what was recorded earlier is out of date
-        changed |= _change(state, key, drop=("auto_refused", "auto_waits"))
+        if key not in waited:
+            changed |= _change(state, key, drop=("auto_refused", "auto_waits"))
     for key, _ in planned.refused:  # reached with rekordbox closed
         changed |= _change(state, key, drop=("auto_waits",))
     new = [r for r in rows if r["track"] in planned.run and r["state"] == "refused" and r["reason"] in REFUSALS

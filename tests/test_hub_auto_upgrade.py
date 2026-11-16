@@ -73,7 +73,7 @@ def test_the_switch_is_on_by_default_and_saves_at_once(tmp_path):
     api, rec = make_api(paths)
     assert api.setup_status()["auto_upgrade"] is True
     f = wait_job(api, rec, api.set_auto_upgrade(False))
-    assert (f.ok, f.kind, f.result) == (True, "set_auto_upgrade", {})
+    assert (f.ok, f.kind, f.result) == (True, "set_auto_upgrade", {"auto_upgrade": False})
     assert load_settings(paths.settings_file).auto_upgrade is False and api.setup_status()["auto_upgrade"] is False
     assert wait_job(api, rec, api.set_auto_upgrade(True)).ok
     assert load_settings(paths.settings_file).auto_upgrade is True
