@@ -492,19 +492,27 @@ Results:
     path, worktree, YOUR HALF / NOT yours, the earlier groups' decisions list, overrides written into every command
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
-    Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
-    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). V1.13a fa5da9be + b e0968bea. Review done. Fix 9dbd3472. RUNNING: V1.13 rehearse-convert.
-   
-    NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
-    master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
-    rekordbox library, support folder or music. If scripts/rekordbox_rehearsal.py can only rehearse on a copy of the
-    real library, the agent reports that and the real-copy rehearsal moves to the morning with the user (rekordbox
-    closed). Then V1.13 (a/b, review, fix + rehearse-convert; carry #9: convert_cmd `_plan` takes reader_lock and
-    answers `writing`), V1.14 (a/b, review, fix + rehearse-sync), V1.15 (a/b, review, fix on a scratch library;
-    carry: `tools update` terminal path via `_support_job`'s registry check if it lands there). Then Opus phase
-    review (all "FOR PHASE REVIEW" items in the V1.x entries below + the carry list in memory project_issue39_cli),
-    its fix round, `npm run verify` once on the phase branch (run_in_background), CI green (gh run list), merge
-    feat/cli-1-live-slice into main, push. Phase 1 spent ~6.9M so far (issue 39 ~8.99M + V1.12b running).
+    **STATE 2026-11-16 ~midday (before a compact): USER SAID "pause after this agent is done".** RUNNING: V1.14 fix
+    round DONE 8ebb70f9 (200k, 5489 passed, logged below the V1.14 review entry). PAUSED: wait for the user's go
+    (no rehearse-sync until then).
+    Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
+    Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
+    NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
+    - Every agent runs the full pytest in the FOREGROUND, Bash timeout 600000 (no background run, no interim wakes);
+      fix-round.md and ui-build.md carry it. Prompts: replace "run it in the background and wait for its notification".
+    - Review agents run only the touched tests, never the full suite.
+    - Rehearsals on a COPY of the real library with the user present (rekordbox closed); made-up data only when the
+      script's steps changed and never ran. So: V1.14 rehearse-sync on made-up data STAYS (RH2-RH6 moved, unrun;
+      builder at scratchpad/rehearsal-v1.13/build_fake.py, stereo); V1.15 gets NO rehearsal; one real-copy session in
+      the user's A-D morning covers rehearse, rehearse-convert and rehearse-sync.
+    NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
+    library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
+    material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
+    the design/plan sentence "a dry run writes exactly its plan" to plans/, cache/ and RJ jobs/) → its fix round →
+    `npm run verify` once on the phase branch (run_in_background, my own) → CI green → merge into main, push → STOP
+    before A-D, morning summary (incl. the real-copy rehearsal session).
+    Cost: phase 1 ~10.2M of 5.4M plan (issue 39 ~12.24M incl. the V1.14 fix); left to the stop point ~1.5-1.9M
+    (told the user). Audit told the user: reviews earned their cost (V1.12 undo bug etc.), made-up rehearsals mostly not.
   - **NIGHT RUN (2026-11-14 ~23:55, user asleep, go: "finish the design work through the night"):** scope = steps 2-5
     only (design → adversarial review → design fixes → build plan), then STOP for the user's go before any build.
     Step 2 running: Opus designer, brief `brief-39-design.md`, output `docs/2026-11-14-agent-cli-design.md` (est.
@@ -787,6 +795,34 @@ Results:
     V1.13 fix 9dbd3472: fix-round **193k** (est. 150-200k; 116 calls; full 5429 passed): all 10 fixed, Importants
     test-first; rename --all --plan follows the plan rule; window plans on stored facts; `folder:` outside Library =
     unknown_id. Issue 39 ~11.08M. Next: rehearse-convert (Sonnet, made-up source).
+    V1.13 rehearse-convert: Sonnet **125k** (est. 120-200k; 70 calls): 218 PASS, 0 FAIL, 10 NOTE on the made-up
+    source (stereo now; builder at scratchpad/rehearsal-v1.13/build_fake.py). Script fixes 6bf17f65 + 2cd96ec1 (would
+    have hit a real copy too): ffmpeg 8.1's AAC caps ~225 kbps at 44.1 kHz → derived AAC made at 96 kHz (test first);
+    `library facts` after the RH2 dry runs. Full 5430 passed. V1.13 merged + main → 3cafe9b9, pushed. V1.13 total
+    ~1.30M. Issue 39 ~11.21M.
+    V1.14 split: part a = Auto-upgrade phase alone (`run.auto_upgrade_only`, `auto_upgrade_preview`/`_run`, report
+    kind, `start_note` words, `sync run --auto-upgrade-only [--dry-run]`, rehearse-sync script); part b = folders +
+    settings (`resolve("folder")`, `settings_view`, `folder add/remove`, `settings show/set`, settings_cmd.py +
+    legacy_out.py removal, docs).
+    Part a a52ce2fc: Sonnet **358k** (est. 220-300k; 107 calls; full 5447 passed). `run.auto_upgrade_only` (held = ∅
+    exact: a held song has no present file), `auto_upgrade_preview`/`_run` on CliApi (`CLI_LIBRARY_METHODS`), report
+    summary `kind` (optional key), `start_note` in auto_upgrade.py + words; the phase's master.db reads now take
+    reader_lock (sync's own phase too); `sync run` without the flag refused via `catalog.PHASE_ONLY`; rehearse-sync
+    RH2-RH6 on the new command (not run); ceiling 85. Started a spin-loop Monitor once, stopped it. Issue 39 ~11.57M.
+    Part b 35901f1a: Sonnet **264k** (est. 200-280k; cut once by the usage limit at 9:50, resumed by message; full
+    5473 passed). `folder add/remove`, `settings show/set auto-upgrade`, `resolve("folder")`, `settings_view`;
+    settings_cmd.py + cli/legacy_out.py deleted (7 tests ported, 1 dropped); removal/switch words into words.py via
+    result_words; `folder remove` without a music folder = refused/no_library; ceiling 80. V1.14 build 622k vs plan
+    ~200k. Issue 39 ~11.83M.
+    V1.14 review: Sonnet **217k** (est. 170-230k; 68 calls; touched 311 passed, full stopped at ~35%): 0 Critical,
+    0 Important, 8 Minor. Decision #6 (mine, by the stated invariant, not the reviewer's "document the real order"):
+    a settings write takes the support lock around the read-change-write and the library lock briefly inside it
+    (support → library), pinned by a lock-order test. Issue 39 ~12.05M. Next: fix round, then rehearse-sync.
+    V1.14 fix 8ebb70f9: fix-round Sonnet **200k** (est. 115-200k; 80 calls; started on the old background rule; full
+    5489 passed): all 8 Minors fixed. #6: support → library order for every settings write (`_settings_job`
+    hold_library=False, `*_held` variants; set_music_folder reordered); sync's own Qobuz config/Spotify token saves
+    still take support inside library → issue 42 in docs/issues.md (number free on main; check other branches at
+    merge). Lock-order sentence in CLAUDE.md. Issue 39 ~12.25M. Paused by the user after it.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
