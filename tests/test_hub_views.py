@@ -722,6 +722,7 @@ def test_library_sorts_by_folder_with_unlisted_tracks_last():
 
 def test_library_search_all_tracks_and_not_in_a_playlist():
     assert [r["track_id"] for r in views.library(LIB, "all", None, "läuff", "all", "artist", lines=[])["rows"]] == ["c"]
+    assert [r["track_id"] for r in views.library(LIB, "all", None, "lauff", "all", "artist", lines=[])["rows"]] == ["c"]  # accents ignored
     assert views.library(LIB, "all", None, "", "all", "artist", lines=[])["summary"]["tracks"] == 5  # not found ones have no file
     nip = views.library(LIB, "unlisted", None, "", "all", "artist", lines=[])
     assert nip["title"] == "Not in a playlist" and [r["track_id"] for r in nip["rows"]] == ["f"]

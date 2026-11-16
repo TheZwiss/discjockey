@@ -20,7 +20,7 @@ from .. import cdj as cdj_rule, playlists_file as pf
 from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_MIN_KBPS, SERVICES, SERVICE_NAMES,
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
-from ..names import expected_stem, fold
+from ..names import expected_stem, fold, search_fold
 from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
                       AiffBatchRow, BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
                       PlaylistRecord, Question, WatchedFolder, is_own, split_token, track_link as key_link)
@@ -1330,10 +1330,10 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                # checked files that aren't lossless: the strip's "Not lossless yet" row
                "not_lossless": by["good_lossy"] + by["weak"] + by["fake"],
                "to_do": sum(1 for e in entries if e.get("in_playlists") and not e.get("hidden") and _group(e) is not None)}
-    q = fold(query or "").strip()
+    q = search_fold(query or "").strip()  # case and accents ignored, as the command line's `track find`
     if q:
-        rows = [r for r in rows if q in fold(f"{r['artist']} {r['title']}")]
-        also = [r for r in also if q in fold(f"{r['artist']} {r['title']}")] if also is not None else None
+        rows = [r for r in rows if q in search_fold(f"{r['artist']} {r['title']}")]
+        also = [r for r in also if q in search_fold(f"{r['artist']} {r['title']}")] if also is not None else None
     # All counts every row the table lists under it (a read playlist's songs without a file too, never `also`); the
     # quality chips count files, the rows they list
     chips = {f: sum(1 for r in rows if (f == "all" or r["file_state"] != "no_file") and _matches(r, f))

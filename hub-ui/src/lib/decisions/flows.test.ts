@@ -10,7 +10,7 @@ import { answerConfirm, confirmRequest } from '../components/confirm';
 import { _resetJobs, waitForJob } from '../stores/jobs';
 import { toasts } from '../stores/toasts';
 import { artistTitle } from '../format';
-import { AiffBatchFlow, AiffFlow, ChecksFlow, UpgradeBatchFlow } from './flows.svelte';
+import { AiffBatchFlow, AiffFlow, ChecksFlow, UpgradeBatchFlow, UpgradeFlow } from './flows.svelte';
 import type { AiffScope } from '../bridge/types';
 import type { RunRow } from './decisionModel';
 
@@ -34,7 +34,7 @@ const until = async (cond: () => boolean) => {
   for (let i = 0; i < 600 && !cond(); i++) await new Promise((r) => setTimeout(r, 3));
   if (!cond()) throw new Error('the condition never held');
 };
-const snap = (over: Partial<JobSnap>): JobSnap => ({ id: 1, kind: 'upgrade_batch', track_id: null, started: '', running: true,
+const snap = (over: Partial<JobSnap>): JobSnap => ({ id: 'job:00000001', kind: 'upgrade_batch', track_id: null, started: '', running: true,
   stopping: false, last: {}, results: [], finished: null, actions: [], ...over } as JobSnap);
 
 beforeEach(() => { vi.spyOn(console, 'warn').mockImplementation(() => {}); });
@@ -580,8 +580,22 @@ describe('Undo of a Convert and a clean name (issue 33 stage D §6.3)', () => {
     const { group } = setup('todo:check-renamed', 1000);
     const one = (await group('rekordbox_check'))!.items.find((i) => i.track_id === 'own:7')!;
     yes();
-    const { UpgradeFlow } = await import('./flows.svelte');
     await new UpgradeFlow().undo('own:7', one.check);
     expect(get(toasts)).toMatchObject([{ tone: 'success', title: 'Clean name undone. Your old name is back.' }]);
+  });
+});
+
+describe('UpgradeFlow', () => {
+  it("the single card's Replace sends the bridge's word for each way and the job ends ok", async () => {
+    const { ready } = setup();
+    const [a, b] = await ready();
+    const spy = vi.spyOn(api, 'upgrade');
+    await new UpgradeFlow().upgrade(a.track_id, 'swap');
+    expect(spy).toHaveBeenLastCalledWith([a.track_id], 'same_track');
+    expect(get(toasts)).toMatchObject([{ tone: 'success' }]);
+    toasts.clear();
+    await new UpgradeFlow().upgrade(b.track_id, 'add_new');
+    expect(spy).toHaveBeenLastCalledWith([b.track_id], 'new_track');
+    expect(get(toasts)).toMatchObject([{ tone: 'success' }]);
   });
 });

@@ -191,7 +191,7 @@ def _answering(fn):
     command line reads the rest (`outcomes.problem_fields`: the outcome row of the kind, the reason, the commands that
     move on, the steps only a person can do). A problem with a playlist service (a SourceError) also carries
     "service", a setting_off one "setting". A `BadId` (a typed id the command line cannot use) answers `bad_args`:
-    only the command line's methods raise it."""
+    the command line's methods raise it, and `todo` for a filter that is no group (the window sends only group keys)."""
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
         try:
@@ -1078,7 +1078,7 @@ class HubApi:
     @bridge
     def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
         if filter not in ("all", None, *views.TODO_GROUP_KEYS):
-            raise BadId("unknown_id", f"There is no to-do group called {filter}. The groups are "
+            raise BadId("usage", f"There is no to-do group called {filter}. The groups are "
                                       f"{', '.join(views.TODO_GROUP_KEYS)}.")
         state = self._state()
         out = self._todo(state, filter, bool(show_hidden))

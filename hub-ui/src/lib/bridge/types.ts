@@ -15,15 +15,16 @@ export type PlaylistService = 'spotify' | 'qobuz' | 'soundcloud' | 'youtube_musi
 /** A choice in Settings that a read needs (its key in settings.json): `setting_off` names it in `setting`. */
 export type SettingKey = 'read_liked_music';
 /** `service`: set when a playlist service caused the problem (a `SourceError`), absent for every other. `setting`:
- *  only with kind `setting_off` (add_playlist for a link that needs a Settings choice that is off). */
+ *  only with kind `setting_off` (add_playlist for a link that needs a Settings choice that is off). `kind` can also be
+ *  `bad_args` for arguments only the command line sends (contract, Problem kinds). */
 export type Fail = {
   ok: false; kind: ProblemKind; message: string; service?: PlaylistService; setting?: SettingKey;
   /** The command line's view of the same problem (issue 39, `discjockey/hub/outcomes.py`); the window ignores it.
    *  Always present on an answer of the engine, optional here so the fake bridge needs no change. */
-  outcome?: Outcome; reason?: string; next?: { run: string; why: string }[];
+  outcome?: FailOutcome; reason?: string; next?: { run: string; why: string }[];
   person_steps?: { id: string; say: string; then: string | null }[]; data?: Record<string, unknown> | null;
 };
-export type Outcome = 'ok' | 'failed' | 'bad_args' | 'busy' | 'needs_person' | 'stopped' | 'partial' | 'refused' | 'running';
+export type FailOutcome = 'failed' | 'bad_args' | 'busy' | 'needs_person' | 'stopped' | 'refused';
 export type Res<T> = ({ ok: true } & T) | Fail;
 export type JobStart = Res<{ job_id: string }>;
 export type ActionKey = [string, string, string];          // sent back unchanged to start_sync
@@ -106,8 +107,8 @@ export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swap
   old_name: string | null;
   /** the steps only the person can do in rekordbox (the command line's; the window words its own numbered steps from
    *  the same facts): `id` ("step:reload_tag", "step:relocate_new"), `say` (the engine's sentence for the check), `then`
-   *  ("check done <track>"); none for a check that leaves nothing to do (a clean name) */
-  person_steps?: { id: string; say: string; then: string | null }[] };
+   *  ("check done <track>"); an empty list for a check that leaves nothing to do (a clean name) */
+  person_steps: { id: string; say: string; then: string | null }[] };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
@@ -229,7 +230,7 @@ export type RunSummary = {
   id?: string;
   /** what the run was: a whole sync, or only its Auto-upgrade phase (`sync run --auto-upgrade-only`, the command line's;
    *  a run from before it is a sync); the window never starts the second */
-  kind?: 'sync' | 'auto_upgrade_only';
+  kind: 'sync' | 'auto_upgrade_only';
   /** the run's Auto-upgrade phase and its one-line account (`line`: "Upgraded 2 tracks; your cues stayed. 1 waits for
    *  rekordbox to be closed."; null when nothing happened); null when the switch was off for the run */
   auto_upgrade: (AutoUpgradeBlock & { line: string | null }) | null;
@@ -453,7 +454,7 @@ export type TrackDetail = TrackRow & {
   /** the cutoff in words, as the stat card says it ("16.0 kHz · where the highs end · lossless reaches about 22 kHz";
    *  a fake lossless file names the format it really is); null for a lossless or missing file and for a sound not
    *  checked yet (the command line prints it; the window words the card itself) */
-  cutoff_text?: string | null;
+  cutoff_text: string | null;
   isrc: string | null; playlists: string[] | null; in_playlist_count: number; quality_line: string;
   /** "Opus · 135 kbps", "FLAC"; source_full: "YouTube Music", "bought", "your own file" for a file the import
    *  found (both null without a file) */
@@ -609,21 +610,23 @@ export type SetupStatus = {
   /** "Upgrade automatically when I sync" (Settings, Setup's Downloads step): on by default */
   auto_upgrade: boolean;
 };
-/** rekordbox on this Mac now (`rekordbox_status()`): its library's state and whether it runs. */
+/** rekordbox on this Mac now (`rekordbox_status()`): its library's state and whether it runs; the window's pair. */
 export type RekordboxStatus = {
   state: 'ready' | 'none' | 'unreadable';
   running: boolean;
-  /** The command line's richer answer (the window reads `state` and `running` only): the words for the state and the
-   *  problem, what is wrong with the library, rekordbox's version, master.db's path, DB version, modified time (local ISO,
-   *  to the second) and size; each null where unknown. */
-  state_text?: string;
-  problem?: 'unclean' | 'busy' | 'key' | 'db_version' | 'schema' | null;
-  problem_text?: string | null;
-  version?: string | null;
-  library?: string | null;
-  db_version?: string | null;
-  modified_at?: string | null;
-  size?: number | null;
+};
+/** What `rekordbox_status()` answers: the window's pair plus the command line's richer answer (the window reads `state`
+ *  and `running` only): the words for the state and the problem, what is wrong with the library, rekordbox's version,
+ *  master.db's path, DB version, modified time (local ISO, to the second) and size; each null where unknown. */
+export type RekordboxStatusAnswer = RekordboxStatus & {
+  state_text: string;
+  problem: 'unclean' | 'busy' | 'key' | 'db_version' | 'schema' | null;
+  problem_text: string | null;
+  version: string | null;
+  library: string | null;
+  db_version: string | null;
+  modified_at: string | null;
+  size: number | null;
   /** Present (true) while a Discjockey writer holds `rekordbox.lock`: `state` is then the last value read. */
   writing?: boolean;
   /** With `writing`: when that value was read (ISO time), null when none was read yet. */
@@ -750,7 +753,7 @@ export type CheckedResult = { results: Result[]; checked: string[]; not_checked:
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };
 export type JobResults = {
-  import: ImportResult; folders: { name?: string; files: number; redownload: number };
+  import: ImportResult; folders: { name: string; files: number; redownload: number };
   answer: Record<string, never>; supersede: { result: Result; recovered: [string, boolean][] };
   refresh: { actions: number }; sync: SyncResult; save_playlists: { version: string; batches: BatchResult[] };
   tidy: BatchResult; undo_moves: BatchResult;
@@ -758,7 +761,7 @@ export type JobResults = {
   mark_warnings_seen: { service: Service; seen_until: string };
   setup_skip_qobuz: Record<string, never>; setup_skip_spotify: Record<string, never>;
   set_read_liked_music: Record<string, never>; add_liked_music: { folder: string };
-  set_auto_upgrade: { auto_upgrade?: boolean };
+  set_auto_upgrade: { auto_upgrade: boolean };
   setup_account: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   account_sign_in: { service: Service; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
-import { api, onNoLibrary, rekordboxStatus, runJob, _resetBridge } from './client';
+import { api, onNoLibrary, runJob, _resetBridge } from './client';
 import { dispatch } from './events';
 import { toasts } from '../stores/toasts';
 import { _resetJobs } from '../stores/jobs';
@@ -40,15 +40,6 @@ describe('calls', () => {
     w.pywebview = { api: { sidebar: async () => ({ ok: true, todo: 3 }) } };
     w.dispatchEvent(new Event('pywebviewready'));
     expect(await p).toMatchObject({ ok: true, todo: 3 });
-  });
-});
-
-describe('rekordboxStatus', () => {
-  it('keeps writing and as_of when a writer holds rekordbox, and adds nothing otherwise', async () => {
-    fakeWindow({ rekordbox_status: async () => ({ ok: true, state: 'ready', running: false, writing: true, as_of: '2026-10-20T21:47:00' }) });
-    expect(await rekordboxStatus()).toEqual({ state: 'ready', running: false, writing: true, as_of: '2026-10-20T21:47:00' });
-    fakeWindow({ rekordbox_status: async () => ({ ok: true, state: 'ready', running: false }) });
-    expect(await rekordboxStatus()).toEqual({ state: 'ready', running: false });
   });
 });
 

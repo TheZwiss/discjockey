@@ -39,11 +39,13 @@ describe('fake Auto-upgrade', () => {
     expect(await m.f.set_auto_upgrade('yes' as unknown as boolean)).toMatchObject({ ok: false, kind: 'refused', message: 'on must be true or false.' });
   });
   it('rekordbox_status answers its state and whether it runs', async () => {
-    expect(await make('normal').f.rekordbox_status()).toEqual({ ok: true, state: 'ready', running: false } satisfies RekordboxStatus & { ok: true });
+    expect(await make('normal').f.rekordbox_status()).toMatchObject({ ok: true, state: 'ready', running: false,
+      state_text: "rekordbox's library can be read" } satisfies Partial<RekordboxStatus> & { ok: true; state_text: string });
     const m = make('normal');
     m.f._ctx.s.rekordbox_running = true;
     m.f._ctx.s.rekordbox_state = 'unreadable';
-    expect(await m.f.rekordbox_status()).toEqual({ ok: true, state: 'unreadable', running: true });
+    expect(await m.f.rekordbox_status()).toMatchObject({ ok: true, state: 'unreadable', running: true,
+      state_text: "rekordbox's library can't be read" });
   });
   it('the preview counts the upgrades the phase would do, and is null with the switch off', async () => {
     const m = make('normal');

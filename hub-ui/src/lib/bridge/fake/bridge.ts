@@ -7,13 +7,13 @@ import type {
 import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
-  pathOf, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
+  cutoffText, pathOf, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
   readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, todoFileState, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
 import { AUTO_BATCH_DETAIL, autoDetail, autoPreview, autoBlock, backupId, markRefused, markWaiting, phaseEvents, phaseResults,
-  planPhase, readyTracks, rekordboxStatus, sameTrackReasonOf, stopRows, withPhase, AUTO_REFUSED_WORDS, type PhasePlan } from './auto';
+  planPhase, readyTracks, rekordboxStatus, REKORDBOX_STATE_TEXT, sameTrackReasonOf, stopRows, withPhase, AUTO_REFUSED_WORDS, type PhasePlan } from './auto';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, lineOf, rewrite } from './replay';
@@ -293,7 +293,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   };
   const summary = (r: (typeof s.runs)[number]) => ({ run_id: r.run_id, id: `report:${r.run_id}`, started: r.started, finished: r.finished,
     duration_s: r.duration_s, exit_code: r.exit_code, counts: r.counts, stopped_after: r.stopped_after,
-    auto_upgrade: r.auto_upgrade });
+    auto_upgrade: r.auto_upgrade, kind: 'sync' as const });
   const assessment = (limit: number) => {
     const zones = [['careful', 40], ['normal', 60], ['faster', 79], ['fast', 100], ['risky', 500]] as const;
     const i = zones.findIndex(([, to]) => limit <= to);
@@ -829,9 +829,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         bought_name: `Library/${t.folder}/${t.artist} - ${t.title}.wav`,
         audio_url: q === 'missing' || t.away ? null : media(t, 'current'),
         upgrade: t.upgrade ? { ...t.upgrade, audio_url: media(t, 'upgrade'), ...rbOf(t) } : null,
-        aiff: fileAnswer(s, t),
+        aiff: fileAnswer(s, t), cutoff_text: cutoffText(t),
       } });
     },
+    // the engine answers bad_args for a filter that is no group; the window sends only TodoFilter keys
     async todo(filter: TodoFilter, show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
     async playlists() {
       const overlaps = s.tracks.filter((t) => t.playlists.length > 1).map((t) => {
@@ -889,7 +890,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         youtube_music: likedStatus(s) });
     },
     async select(track_id: string | null) { s.selected = track_id; return ok({}); },
-    async rekordbox_status() { return ok(rekordboxStatus(s)); },
+    async rekordbox_status() {
+      const st = rekordboxStatus(s);
+      return ok({ ...st, state_text: REKORDBOX_STATE_TEXT[st.state], problem: null, problem_text: null, version: null,
+        library: null, db_version: null, modified_at: null, size: null });
+    },
     async downloads_view() {
       const d = downloads(s);
       if (s.setup.music.state === 'ok') return ok({ downloads: d });
@@ -1257,26 +1262,18 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           { path: `Superseded/${t.folder}/${t.artist} - ${t.title}.aiff` }));
       }, 500 / speed));
     },
-    async rekordbox_checked(track_ids: string[], batch_id?: number | null) {
-      // the command line's `--batch`: that AIFF batch's done tracks (the window sends none)
-      const batch = batch_id == null ? null : aiff.find((x) => x.id === batch_id);
-      if (batch_id != null) {
-        if (track_ids.length) return fail('refused', 'Name the tracks or a batch, not both.');
-        if (!batch) return fail('refused', 'Discjockey has no record of this batch.');
-      }
-      const ids = batch ? batch.items.filter((i) => i.state === 'done').map((i) => i.track) : listOf(track_ids);
+    async rekordbox_checked(track_ids: string[]) {
+      const ids = listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
       const have = ids.filter((id) => track(id)?.rekordbox_check);
-      // like the engine: nothing to check is a job that ends `changed`, not a refusal at the call (a batch's own tracks
-      // all checked already is a finished job with nothing in it)
-      if (!have.length && !batch) return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() =>
+      // like the engine: nothing to check is a job that ends `changed`, not a refusal at the call
+      if (!have.length) return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() =>
         finish(false, null, 'changed', 'There is nothing to check for these tracks any more.'), 300 / speed));
-      return startJob('rekordbox_checked', ids.length === 1 && !batch ? ids[0] : null, (finish) => setTimeout(() => {
+      return startJob('rekordbox_checked', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() => {
         const results = have.map((id) => { const t = track(id)!; t.rekordbox_check = null;
           return opResult(t, 'rekordbox_checked', 'checked in rekordbox').result; });
         for (const b of aiff) if (b.state === 'stopped' && !b.items.some((i) => i.state === 'planned')) b.state = 'done';
-        finish(true, { results, checked: have, not_checked: batch ? [] : ids.filter((id) => !have.includes(id)), recovered: [],
-          ...(batch ? { batch: batch.id } : {}) });
+        finish(true, { results, checked: have, not_checked: ids.filter((id) => !have.includes(id)), recovered: [] });
       }, 300 / speed));
     },
     async upgrade(track_ids: string[], way: 'same_track' | 'new_track' | 'discard') {
@@ -1456,7 +1453,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (typeof on !== 'boolean') return fail('refused', 'on must be true or false.');
       return startJob('set_auto_upgrade', null, (finish) => setTimeout(() => {
         s.setup = { ...s.setup, auto_upgrade: on };   // turning it off touches nothing that waits
-        finish(true, {});
+        finish(true, { auto_upgrade: on });
       }, 300 / speed));
     },
     async add_liked_music() {

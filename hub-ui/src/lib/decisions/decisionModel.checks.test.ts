@@ -10,7 +10,7 @@ import {
 
 const view = (extra: Partial<RekordboxCheckView> = {}): RekordboxCheckView => ({ reason: 'repointed', since: '2026-11-08',
   match: 'exact', offset_ms: 0, moved: false, aligned: true, text: 'the engine text', old_path: 'Superseded/Hard_Bounce/A - x.mp3',
-  reload_tag: false, batch: { id: 7, size: 3 }, rekordbox: { entries: 1, kept: [] }, old_name: null, ...extra });
+  reload_tag: false, batch: { id: 7, size: 3 }, rekordbox: { entries: 1, kept: [] }, old_name: null, person_steps: [], ...extra });
 const check = (id: string, c: Partial<RekordboxCheckView> = {}, extra: Partial<TodoItem> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
   quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false,

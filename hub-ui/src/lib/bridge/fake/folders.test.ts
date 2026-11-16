@@ -135,7 +135,7 @@ describe('fake watched folders', () => {
       expect(await f.remove_watched_folder(bad)).toMatchObject({ ok: false, kind: 'refused' });
     }
     const start = must(await f.remove_watched_folder(rows[1].id));
-    expect(await finished(evs, start.job_id)).toMatchObject({ kind: 'folders', ok: true, result: { files: 24, redownload: 0 } });
+    expect(await finished(evs, start.job_id)).toMatchObject({ kind: 'folders', ok: true, result: { name: 'Music', files: 24, redownload: 0 } });
     expect(must(await f.watched_folders()).folders.map((r) => r.kind)).toEqual(['library']);
   });
 

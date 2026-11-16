@@ -499,7 +499,7 @@ describe('upgrade decision', () => {
 describe('rekordbox check after a replace', () => {
   const check = (extra: Partial<RekordboxCheckView>): RekordboxCheckView => ({ reason: 'swapped', since: '2026-10-31',
     match: 'exact', offset_ms: 0, moved: false, aligned: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff',
-    reload_tag: true, batch: null, rekordbox: null, old_name: null, ...extra });
+    reload_tag: true, batch: null, rekordbox: null, old_name: null, person_steps: [], ...extra });
   const words = (c: RekordboxCheckView) => checkCard(c)!.steps.map((s) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : ''));
   it('a swap: Reload Tag, analyse; the hint about Auto Relocate', () => {
     const c = checkCard(check({}))!;
@@ -704,7 +704,7 @@ describe('the item just acted on (the hold)', () => {
   it('a ghost is the row as it was, without what only a to-do has', () => {
     const old = item('t2', 'rekordbox_check', { upgrade_ready: true, can_undo: true, detail: 'Reload Tag',
       check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, text: 't', old_path: null,
-        reload_tag: true, batch: null, rekordbox: null, old_name: null } });
+        reload_tag: true, batch: null, rekordbox: null, old_name: null, person_steps: [] } });
     const g = ghostOf(old);
     expect(itemKey(g)).toBe(itemKey(old));
     expect(g).toMatchObject({ upgrade_ready: false, can_undo: false, check: undefined, detail: '', title: old.title });

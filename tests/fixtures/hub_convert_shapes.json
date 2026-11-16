@@ -17,5 +17,7 @@
   "batch": ["id", "aiff_id", "size", "started", "started_by", "kind", "tracks"],
   "batch_result": ["batch", "state", "stop_reason", "total", "done", "skipped", "failed", "results", "backup", "recovered"],
   "item_result": ["track", "action", "state", "reason", "message", "path", "rekordbox"],
+  "rekordbox_status": ["state", "running", "state_text", "problem", "problem_text", "version", "library", "db_version", "modified_at", "size"],
+  "set_auto_upgrade_result": ["auto_upgrade"],
   "undo_result_success": ["batch", "total", "undone", "refused", "failed", "results", "recovered", "words"]
 }

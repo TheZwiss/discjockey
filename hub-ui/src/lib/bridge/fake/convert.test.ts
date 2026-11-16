@@ -375,3 +375,19 @@ describe('the fake bridge: Convert, Rename and Make all', () => {
     expect(await f.batch_resume(1)).toMatchObject({ ok: true });
   });
 });
+
+describe('the fake bridge: the keys an ok answer of the engine always carries (also those only the command line reads)', () => {
+  it('rekordbox_status, set_auto_upgrade, a run summary and a track carry them', async () => {
+    const { f, s, run, detail } = setup();
+    const status = (await f.rekordbox_status()) as object;
+    expect(Object.keys(status).filter((k) => k !== 'ok').sort()).toEqual(keys('rekordbox_status'));
+    has((await run(f.set_auto_upgrade(false))).result as object, 'set_auto_upgrade_result');
+    expect(s.runs.length).toBeGreaterThan(0);
+    const dash = (await f.dashboard()) as { last_runs: { kind?: string }[] };
+    expect(dash.last_runs.every((r) => r.kind === 'sync')).toBe(true);
+    const lossy = s.tracks.find((t) => t.status === 'not_lossless')!;
+    expect(typeof (await detail(lossy.track_id)).cutoff_text).toBe('string');
+    const lossless = s.tracks.find((t) => t.status === 'lossless')!;
+    expect((await detail(lossless.track_id)).cutoff_text).toBeNull();
+  });
+});
