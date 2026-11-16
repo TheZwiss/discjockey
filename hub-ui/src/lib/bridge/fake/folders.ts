@@ -99,10 +99,10 @@ export function removalPreview(s: FakeState, id: unknown): RemovalPreview | Fail
   const f = folderOf(s, id);
   return f ? { name: name(f.path), files: f.imported, redownload: f.redownload } : fail('refused', NO_FOLDER);
 }
-export function removeFolder(s: FakeState, f: FakeFolder): { files: number; redownload: number } {
+export function removeFolder(s: FakeState, f: FakeFolder): { name: string; files: number; redownload: number } {
   s.imp.folders = s.imp.folders.filter((x) => x !== f);
   s.imp.unreadable = s.imp.unreadable.filter((u) => u.folder_id !== f.id);
-  return { files: f.imported, redownload: f.redownload };
+  return { name: name(f.path), files: f.imported, redownload: f.redownload };
 }
 
 // ---------- the To-do groups (W8) ----------

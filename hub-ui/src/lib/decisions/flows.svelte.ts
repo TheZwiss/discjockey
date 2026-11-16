@@ -20,6 +20,9 @@ import {
   type BatchMode, type DuplicatePick, type RunRow, type UndoProblem, type UpgradeWays, type Way,
 } from './decisionModel';
 
+/** The bridge's name for each way (`upgrade(ids, mode)`): the page's own words stay as they are. */
+const BRIDGE_MODE = { swap: 'same_track', add_new: 'new_track', discard: 'discard' } as const;
+
 /** The upgrade and the rekordbox check it leaves: Replace (the "In rekordbox" pick), Discard, Done, Undo. `busy`
  *  names the running action; a page may set it for one of its own (To-do's Hide), so the buttons wait for that too. */
 export class UpgradeFlow {
@@ -57,7 +60,7 @@ export class UpgradeFlow {
       body: 'Your current file stays. This version is not offered again.', confirmLabel: 'Discard', tone: 'danger' }))) return;
     this.busy = mode;
     this.#onact?.();
-    await runJob(api.upgrade([track_id], mode));
+    await runJob(api.upgrade([track_id], BRIDGE_MODE[mode]));
     this.busy = null;
   }
   /** "Done, checked in rekordbox". */
@@ -276,7 +279,7 @@ export class UpgradeBatchFlow {
     if (mode === 'discard' && !(await confirm(discardConfirm(items.length)))) return;
     const ids = items.map((i) => i.track_id);
     this.know(items.map((i) => [i.track_id, name(i)]));
-    const call = () => mode === 'swap' && all ? api.upgrade_all() : api.upgrade(ids, mode);
+    const call = () => mode === 'swap' && all ? api.upgrade_all() : api.upgrade(ids, BRIDGE_MODE[mode]);
     await this.#run(mode, ids, items.map((i) => runRow(i, name(i))), call);
   }
   /** Resume · k left: the stopped batch's planned tracks (their rows come with its progress). */
@@ -323,7 +326,7 @@ export class UpgradeBatchFlow {
     const out = await runJob<AiffBatchResult>(call(), { quiet: true, success: false });
     this.#end(mode, out, () => void this.#run(mode, tracks, rows.map((r) => ({ ...r, state: 'waiting', text: null })), call));
   }
-  async #follow(job_id: number): Promise<void> {
+  async #follow(job_id: string): Promise<void> {
     const fin = await waitForJob(job_id);
     const mode = this.view?.mode ?? 'swap';
     this.#end(mode, fin.ok ? { ok: true, job_id, result: fin.result as AiffBatchResult }
@@ -464,7 +467,7 @@ export class AiffBatchFlow {
     const out = await runJob<AiffBatchResult>(call(), { quiet: true, success: false });
     this.#end(out, () => void this.#run(scope, rows.map((r) => ({ ...r, state: 'waiting', text: null })), renames, call));
   }
-  async #follow(job_id: number): Promise<void> {
+  async #follow(job_id: string): Promise<void> {
     const fin = await waitForJob(job_id);
     this.#end(fin.ok ? { ok: true, job_id, result: fin.result as AiffBatchResult }
       : { ok: false, job_id, kind: fin.problem ?? 'crashed', message: fin.message, result: (fin.result ?? null) as AiffBatchResult | null }, null);

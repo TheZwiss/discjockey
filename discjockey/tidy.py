@@ -142,7 +142,7 @@ def _keys_by_file(state: dict) -> dict[int, str]:
 
 
 def _content_keys(paths: Paths) -> dict[int, str | None]:
-    with db.connect(paths.db_file) as conn:
+    with db.connect(paths.db_file, read_only=True) as conn:
         return {f.id: f.content_key for f in db.known_files(conn)}
 
 
@@ -378,7 +378,7 @@ def undo_preview(paths: Paths, state: dict, batch_id: int) -> list[PlannedMove]:
     when no playlists.txt line says {new} (P2). Moves the batch skipped aren't listed."""
     if not paths.db_file.exists():  # no records yet, so no batch either
         return []
-    with db.connect(paths.db_file) as conn:
+    with db.connect(paths.db_file, read_only=True) as conn:
         done = [m for m in db.batch_moves(conn, batch_id) if m.state == "done"]
     by_file = {e["file_id"]: e for e in state["tracks"].values() if e.get("file_id") is not None}
     taken = {fold(e["path"]) for e in state["tracks"].values() if e.get("path")}

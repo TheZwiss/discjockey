@@ -16,6 +16,13 @@ from discjockey.library import Paths, empty_state, save_state
 from discjockey.models import FetchedPlaylist, PlaylistInfo, SourceTrack
 from discjockey.planner import ENTRY_KEYS
 
+def cmd(text: str) -> str:
+    """A command as the command line prints it in `next[].run` and `person_steps[].then`: behind the program's path."""
+    import shlex
+    from discjockey.cli import housekeeping
+    return f"{shlex.quote(housekeeping.command_path())} {text}"
+
+
 ID1, ID2 = "0DiscjockeyExampleList", "3DiscjockeyExampleList"
 PLAYLISTS = f"# my playlists\nHard_Bounce = https://open.spotify.com/playlist/{ID1}\n" \
             f"Powertrance = https://open.spotify.com/playlist/{ID2}\n"
@@ -305,3 +312,12 @@ def music_root(tmp_path, **kw) -> Paths:
     """make_root in a `music` folder of tmp_path, so folders beside it can be watched."""
     (tmp_path / "music").mkdir(exist_ok=True)
     return make_root(tmp_path / "music", **kw)
+
+
+COMMAND_LINE_KEYS = ("outcome", "reason", "next", "person_steps", "data")
+
+
+def window(answer: dict) -> dict:
+    """A bridge answer as the window reads it: without the keys a problem carries for the command line (outcome, reason,
+    next, person_steps, data; `discjockey/hub/outcomes.py`). Tests of the window's words compare through this."""
+    return {k: v for k, v in answer.items() if k not in COMMAND_LINE_KEYS}

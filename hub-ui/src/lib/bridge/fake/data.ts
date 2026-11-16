@@ -8,6 +8,7 @@ import type {
 } from '../types';
 import { QUALITIES } from '../types';
 import { PLAYLIST_SERVICE_NAMES } from '../../copy';
+import { cutoffStat } from '../../format';
 
 /** the fake's newest yt-dlp on PyPI */
 export const FAKE_NEWEST_YT_DLP = '2026.10.28';
@@ -274,6 +275,12 @@ export function qualityLabel(t: FakeTrack): string {
   if (q === 'fake') return `FAKE · ${khz(t.cutoff_hz ?? 16000)}`;
   return t.cutoff_hz ? khz(t.cutoff_hz) : 'LOSSY';
 }
+/** views.cutoff_text: the cutoff in words, as the stat card says it (null for a lossless or missing file and for a sound
+ *  not checked yet). */
+export function cutoffText(t: FakeTrack): string | null {
+  const c = cutoffStat({ status: t.status, cutoff_hz: t.cutoff_hz, sound_checked: !t.unchecked, path: pathOf(t) });
+  return c ? (c.value ? `${c.value} kHz · ${c.label}` : c.label) : null;
+}
 export function pathOf(t: FakeTrack): string | null {
   if (t.status === 'missing') return null;
   if (t.file) return t.file;
@@ -383,7 +390,8 @@ export function checkView(c: RekordboxCheck, batchSize = 1): RekordboxCheckView 
   return { reason: c.reason, since: c.since, match: c.match ?? null, offset_ms: c.offset_ms ?? null, moved: !!c.moved,
     aligned: !!c.aligned, reload_tag: c.reload_tag !== false, batch: c.batch ? { id: c.batch, size: batchSize } : null,
     rekordbox: c.rekordbox ?? null, text: checkText(c), old_path: c.reason === 'renamed' ? null : c.old_path ?? null,
-    old_name: c.reason === 'renamed' ? c.oldName ?? null : null };
+    old_name: c.reason === 'renamed' ? c.oldName ?? null : null,
+    person_steps: [] }; // the engine words them (words.person_steps) for the command line; the window ignores them
 }
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues, exactly
  *  when the new file was rendered lined up (`aligned`). */
@@ -694,7 +702,7 @@ export function runDetail(id: string, started: Date, duration_s: number, exit_co
   const newFiles = results.filter((r) => NEW_FILE_SECTIONS.includes(r.section) && r.path).map((r) => r.path!);
   const count = (...ss: string[]) => results.filter((r) => ss.includes(r.section)).length;
   return {
-    run_id: id, started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
+    run_id: id, kind: 'sync', started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
     exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded', 'upgraded'),
       lossy: count('new_not_lossless', 'fake'), problems: count(...PROBLEM_SECTIONS), moved: count('moved') },
     stopped_after, sections, needs_you: results.filter((r) => PROBLEM_SECTIONS.includes(r.section) && r.track_id),

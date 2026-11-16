@@ -1,0 +1,5 @@
+Stopped watching Music. Discjockey forgets its 3 files. The files stay where they are.
+
+Name        Music
+Files       3
+Redownload  0

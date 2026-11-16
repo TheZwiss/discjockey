@@ -10,7 +10,7 @@ function fakeWindow(methods: Record<string, (...a: any[]) => any>) {
   w.pywebview = { api: methods };
   (globalThis as any).window = w;
 }
-const finished = (job_id: number, extra: object = {}) => ({ type: 'JobFinished', job_id, kind: 'hide', ok: true,
+const finished = (job_id: string, extra: object = {}) => ({ type: 'JobFinished', job_id, kind: 'hide', ok: true,
   problem: null, message: '', result: { track_id: 't2', result: {}, recovered: [] }, ...extra }) as any;
 
 beforeEach(() => { _resetBridge(); _resetJobs(); toasts.clear(); vi.spyOn(console, 'warn').mockImplementation(() => {}); });
@@ -45,17 +45,17 @@ describe('calls', () => {
 
 describe('runJob', () => {
   it('resolves when JobFinished arrives after the job id', async () => {
-    fakeWindow({ hide: async () => ({ ok: true, job_id: 7 }) });
+    fakeWindow({ hide: async () => ({ ok: true, job_id: 'job:00000007' }) });
     const p = runJob(api.hide('t2', true));
     await new Promise((r) => setTimeout(r, 0));
-    dispatch(finished(7));
+    dispatch(finished('job:00000007'));
     const out = await p;
-    expect(out).toMatchObject({ ok: true, job_id: 7 });
+    expect(out).toMatchObject({ ok: true, job_id: 'job:00000007' });
     expect(get(toasts).map((t) => t.title)).toEqual(['Hidden from the to-do list.']);
   });
   it('resolves when JobFinished arrived before the bridge call returned', async () => {
-    fakeWindow({ hide: async () => { dispatch(finished(8)); return { ok: true, job_id: 8 }; } });
-    expect(await runJob(api.hide('t2', true))).toMatchObject({ ok: true, job_id: 8 });
+    fakeWindow({ hide: async () => { dispatch(finished('job:00000008')); return { ok: true, job_id: 'job:00000008' }; } });
+    expect(await runJob(api.hide('t2', true))).toMatchObject({ ok: true, job_id: 'job:00000008' });
   });
   it('resolves an immediate refusal at once with job_id null', async () => {
     fakeWindow({ hide: async () => ({ ok: false, kind: 'busy', message: 'Wait.' }) });
@@ -64,23 +64,23 @@ describe('runJob', () => {
     expect(get(toasts)[0]).toMatchObject({ tone: 'problem', body: 'Wait.' });
   });
   it('quiet suppresses the problem toast', async () => {
-    fakeWindow({ hide: async () => ({ ok: true, job_id: 9 }) });
+    fakeWindow({ hide: async () => ({ ok: true, job_id: 'job:00000009' }) });
     const p = runJob(api.hide('t2', true), { quiet: true });
-    dispatch(finished(9, { ok: false, problem: 'changed', message: 'It changed.', result: null }));
-    expect(await p).toEqual({ ok: false, job_id: 9, kind: 'changed', message: 'It changed.', result: null });
+    dispatch(finished('job:00000009', { ok: false, problem: 'changed', message: 'It changed.', result: null }));
+    expect(await p).toEqual({ ok: false, job_id: 'job:00000009', kind: 'changed', message: 'It changed.', result: null });
     expect(get(toasts)).toEqual([]);
   });
   it('a job that ends with a problem still hands over its result (a stopped move batch)', async () => {
-    fakeWindow({ tidy_up: async () => ({ ok: true, job_id: 11 }) });
+    fakeWindow({ tidy_up: async () => ({ ok: true, job_id: 'job:0000000b' }) });
     const p = runJob(api.tidy_up([[1, 'Library/A/x.aiff']]), { quiet: true });
     const result = { batch_id: 3, title: 'Tidy-up', moved: 1, headline: 'Moved 1 file.', skipped: [], stopped: true };
-    dispatch(finished(11, { ok: false, problem: 'stopped', message: 'Stopped.', result }));
+    dispatch(finished('job:0000000b', { ok: false, problem: 'stopped', message: 'Stopped.', result }));
     expect(await p).toMatchObject({ ok: false, kind: 'stopped', result });
   });
   it('success:false suppresses the success toast; recovered lines become an info toast', async () => {
-    fakeWindow({ hide: async () => ({ ok: true, job_id: 10 }) });
+    fakeWindow({ hide: async () => ({ ok: true, job_id: 'job:0000000a' }) });
     const p = runJob(api.hide('t2', true), { success: false });
-    dispatch(finished(10, { result: { track_id: 't2', result: {}, recovered: [['Moved a file back', true]] } }));
+    dispatch(finished('job:0000000a', { result: { track_id: 't2', result: {}, recovered: [['Moved a file back', true]] } }));
     await p;
     expect(get(toasts).map((t) => [t.tone, t.body])).toEqual([['info', 'Moved a file back']]);
   });

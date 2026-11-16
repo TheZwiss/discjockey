@@ -17,7 +17,7 @@ import stat
 import threading
 import time
 import unicodedata
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,6 +28,7 @@ from .content_key import content_key
 from .events import Emit, Message, no_emit
 from .models import FileAudio, ScanSummary
 from .names import fold, id_tags
+from .problem import Problem
 
 log = logging.getLogger(__name__)
 
@@ -196,8 +197,12 @@ def resolve_paths(environ: Mapping[str, str] | None = None, home: Path | None = 
     return resolve_in(support_dir(environ, home))
 
 
-class LockHeld(Exception):
-    pass
+class LockHeld(Problem):
+    """The engine lock is held by another run (`Problem`'s fields; the bridge answers it as console)."""
+
+    def __init__(self, message: str = "", *, reason: str | None = None, next: Iterable[Mapping] = (),
+                 person_steps: Iterable[Mapping] = (), data: Mapping | None = None):
+        super().__init__(message, reason=reason, next=next, person_steps=person_steps, data=data)
 
 
 LOCK_PROBE = threading.Lock()
@@ -213,6 +218,46 @@ def try_flock(fd: int) -> bool:
         except BlockingIOError:
             return False
     return True
+
+
+SUPPORT_LOCK = ".support.lock"
+SUPPORT_WAIT_S, SUPPORT_RETRY_S = 2.0, 0.02
+# a login file a running job must keep (a rotated Spotify token, Qobuz's app secrets): waits out a tools install
+SUPPORT_LOGIN_WAIT_S = 60.0
+SUPPORT_BUSY = "Another Discjockey process is saving its own settings. Try again in a moment."
+
+
+class SupportBusy(Problem):
+    """The support lock stayed held for the whole wait (`reason` support_lock; outcome busy, `Problem`'s fields)."""
+
+    def __init__(self, *, next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (),
+                 data: Mapping | None = None):
+        super().__init__(SUPPORT_BUSY, reason="support_lock", next=next, person_steps=person_steps, data=data)
+
+
+@contextmanager
+def support_lock(support: Path, *, wait_s: float | None = None):
+    """`<support>/.support.lock`, exclusive for the block: one read-change-write of settings.json, config.json, the
+    login files or the tools folder at a time across every Discjockey process of this support folder (two windows,
+    a window before Setup, a terminal, a worker; design §6.1). Waits up to `wait_s` (`SUPPORT_WAIT_S`), then raises SupportBusy.
+    The OS lets go of it if the process dies. Not re-entrant: a second hold in the same process waits like any other."""
+    support.mkdir(parents=True, exist_ok=True)
+    fd = os.open(support / SUPPORT_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        deadline = time.monotonic() + (SUPPORT_WAIT_S if wait_s is None else wait_s)
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise SupportBusy() from None
+                time.sleep(SUPPORT_RETRY_S)
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode())
+        yield
+    finally:
+        os.close(fd)
 
 
 class NoLibrary(Exception):
@@ -275,7 +320,7 @@ def load_state(paths: Paths) -> dict:
     from . import db
     if paths.db_file.exists():
         try:
-            with db.connect(paths.db_file) as conn:
+            with db.connect(paths.db_file, read_only=True) as conn:
                 db.check(conn)
                 return db.snapshot(conn, paths.library)
         except sqlite3.Error as e:
@@ -295,7 +340,7 @@ def watched_root(paths: Paths, path: str) -> str | None:
     if not PurePosixPath(path).is_absolute() or not paths.db_file.exists():
         return None
     try:
-        with db.connect(paths.db_file) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             return db.watched_root(conn, path)
     except sqlite3.Error as e:
         raise db.unreadable(e) from None
@@ -308,7 +353,7 @@ def import_left(paths: Paths) -> int:
     if not paths.db_file.exists():
         return 0
     try:
-        with db.connect(paths.db_file) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             db.check(conn)
             return db.import_left(conn)
     except sqlite3.Error as e:
@@ -325,8 +370,16 @@ def _v1_snapshot(paths: Paths, state: dict) -> dict:
     return state
 
 
-def open_state(paths: Paths, emit: Emit = no_emit, *, recovered: list[tuple[str, bool]] | None = None) -> dict:
-    """The snapshot for a writer (the caller holds the lock): open_records, then load_state."""
+def open_state(paths: Paths, emit: Emit = no_emit, *, recovered: list[tuple[str, bool]] | None = None,
+               read_only: bool = False) -> dict:
+    """The snapshot for a writer (the caller holds the lock): open_records, then load_state. `read_only` (a dry run:
+    issue 39 design §7.1) is the snapshot with no open_records: nothing is created, migrated or recovered, library.db
+    is opened `mode=ro`, and a library not yet moved into library.db is shown from state.json as it is. The music
+    folder still has to be there."""
+    if read_only:
+        if not paths.root.is_dir():
+            raise NoLibrary(MUSIC_GONE)
+        return load_state(paths)
     open_records(paths, emit, recovered=recovered)
     return load_state(paths)
 
@@ -478,7 +531,14 @@ def save_state(paths: Paths, state: dict, *, rekeyed: Collection[str] = ()) -> N
 
 
 def write_music_folder(support: Path, folder: Path) -> None:
-    """config.json: the music folder this Mac uses. Written whole or not at all."""
+    """config.json: the music folder this Mac uses. Written whole or not at all, under the support lock."""
+    with support_lock(support):
+        write_music_folder_held(support, folder)
+
+
+def write_music_folder_held(support: Path, folder: Path) -> None:
+    """`write_music_folder` for a caller that holds the support lock already (the hub takes the library lock briefly
+    inside it: lock order support, library, rekordbox.lock)."""
     write_json_atomic(SupportPaths(support=support).config_file, {"music_folder": str(folder)}, parents=True,
                       indent=2, ensure_ascii=False)
 

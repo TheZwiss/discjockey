@@ -132,6 +132,15 @@ describe('fake backend', () => {
     expect(after.estimate?.qobuz_needed).toBe((before.estimate?.qobuz_needed ?? 0) - 1);
     expect(await f.never_download('not-in-plan', true)).toMatchObject({ ok: false, kind: 'changed' });
   });
+  it("an empty To-do list comes with the engine's words for the command line (empty_text)", async () => {
+    const f = createFakeBridge('normal');
+    const full = await f.todo('all', false);
+    expect(full).toMatchObject({ ok: true, empty: null, empty_text: null });
+    const cdj = await f.todo('cdj', false);  // no file of the scenario is hard on CDJs
+    expect(cdj).toMatchObject({ ok: true, groups: [], empty: 'nothing_here', empty_text: 'Nothing here.' });
+    const first = await createFakeBridge('first_run').todo('all', false);  // the window's own state: the engine has no words for it
+    expect(first).toMatchObject({ ok: true, empty: 'empty_library', empty_text: null });
+  });
   it('the normal scenario has every state the pages need', async () => {
     const f = createFakeBridge('normal');
     const todo = await f.todo('all', false);
@@ -428,8 +437,27 @@ describe('music folder', () => {
   });
 });
 
+describe('fake job ids', () => {
+  it('are strings of the form the engine hands out (job:<8 hex>), in the answer, the events and the status', async () => {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge('normal', { speed: 100, emit: (e) => evs.push(e) });
+    const a = await f.hide('t1', true);
+    if (!a.ok) throw new Error();
+    expect(a.job_id).toMatch(/^job:[0-9a-f]{8}$/);
+    await until(evs, (e) => e.type === 'JobFinished' && e.job_id === a.job_id);
+    const started = evs.find((e) => e.type === 'JobStarted');
+    expect(started && started.type === 'JobStarted' && started.job_id).toBe(a.job_id);
+    const b = await f.hide('t1', false);
+    if (!b.ok) throw new Error();
+    expect(b.job_id).toMatch(/^job:[0-9a-f]{8}$/);
+    expect(b.job_id).not.toBe(a.job_id);
+    const status = await f.job_status();
+    expect(status.ok && status.job?.id).toBe(b.job_id);
+  });
+});
+
 describe('fake tidy-up', () => {
-  const finished = (evs: HubEvent[], id: number) => until(evs, (e) => e.type === 'JobFinished' && e.job_id === id)
+  const finished = (evs: HubEvent[], id: string) => until(evs, (e) => e.type === 'JobFinished' && e.job_id === id)
     .then((e) => e as Extract<HubEvent, { type: 'JobFinished' }>);
   const make = (hooks: (s: ReturnType<typeof createFakeBridge>['_ctx']['s']) => void = () => {}) => {
     const evs: HubEvent[] = [];

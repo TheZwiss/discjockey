@@ -119,3 +119,23 @@ def test_the_samples_helpers_find_the_shift_the_render_makes(script):
         lag, score = script.lag_of(old, new)
         assert (lag, round(score, 3)) == (d, 1.0)
     assert not script.np.array_equal(script.shifted(old, 3), script.shifted(old, 4)[:len(old) + 3])
+
+
+def test_the_derived_aac_is_above_the_cdj_bitrate_limit(script, tmp_path):
+    """ffmpeg's own AAC encoder stops near 225 kbps at 44.1 kHz whatever bitrate it is asked for (ffmpeg 8), so the
+    rehearsal's "AAC 420 kbps" file would not be in the CDJ group; at 96 kHz it keeps its 420 kbps."""
+    import shutil
+
+    from discjockey import cdj, quality
+
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        pytest.skip("needs ffmpeg")
+    src = tmp_path / "src.aiff"
+    script.subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "anoisesrc=d=5:r=44100",
+                           "-ac", "2", "-c:a", "pcm_s16be", "-f", "aiff", str(src)], check=True)
+    label, name, kind, title, file_type, args = next(d for d in script.DERIVED if d[2] == "aac")
+    dst = tmp_path / name
+    script.render_derived(src, dst, args)
+    audio = quality.file_audio(quality.probe(dst))
+    assert audio.kbps > cdj.MAX_LOSSY_KBPS
+    assert cdj.cdj_problem(audio, ".m4a").reason == "bitrate"

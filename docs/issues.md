@@ -3,6 +3,16 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
+
+Lock order is support, library, `rekordbox.lock` (CLAUDE.md). Every settings write follows it now (`_settings_job`,
+`_update_settings`, `set_music_folder`; pinned by `test_cli_locks`). Not yet: the saves a sync or download job makes
+while it holds the library lock for the whole run: Qobuz's `config.toml` (`qobuz._write_config`, `_save_login`,
+`_save_secrets`) and Spotify's token (`sources/spotify._save_token`). They take the support lock inside the library
+lock. No deadlock is possible (the support lock is a leaf, waited for 2 s, then `busy`), but the order is the other
+way. Fix: take the support lock before the library lock for a run that logs in, or move the saves out of the run.
+The in-run saves wait up to 60 s (phase 1 review S-7), so a tools install no longer loses a refreshed token.
+
 ## 41. To-do multi-select for the other groups' actions (Hide, Find a version, …) (2026-11-08)
 
 Issue 33's stage B gives To-do a selection model and a selection panel for the Upgrade ready group (Replace, Discard)
@@ -31,9 +41,10 @@ folders a file is found again by its content key, with no new download or import
 
 The user's wish: any AI agent they point at Discjockey (Claude Code, Codex, …) can run it fully and safely: sync,
 upgrades, the To-do answers, Library and folder actions, Settings, and reading every screen's state. The development
-rule is in `CLAUDE.md` ("Agent-ready"). Today the console covers little more than a sync run (`cli.py`: `--yes`,
-`--dry-run`, `--limit`, …). Background: on 2026-10-31 an agent repointed 38 rekordbox entries for the user with
-throwaway scripts of its own rather than through Discjockey.
+rule is in `CLAUDE.md` ("Agent-ready"). Phase 1 of plan v2 (`docs/2026-11-15-agent-cli-plan-v2.md`) built the command
+line's frame (`discjockey/cli/`, `discjockey help --json`) and the rekordbox, upgrade, AIFF, batch, check, folder,
+settings, library, report, to-do and track commands; the other phases follow. Background: on 2026-10-31 an agent
+repointed 38 rekordbox entries for the user with throwaway scripts of its own rather than through Discjockey.
 - **Audit:** list every hub bridge method (`hub/api.py`) and screen (`hub/views.py`). For each, say whether an agent
   can reach it today and how (command, flags, output, exit code), and where it can't.
 - **Design the agent surface:** console commands that run without prompts, `--json` output, exit codes for ok, busy
@@ -44,14 +55,10 @@ throwaway scripts of its own rather than through Discjockey.
   them where agents look (e.g. `AGENTS.md` at the repo root, plus a README section for users who point their agent
   at the app).
 - **Pin it:** a test that fails when a bridge method has no command or no agent-docs entry.
-- The 33 work (rekordbox repoint) gets its command under the rule from the start. Stage B's commands (`upgrade
-  list | apply | discard | undo`, `batch list | show | resume | undo`, `rekordbox checked | backups | restore`) and
-  stage A's (`rekordbox status`, `rekordbox preview`) are in `CONTRIBUTING.md` › Commands for scripts and agents, with
-  the exit codes and the rule that JSON `ok` stays true when a batch ran to its end with skipped tracks (exit 1);
-  gather them into the agent docs. Stage C adds the sync's own `--json` (`discjockey --yes --json`, with the run's
-  Auto-upgrade block; `--json` without `--yes` or `--dry-run` is refused) and `settings auto-upgrade [on|off] [--json]`,
-  the first of a `settings` group the other settings join; also in `CONTRIBUTING.md`, and in the agent docs once
-  they exist.
+- The 33 work (rekordbox repoint) has its commands under the rule (phase 1): `rekordbox status | preview | backups |
+  restore`, `upgrade list | apply | discard`, `track undo`, `batch list | show | resume | undo`, `check list | done`,
+  `aiff convert | rename`, `settings show | set auto-upgrade`, `sync run --auto-upgrade-only`. The sync's own `--json`
+  (`discjockey --yes --json`) stays the old command line's until V4.1.
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stage E open (issue 40)
 

@@ -234,7 +234,7 @@ def aiff_action(entry: dict, facts: FileFacts | None, rb: Status, timing: Timeli
     Eligible) when Convert can run, else ("rename", Eligible) when Rename can, else the more telling refusal:
     Convert's, except `clean_aiff` (the file is a clean AIFF, so the name is what is left to say): then Rename's
     answer (`named_already`, or what rekordbox's state says about a rename). Every "all" scope, a selection and
-    `discjockey convert <track>` ask this; only `rename(...)` and `discjockey rename` ask Rename alone."""
+    `aiff convert <track>` ask this; only `rename(...)` and `aiff rename` ask Rename alone."""
     converting = convert(entry, facts, rb, timing, present=present)
     if isinstance(converting, Eligible):
         return "convert", converting

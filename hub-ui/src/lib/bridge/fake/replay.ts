@@ -49,7 +49,7 @@ export class JobRecord {
   finished: any | null = null;
   running = true;
   stopping = false;
-  constructor(public id: number, public kind: string, public track_id: string | null, public started: string,
+  constructor(public id: string, public kind: string, public track_id: string | null, public started: string,
     public batch_kind: JobSnap['batch_kind'] = null) {}
   record(e: HubEvent): void {
     this.last[e.type] = e;
@@ -72,7 +72,7 @@ export function delayOf(e: HubEvent, speed: number): number {
 export type ReplayOpts = {
   events: HubEvent[];          // the whole stream
   from: number;                // 1-based line to start with
-  jobId: number;
+  jobId: string;
   speed: number;
   freeze?: number | null;      // stop after this 1-based line and wait (screenshots)
   reportPath: string;
@@ -87,7 +87,7 @@ export type ReplayOpts = {
 };
 
 /** Rewrites a fixture event for this replay: the job id, the report path. */
-export function rewrite(e: HubEvent, jobId: number, reportPath: string): HubEvent {
+export function rewrite(e: HubEvent, jobId: string, reportPath: string): HubEvent {
   if (e.type === 'JobFinished' && e.result?.report) {
     return { ...e, job_id: jobId, result: { ...e.result, report: reportPath } };
   }

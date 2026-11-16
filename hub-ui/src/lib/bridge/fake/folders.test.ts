@@ -13,7 +13,7 @@ const until = (evs: HubEvent[], pred: (e: HubEvent) => boolean, ms = 4000) => ne
   };
   tick();
 });
-const finished = (evs: HubEvent[], job_id: number) =>
+const finished = (evs: HubEvent[], job_id: string) =>
   until(evs, (e) => e.type === 'JobFinished' && e.job_id === job_id) as Promise<Extract<HubEvent, { type: 'JobFinished' }>>;
 const fake = (scenario: string, speed = 200) => {
   const evs: HubEvent[] = [];
@@ -135,7 +135,7 @@ describe('fake watched folders', () => {
       expect(await f.remove_watched_folder(bad)).toMatchObject({ ok: false, kind: 'refused' });
     }
     const start = must(await f.remove_watched_folder(rows[1].id));
-    expect(await finished(evs, start.job_id)).toMatchObject({ kind: 'folders', ok: true, result: { files: 24, redownload: 0 } });
+    expect(await finished(evs, start.job_id)).toMatchObject({ kind: 'folders', ok: true, result: { name: 'Music', files: 24, redownload: 0 } });
     expect(must(await f.watched_folders()).folders.map((r) => r.kind)).toEqual(['library']);
   });
 

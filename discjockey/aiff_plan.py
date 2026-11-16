@@ -27,13 +27,16 @@ included (its tracks can't be known), and stops the batch when rekordbox runs: s
 """
 from __future__ import annotations
 
+import os
+import unicodedata
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from . import audio, batches, cdj, convert, db, library, playlists_file as pf, quality, rbstep, rename
+from . import audio, batches, cdj, convert, db, importer, library, playlists_file as pf, quality, rbstep, rename, words
 from .hub import views
 from .library import NameReserver, Paths
+from .ops import OpProblem
 from .models import FileAudio, WatchedFolder, entry_audio
 from .names import expected_stem, fold
 from .rekordbox import eligible, master
@@ -51,6 +54,19 @@ AIFF_LINE = "AIFF · 16-bit · 44.1 kHz"  # what a Convert makes (the details ca
 NO_ANSWER = ("file_missing", "downloaded", "upgrade_waits")
 UNREADABLE = "Discjockey couldn't read this file. Nothing was changed."
 NOTHING_TO_CHANGE = "Nothing to change: these are clean AIFFs already."
+
+MOST_UNREAD = 50  # a dry run reads this many files that lack stored facts (in memory); more are `library facts`'s
+
+
+class FactsMissing(OpProblem):
+    """A dry run (or a plan before a run) met more own files without stored facts than it reads in memory: `refused`,
+    `facts_missing`, `next`: `library facts`, which reads and stores them."""
+
+    def __init__(self, n: int):
+        super().__init__(words.FACTS_MISSING.format(n=n, most=MOST_UNREAD), "refused", reason="facts_missing",
+                        next=[{"run": "library facts", "why": "reads the facts of these files once and stores them"}],
+                        data={"missing": n, "most": MOST_UNREAD})
+
 
 # the reasons a file can't run now but may later, in the order `waiting` lists them
 WAITING = ("away", "file_missing", "no_name", "rekordbox_unreadable", "cloud", "rename_blocked", "upgrade_waits")
@@ -224,7 +240,7 @@ def view_inputs(paths: Paths, view: str, lines, records, watched) -> tuple[list[
         lines = pf.load(paths.playlists_file).rows
     if (records is None and view == "playlist") or (watched is None and view == "folder"):
         if paths.db_file.exists():
-            with db.connect(paths.db_file) as conn:
+            with db.connect(paths.db_file, read_only=True) as conn:
                 records = db.playlist_records(conn) if records is None else records
                 watched = db.watched_folders(conn) if watched is None else watched
     return lines, records or {}, watched or ()
@@ -240,15 +256,76 @@ def _pick(paths: Paths, state: dict, scope: Mapping, lines, records, watched, he
         problems = cdj.group_members(state, held=held)
         return CDJ_LABEL, list(problems), problems
     if kind == "lossless":
-        view, key = scope.get("view", "all"), scope.get("key")
-        if view not in views.LIBRARY_VIEWS:
-            raise ValueError(f"view must be one of {', '.join(views.LIBRARY_VIEWS)}")
-        if view in ("playlist", "folder") and not key:
-            raise ValueError(f"a {view} view needs its key")
-        lines, records, watched = view_inputs(paths, view, lines, records, watched)
-        found = views.library_files(state, view, key, lines=lines, records=records, watched=watched)
-        return found.title, [k for k in found.keys if _is_lossless(state["tracks"][k])], {}
+        title, keys = _view_keys(paths, state, scope, lines, records, watched)
+        return title, [k for k in keys if _is_lossless(state["tracks"][k])], {}
     raise ValueError(f"scope kind must be one of {', '.join(SCOPE_KINDS)}")
+
+
+def _view_keys(paths: Paths, state: dict, scope: Mapping, lines, records, watched) -> tuple[str, list[str]]:
+    """The view's title and all its files' keys as `views.library_files` lists them (no filter or search), before the
+    `lossless` scope leaves out what isn't lossless."""
+    view, key = scope.get("view", "all"), scope.get("key")
+    if view not in views.LIBRARY_VIEWS:
+        raise ValueError(f"view must be one of {', '.join(views.LIBRARY_VIEWS)}")
+    if view in ("playlist", "folder") and not key:
+        raise ValueError(f"a {view} view needs its key")
+    lines, records, watched = view_inputs(paths, view, lines, records, watched)
+    found = views.library_files(state, view, key, lines=lines, records=records, watched=watched)
+    return found.title, list(found.keys)
+
+
+# --- the facts a dry run reads in memory ---
+
+def _unread_keys(paths: Paths, state: dict, scope: Mapping, lines, records, watched, held: Collection[str]) -> list[str]:
+    """The songs the plan of `scope` would have to know the stored facts of, which lack them: an own song with a file
+    and no stored codec. Which songs the plan looks at depends on facts for two scopes (the lossless filter, the CDJ
+    rule), so the whole view's songs (no filter) and every song the CDJ group could hold are asked."""
+    kind = scope.get("kind")
+    if kind == "tracks":
+        keys = list(dict.fromkeys(scope["tracks"]))
+    elif kind == "cdj":
+        keys = [k for k, e in state["tracks"].items() if k not in held and not e.get("hidden") and not e.get("upgrade")
+                and e.get("status") != "missing"]
+    elif kind == "lossless":
+        keys = _view_keys(paths, state, scope, lines, records, watched)[1]
+    else:
+        return []  # `_pick` says what is wrong with the scope
+    tracks = state["tracks"]
+    return [k for k in keys if (e := tracks.get(k)) is not None and e.get("source") == eligible.OWN and e.get("path")
+            and entry_audio(e) is None]
+
+
+def _normal(path: str | Path) -> str:
+    return unicodedata.normalize("NFC", os.path.normpath(path))
+
+
+def with_facts(paths: Paths, state: dict, scope: Mapping, *, probe: Callable[[Path], quality.AudioInfo] = quality.probe,
+               lines: Sequence[pf.Row] | None = None, records: Mapping | None = None,
+               watched: Sequence[WatchedFolder] | None = None, held: Collection[str] = ()) -> dict:
+    """`state` with the facts of the scope's own files that have none stored, read in memory (design §7.1: a dry run
+    stores nothing). Only files `library facts` would store are read (`db.files_without_facts`: online, not held,
+    no failed-probe mark that still fits): up to `MOST_UNREAD`; more raise `FactsMissing`. Opens library.db read-only,
+    writes nothing; a library without one has none to read. A file ffprobe can't read keeps no facts, as in the
+    fill. Returns `state` itself when there is nothing to read, else a copy whose tracks hold the facts."""
+    if not paths.db_file.exists():
+        return state
+    keys = _unread_keys(paths, state, scope, lines, records, watched, held)
+    if not keys:
+        return state
+    with db.connect(paths.db_file, read_only=True) as conn:
+        lacking = {_normal(path): (file_id, path) for file_id, path in db.files_without_facts(conn)}
+    wanted = {k: lacking[_normal(paths.root / state["tracks"][k]["path"])] for k in keys
+              if _normal(paths.root / state["tracks"][k]["path"]) in lacking}
+    if len(wanted) > MOST_UNREAD:
+        raise FactsMissing(len(wanted))
+    by_id = {file_id: key for key, (file_id, _) in wanted.items()}
+    found = {}
+    for fact in importer.read_facts(list(wanted.values()), probe=probe):
+        if fact.audio is not None:
+            found[by_id[fact.file_id]] = {**state["tracks"][by_id[fact.file_id]], "file_codec": fact.audio.codec,
+                                          "file_rate": fact.audio.rate, "file_bits": fact.audio.bits,
+                                          "file_kbps": fact.audio.kbps}
+    return {**state, "tracks": {**state["tracks"], **found}} if found else state
 
 
 # --- one file ---
@@ -358,7 +435,7 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
     rekordbox tracks that hold that file (`Master.entries_for` on a library opened read-only), None when there is no
     library to read (`rb.state` `none`, or one that can't be read). `tags`: reads one file's `audio.FileFacts`.
     `lines`, `records`, `watched`: what a playlist or folder view needs, read from `paths` when not given. `only`
-    "rename": the plan of `discjockey rename` (Rename's answer alone: a file that needs a Convert is left out, and in a
+    "rename": the plan of `aiff rename` (Rename's answer alone: a file that needs a Convert is left out, and in a
     `tracks` scope listed in `skipped` as `needs_convert`); None: `aiff_action`'s answer. Raises ValueError for a scope
     that isn't one of the three. `held`: the songs To-do shows in an open question or duplicate group, which the `cdj`
     scope leaves out (`cdj.group_members`); the commands, which have no To-do, give none."""
@@ -396,26 +473,46 @@ def plan(paths: Paths, state: dict, scope: Mapping, *, rb: Status,
 def read_plan(paths: Paths, state: dict, scope: Mapping, *, place: Place | None, running: bool,
               only: str | None = None, tags: Callable[[Path], audio.FileFacts] = audio.file_facts,
               lines: Sequence[pf.Row] | None = None, records: Mapping | None = None,
-              watched: Sequence[WatchedFolder] | None = None, held: Collection[str] = ()) -> AiffPlan:
+              watched: Sequence[WatchedFolder] | None = None, held: Collection[str] = (),
+              released: Callable[[], None] | None = None) -> AiffPlan:
     """`plan` with one read-only open of rekordbox's library at `place` (None: there is none) for the lookup of its
     tracks and its state: what the commands' `--dry-run` and run, and the window's panel and jobs, all ask. `running`:
     whether rekordbox runs now. A library that can't be opened is `unreadable` (`busy`: another window holds it, taken
-    as `ready` with no lookup)."""
+    as `ready` with no lookup). The open lasts only as long as the lookups: the tracks that hold each file the scope
+    names are read into a dict first, the library is closed, `released` (if given) is called, and only then the plan
+    runs, with its tag reads of every file. A caller that holds `rekordbox.lock` shared passes its release as
+    `released`, so that hold lasts as long as master.db is open and a writer's 2 seconds are not spent on tag reads."""
     if place is None or not place.db.is_file():
         rb = master.Status("none", running, None, None, None, None, None)
+        _released(released)
         return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records,
                     watched=watched, only=only, held=held)
     try:
         with master.open_read(place, running) as m:
             index = m.index()
-            return plan(paths, state, scope, rb=master.status_of(m, running), tags=tags, lines=lines,
-                        records=records, watched=watched, only=only, held=held,
-                        entries=lambda file: m.entries_for(file, index))
+            rb = master.status_of(m, running)
+            found = {file: list(m.entries_for(file, index)) for file in _files_of(paths, state, scope, lines, records,
+                                                                                    watched, held)}
     except master.Unreadable as e:
         rb = master.Status("ready" if e.problem == "busy" else "unreadable", running, place.app_version,
                            str(place.db), e.problem, e.db_version, e.dbid)
-    return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records, watched=watched,
-                only=only, held=held)
+        _released(released)
+        return plan(paths, state, scope, rb=rb, entries=None, tags=tags, lines=lines, records=records,
+                    watched=watched, only=only, held=held)
+    _released(released)
+    return plan(paths, state, scope, rb=rb, tags=tags, lines=lines, records=records, watched=watched, only=only,
+                held=held, entries=lambda file: found.get(file, ()))
+
+
+def _released(released: Callable[[], None] | None) -> None:
+    if released is not None:
+        released()
+
+
+def _files_of(paths: Paths, state: dict, scope: Mapping, lines, records, watched, held) -> list[Path]:
+    """The files of the scope's tracks that `_judge` can look up in rekordbox's library (the ones with a record)."""
+    _, keys, _ = _pick(paths, state, scope, lines, records, watched, held)
+    return [paths.root / state["tracks"][k]["path"] for k in keys if k in state["tracks"]]
 
 
 # the reasons whose one-file answer still says what the step would do, once the block is gone (rekordbox's library

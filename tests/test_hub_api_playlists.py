@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 import yt_dlp
 from hub_helpers import (ID1, ID2, PLAYLISTS, QOBUZ_ID, QOBUZ_LINK, QOBUZ_UNREADABLE, TRACKS, fake_qobuz, fake_spotify,
-                         make_api, make_root, refreshed, track, wait_job)
+                         make_api, make_root, refreshed, track, wait_job, window)
 
 from discjockey import playlists_file as pf
 from discjockey import sources
@@ -95,7 +95,7 @@ def test_add_a_qobuz_playlist(root, monkeypatch):
 def test_a_qobuz_playlist_qobuz_wont_show_answers_with_its_service(root, monkeypatch):
     fake_qobuz(monkeypatch, unreadable=True)
     api, rec = make_api(root)
-    assert api.add_playlist(QOBUZ_LINK) == {"ok": False, "kind": "playlist_unreadable", "service": "qobuz",
+    assert window(api.add_playlist(QOBUZ_LINK)) == {"ok": False, "kind": "playlist_unreadable", "service": "qobuz",
                                             "message": QOBUZ_UNREADABLE}
     assert api._infos == {} and api._extra_tracks == {}
 
@@ -106,7 +106,7 @@ def test_a_qobuz_playlist_qobuz_wont_show_answers_with_its_service(root, monkeyp
 def test_a_qobuz_that_will_not_open_answers_with_its_service(root, monkeypatch, kind, message):
     fake_qobuz(monkeypatch, open_error=SourceError(message, kind, "qobuz"))
     api, rec = make_api(root)
-    assert api.add_playlist(QOBUZ_LINK) == {"ok": False, "kind": kind, "service": "qobuz", "message": message}
+    assert window(api.add_playlist(QOBUZ_LINK)) == {"ok": False, "kind": kind, "service": "qobuz", "message": message}
     assert api._infos == {} and api._extra_tracks == {}
 
 
@@ -125,7 +125,7 @@ def test_a_service_that_is_not_connected_is_named_when_adding(root, monkeypatch,
     monkeypatch.setattr(spotify, "login_state", lambda p: spotify.LoginState("missing", spotify.NOT_SET_UP))
     api, rec = make_api(root)
     name = service.capitalize()
-    assert api.add_playlist(link) == {"ok": False, "kind": "not_set_up", "service": service,
+    assert window(api.add_playlist(link)) == {"ok": False, "kind": "not_set_up", "service": service,
                                       "message": f"Connect {name} first."}
 
 
@@ -214,7 +214,7 @@ def test_an_expand_that_fails_answers_with_its_kind_and_service(root, monkeypatc
     fake_soundcloud(monkeypatch, expand_error=SourceError("Use your profile's likes link.", "playlist_unreadable",
                                                           "soundcloud"))
     api, rec = make_api(root)
-    assert api.add_playlist("https://soundcloud.com/you/likes") == {
+    assert window(api.add_playlist("https://soundcloud.com/you/likes")) == {
         "ok": False, "kind": "playlist_unreadable", "service": "soundcloud", "message": "Use your profile's likes link."}
     assert api._infos == {} and api._extra_tracks == {}
 
@@ -406,7 +406,7 @@ def test_a_youtube_music_list_that_is_refused_answers_with_its_service(root, mon
     OneAnswerYDL.requested = []
     monkeypatch.setattr(yt_dlp, "YoutubeDL", OneAnswerYDL)
     api, rec = make_api(root)
-    assert api.add_playlist(f"https://music.youtube.com/playlist?list={pid}") == {
+    assert window(api.add_playlist(f"https://music.youtube.com/playlist?list={pid}")) == {
         "ok": False, "kind": "playlist_unreadable", "service": "youtube_music", "message": words}
     assert OneAnswerYDL.requested == [] and api._infos == {} and api._extra_tracks == {}  # refused before any request
 
@@ -414,7 +414,7 @@ def test_a_youtube_music_list_that_is_refused_answers_with_its_service(root, mon
 def test_your_own_likes_without_a_soundcloud_login_answer_w8(root, monkeypatch):
     api, rec = make_api(root)  # no SoundCloud account in the support folder: expand asks for none and says so
     answer = api.add_playlist("https://soundcloud.com/you/likes")
-    assert answer == {"ok": False, "kind": "playlist_unreadable", "service": "soundcloud", "message": soundcloud.LIKES_HINT}
+    assert window(answer) == {"ok": False, "kind": "playlist_unreadable", "service": "soundcloud", "message": soundcloud.LIKES_HINT}
     assert answer["message"].startswith("To read your own likes, use your profile's likes link")
 
 
@@ -467,7 +467,7 @@ def test_a_soundcloud_set_that_is_not_shown_answers_w5(root, monkeypatch):
 
     monkeypatch.setattr(soundcloud, "open", lambda paths, token: Reader())
     api, rec = make_api(root)
-    assert api.add_playlist(SC_SET) == {"ok": False, "kind": "playlist_unreadable", "service": "soundcloud",
+    assert window(api.add_playlist(SC_SET)) == {"ok": False, "kind": "playlist_unreadable", "service": "soundcloud",
                                         "message": "SoundCloud doesn't show this playlist. It may be private or "
                                                    "removed; for a private set, use its private share link."}
 
@@ -481,7 +481,7 @@ def test_a_soundcloud_login_or_network_problem_in_expand_never_rejects(root, mon
 
     monkeypatch.setattr(soundcloud, "expand", expand)
     api, rec = make_api(root)
-    assert api.add_playlist("https://soundcloud.com/you/likes") == {"ok": False, "kind": kind,
+    assert window(api.add_playlist("https://soundcloud.com/you/likes")) == {"ok": False, "kind": kind,
                                                                     "service": "soundcloud", "message": message}
 
 

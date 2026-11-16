@@ -17,12 +17,15 @@ beside the library it starts from.
 copies in `W/music/Library/Rehearsal/` with Discjockey's own writer (and edits one title, a user edit to keep), makes
 a scratch Discjockey library (`W/support`, music folder `W/music`) with the copies as own songs and per track a parked
 upgrade rendered from its own audio, takes the "before" picture, runs `bin/discjockey upgrade apply --all --way
-same-track --json` and `bin/discjockey batch undo <id> --json` with `DISCJOCKEY_SUPPORT` and `DISCJOCKEY_REKORDBOX`
-pointing into `W`, and checks each step with Discjockey's reader. It prints one PASS/FAIL line per check (tracks by
+same-track --json` and `bin/discjockey batch undo aiff:<id> --yes --json` with `DISCJOCKEY_SUPPORT` and
+`DISCJOCKEY_REKORDBOX` pointing into `W`, then (step 8) `rekordbox backups`, `restore <backup> --dry-run` and `restore
+<backup> --yes`, which must give back the "before" copy byte for byte; each step is checked with Discjockey's reader. It prints one PASS/FAIL line per check (tracks by
 their labels only) and writes `W/report.json`. Exit code 0 when every check passes, 1 otherwise, 2 when it refuses.
-`rehearse-sync` (plan stage C §7 RH): the same copies, but the sync's Auto-upgrade phase instead of `upgrade apply`;
-see its docstring. `rehearse-convert` (plan stage D §7.1): Convert to AIFF, Give it its clean name, Make all lossless
-files AIFF and the CDJ group's Convert all; see its docstring. Run these on a work folder that only `copy-db` and
+`rehearse-sync` (plan stage C §7 RH): the same copies, but the sync's Auto-upgrade phase instead of `upgrade apply`
+(`bin/discjockey sync run --auto-upgrade-only [--dry-run] --wait 3600 --json`; the whole sync, `--yes`, only where a
+step is about the whole sync: RH1's dry run and RH2's switch off); see its docstring. `rehearse-convert` (plan stage D §7.1): Convert to AIFF, Give it its clean name, Make all lossless
+files AIFF and the CDJ group's Convert all (`bin/discjockey aiff convert … --dry-run`, then the same line with `--plan
+<id> --json`; each answer is the envelope, its `data` the plan or the batch); see its docstring. Run these on a work folder that only `copy-db` and
 `copy-tracks` have touched (they change the copies).
 Delete `W` afterwards: it holds the copies. `copy-db` marks `W` (`.discjockey-rehearsal`); `copy-tracks` and
 `rehearse`, which delete inside `W`, refuse a folder without the mark, and every step refuses a `W` inside the
@@ -53,7 +56,7 @@ sys.path.insert(0, str(REPO))
 
 from mutagen.aiff import AIFF  # noqa: E402
 
-from discjockey import audio, auto_upgrade, config, library, quality, sources, upgrades  # noqa: E402
+from discjockey import audio, auto_upgrade, config, library, quality, sources, upgrades, words  # noqa: E402
 from discjockey.library import Paths  # noqa: E402
 from discjockey.models import OWN_PREFIX  # noqa: E402
 from discjockey.settings import load_settings  # noqa: E402
@@ -694,7 +697,7 @@ def check_backup(work: Path, picks: list[dict], ctx: dict, before_sha: str, batc
 def check_undo(work: Path, picks: list[dict], ctx: dict, before: dict, undone: dict, music_before: dict,
                share_before: dict, code: int, result: dict, checks: Checks, own: bool = False) -> None:
     """`own`: the songs are the user's own files (Convert, Rename): no parked downloads, no upgrade waiting."""
-    checks.add("step 7 batch undo ran", code == 0, f"exit {code}, ok {result.get('ok')}")
+    checks.add("step 7 batch undo ran", code == 0, f"exit {code}, outcome {result.get('outcome')}")
     music_now = tree(ctx["paths"].root, skip=".discjockey")
     checks.add("step 7 every audio file back, byte-identical", music_now == music_before,
                f"{len(music_before)} files before, {len(music_now)} now; differing "
@@ -752,6 +755,39 @@ def check_undo(work: Path, picks: list[dict], ctx: dict, before: dict, undone: d
         checks.note(f"rekordbox's own unused {t} rows", f"{unused} of {len(before[t]['rows'])} rows no track uses")
 
 
+def check_restore(work: Path, ctx: dict, backup: str | None, before_sha: str, share_before: dict, checks: Checks) -> None:
+    """Step 8 (issue 39, group V1.12): `rekordbox backups`, `restore --dry-run` and `restore --yes` on the copy. The batch's
+    backup is master.db as it was before the batch, so a restore puts back exactly the "before" copy, byte for byte, and
+    saves the library it replaced (the undone one) as a backup of its own."""
+    print(f"Step 8: rekordbox restore {backup}")
+    rb_db = work / "rb" / "master.db"
+    code, listed, _, _ = run_cli(work, "step8-backups", "rekordbox", "backups", "--json")
+    found = [b["id"] for b in (listed.get("data") or {}).get("backups") or []]
+    checks.add("step 8 rekordbox backups lists the batch's backup", code == 0 and backup in found,
+               f"exit {code}, {len(found)} backups")
+    if backup is None or backup not in found:
+        return
+    undone_sha = sha256(rb_db)
+    code, dry, _, _ = run_cli(work, "step8-dry", "rekordbox", "restore", backup, "--dry-run", "--json")
+    shown = dry.get("data") or {}
+    checks.add("step 8 restore --dry-run: exit 0, lists missing_after (none: the batch was undone), changes nothing",
+               code == 0 and shown.get("missing_after") == [] and sha256(rb_db) == undone_sha, f"exit {code}")
+    code, plain, _, _ = run_cli(work, "step8-no-yes", "rekordbox", "restore", backup, "--json")
+    checks.add("step 8 restore without --yes is refused (needs_yes), nothing changed",
+               code == 7 and plain.get("reason") == "needs_yes" and sha256(rb_db) == undone_sha, f"exit {code}")
+    code, done, _, _ = run_cli(work, "step8-restore", "rekordbox", "restore", backup, "--yes", "--wait", "3600", "--json")
+    data = done.get("data") or {}
+    checks.add("step 8 restore --yes: exit 0, saved_current named, missing_after empty",
+               code == 0 and bool(data.get("saved_current")) and data.get("missing_after") == [],
+               f"exit {code}, outcome {done.get('outcome')}")
+    checks.add("step 8 master.db byte-equal to the 'before' copy", sha256(rb_db) == before_sha)
+    checks.add("step 8 no -wal/-shm beside the copy after the restore", not master.leftovers(rb_db))
+    checks.add("step 8 every analysis file as before", tree(work / "rb" / "share") == share_before)
+    saved = ctx["paths"].root / ".discjockey" / "rekordbox" / "backups" / str(data.get("saved_current")) / "master.db"
+    checks.add("step 8 the library the restore replaced is saved as a backup of its own",
+               saved.is_file() and sha256(saved) == undone_sha)
+
+
 def rehearse(work: Path, edit_title: str | None) -> int:
     work = check_work(work)
     need_marker(work)
@@ -790,7 +826,8 @@ def rehearse(work: Path, edit_title: str | None) -> int:
 
     print("Step 5: upgrade apply --all --way same-track")
     t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    code, run = discjockey(work, "upgrade", "apply", "--all", "--way", "same-track", "--json")
+    code, envelope = discjockey(work, "upgrade", "apply", "--all", "--way", "same-track", "--wait", "3600", "--json")
+    run = envelope.get("data") or {}  # the batch's own result is the envelope's data (a job: the command waits for it)
     t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
     checks.add("step 5 apply exit code 0", code == 0, f"exit {code}, batch {run.get('batch')}, state "
                f"{run.get('state')}, done {run.get('done')}/{run.get('total')}")
@@ -801,9 +838,10 @@ def rehearse(work: Path, edit_title: str | None) -> int:
         check_backup(work, picks, ctx, before_sha, run["batch"], checks)
 
         print(f"Step 7: batch undo {run['batch']}")
-        code, result = discjockey(work, "batch", "undo", str(run["batch"]), "--json")
+        code, result = discjockey(work, "batch", "undo", f"aiff:{run['batch']}", "--yes", "--wait", "3600", "--json")
         checks.add("step 7 no -wal/-shm beside the copy after the undo", not master.leftovers(rb_db))
         check_undo(work, picks, ctx, before, dump(rb_db), music_before, share_before, code, result, checks)
+        check_restore(work, ctx, run.get("backup"), before_sha, share_before, checks)
     (work / "report.json").write_text(json.dumps(checks.items, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"{len([i for i in checks.items if i['ok']])} passed, {checks.failed} failed")
     return 1 if checks.failed else 0
@@ -863,6 +901,24 @@ def real_sync(work: Path, tag: str) -> tuple[int, dict, str, float]:
     return run_cli(work, tag, "--yes", "--json", offline=True)
 
 
+def phase_run(work: Path, tag: str, *flags: str) -> tuple[int, dict, str, float]:
+    """The sync's last phase alone (`sync run --auto-upgrade-only [--dry-run]`, waited for to its end: the phase runs in a
+    job and a real one takes minutes). It reads no playlist and never plans an action, so it can't reach a network
+    (every run still has its proxies closed). Returns the exit code, the answer in the shape the checks below read ({ok,
+    dry_run, auto_upgrade, counts, report (the .md path), message, start_note}, from the envelope's `data`), the stderr
+    and the seconds."""
+    code, env, err, seconds = run_cli(work, tag, "sync", "run", "--auto-upgrade-only", *flags, "--wait", "3600", "--json",
+                                      offline=True)
+    data = env.get("data") or {}
+    block = data.get("auto_upgrade")
+    stem = (data.get("report") or "").removeprefix("report:")
+    reports = work / "music" / ".discjockey" / "reports"
+    shaped = {"ok": env.get("outcome") == "ok", "dry_run": bool(block and block.get("dry_run")), "auto_upgrade": block,
+              "counts": {}, "report": str(reports / f"{stem}.md") if stem else None, "message": env.get("message"),
+              "start_note": data.get("start_note"), "envelope": env}
+    return code, shaped, err, seconds
+
+
 def rh1_dry(work: Path, ctx: dict, checks: Checks) -> None:
     checks.tag = "RH1"
     print("RH1: a dry run on the prepared copy plans no action")
@@ -894,28 +950,37 @@ def rh1_dry(work: Path, ctx: dict, checks: Checks) -> None:
 def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
     checks.tag = "RH2"
     print("RH2: switch off")
-    code, data, _, _ = run_cli(work, "rh2-setting", "settings", "auto-upgrade", "off", "--json", offline=True)
-    checks.add("RH2 settings auto-upgrade off", code == 0 and data.get("auto_upgrade") is False, f"exit {code}")
+    code, data, _, _ = run_cli(work, "rh2-setting", "settings", "set", "auto-upgrade", "off", "--wait", "60", "--json",
+                               offline=True)
+    checks.add("RH2 settings set auto-upgrade off", code == 0 and (data.get("data") or {}).get("auto_upgrade") is False,
+               f"exit {code}")
     before = snapshot(work, ctx)
     code, data, _, seconds = real_sync(work, "rh2-sync")
     state["off_seconds"] = seconds
     checks.add("RH2 sync --yes --json: exit 0, the auto_upgrade block is null",
                code == 0 and data.get("ok") is True and "auto_upgrade" in data and data["auto_upgrade"] is None,
                f"exit {code}, {seconds:.1f} s")
+    code, data, _, _ = phase_run(work, "rh2-phase")
+    checks.add("RH2 sync run --auto-upgrade-only: exit 0, ok, no block, \"Auto-upgrade is off, so nothing was moved.\"",
+               code == 0 and data["ok"] and data["auto_upgrade"] is None and data["report"] is None
+               and data["message"] == words.AUTO_UPGRADE_OFF, f"exit {code}, message {data['message']!r}")
     ok, detail = same_snapshot(before, snapshot(work, ctx))
     checks.add("RH2 audio tree (Superseded/ and Upgrades ready/ with it), analysis files and master.db equal "
                "to before", ok, detail)
     code, data, _, _ = run_cli(work, "rh2-batches", "batch", "list", "--json", offline=True)
-    checks.add("RH2 no batch row", code == 0 and data.get("count") == 0, f"{data.get('count')} batches")
+    checks.add("RH2 no batch row", code == 0 and data.get("data", {}).get("total") == 0,
+               f"{data.get('data', {}).get('total')} batches")
 
 
 def rh3_dry_on(work: Path, ctx: dict, picks: list[dict], checks: Checks) -> None:
     checks.tag = "RH3"
     print("RH3: dry run with the switch on")
-    code, data, _, _ = run_cli(work, "rh3-setting", "settings", "auto-upgrade", "on", "--json", offline=True)
-    checks.add("RH3 settings auto-upgrade on", code == 0 and data.get("auto_upgrade") is True, f"exit {code}")
+    code, data, _, _ = run_cli(work, "rh3-setting", "settings", "set", "auto-upgrade", "on", "--wait", "60", "--json",
+                               offline=True)
+    checks.add("RH3 settings set auto-upgrade on", code == 0 and (data.get("data") or {}).get("auto_upgrade") is True,
+               f"exit {code}")
     before = snapshot(work, ctx)
-    code, data, _, _ = run_cli(work, "rh3-dry", "--dry-run", "--json", offline=True)
+    code, data, _, _ = phase_run(work, "rh3-dry", "--dry-run")
     block = data.get("auto_upgrade") or {}
     rows = block.get("results", [])
     would = [r for r in rows if r["state"] == "would"]
@@ -927,6 +992,8 @@ def rh3_dry_on(work: Path, ctx: dict, picks: list[dict], checks: Checks) -> None
                "new AIFF")
     ok, detail = same_snapshot(before, snapshot(work, ctx))
     checks.add("RH3 nothing changed", ok, detail)
+    checks.add("RH3 the Sync page's before-start line (rekordbox is closed)",
+               data["start_note"] == words.auto_plan_line(len(would)), f"{data['start_note']!r}")
 
 
 def rh4_phase(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Checks, state: dict) -> None:
@@ -938,12 +1005,12 @@ def rh4_phase(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Chec
     ctx["before"] = before["dump"]
     state["before"] = before
     t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    code, data, err, _ = real_sync(work, "rh4-sync")
+    code, data, err, _ = phase_run(work, "rh4-sync")
     t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
     block = data.get("auto_upgrade") or {}
     rows = by_track(block)
     tid = ctx["info"][drop["label"]]["tid"]
-    checks.add("RH4 sync --yes --json: exit 0, ok", code == 0 and data.get("ok") is True and bool(block),
+    checks.add("RH4 sync run --auto-upgrade-only: exit 0, ok", code == 0 and data.get("ok") is True and bool(block),
                f"exit {code}, counts {data.get('counts')}")
     checks.add("RH4 no -wal/-shm beside the copy", not master.leftovers(rb_db))
     checks.add(f"RH4 block: done {len(done_picks)}, refused 1, waiting 0, failed 0, not stopped",
@@ -957,7 +1024,8 @@ def rh4_phase(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Chec
     if not block.get("batch"):
         raise Refused("RH4: the sync ran no batch: stopped before the later steps.")
     state["batch1"], state["backup1"] = block["batch"], block.get("backup")
-    code, shown, _, _ = run_cli(work, "rh4-show", "batch", "show", str(block.get("batch")), "--json", offline=True)
+    code, shown, _, _ = run_cli(work, "rh4-show", "batch", "show", f"aiff:{block.get('batch')}", "--json", offline=True)
+    shown = shown.get("data") or {}  # the envelope's data: the batch's row and its items
     checks.add("RH4 batch show: started_by auto_upgrade, state done", shown.get("started_by") == "auto_upgrade"
                and shown.get("state") == "done", f"started_by {shown.get('started_by')}, state {shown.get('state')}, "
                f"{shown.get('total')} items")
@@ -999,7 +1067,7 @@ def rh5_repeat(work: Path, ctx: dict, drop: dict, checks: Checks, state: dict) -
     paths = ctx["paths"]
     tid = ctx["info"][drop["label"]]["tid"]
     before = state["after4"]
-    code, data, err, seconds = real_sync(work, "rh5-sync")
+    code, data, err, seconds = phase_run(work, "rh5-sync")
     block = data.get("auto_upgrade") or {}
     rows = by_track(block)
     checks.add("RH5 no new batch, no new backup: batch null, backup null, done 0",
@@ -1045,7 +1113,7 @@ def rh6_reanalysed(work: Path, ctx: dict, drop: dict, checks: Checks, state: dic
     before = snapshot(work, ctx)
     state["before6"] = before
     t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    code, data, err, _ = real_sync(work, "rh6-sync")
+    code, data, err, _ = phase_run(work, "rh6-sync")
     t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
     block = data.get("auto_upgrade") or {}
     row_ = by_track(block).get(tid, {})
@@ -1080,13 +1148,15 @@ def rh7_undo(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Check
     rb_db = work / "rb" / "master.db"
     if state.get("batch2"):  # the newest batch first
         before = state["before6"]
-        code, result, _, _ = run_cli(work, "rh7-undo2", "batch", "undo", str(state["batch2"]), "--json", offline=True)
+        code, result, _, _ = run_cli(work, "rh7-undo2", "batch", "undo", f"aiff:{state['batch2']}", "--yes",
+                                     "--wait", "3600", "--json", offline=True)
         sub = only(ctx, {drop["label"]})
         sub["created"] = state["created2"]
         checks.add("RH7 no -wal/-shm beside the copy after the second batch's undo", not master.leftovers(rb_db))
         check_undo(work, [drop], sub, before["dump"], dump(rb_db), before["music"], before["share"], code, result, checks)
     block_batch = state["batch1"]
-    code, result, _, _ = run_cli(work, "rh7-undo1", "batch", "undo", str(block_batch), "--json", offline=True)
+    code, result, _, _ = run_cli(work, "rh7-undo1", "batch", "undo", f"aiff:{block_batch}", "--yes", "--wait",
+                                 "3600", "--json", offline=True)
     checks.add("RH7 no -wal/-shm beside the copy after the undo", not master.leftovers(rb_db))
     final = {**ctx, "created": {**ctx["created"], **{t: ctx["created"].get(t, []) + state.get("created2", {}).get(t, [])
                                                      for t in state.get("created2", {})}}}
@@ -1100,8 +1170,8 @@ def rh7_undo(work: Path, ctx: dict, picks: list[dict], drop: dict, checks: Check
 def rehearse_sync(work: Path, no_analysis: str) -> int:
     """Plan stage C §7 RH. Over the copies `copy-db` and `copy-tracks` made: a scratch library with the copies as own
     songs and a parked same-edit upgrade each, the copy of rekordbox's library repointed at the copies, a
-    playlists.txt that reads nothing, and the sync (`bin/discjockey --yes --json`, every run with the proxies closed
-    and a real run only after a dry run planned no action) in five states: RH1 a dry run plans no action; RH2 switch off changes nothing; RH3 dry run with
+    playlists.txt that reads nothing, and the sync's last phase (`sync run --auto-upgrade-only --json`, every run with
+    the proxies closed; RH1 and RH2 also run the whole sync, `--yes`, and only after a dry run planned no action) in five states: RH1 a dry run plans no action; RH2 switch off changes nothing; RH3 dry run with
     the switch on; RH4 the phase (all but `--no-analysis`'s track, whose analysis files are removed, are upgraded;
     stage B's checks per track, the backup and the report); RH5 a second sync decodes nothing; RH6 the analysis
     files are back, the track is tried again; RH7 Undo all from this sync. Prints PASS/FAIL per check, tracks by
@@ -1162,8 +1232,8 @@ DERIVED = (
      ("-ar", "96000", "-c:a", "pcm_s24be", "-write_id3v2", "1", "-f", "aiff")),
     ("AIFF 16/44.1 wrong tags (derived)", "derived_tags.aiff", "tags", "Rehearsal tags", 12,
      ("-ar", "44100", "-c:a", "pcm_s16be", "-write_id3v2", "1", "-f", "aiff")),
-    ("AAC 420 kbps (derived)", "derived_aac.m4a", "aac", "Rehearsal AAC", 4, ("-c:a", "aac", "-b:a", "420k")),
-)
+    ("AAC 420 kbps (derived)", "derived_aac.m4a", "aac", "Rehearsal AAC", 4, ("-ar", "96000", "-c:a", "aac", "-b:a", "420k")),
+)  # 96 kHz: ffmpeg's AAC encoder stops near 225 kbps at 44.1 kHz whatever it is asked for
 RECORD_TITLES = {"MP3 #1": "Rehearsal MP3", "M4A 44.1 #1": "Rehearsal M4A 44", "M4A 48 #1": "Rehearsal M4A 48"}
 LOSSLESS_SET = ("FLAC (derived)", "AIFF 24-bit 96 kHz (derived)", "AIFF 16/44.1 wrong tags (derived)", PCM)
 CDJ_SET = ("AAC 420 kbps (derived)",)
@@ -1352,9 +1422,17 @@ def prepare_convert(work: Path, picks: list[dict], checks: Checks) -> dict:
 
 
 def cli(work: Path, tag: str, *args: str) -> tuple[int, dict, str]:
-    """A Discjockey command of the convert rehearsal: no network, `--json`. Returns exit code, JSON, stderr."""
+    """A Discjockey command of the convert rehearsal: no network, `--json`. Returns exit code, the envelope, stderr."""
     code, data, err, _ = run_cli(work, tag, *args, "--json", offline=True)
     return code, data, err
+
+
+def aiff(work: Path, tag: str, *args: str) -> tuple[int, dict, dict, str]:
+    """An `aiff convert` / `aiff rename` command, waited for to its end (a real convert takes minutes; the default wait
+    is 90 s and then answers `running`). Returns exit code, the envelope, the envelope's `data` (the plan of a dry run,
+    the batch of a run) and stderr."""
+    code, env, err = cli(work, tag, "aiff", *args, "--wait", "3600")
+    return code, env, env.get("data") or {}, err
 
 
 def convert_snapshot(work: Path, ctx: dict) -> dict:
@@ -1376,15 +1454,15 @@ def kinds_of(plan: dict) -> dict[str, int]:
 def rh2_dry(work: Path, ctx: dict, checks: Checks, view: str) -> dict:
     checks.tag = "RH2"
     print("RH2: dry runs")
-    # the first dry run fills the files' stored facts (it only reads the files, and writes library.db once)
-    code, data, err = cli(work, "rh2-warm", "convert", "--all", "lossless", "--in", view, "--dry-run")
-    checks.add("RH2 a first dry run fills the stored facts (exit 0, ok, a dry run)",
-               code == 0 and data.get("ok") is True and data.get("dry_run") is True,
-               f"exit {code}; reading lines on stderr: {len(re.findall('Reading what your files are', err))}")
+    # a dry run reads the facts of files that have none stored in memory (at most 50) and stores none: the tree, the
+    # records (library.db) and master.db must be the same after it
     before = convert_snapshot(work, ctx)
     want = {"flac": 1, "aiff_hires": 1, "tags": 1, PCM_KIND: 1}
-    code, data, err = cli(work, "rh2-lossless", "convert", "--all", "lossless", "--in", view, "--dry-run")
-    plan = data.get("plan") or {}
+    code, env, data, err = aiff(work, "rh2-lossless", "convert", "--all", "--in", view, "--dry-run")
+    plan, plan_id = data.get("plan") or {}, data.get("plan_id")
+    checks.add("RH2 Make all dry run: exit 0, ok, a plan with an id",
+               code == 0 and env.get("outcome") == "ok" and str(plan_id or "").startswith("plan:"),
+               f"exit {code}, outcome {env.get('outcome')}, plan {plan_id}")
     checks.add("RH2 Make all dry run: the kinds equal the made picks (flac 1, aiff_hires 1, tags 1, name 1)",
                code == 0 and kinds_of(plan) == want and plan.get("total") == 4 and plan.get("lossy") == 0,
                f"kinds {kinds_of(plan)}, total {plan.get('total')}, lossy {plan.get('lossy')}, skipped "
@@ -1394,13 +1472,21 @@ def rh2_dry(work: Path, ctx: dict, checks: Checks, view: str) -> dict:
                f"{[i['action'] for i in plan.get('items', [])]}")
     ok, detail = same_convert_snapshot(before, convert_snapshot(work, ctx))
     checks.add("RH2 Make all dry run changed nothing (tree, library.db, master.db bytes and rows)", ok, detail)
-    code, data, err = cli(work, "rh2-cdj", "convert", "--all", "cdj", "--dry-run")
+    code, env, data, err = aiff(work, "rh2-cdj", "convert", "--all", "--todo", "cdj", "--dry-run")
     plan_cdj = data.get("plan") or {}
     checks.add("RH2 CDJ dry run: the AAC only", code == 0 and kinds_of(plan_cdj) == {"aac": 1}
                and plan_cdj.get("total") == 1, f"kinds {kinds_of(plan_cdj)}, total {plan_cdj.get('total')}")
     ok, detail = same_convert_snapshot(before, convert_snapshot(work, ctx))
     checks.add("RH2 CDJ dry run changed nothing", ok, detail)
-    return {"lossless": plan, "cdj": plan_cdj}
+    ids = {"RH3": plan_id, "RH4": data.get("plan_id")}
+    names = tuple(ctx["info"][label]["tid"] for label in LOSSY_SET)
+    code, env, data, err = aiff(work, "rh2-lossy", "convert", *names, "--dry-run")
+    ids["RH5"] = data.get("plan_id")
+    checks.add("RH2 the three runs each have a plan to run (their dry runs saved one)",
+               all(str(i or "").startswith("plan:") for i in ids.values()), f"{ids}")
+    ok, detail = same_convert_snapshot(before, convert_snapshot(work, ctx))
+    checks.add("RH2 the lossy picks' dry run changed nothing", ok, detail)
+    return {"lossless": plan, "cdj": plan_cdj, "ids": ids}
 
 
 def results_of(run: dict) -> dict[str, dict]:
@@ -1542,16 +1628,18 @@ def check_rename(work: Path, ctx: dict, label: str, before: dict, after: dict, r
 
 
 def check_batch(work: Path, ctx: dict, tag: str, run: dict, code: int, started_by: str, kind: str, labels: set[str],
-                checks: Checks) -> None:
+                checks: Checks, env: dict) -> None:
+    """`run` is the envelope's `data` (the batch), `env` the envelope (its outcome)."""
     checks.add(f"{tag} run: exit 0, ok, every item done, none skipped or failed",
-               code == 0 and run.get("ok") is True and run.get("done") == len(labels) == run.get("total")
+               code == 0 and env.get("outcome") == "ok" and run.get("done") == len(labels) == run.get("total")
                and not run.get("skipped") and not run.get("failed"),
                f"exit {code}, batch {run.get('batch')}, state {run.get('state')}, done {run.get('done')}/"
                f"{run.get('total')}, skipped {run.get('skipped')}, failed {run.get('failed')}")
-    code, shown, _ = cli(work, f"{tag.lower()}-show", "batch", "show", str(run.get("batch")))
+    code, shown, _ = cli(work, f"{tag.lower()}-show", "batch", "show", f"aiff:{run.get('batch')}")
+    shown = shown.get("data") or {}  # the envelope's data: the batch's row and its items
     checks.add(f"{tag} batch show: started_by {started_by}, kind {kind}, state done",
-               shown.get("started_by") == started_by and shown.get("kind") == kind and shown.get("state") == "done",
-               f"started_by {shown.get('started_by')}, kind {shown.get('kind')}, state {shown.get('state')}, "
+               shown.get("started_by") == started_by and shown.get("what") == kind and shown.get("state") == "done",
+               f"started_by {shown.get('started_by')}, kind {shown.get('what')}, state {shown.get('state')}, "
                f"{shown.get('total')} items")
 
 
@@ -1614,8 +1702,9 @@ def check_records(ctx: dict, tag: str, labels: set[str], rename_label: str | Non
 
 
 def run_batch(work: Path, ctx: dict, tag: str, args: tuple[str, ...], started_by: str, kind: str, labels: set[str],
-              checks: Checks, state: dict, rename_label: str | None = None) -> dict:
-    """One batch of the rehearsal: the run, stage B's checks per item, the backup; returns the pieces undo needs."""
+              checks: Checks, state: dict, rename_label: str | None = None, plan_id: str | None = None) -> dict:
+    """One batch of the rehearsal: the run (`aiff <args> --plan <the dry run's plan>`: `aiff convert --all --in V`,
+    `--all --todo cdj`, or the songs), stage B's checks per item, the backup; returns the pieces undo needs."""
     checks.tag = tag
     print(f"{tag}: {' '.join(args)}")
     rb_db, paths = work / "rb" / "master.db", ctx["paths"]
@@ -1624,11 +1713,11 @@ def run_batch(work: Path, ctx: dict, tag: str, args: tuple[str, ...], started_by
     ctx["work"] = work
     was = {label: dict(library.load_state(paths)["tracks"][ctx["info"][label]["tid"]]) for label in labels}
     t0 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    code, run, err = cli(work, f"{tag.lower()}-run", *args)
+    code, env, run, err = aiff(work, f"{tag.lower()}-run", *args, *(("--plan", plan_id) if plan_id else ()))
     t1 = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")[:23]
-    check_batch(work, ctx, tag, run, code, started_by, kind, labels, checks)
+    check_batch(work, ctx, tag, run, code, started_by, kind, labels, checks, env)
     if not run.get("batch"):
-        raise Refused(f"{tag}: no batch ran ({run.get('reason') or code}): stopped before the later steps.")
+        raise Refused(f"{tag}: no batch ran ({env.get('reason') or code}): stopped before the later steps.")
     checks.add(f"{tag} no -wal/-shm beside the copy after the run", not master.leftovers(rb_db))
     check_records(ctx, tag, labels, rename_label, was, run["batch"], checks)
     after = dump(rb_db)
@@ -1654,10 +1743,10 @@ def run_batch(work: Path, ctx: dict, tag: str, args: tuple[str, ...], started_by
     return {"before": before, "run": run, "labels": labels, "created": sub["created"], "tag": tag, "was": was}
 
 
-def rh3_make_all(work: Path, ctx: dict, view: str, checks: Checks, state: dict) -> dict:
+def rh3_make_all(work: Path, ctx: dict, view: str, checks: Checks, state: dict, plan_id: str | None = None) -> dict:
     labels = set(LOSSLESS_SET)
-    out = run_batch(work, ctx, "RH3", ("convert", "--all", "lossless", "--in", view), "make_aiff", "convert",
-                    labels, checks, state, rename_label=PCM)
+    out = run_batch(work, ctx, "RH3", ("convert", "--all", "--in", view), "make_aiff", "convert",
+                    labels, checks, state, rename_label=PCM, plan_id=plan_id)
     fl, hi, tg = (ctx["info"][x] for x in LOSSLESS_SET[:3])
     check_samples(ctx, LOSSLESS_SET[0], True, checks)
     check_samples(ctx, LOSSLESS_SET[1], False, checks)
@@ -1670,9 +1759,10 @@ def rh3_make_all(work: Path, ctx: dict, view: str, checks: Checks, state: dict) 
     return out
 
 
-def rh4_cdj(work: Path, ctx: dict, checks: Checks, state: dict) -> dict:
+def rh4_cdj(work: Path, ctx: dict, checks: Checks, state: dict, plan_id: str | None = None) -> dict:
     labels = set(CDJ_SET)
-    out = run_batch(work, ctx, "RH4", ("convert", "--all", "cdj"), "cdj_all", "convert", labels, checks, state)
+    out = run_batch(work, ctx, "RH4", ("convert", "--all", "--todo", "cdj"), "cdj_all", "convert", labels, checks, state,
+                    plan_id=plan_id)
     i = ctx["info"][CDJ_SET[0]]
     checks.add("RH4 the AAC's offset d was 0", i["d"] == 0, f"d {i['d']} ({i['why']})")
     check_samples(ctx, CDJ_SET[0], False, checks)
@@ -1685,10 +1775,10 @@ def rh4_cdj(work: Path, ctx: dict, checks: Checks, state: dict) -> dict:
     return out
 
 
-def rh5_lossy(work: Path, ctx: dict, checks: Checks, state: dict) -> dict:
+def rh5_lossy(work: Path, ctx: dict, checks: Checks, state: dict, plan_id: str | None = None) -> dict:
     labels = set(LOSSY_SET)
     names = tuple(ctx["info"][label]["tid"] for label in LOSSY_SET)
-    out = run_batch(work, ctx, "RH5", ("convert", *names), "user", "convert", labels, checks, state)
+    out = run_batch(work, ctx, "RH5", ("convert", *names), "user", "convert", labels, checks, state, plan_id=plan_id)
     for label in LOSSY_SET:
         check_samples(ctx, label, False, checks)
     return out
@@ -1701,7 +1791,8 @@ def rh6_undo(work: Path, ctx: dict, batches: list[dict], checks: Checks, state: 
     for b in reversed(batches):
         run, before = b["run"], b["before"]
         news = state[f"{b['tag']}-new"]
-        code, result, _ = cli(work, f"rh6-undo-{b['tag'].lower()}", "batch", "undo", str(run["batch"]))
+        code, result, _ = cli(work, f"rh6-undo-{b['tag'].lower()}", "batch", "undo", f"aiff:{run['batch']}",
+                               "--yes", "--wait", "3600")
         checks.add(f"RH6 {b['tag']}: no -wal/-shm beside the copy after the undo", not master.leftovers(rb_db))
         sub = only(ctx, b["labels"])
         sub["created"] = b["created"]
@@ -1754,10 +1845,17 @@ def rehearse_convert(work: Path) -> int:
     view = f"folder:Library/{FOLDER}"  # a Library folder's key is relative to the music folder
     batches = []
     try:
-        rh2_dry(work, ctx, checks, view)
-        batches.append(rh3_make_all(work, ctx, view, checks, state))
-        batches.append(rh4_cdj(work, ctx, checks, state))
-        batches.append(rh5_lossy(work, ctx, checks, state))
+        plans = rh2_dry(work, ctx, checks, view)["ids"]  # each run binds its own dry run's plan (`--plan`)
+        # the dry runs read the facts of these unscanned files in memory; a real library has them stored (the import
+        # and scan store them), and the rename's "facts unchanged" check compares against the stored ones
+        code, env, err = cli(work, "rh1-facts", "library", "facts", "--wait", "3600")
+        songs = library.load_state(ctx["paths"])["tracks"]
+        missing = [label for label, i in ctx["info"].items() if songs[i["tid"]].get("file_codec") is None]
+        checks.add("RH2 `library facts` after the dry runs stored the facts of every file", code == 0 and not missing,
+                   f"exit {code}, no facts stored for: {missing or 'none'}")
+        batches.append(rh3_make_all(work, ctx, view, checks, state, plans["RH3"]))
+        batches.append(rh4_cdj(work, ctx, checks, state, plans["RH4"]))
+        batches.append(rh5_lossy(work, ctx, checks, state, plans["RH5"]))
         rh6_undo(work, ctx, batches, checks, state)
     finally:
         (work / "report.json").write_text(json.dumps(checks.items, indent=1, ensure_ascii=False), encoding="utf-8")

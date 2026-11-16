@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import logging
 import sqlite3
+from collections.abc import Collection
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field, replace
@@ -34,7 +35,7 @@ from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .rekordbox import process
 from .rekordbox.locate import locate
-from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, save_settings
+from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
 
 logger = logging.getLogger(__name__)  # not `log`: that is a run's RunLog here
 
@@ -86,11 +87,13 @@ def lock_held():
 
 def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, emit: Emit = no_emit,
             token: CancelToken | None = None, want_info: bool = False,
-            lock: Callable[[], AbstractContextManager[bool]] = lock_held) -> Prepared:
+            lock: Callable[[], AbstractContextManager[bool]] = lock_held, scan: bool | None = None) -> Prepared:
     """`token`: Stop while reading the playlists (also while waiting out a rate limit) raises events.Cancelled.
     Before the playlists are read, the library's records are opened for writing (migrated if needed), interrupted steps
-    are finished (not in a dry run) and Library/ is scanned (also in a dry run, spec library-and-sources §6.4), so
-    the plan works on the files as they are. `lock()` yields whether the library lock is held for that: a reader
+    are finished (not in a dry run) and Library/ is scanned, so the plan works on the files as they are. `scan`: None
+    is "not in a dry run"; a dry run scans (spec library-and-sources §6.4) only when its caller asks for it: the
+    window's refresh does, the command line's dry runs do not (issue 39 design §7.1: they store no scan, plan on the
+    last one and say how old it is). `lock()` yields whether the library lock is held for that: a reader
     (the window's preview) that can't get it (a terminal run, a hub job) plans on the records as the last scan
     left them and writes nothing. `want_info`: the hub's read also takes the playlists' names, owners and covers from
     what reading the tracks told (FetchedPlaylist.info), so it needs no second login to ask."""
@@ -100,7 +103,8 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         lines = config.load_playlists(paths.playlists_file)
         settings = load_settings(paths.settings_file)
         with lock() as held:
-            state = _open(paths, log, emit, dry_run=dry_run) if held else library.load_state(paths)
+            state = (_open(paths, log, emit, dry_run=dry_run, scan=scan if scan is not None else not dry_run)
+                     if held else library.load_state(paths))
             if held:  # signs a read outside a run met while the lock was not ours are recorded first (they pause)
                 state = record_pending(paths, state, lock_held, dry_run)
         import_waiting = library.import_left(paths)
@@ -111,9 +115,13 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     if extra is not None:
         if not 1 <= extra <= MAX_EXTRA:
             raise SetupProblem(f"The extra amount must be between 1 and {MAX_EXTRA}.", "config_invalid")
-        settings = replace(settings, extra_date=date.today().isoformat(), extra_amount=extra)
-        save_settings(paths.settings_file, settings)
-        emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
+        grant = lambda s: replace(s, extra_date=date.today().isoformat(), extra_amount=extra)  # noqa: E731
+        if dry_run:  # the dry run plans with the extra in memory; saving it would grant it to the real runs of today
+            settings = grant(settings)
+            emit(Message("info", f"Planning with {extra} extra Qobuz downloads today (a dry run saves nothing)."))
+        else:
+            settings = update_settings(paths.settings_file, grant)
+            emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
 
     emit(Message("info", "Reading your playlists..."))
     signs: list[tuple[str, str, str]] = []  # warning signs a login-using read met (Liked music), recorded below
@@ -186,7 +194,7 @@ def recorded_members(paths: Paths, unread: list[PlaylistLine], state: dict | Non
     records: dict = {}
     if paths.db_file.exists():
         try:
-            with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
+            with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS, read_only=True) as conn:
                 db.check(conn)
                 records = db.playlist_records(conn)
         except Exception:
@@ -218,12 +226,15 @@ def first_check_room(state: dict, settings: Settings) -> int:
     return min(FIRST_CHECKS_PER_RUN, Budget(state, lambda: None, settings).remaining() // 2)
 
 
-def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool) -> dict:
+def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool, scan: bool) -> dict:
     """The writer's part of prepare (the lock is held): open (and migrate), recover (not in a dry run), scan, then
     the snapshot the plan works on. A dry run needs no snapshot before the scan (scan_library opens the records
     itself, and leaves a pending step's files alone). A dry run changes no music file: a library not yet moved into
     library.db whose state.json has steps pending is neither migrated (that finishes them) nor scanned; it plans
-    from state.json as it is."""
+    from state.json as it is. A dry run without `scan` (the command line's: issue 39 design §7.1) stores no scan and
+    migrates nothing: it plans on the records as the last scan left them (`load_state`, read-only)."""
+    if dry_run and not scan:
+        return library.load_state(paths)
     recovered: list[tuple[str, bool]] = []
     if not dry_run:
         migrated: list[tuple[str, bool]] = []  # steps finished while state.json moved into library.db (said already)
@@ -280,14 +291,19 @@ def folder_names(prep: Prepared) -> Callable[[str], str] | None:
     """A file's path -> the name of the folder it sits in, as Sync names it (`hub.views.Sites.place`): what the run
     report, the console's plan and the dry run file an own song under (it has no playlist). None when the records
     can't be read: they then say "your music"."""
-    if not prep.paths.db_file.exists():
+    return folder_places(prep.paths, prep.state, prep.lines)
+
+
+def folder_places(paths: Paths, state: dict, lines: list[PlaylistLine]) -> Callable[[str], str] | None:
+    """`folder_names` for a caller that has the records and the playlist lines but no `Prepared`."""
+    if not paths.db_file.exists():
         return None
     try:
-        with db.connect(prep.paths.db_file) as conn:
+        with db.connect(paths.db_file, read_only=True) as conn:
             watched = db.watched_folders(conn)
     except (OSError, sqlite3.Error):
         return None
-    return views.sites(prep.state, prep.lines, watched).place
+    return views.sites(state, lines, watched).place
 
 
 def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked: set[tuple[str, str, str]],
@@ -478,6 +494,82 @@ def finish_quietly(prep: Prepared, emit: Emit = no_emit, token: CancelToken | No
     path = rep.write_crash(prep.paths, prep.log, datetime.now(), auto_upgrade.STEP, crash, prep.state)
     emit(RunFinished(code, str(path)))
     raise RunCrashed(crash, path) from crash
+
+
+@dataclass(frozen=True)
+class PhaseRun:
+    """What `auto_upgrade_only` did: the exit code (0, 1 some track failed, 130 stopped), the report (None: a dry run, or
+    the switch was off), the phase's block (None: the switch was off) and the steps recovered at the start (a dry run and
+    the switch off recover nothing)."""
+    code: int
+    report: Path | None
+    outcome: auto_upgrade.Outcome | None
+    recovered: tuple[tuple[str, bool], ...] = ()  # what the start finished or undid: (message, ok), as the report says
+
+
+def auto_upgrade_only(paths: Paths, settings: Settings, *, emit: Emit = no_emit, token: CancelToken | None = None,
+                      rekordbox: dict | None = None, dry_run: bool = False, only: Collection[str] | None = None,
+                      changed: Collection[str] = ()) -> PhaseRun:
+    """The Auto-upgrade phase alone (`sync run --auto-upgrade-only`, issue 39 design §5.2): the sync's last phase with no
+    plan and no read of the playlists, so it never calls the planner (with no fetched playlists the planner would mark
+    every song as gone from its playlists). It opens the records, finishes interrupted steps (`recover_pending`), runs
+    `auto_upgrade.run_phase`, saves, refreshes not_lossless.md and files a report that holds the phase's results and
+    its block (`kind` `auto_upgrade_only`). The switch off: nothing is read or written. A dry run (`dry_run`) opens the
+    records read only and writes nothing, not even a report.
+
+    `held` is empty on purpose: a song the plan holds for "Is this the same song?" is one with no record or one whose
+    status is `missing` (the planner's two places for a question), so it has no file, and the phase's set only takes a
+    song whose file is there (`batches.present`, `eligible.same_track_quick`): a held song can never be among the
+    upgrades the phase would run. `only` / `changed`: a run with a plan (`run_phase`). `rekordbox` replaces the real
+    rekordbox services as for `upgrade_phase` (and `via`: where the batch says it started). Stop or Ctrl-C ends it with
+    exit code 130 once the records are saved; an unexpected error is filed like a sync's (a report with a crash note,
+    `RunFinished`, `RunCrashed`)."""
+    if not settings.auto_upgrade:
+        return PhaseRun(0, None, None)
+    token = token or CancelToken()
+    options = {"running": process.running, "place": locate(), "compare": align.compare_files, "now": datetime.now,
+               **(rekordbox or {})}
+    log = rep.RunLog(datetime.now(), kind=rep.AUTO_UPGRADE_ONLY)
+    if dry_run:
+        state = library.open_state(paths, read_only=True)
+        outcome = auto_upgrade.run_phase(paths, state, (), settings, log, emit=emit, token=token, dry_run=True,
+                                         only=only, changed=changed, **options)
+        return PhaseRun(0, None, outcome)
+    migrated: list[tuple[str, bool]] = []
+    state = library.open_state(paths, emit, recovered=migrated)
+    recovered = migrated + library.recover_pending(paths, state)
+    for message, ok in recovered:
+        log.add_text("recovered" if ok else "errors", message)
+        emit(Message("info" if ok else "warning", message))
+    library.clear_tmp(paths, state)
+    try:
+        lines = config.load_playlists(paths.playlists_file)
+    except config.ConfigError:  # no playlists.txt: an own song is then filed under its folder's name or "your music"
+        lines = []
+    where = folder_places(paths, state, lines)
+    code, crash, outcome = 0, None, None
+    try:
+        token.check()
+        outcome = auto_upgrade.run_phase(paths, state, (), settings, log, emit=emit, token=token, where=where,
+                                         only=only, changed=changed, **options)
+        if outcome is not None and outcome.stopped:
+            code = 130
+    except (Cancelled, KeyboardInterrupt):
+        code = 130
+    except Exception as e:  # noqa: BLE001 - filed with a crash note below, then raised as RunCrashed
+        code, crash = 1, e
+    library.save_state(paths, state)
+    rep.write_not_lossless(paths, state)
+    if code == 0 and log.section("errors"):
+        code = 1
+    if crash is None:
+        path = rep.write_run(paths, log, datetime.now(), code, state)
+    else:
+        path = rep.write_crash(paths, log, datetime.now(), auto_upgrade.STEP, crash, state)
+    emit(RunFinished(code, str(path)))
+    if crash is not None:
+        raise RunCrashed(crash, path) from crash
+    return PhaseRun(code, path, outcome, tuple(recovered))
 
 
 STEP_VERBS = {"acquire": "downloading", "upgrade": "looking for a better version of",

@@ -11,7 +11,8 @@ library (lists cut to 2 items, `data` cut).
   resolves (never rejects) to `{"ok": true, ...fields}` or `{"ok": false, "kind": <problem>, "message": <plain English>}`.
   A problem with a playlist service (a `SourceError`: Spotify, Qobuz, SoundCloud or YouTube Music) also carries `"service": "spotify" | "qobuz" | "soundcloud" | "youtube_music"`;
   for every other problem the key is absent. The page names that service in its card.
-- Write methods return `{"ok": true, "job_id": <int>}` at once; the outcome arrives as a `JobFinished` event with the
+- Write methods return `{"ok": true, "job_id": "job:<8 hex>"}` at once (every job id is this string, the window's jobs
+  and the terminal's alike: `JobStarted.job_id`, `JobFinished.job_id`, `job_status().job.id` and `.sign_in.id`); the outcome arrives as a `JobFinished` event with the
   same `job_id` (see Jobs). At most one write job runs; others are refused with kind `busy` (hub) or `console`
   (a terminal run holds the lock). **The exception: brief saves** (`set_favourites`, `set_crate_shown`,
   `set_crates_shown`, plus `setup_skip_import`) answer their result at once (`{favourites}` / `{path, shown}` /
@@ -53,8 +54,32 @@ library (lists cut to 2 items, `data` cut).
 | `protected` | the version is DRM-protected (yt-dlp refuses it; Discjockey never works around DRM) → the plain message; "Wrong song?" takes the version off its list, and later searches leave it out (`.cache/protected_sources.json`) |
 | `no_library` | no music folder is bound (not chosen yet, or the chosen one isn't there) → Setup's music step or the missing-folder screen; every method in `LIBRARY_METHODS` answers it while unbound |
 | `crashed` | unexpected error → "Something went wrong" + message (a sync: "The sync stopped unexpectedly. Everything done up to then is saved, and the next sync carries on from there."; any other bridge call: "Something unexpected went wrong. Try again, and if it keeps happening, restart Discjockey."); for a sync: + Open report. A crashed sync is filed like any run: its report (`reports/<run_id>.md`, exit code 1) starts with a plain crash note (when, the step it was on, that what was done is saved; no error type in it; the error and traceback only at the very end), its .json has `crashed` (that note); `RunFinished` (exit code 1, that report) comes first, and the `JobFinished` carries the same `result` as a finished sync. A crash in another job files nothing (`result` null) |
+| `bad_args` | the command line's: a typed id or word that names nothing (`resolve`, a `plan_id`, a batch id; `todo` with a filter that is no group). The window never sends one; the page shows it as `crashed` |
 
 Use the kind for the card/headline; always show `message` as the detail.
+
+Beside `ok`, `kind`, `message` (and `service`, `setting`) every ok:false answer also carries what the command line reads
+(issue 39; additive, the page ignores it, `Fail` has them as optional keys): `outcome` (`failed` | `bad_args` | `busy` |
+`needs_person` | `stopped` | `refused`, the row of `kind` in `discjockey/hub/outcomes.py` `KIND_OUTCOME`: `busy`,
+`console`, `sync_running` are `busy`; `not_set_up`, `no_library`, `setting_off`, `exists`, `changed`, `refused`,
+`protected` are `refused`; `login_expired`, `rekordbox_open` are `needs_person`; `stopped` is `stopped`; the rest are
+`failed`), `reason` (a key of `REASONS` in the same module: the engine's own where the raiser named one, else the
+kind's), `next` (`[{run, why}]`: commands that move on), `person_steps` (`[{id, say, then}]`: what only a person can do; `then` is the command to run
+afterwards or null for the same command again; `rekordbox_open` carries `step:quit_rekordbox`) and `data` (object or null). An ok:true answer is unchanged.
+
+The command line also calls methods the window does not have (the catalogue's `cli_first` entries, marked
+`@cli_first` and kept on `CliApi(HubApi)`, because pywebview hands the page every public name of its object: the same
+answers, but not in `contract.ts`, `types.ts` or the fake). `resolve(kind, values)` (group 1.2)
+turns what a person typed into the method's argument: `{"kind", "resolved": [..]}`, one resolved argument per value in
+the same order; kind `track` takes a song key (kept as it is) or the path of a library file (absolute, or relative to
+the music folder) and answers the song key. Kind `folder` takes a watched import folder's path (absolute, `~` or relative to where the command runs; `folder:<path>` too) and
+answers its folder id; the Library, a folder nobody watches and a path of no folder are `unknown_id`, no music folder is `no_library`. The command line's `settings_view()` (`@cli_first`; works without a music
+folder) answers what Settings holds, in the page's words: `{music_folder, auto_upgrade, read_liked_music, daily_qobuz_limit, qobuz_skipped,
+spotify_skipped, import_skipped, qobuz_last_check, extra, warnings_seen, accounts: {service: {browser, browser_name, profile, profile_name,
+daily_limit, extra, last_check, liked_only}}, labels: {auto_upgrade, read_liked_music}}` (`qobuz_last_check` and `last_check` are `{ok, problem, kbps, at}`
+or null, `extra` is `{date, amount}` or null, `warnings_seen` maps a service to the time its warning signs were last seen); a settings file that cannot be read is `config_invalid`. A text no id can be made of answers `{ok: false, kind: "bad_args",
+outcome: "bad_args", reason: "unknown_id" | "bad_id_kind"}`; a kind nobody resolves yet is `failed`. A `HubApi(…,
+remember=False)` (the command line's) acts on a write's record as it is, with no check against how a page last showed it.
 
 ## Shared shapes
 
@@ -101,8 +126,11 @@ Use the kind for the card/headline; always show `message` as the detail.
   one automatic read of this session has started, whatever its outcome; kept in Python, so also true after a window
   reload: the Sync page then never reads by itself).
 - **Budget** (`qobuz_today`, `today`): `used, allowance, limit, carry_over, extra, remaining` (ints). "37 of 80 · 60 + 20 carried over".
-- **RunSummary**: `run_id` (`YYYY-MM-DD_HHMMSS`), `started`, `finished`, `duration_s`, `exit_code` (0 ok, 1 some failed,
+- **RunSummary**: `run_id` (`YYYY-MM-DD_HHMMSS`), `id` (`report:<run_id>`, the id the command line takes; the window ignores it), `started`, `finished`, `duration_s`, `exit_code` (0 ok, 1 some failed,
   130 stopped), `counts {lossless, lossy, problems, moved}`, `stopped_after` int|null ("stopped by you after N tracks"),
+  `kind` (`"sync"`, or `"auto_upgrade_only"` for a run of the command line's `sync run --auto-upgrade-only`: only the
+  Auto-upgrade phase, a report titled "Discjockey Auto-upgrade run" that holds the `auto_upgrade` block; a report without
+  the key is a sync; the window never starts the second),
   `auto_upgrade` (stage C: the run's Auto-upgrade block with its `line`, see "Auto-upgrade" below; null when the switch
   was off for that run and in runs from before it).
 - **Result** (report line; in `ActionFinished.result`, run sections, op results): `section, folder, artist, title,
@@ -118,10 +146,10 @@ Use the kind for the card/headline; always show `message` as the detail.
 - **rekordbox_check** (state.json entry field): null or `{reason: "wrong_song"|"added_as_new"|"swapped", since:
   "YYYY-MM-DD"}`.
   `wrong_song`: set by `use_candidate`/`use_link` when the old file was moved away to Superseded/, and by
-  `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "add_new")`, with `match` (the parked
+  `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "new_track")`, with `match` (the parked
   version's measurement: `exact`/`shifted`/`different`/`unknown`), `offset_ms` and `aligned` (the new file was
   rendered lined up with rekordbox's timeline of the old one, so the old track's cues fit it to the sample; false
-  when the timing was unknown and the download was only renamed); records from before them have none of these. `swapped`: set by `upgrade(id, "swap")`, with `match`, `offset_ms` (the fresh measurement) and `moved`
+  when the timing was unknown and the download was only renamed); records from before them have none of these. `swapped`: set by `upgrade(id, "same_track")`, with `match`, `offset_ms` (the fresh measurement) and `moved`
   (the file moved up out of not_lossless/). Both upgrade checks also hold `undo` (engine-internal, see
   `upgrades.py`: the fields as they were, both files' content keys, a swap's kept download in
   `.discjockey/undo/`); checks from before undo existed have none. The page sees `can_undo` and, from the undo
@@ -255,10 +283,12 @@ Use the kind for the card/headline; always show `message` as the detail.
  "last_runs": [
   {
    "run_id": "2026-10-19_214700",
+   "id": "report:2026-10-19_214700",
    "started": "2026-10-19T21:47:00",
    "finished": "2026-10-19T22:11:00",
    "duration_s": 1440,
    "exit_code": 0,
+   "kind": "sync",
    "counts": {
     "lossless": 1,
     "lossy": 0,
@@ -608,7 +638,7 @@ shows what the playlist holds now, not where the files are. A song of the record
 `file_state` `no_file`, `path` `null`, `wait` `waiting` (the sync has yet to get it) or `not_found` (the sync found
 nothing usable: the song is in To-do's Not found group). A not-found song the user hid in To-do keeps `not_found` and
 carries `hidden: true`: the page doesn't offer "Open in to-do" for it, as To-do doesn't show it. `also` holds the files in the playlist's own Library folder
-whose song the playlist does not hold (null in every other view), by artist, then title. The search narrows `rows` and `also`; the quality
+whose song the playlist does not hold (null in every other view), by artist, then title. The search narrows `rows` and `also` (artist and title, case and accents ignored: `names.search_fold`, as the command line's `track find`); the quality
 filter, the quality `chips` and `summary` count only the rows with a file; `chips.all` counts every row the table lists
 under All (a read playlist's songs without a file too, never `also`), so the All segment says 18 beside 18 rows. A
 playlist's `subtitle` and `summary.tracks` count its songs with a file, the table also shows the waiting ones, and the
@@ -885,6 +915,11 @@ SoundCloud's own download button (`url` is then the SoundCloud page). Empty when
 lossy download carries the bitrate when known ("YouTube Music OPUS 135 kbps · cutoff 20.1 kHz"). A dropped bought
 file may be WAV, AIFF, FLAC or MP3.
 
+Also in `track()` (issue 39, the command line): `cutoff_text`, the cutoff in words as the stat card says it: "16.0 kHz ·
+where the highs end · lossless reaches about 22 kHz", "no clear edge in the highs" (no cutoff found), and for a fake
+lossless file "16.0 kHz · where the highs end · a lossy file inside the WAV" (the format of the file's extension, else
+"a lossless file"); `null` for a lossless or missing file and for a sound not checked yet. `cutoff_hz` stays the fact.
+
 Also in `track()` (2026-10-18, details redone as facts): `source_full` ("YouTube Music", "bought", "your own file"
 for a file the import found), null without a file.
 `track()` says what the file **is** apart from what it was **made from** (sources round, E1): `format_line` is the file
@@ -920,7 +955,7 @@ Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by
 tag); the `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge
 already says the kHz.
 
-`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|same_song|duplicate|upgrade_ready|not_found|weak|good_lossy|fake|other`.
+`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`).
 Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". The import adds two
 groups after the first (see "Watched folders and the import" below): `same_song` and `duplicate`, whose items also carry
 a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, in a question and
@@ -938,6 +973,8 @@ counts each track once, `chips.rekordbox_check` every check item (hidden ones to
 counts the same checks as **tracks**: a batch counts its `size`, hidden tracks too, whatever the filter. The page header
 says "{n} tracks to check in rekordbox" from it, and "{n} tracks are not lossless yet" from the sum of the chips of the
 groups below lossless (`upgrade_ready`, `not_found`, `weak`, `good_lossy`, `fake`, `other`), never from `chips.all`.
+`empty_text` is `empty`'s words for the command line (`all_lossless` "Everything is lossless.", `all_hidden` "Only hidden
+tracks are left.", `nothing_here` "Nothing here."), null when `empty` is null; the window keeps its own copy until phase 6.
 ```json
 {
  "ok": true,
@@ -1014,7 +1051,8 @@ groups below lossless (`upgrade_ready`, `not_found`, `weak`, `good_lossy`, `fake
    ]
   }
  ],
- "empty": null
+ "empty": null,
+ "empty_text": null
 }
 ```
 
@@ -1264,16 +1302,18 @@ Qobuz `days_to_load` is null.
 }
 ```
 
-`runs()` → `{"runs": [RunSummary, newest first]}`. `run(run_id)` → the end screen:
+`runs()` → `{"runs": [RunSummary, newest first]}`. `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → the end screen:
 ```json
 {
  "ok": true,
  "run": {
   "run_id": "2026-10-19_214700",
+  "id": "report:2026-10-19_214700",
   "started": "2026-10-19T21:47:00",
   "finished": "2026-10-19T22:11:00",
   "duration_s": 1440,
   "exit_code": 0,
+  "kind": "sync",
   "counts": {
    "lossless": 1,
    "lossy": 0,
@@ -1652,11 +1692,11 @@ A job's success can carry words in `JobFinished.message`, empty otherwise: the i
 | `use_candidate(track_id, candidate)` | `use_candidate` | OpResult |
 | `use_link(track_id, url)` — Qobuz track / YouTube / YT Music / SoundCloud link | `use_link` | OpResult |
 | `reject_current(track_id)` — "None of these"; sets `rekordbox_check` (`wrong_song`) | `reject_current` | OpResult |
-| `rekordbox_checked(track_ids)` — "Done, checked in rekordbox" for a list (a batch card sends its done tracks): clears `rekordbox_check` and with it the undo | `rekordbox_checked` | `CheckedResult` `{results: Result[], checked: ids, not_checked: ids, recovered}`; `changed` when none had a check |
-| `upgrade(track_ids, mode)` — `swap\|add_new\|discard`, a list (one track is a list of one; a string, an empty list or an unknown mode is `refused`). `swap` is **Same track for any format** and runs one AIFF batch; `add_new` / `discard` run the list one after the other | `upgrade_batch` (swap) / `upgrade_add_new` / `upgrade_discard` | `AiffBatchResult` `{batch, state, stop_reason, total, done, skipped, failed, results: ItemResult[], backup, recovered}`; `add_new`/`discard` give the same shape with `batch: null`, `backup: null`. `ItemResult` `{track, action, state: planned\|done\|skipped\|failed\|undone, reason (an eligibility key, skipped only), message, path, rekordbox: {entries, kept} \| null}`. One-track `add_new`/`discard` keep the old checks (`changed` when the page showed another entry) and a failure ends the job with its own words. A batch ends as a problem that still carries the batch in `JobFinished.result`: `stopped` ("Stopped after {done} of {total}."), `rekordbox_open`, `busy` (another window or the Terminal holds `rekordbox.lock`), `refused` (nothing in it could be done; each reason in `results`). A batch of one track that meets rekordbox open or `busy` before anything ran is closed (`state` done, the item skipped `rekordbox_open`/`busy`), so no Resume is offered; a bigger batch stays `stopped` |
-| `upgrade_all()` — Same track for every parked upgrade the To-do group counts as possible (`all.n`); `refused` ("None of these can be upgraded right now.") when none | `upgrade_batch` (started by `upgrade_all`) | `AiffBatchResult` |
+| `rekordbox_checked(track_ids, batch_id?)` — "Done, checked in rekordbox" for a list (a batch card sends its done tracks): clears `rekordbox_check` and with it the undo. `batch_id` (the command line's `--batch aiff:<n>`; `track_ids` is then `[]`, both is `refused`, an unknown batch `refused`): the tracks that AIFF batch did; the window sends none | `rekordbox_checked` | `CheckedResult` `{results: Result[], checked: ids, not_checked: ids, recovered, batch?}` (`batch` only when `batch_id` was sent: a batch whose tracks were all checked already is a finished job with nothing in it); `changed` when none of the named tracks had a check (the result still lists them as `not_checked`); the command line's own api finishes that job `ok` instead, `check done` answers `ok` with total 0 and the tracks as `skipped` rows |
+| `upgrade(track_ids, mode, plan_id?)` — `same_track\|new_track\|discard`, a list (one track is a list of one; a string, an empty list or an unknown mode, `swap` and `add_new` included, is `refused`). `same_track` is **Same track for any format** and runs one AIFF batch; `new_track` / `discard` run the list one after the other | `upgrade_batch` (same_track) / `upgrade_add_new` / `upgrade_discard` | `AiffBatchResult` `{batch, state, stop_reason, total, done, skipped, failed, results: ItemResult[], backup, recovered}`; `new_track`/`discard` give the same shape with `batch: null`, `backup: null`. `ItemResult` `{track, action, state: planned\|done\|skipped\|failed\|undone, reason (an eligibility key, skipped only), message, path, rekordbox: {entries, kept} \| null}`. One-track `new_track`/`discard` keep the old checks (`changed` when the page showed another entry) and a failure ends the job with its own words. A batch ends as a problem that still carries the batch in `JobFinished.result`: `stopped` ("Stopped after {done} of {total}."), `rekordbox_open`, `busy` (another window or the Terminal holds `rekordbox.lock`), `refused` (nothing in it could be done; each reason in `results`). A batch of one track that meets rekordbox open or `busy` before anything ran is closed (`state` done, the item skipped `rekordbox_open`/`busy`), so no Resume is offered; a bigger batch stays `stopped`. `plan_id` (the command line's `--plan`, `same_track` / `new_track` only; `discard` refuses it): only the songs of that plan that still stand run, the others are `skipped` with reason `changed`, and `new_since_plan: [track ids]` (only when there are some) lists the songs the plan did not have; an unknown plan is `bad_args`, an old one `refused`, a plan with nothing standing `refused` (`changed`). |
+| `upgrade_all(plan_id?)` — Same track for every parked upgrade the To-do group counts as possible (`all.n`); `refused` ("None of these can be upgraded right now.") when none. The command line's `upgrade_all` also refuses (`refused`, reason `not_stopped`, `next: batch resume aiff:<n>`) while a stopped upgrade batch waits; the window's does not (it hides the button) | `upgrade_batch` (started by `upgrade_all`) | `AiffBatchResult` |
 | `batch_resume(batch_id)` — the planned tracks of a stopped batch, eligibility asked again; `refused` for an unknown batch or one that is not stopped | `batch_resume` | `AiffBatchResult` |
-| `batch_undo(batch_id)` — every track the batch did, newest first. For the console; the hub's batch card and its "Undo all {n}" send `undo_upgrade` over the card's own undoable tracks (`batch_undo` would also try tracks already marked Done and list them as refused) | `batch_undo` | `UndoResult` `{batch, total, undone, refused, failed, results: [{track, state: undone\|refused\|failed\|waiting, reason, message}], recovered}`; `rekordbox_open` (nothing undone, every track `waiting`) or `stopped` carry it; `refused` when nothing could be undone |
+| `batch_undo(batch_id)` — every track the batch did, newest first. For the command line (`batch undo aiff:<n> --yes`); the hub's batch card and its "Undo all {n}" send `undo_upgrade` over the card's own undoable tracks (`batch_undo` would also try tracks already marked Done and list them as refused) | `batch_undo` | `UndoResult` `{batch, total, undone, refused, failed, results: [{track, state: undone\|refused\|failed\|waiting, reason, message}], recovered}`; `rekordbox_open` (nothing undone, every track `waiting`) or `stopped` carry it; `refused` when nothing could be undone |
 | `undo_upgrade(track_ids)` — "Undo" on `can_undo` items, a list, newest first (the order of the steps in operations.log, then batch/row id: timestamps are only seconds), one job: puts a swap, an added file or a Same track back (the upgrade waits again). Needs rekordbox closed where a step wrote it. Gone once `rekordbox_checked` ran | `undo_upgrade` | `UndoResult`; the job is `refused` (with the one track's own words, or "None of these could be undone.") when nothing was undone, `rekordbox_open` when rekordbox runs |
 
 **BatchResult** (`tidy_up`, `undo_moves`, the items of `save_playlists`' `batches`): `{batch_id, title, moved (files; a folder rename counts the files it carried), headline,
@@ -1692,7 +1732,7 @@ next sync starts. A YouTube Music or SoundCloud version still works."; and when 
 downloaded: daily Qobuz limit reached. Try again tomorrow, or allow a few extra downloads on the Qobuz page." When the
 old file was moved away to Superseded/, the entry gets `rekordbox_check` (`wrong_song`).
 
-`upgrade(track_id, "add_new")`: the current file moves to `Superseded/<Folder>/` and the new lossless file gets the
+`upgrade(track_id, "new_track")`: the current file moves to `Superseded/<Folder>/` and the new lossless file gets the
 correct name `Library/<Folder>/<Artist - Title>.aiff` (no "(lossless)"; an ID suffix only if another file has that
 name); the entry gets `rekordbox_check` (`added_as_new`, with the measurement of the two files: `match`,
 `offset_ms`, `aligned`), because rekordbox sees a new file as a new entry; the old entry can be relocated to it (by
@@ -1706,7 +1746,7 @@ them). The single operations check that the track still looks as the page last s
 ```json
 {
  "type": "JobFinished",
- "job_id": 2,
+ "job_id": "job:0f3a9c21",
  "kind": "hide",
  "ok": true,
  "problem": null,
@@ -1793,12 +1833,12 @@ still answers. Otherwise `download_tools_problem` is null.
 | `setup_skip_qobuz()` — "I don't have Qobuz": the Qobuz step counts as done | `setup_skip_qobuz` | `{}` |
 | `setup_skip_spotify()` — "I don't use Spotify": the Spotify step counts as done and sets `spotify_skipped` (playlists then come from the links of the other services); a later `setup_spotify_login` clears it | `setup_skip_spotify` | `{}` |
 | `set_read_liked_music(on)` — Settings' "Read my Liked music" (sources round): whether YouTube Music's Liked music line is read, through the YouTube login (a `YoutubeDL` of the read's own, never the download path's). Off by default; `on` must be a bool (`refused`); turning it on without a YouTube account fails `not_set_up` ("Sign in to YouTube first: Discjockey reads your Liked music through that login."). Turning it off never touches playlists.txt. While it is off a listed Liked music line is left out of every read like a switched-off line (no request, no problem, its files stay; its tracks are marked as not in a playlist like any switched-off line's); the same while the YouTube account is paused today (an `auto_stop`, `bot_check` or `rate_limited` sign recorded today), and a bot check or "too many requests" met by the Liked music read itself is recorded as the YouTube account's warning sign (Settings shows it, the account is then paused for the next Liked music reads) and ends only that line | `set_read_liked_music` | `{}` |
-| `set_auto_upgrade(on)` — "Upgrade automatically when I sync" (Settings › Upgrades, Setup's Downloads step; stage C): whether a sync ends with Same track for every upgrade that needs no decision, while rekordbox is closed. On by default; `on` must be a bool (`refused`: "on must be true or false."). A write job like every settings write (it takes the library lock: `busy` / `console`). Turning it off touches nothing that waits | `set_auto_upgrade` | `{}` |
+| `set_auto_upgrade(on)` — "Upgrade automatically when I sync" (Settings › Upgrades, Setup's Downloads step; stage C): whether a sync ends with Same track for every upgrade that needs no decision, while rekordbox is closed. On by default; `on` must be a bool (`refused`: "on must be true or false."). A settings job like every settings write: it holds no library lock for its run; its save takes the support lock (`busy` / `support_lock` after 2 s) and the library lock for the moment of the save (`busy` / `console`). Turning it off touches nothing that waits | `set_auto_upgrade` | `{auto_upgrade}` (the value saved; the window ignores it, the command line says it) |
 | `add_liked_music()` — "Add Liked music to Playlists" (a `LIBRARY_METHODS` member): appends `Liked_music = https://music.youtube.com/playlist?list=LM` to the end of playlists.txt through the writer `save_playlists` uses (YouTube Music shares no link for it; a folder `Liked_music` taken by another playlist becomes `Liked_music_2`, …). Fails `setting_off` while the choice is off and `exists` when a Liked music line is listed already (on or off). A Playlists page with an unsaved draft meets it through its "changed elsewhere" answer (`playlists().version` changes) | `add_liked_music` | `{folder}` |
 | `setup_account(service, browser, profile?)` — `service` `youtube|soundcloud`, `browser` `safari|chrome|firefox|brave|edge`, `profile` that browser's profile folder (null: the default); checks the login in that profile (only cookie names are read), then saves the browser, the profile and the check (`last_check`). A login without Premium or Go+ is saved too (`saved: true`, its check recorded): SoundCloud's is used for downloads, YouTube's only to read Liked music and never for a download (`Settings.download_accounts`: no cookies, no limit card, no usage row, no `premium_missing`). A later check that finds Premium makes it the download account. A failed check of the saved login itself (same browser and profile) is recorded on it | `setup_account` | `{service, browser, profile, saved, check}` (`check` = AccountCheck) |
 | `setup_forget_account(service)` — removes the saved browser of that account (forgetting the YouTube login also turns Liked music off: signing in again does not turn it back on) | `setup_forget_account` | `{service}` |
-| `update_tools()` — the newest yt-dlp (+ the yt-dlp-ejs it pins) from PyPI into the support folder, tested in its own process before use; streamrip only changes with Discjockey releases. `failed` + a plain sentence (never a traceback or an OS error text) when: offline ("Couldn't reach the download server..."), the server answers with an error status ("The download server has a problem right now..."), its answer is not understood, there is no wheel for this Mac, the download was damaged, the disk refuses (the sentence names the reason in plain words: full, not allowed, refused), or the new version failed its test. The tools in use always stay. `stopped` when Stop is pressed (the test process ends too) | `update_tools` | `{before: {"yt-dlp": v}, after: {"yt-dlp": v}, restart}` — `before`/`after` the version the next start uses before/after; `restart` true when that isn't the version this window runs → ask to reopen, then `quit()`; already the newest: `before == after` (`restart` still true when an earlier update waits for a reopen) |
-| `rollback_tools()` — back to the yt-dlp used before the last update (the folder stepped back from is deleted unless this window runs it); `refused` "There is no earlier version to go back to."; disk problems as `update_tools` | `rollback_tools` | `{before, after, restart}` as `update_tools` |
+| `update_tools()` — the newest yt-dlp (+ the yt-dlp-ejs it pins) from PyPI into the support folder, tested in its own process before use; streamrip only changes with Discjockey releases. `failed` + a plain sentence (never a traceback or an OS error text) when: offline ("Couldn't reach the download server..."), the server answers with an error status ("The download server has a problem right now..."), its answer is not understood, there is no wheel for this Mac, the download was damaged, the disk refuses (the sentence names the reason in plain words: full, not allowed, refused), or the new version failed its test. The tools in use always stay. `busy` while a write job of this support folder runs (this window's, a terminal job found in the registry, or a terminal run holding the library): it takes no library lock itself, only the support lock (`.support.lock`) for its whole run, and answers `busy` / `support_lock` when another process holds that for 2 s. `stopped` when Stop is pressed (the test process ends too) | `update_tools` | `{before: {"yt-dlp": v}, after: {"yt-dlp": v}, restart}` — `before`/`after` the version the next start uses before/after; `restart` true when that isn't the version this window runs → ask to reopen, then `quit()`; already the newest: `before == after` (`restart` still true when an earlier update waits for a reopen) |
+| `rollback_tools()` — back to the yt-dlp used before the last update (the folder stepped back from is deleted unless this window runs it); `refused` "There is no earlier version to go back to."; `busy` and disk problems as `update_tools` | `rollback_tools` | `{before, after, restart}` as `update_tools` |
 
 `setup_check_account(service)` (immediate; refused with `sync_running` during any sync, and with `refused` when the account is
 not set up) — the saved login checked again → `{"service", "check"}`. AccountCheck = `{ok, problem, kbps, message}`:
@@ -1823,9 +1863,7 @@ not set up) — the saved login checked again → `{"service", "check"}`. Accoun
 Signing in through the browser (spec settings-setup §5, §7, §13). Only cookie *names* are read, from copies; macOS
 never asks for a password while Discjockey looks. A sign-in runs in its own slot beside the write jobs (no library lock:
 waiting changes nothing), one at a time; `job_status().sign_in` is its snapshot (`last.SignInPhase` = where it is).
-A sync may start while it waits; the check then doesn't run. Every settings write takes the library lock: a write job
-holds it already, a sign-in or `setup_check_account` takes it for the moment of the save and is answered `busy` /
-`console` instead of waiting (one writer at a time).
+A sync may start while it waits; the check then doesn't run. Every settings write takes the support lock (waited for 2 s, then `busy` / `support_lock`) and, inside it, the library lock for the moment of the save, answered `busy` / `console` instead of waiting: a settings job holds no library lock for its run, a sign-in or `setup_check_account` holds none at all (one writer at a time; lock order support, library, rekordbox.lock).
 
 | method | kind | result / notes |
 |---|---|---|
@@ -1914,7 +1952,7 @@ Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views
 | `removal_preview(folder_id)` | read | `{name, files, redownload}`: the folder's file count, and the playlist songs whose only file is there (they download again at the next sync). `refused` for the Library or a number that is no watched folder ("That folder isn't one of the watched folders.") |
 | `add_watched_folder(path)` | write → job `import` | Checks the folder as above (`refused` with its message when it can't be watched), watches it, then imports in the same job. `JobFinished.result`: ImportResult (below) |
 | `start_import()` | write → job `import` | "Continue import": the import again where it stopped. Also lets the import start by itself again this session (a Stop holds that) |
-| `remove_watched_folder(folder_id)` | write → job `folders` | `{files, redownload}` as `removal_preview` said. The files stay where they are; own songs left with no file go; playlist songs left with no file download again. The preview is planned again at once. `refused` for the Library or an unknown number |
+| `remove_watched_folder(folder_id)` | write → job `folders` | `{name, files, redownload}` as `removal_preview` said (`name` is for the command line's words). The files stay where they are; own songs left with no file go; playlist songs left with no file download again. The preview is planned again at once. `refused` for the Library or an unknown number |
 | `answer_same_song(song_key, own_key, same)` | write → job `answer` | "Is this the same song?" answered (`same`: bool): the preview is planned again (Yes: the next plan links the file to the playlist song; No: the song downloads at the next sync, and is never asked again). `result` `{}`. `changed` when `song_key` isn't a playlist song any more |
 | `keep_duplicates(group_id, paths)` | write → job `answer` | "Keep both" / "Keep all": the group isn't asked again; it applies to every file of the group (a group can hold more than two). `paths`: the group's files' `path`s as the card showed them (list of strings, any order); `changed` when they are not the group's files now (a file id can be given out again to another file). `result` `{}` |
 | `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | One file of the group to Superseded/ (the panel's "Keep the …" sends one per file that goes); nothing is deleted. `paths`: as for `keep_duplicates`. `result` `{result: Result, recovered: []}` (`result.section` `replaced`, `result.path` where the file went, relative to the music folder). `changed` when the group isn't as the page showed it (a file gone, offline or a different group), `failed` when the move was refused (nothing moved) |
@@ -1972,7 +2010,7 @@ the third action).
 
 | type | fields |
 |---|---|
-| `JobStarted` | `job_id` int, `kind` str, `track_id` str\|null, `batch_kind` `"upgrade"\|"convert"\|"mixed"`\|null (an AIFF batch job's kind as the snapshot's; null for any other job) |
+| `JobStarted` | `job_id` str (`job:<8 hex>`), `kind` str, `track_id` str\|null, `batch_kind` `"upgrade"\|"convert"\|"mixed"`\|null (an AIFF batch job's kind as the snapshot's; null for any other job) |
 | `JobFinished` | `job_id`, `kind`, `ok` bool, `problem` kind\|null, `message` str, `result` object\|null, `service` `spotify\|qobuz\|soundcloud\|youtube_music`\|null (the playlist service a failed job's problem is about — a sync or read that stops at a missing login, a rejected login, an unreadable playlist, a service not answering; null for everything else and for success) |
 | `ConsoleBusy` | `running` bool (terminal run started/ended → banner, read-only) |
 | `FileDropped` | `track_id` str\|null, `name` str, `readable` bool, `message` str ("macOS didn't let Discjockey read this file…" / "Select the track…") |
@@ -2004,9 +2042,9 @@ latest is sent). The pause card's source is the latest `SourceChosen` of the cur
 
 - **Problem kind `rekordbox_open`**: a batch or an undo needs rekordbox closed ("rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed."; stopped mid-way: "rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and press Resume."). `JobFinished.result` is the stopped `AiffBatchResult` (or the `UndoResult`) when items ran.
 - **`upgrade` block** (`track().upgrade`): `swap_possible` now means "Same track can run now" (the quick answer: a parked upgrade, the file there, a stored alignment `exact`/`shifted`, and for a file that isn't AIFF a rekordbox library Discjockey can open or none); new `swap_how` (`in_place` for an AIFF, `new_aiff`), `why_not` (an eligibility reason key, null when possible), `rekordbox: {state: ready\|none\|unreadable, running}` (cached, see below), `auto_refused` (stage C, see "Auto-upgrade" below). `upgrade_status` says "cues can stay" whenever Same track is possible.
-- **`check_view`** (`check`): reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
-- **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
-- **Cached rekordbox state**: `HubApi._rekordbox_status()` keyed on master.db's modified time and size plus whether rekordbox runs; one read open per change, never while any write job of this hub runs (a sync, import or tidy-up runs the recovery first, which can finish a rekordbox write: it answers the last value). Services `rekordbox_running` and `rekordbox_place` are injected (tests and the fake never touch a real library).
+- **`check_view`** (`check`): gains `person_steps` (issue 39, the command line's): `[{id, say, then}]`, the steps only the person can do in rekordbox. An added file (New track) is `step:relocate_new`, its `say` the check's text ending with the new file's absolute path; a swap, Same track or Convert is `step:reload_tag`, its `say` the check's text (with the USB step for a repointed or converted file rekordbox has tracks of); `then` is `check done <track_id>` (a step with no command of its own, such as quitting rekordbox, has `then: null`: run the same command again); a clean name and a wrong song have none (`words.person_steps`). The window words its own numbered steps and ignores it. Reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
+- **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, aiff_id (`aiff:<id>`, the id the command line takes; the window ignores it), size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
+- **Cached rekordbox state**: `HubApi._rekordbox_status()` keyed on master.db's modified time and size plus whether rekordbox runs; one read open per change. A reader takes `rekordbox.lock` shared and without waiting (`rekordbox.lock.reader_lock`); while a writer of any Discjockey process (a batch's session, a restore, a recovery of analysis files) holds it, master.db is never opened and the answer is the last value (`writing`, see `rekordbox_status()`). The same goes for the plan behind To-do's CDJ group and the `aiff_plan` read: with a writer holding the lock they plan on rekordbox's cached state and no lookup. A write job that holds no rekordbox session does not stop the read. Services `rekordbox_running` and `rekordbox_place` are injected (tests and the fake never touch a real library).
 
 
 ## Auto-upgrade (issue 33 stage C)
@@ -2018,11 +2056,16 @@ or stops: `sync_work` passes the job's Stop token and the hub's rekordbox servic
 `rekordbox_place`, `compare`, `now`) to both ways a sync ends, so Stop reaches the phase even when the plan had no
 action.
 
-- **`set_auto_upgrade(on)`** (write job `set_auto_upgrade`, result `{}`): see Settings. **`setup_status().auto_upgrade`**
+- **`set_auto_upgrade(on)`** (write job `set_auto_upgrade`, result `{auto_upgrade}`: the value saved, for the command line's words): see Settings. **`setup_status().auto_upgrade`**
   is the switch. `SettingKey` is unchanged (no read needs the switch).
 - **`rekordbox_status()`** (read, any time; works without a music folder, not a `LIBRARY_METHODS` member) →
-  `{state: "ready" | "none" | "unreadable", running: bool}`. `state` is the cached `_rekordbox_status()` (one read open
-  per change of master.db; while a write job of this hub runs it answers its last value), `running` is asked on every
+  `{state: "ready" | "none" | "unreadable", running: bool, state_text, problem: "unclean" | "busy" | "key" | "db_version" |
+  "schema" | null, problem_text, version, library, db_version, modified_at, size}` (issue 39: the command line's richer
+  answer; the window reads `state` and `running` only; `version` is rekordbox's own, `library` the path of master.db,
+  `modified_at` its local modified time to the second and `size` its size, so "master.db untouched meanwhile" can be
+  checked; each is null where unknown), plus `writing: true` and `as_of` (ISO time the value was
+  read, or null) only while a writer holds `rekordbox.lock`. `state` is the cached `_rekordbox_status()` (one read open
+  per change of master.db; with a writer holding the lock it answers its last value), `running` is asked on every
   call. The Sync page reads it when it opens and when the window gets focus again (no timer); `none`: no rekordbox
   library on this Mac, `unreadable`: one Discjockey cannot open.
 - **`sync_preview().auto_upgrade`** → `{on: true, ready: n} | null`. `n` = the phase's set now: To-do's Upgrade ready
@@ -2074,7 +2117,9 @@ hub) and `hub-ui/src/lib/bridge/fake/convert.test.ts` (the fake backend) both re
 `AiffScope`, `AiffPlan`, `CdjWhy`, `CdjWords`); the new methods are in `contract.ts` and, as `LIBRARY_METHODS` members,
 answer `no_library` without a music folder.
 
-- **`aiff_plan(scope)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). `scope` is
+- **`aiff_plan(scope, only?)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). `only` is the command
+  line's (`aiff rename --dry-run`; the window sends none): `"rename"` plans Rename's answer alone, as `rename` runs it (a file
+  that needs a Convert is left out, in a `tracks` scope `skipped` as `needs_convert`); any other value is `refused`. `scope` is
   `{kind: "tracks", tracks: [key, …]}` (what the user picked; each song once), `{kind: "lossless", view:
   "all"\|"unlisted"\|"playlist"\|"folder", key: str\|null}` (the view's own files, as `library()` lists them without filter or
   search, whose stored codec is lossless; `key` is null for `all` / `unlisted`) or `{kind: "cdj"}` (To-do's group).
@@ -2098,9 +2143,18 @@ answer `no_library` without a music folder.
     "AIFF 24-bit or above 44.1 kHz → 16-bit", "New tags", "Clean name only", then "{format} → AIFF").
   - `lossy`: how many items have a lossy file now. `space`: `[{drive, needed, free, enough}]`, the room per drive
     (`drive` is a folder on it). `superseded_bytes`: what `Superseded/` takes. `rekordbox`: `{state: ready\|none\|unreadable,
-    running, needs_closed}`, `needs_closed` true when an item's file is in rekordbox's library.
-  - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Files without stored
-    facts (the import's facts fill hasn't reached them) are left out until it does.
+    running, needs_closed, writing?}`, `needs_closed` true when an item's file is in rekordbox's library; `writing: true` (only
+    then present) says a writer of any Discjockey process held `rekordbox.lock`, so master.db was not opened and the plan took
+    rekordbox's cached state with no lookup of its tracks (as `rekordbox_status` answers `writing`).
+  - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Own files without stored facts are read in memory (ffprobe) and never stored
+    (`aiff_plan.with_facts`), for the window and the command line alike, for the files the scope looks at that `library
+    facts` would store: at most 50, read again at every call, so the panel shows what the run (which fills the facts
+    first) will do. With more, the command line's answer is `refused` (`kind` `refused`, `reason` `facts_missing`,
+    `data` `{missing, most: 50}`, `next: library facts`) and nothing is planned; the window's plans on the stored facts
+    alone (own files without facts left out) and never refuses for this. To-do's CDJ group counts on the stored facts
+    only, so while files lack them its panel can list more than its count. A file ffprobe found no sound in (marked) is not counted and is not read.
+    The command line's empty answers: `--rows` and `rename --all` with no song, and a plan of a clean library, are `ok`
+    with `total` 0; `aiff convert --all` on a clean library is `refused`.
 - **`track().aiff`** (`aiff_plan.file_answer`): `null` (no file, a download (also while its drive is away), a better version waiting: the upgrade decision
   stands) or `{action: "convert"\|"rename"\|null, why_not: reason\|null, kind, from, to, name_now, new_name, bytes, lossy,
   cdj: {short, words}\|null}`. `kind`, `to` ("AIFF · 16-bit · 44.1 kHz" for a Convert, null for a rename), `new_name`
@@ -2112,17 +2166,27 @@ answer `no_library` without a music folder.
   name is a Rename with `new_name` null and `bytes` 0. For every other reason (`named_already`, `away`, `needs_convert`,
   `no_name`, …) `action` is null, `kind` / `to` / `new_name` null and `bytes` 0. `from`, `lossy` and `cdj` always say what
   the file is. rekordbox is read from the cached state. The same meaning holds for a plan's `skipped` (a reason is a
-  blocked or empty answer, never an item); views, api, the fake and the console's `convert --dry-run` read the one
+  blocked or empty answer, never an item); views, api, the fake and the command line's `aiff convert --dry-run` read the one
   `aiff_plan` and add nothing of their own.
-- **Write jobs** `convert(track_ids, origin = "library" \| "todo")`, `rename(track_ids)` and `make_aiff(scope)` (scope
+- **Write jobs** `convert(track_ids, origin = "library" \| "todo", plan_id?)`, `rename(track_ids, plan_id?)` and `make_aiff(scope, plan_id?)` (scope
   `lossless` or `cdj`; any other is `refused`) → `{job_id}`; job kind `aiff_batch`, progress `BatchProgress`, result
   `AiffBatchResult` (`{batch, state, stop_reason, total, done, skipped, failed, results: [{track, action, state, reason,
   message, path, rekordbox}], backup, recovered}`, items' `action` `convert` or `rename`). One selected id is a batch
   "alone" (its job carries the `track_id`).
+  - `plan_id` (the command line's `--plan`; the window sends none): only the items of that plan that still stand run
+    (each item's answer as `aiff_plan` gives it now equals the one the dry run saw, keyed by song), as one batch; the
+    others are `skipped` with reason `changed` (a named-songs run lists only the songs it was given), and
+    `new_since_plan: [track ids]` (only when there are some) lists the songs that have an item now and had none in the
+    plan. A plan none of whose songs stands (also one whose songs the run does not name) is `changed` (as for `upgrade`); a plan that had no items (a clean
+    library) ends the job done with `batch` null and `total` 0 (the command line says "Nothing to change: these are clean
+    AIFFs already." unless `new_since_plan` lists songs); an unknown plan is `bad_args`, an old one `refused`
+    (`plan_expired`), as for `upgrade`.
   - `convert` does each file's own answer (`eligible.aiff_action`: Convert, or only the name for a clean AIFF); `rename` is
     Rename's answer alone (a file that needs a Convert is left out as `needs_convert`); `make_aiff` plans again at its start.
   - The batch's `started_by` / `scope`: `convert` → `user` / `library:selection` or `todo:selection`; `rename` → `user` /
-    `library:selection`; `make_aiff` lossless → `make_aiff` / `library:<view>[:<key>]`; cdj → `cdj_all` / `todo:cdj`. The
+    `library:selection`; `make_aiff` lossless → `make_aiff` / `library:<view>[:<key>]`; cdj → `cdj_all` / `todo:cdj`. A batch a
+    command starts (the command line's `CliApi`) says `via` `terminal` (the window's `window`) and its selection's scope `selection`; the
+    `console` scope is gone (older console batches were migrated to `via` `terminal`, scope null). The
     batch's `kind` (`aiff_batches.kind`) is `convert` (`mixed` with a Same track item).
   - A selection's results also list the songs the plan left out, as `skipped` items (counted in `total` and `skipped`).
   - Refusals end the job `refused` with `batch` null, `state` "done" and the skipped items in the result: a selection says

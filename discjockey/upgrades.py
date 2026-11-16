@@ -1,7 +1,7 @@
 """Parked upgrades: what the user can do with a better version an upgrade check found (spec "Upgrades"): a lossless
 one, or a clearly better ~256 kbps stream of a lossy file (spec §4).
 
-Front-end independent: `discjockey upgrades` (console) and the hub's "Upgrade ready" group use it.
+Front-end independent: `discjockey upgrade …` (console) and the hub's "Upgrade ready" group use it.
 Callers hold the run lock and have recovered pending operations first. Every action re-checks its
 precondition and returns one events.Result; problems the user should read raise UpgradeProblem.
 
@@ -761,11 +761,29 @@ def undo_writer(session: Session, stack: ExitStack, converted: bool = False,
                              "changed.") from err
 
 
-def can_undo(entry: dict) -> bool:
-    """Pure: whether the entry's rekordbox check holds an undo that may still apply (the track still has the step's
-    file and no newer version waits). Whether the files changed is checked only when the undo runs."""
+# why an undo cannot apply to a track, by reason key: the words of `undo_blocker` (`HubApi.undo_upgrade_preview`)
+UNDO_BLOCKED = {
+    "nothing_to_undo": NOTHING_TO_UNDO,
+    "other_file": "This track has another file now, so its last step can't be undone.",
+    "newer_waiting": "Another better version is waiting for this track now, so its last step can't be undone.",
+}
+
+
+def undo_blocker(entry: dict | None) -> str | None:
+    """Pure: the key of `UNDO_BLOCKED` that says why the entry's last file step cannot be undone, or None when its
+    rekordbox check holds an undo that may still apply (the track still has the step's file and no newer version
+    waits). Whether the files changed is checked only when the undo runs."""
     u = upgrade_undo(entry)
-    return bool(u) and entry.get("path") == u.get("file") and not entry.get("upgrade")
+    if not u:
+        return "nothing_to_undo"
+    if entry.get("path") != u.get("file"):
+        return "other_file"
+    return "newer_waiting" if entry.get("upgrade") else None
+
+
+def can_undo(entry: dict) -> bool:
+    """Pure: whether the entry's rekordbox check holds an undo that may still apply (`undo_blocker` says why not)."""
+    return undo_blocker(entry) is None
 
 
 class _UndoStuck(Exception):

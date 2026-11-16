@@ -10,7 +10,7 @@ import {
 const view = (extra: Partial<RekordboxCheckView> = {}): RekordboxCheckView => ({ reason: 'converted', since: '2026-11-14',
   match: null, offset_ms: null, moved: false, aligned: false, text: 'Your file is now an AIFF with a clean name and tags.',
   old_path: 'Superseded/Hard_Bounce/A - x.flac', reload_tag: true, batch: { id: 7, size: 3 }, rekordbox: { entries: 1, kept: [] },
-  old_name: null, ...extra });
+  old_name: null, person_steps: [], ...extra });
 const check = (id: string, c: Partial<RekordboxCheckView> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
   quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false,

@@ -165,13 +165,13 @@ describe('the notes', () => {
 });
 
 describe('a job that did not take the track', () => {
-  const done = (results: Partial<ItemResult>[]): JobOutcome<AiffBatchResult> => ({ ok: true, job_id: 1, result: { batch: 1, state: 'done',
+  const done = (results: Partial<ItemResult>[]): JobOutcome<AiffBatchResult> => ({ ok: true, job_id: 'job:00000001', result: { batch: 1, state: 'done',
     stop_reason: null, total: results.length, done: 0, skipped: results.length, failed: 0, backup: null, recovered: [],
     results: results.map((r) => ({ track: 'own:1', action: 'convert', state: 'skipped', reason: null, message: null, path: null,
       rekordbox: null, ...r })) } });
   it('a refusal says its own words; rekordbox open has design §8\'s as a fallback', () => {
-    expect(aiffProblem({ ok: false, job_id: 3, kind: 'refused', message: 'Nothing here can be changed.' })).toBe('Nothing here can be changed.');
-    expect(aiffProblem({ ok: false, job_id: 3, kind: 'rekordbox_open', message: '' })).toBe(REKORDBOX_OPEN_WORDS);
+    expect(aiffProblem({ ok: false, job_id: 'job:00000003', kind: 'refused', message: 'Nothing here can be changed.' })).toBe('Nothing here can be changed.');
+    expect(aiffProblem({ ok: false, job_id: 'job:00000003', kind: 'rekordbox_open', message: '' })).toBe(REKORDBOX_OPEN_WORDS);
     expect(aiffProblem({ ok: false, job_id: null, kind: 'busy', message: '' })).toBe("That didn't work.");
   });
   it('a skipped or failed track says why; a track that went says nothing', () => {

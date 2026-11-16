@@ -23,7 +23,7 @@ from __future__ import annotations
 import errno
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -34,7 +34,7 @@ from mutagen.id3 import ID3
 from . import db, identify, library, quality
 from .events import Cancelled, CancelToken, Emit, ImportProgress, Message, no_emit
 from .library import Paths, StateError
-from .models import ImportRow, OwnFacts
+from .models import FileAudio, ImportRow, OwnFacts
 
 if TYPE_CHECKING:
     from .run import Prepared
@@ -128,7 +128,7 @@ def files_waiting(paths: Paths) -> int:
     they never start an import."""
     if not paths.db_file.exists():
         return 0
-    with db.connect(paths.db_file) as conn:
+    with db.connect(paths.db_file, read_only=True) as conn:
         return db.import_left(conn) + db.facts_missing(conn)
 
 
@@ -190,35 +190,66 @@ def _gone(row: ImportRow | Path) -> bool:
     return not os.path.lexists(row if isinstance(row, Path) else row.path)
 
 
+@dataclass(frozen=True)
+class FactRead:
+    """What probing one file found (`read_facts`): its `audio` facts, or None. `failed`: ffprobe ran and found no sound
+    in the file, so its row is to be marked (`store_facts`); False for a file ffprobe could not be asked about
+    (missing or not runnable, or the file gone meanwhile), which holds nothing against it."""
+    file_id: int
+    path: Path
+    audio: FileAudio | None
+    failed: bool
+
+
+def read_facts(rows: Sequence[tuple[int, Path]], *, emit: Emit = no_emit, token: CancelToken | None = None,
+               probe: Callable[[Path], quality.AudioInfo] = quality.probe, unreadable: int = 0) -> Iterator[FactRead]:
+    """The probing half of the facts pass: each `(file id, path)` of `rows` read in order, one `FactRead` after the
+    other (a caller that stores them as they come keeps what was read when a Stop ends it). Pure of library.db: it
+    opens no database and writes nothing, so a dry run can read the facts of a few files in memory. Progress goes out
+    as the "facts" phase; `unreadable` is the import's count so far. `token` is checked before each file
+    (`Cancelled`)."""
+    token = token or CancelToken()
+    if not rows:
+        return
+    pacer = _Pacer(emit, "facts", len(rows), unreadable)
+    for done, (file_id, path) in enumerate(rows, 1):
+        token.check()
+        try:
+            audio = quality.file_audio(probe(path))
+        except Exception as e:  # noqa: BLE001 - gone, unreadable or no sound: the tags pass and the scan say so
+            # ffprobe ran and found nothing in the file: marked, so the next fill skips it until the file changes.
+            # An OSError is ffprobe missing or not runnable (or the file unreachable): nothing to hold against it
+            yield FactRead(file_id, path, None, not isinstance(e, OSError) and not _gone(path))
+        else:
+            yield FactRead(file_id, path, audio, False)
+        pacer.step(done, unreadable)
+
+
+def store_facts(conn, facts: Iterable[FactRead]) -> int:
+    """The storing half: every fact of `facts` written as it comes (`db.set_file_facts`; a file ffprobe found no
+    sound in is marked, `db.set_facts_failed`, keyed on its size and mtime and left out of later fills until the file
+    changes). The caller holds the library lock and gave a writable connection. Returns the rows filled."""
+    filled = 0
+    for fact in facts:
+        if fact.audio is not None:
+            db.set_file_facts(conn, fact.file_id, fact.audio)
+            filled += 1
+        elif fact.failed:
+            db.set_facts_failed(conn, fact.file_id)
+    return filled
+
+
 def fill_facts(paths: Paths, *, emit: Emit = no_emit, token: CancelToken | None = None,
                probe: Callable[[Path], quality.AudioInfo] = quality.probe, unreadable: int = 0) -> int:
     """The facts pass: probe every own file that has no audio facts stored and store them (plan rekordbox stage D
-    §0.3; the import's first pass, and what `discjockey convert` / `rename` run first for a library whose files are from
-    before schema 8). A file ffprobe can't read is no import failure: its row is marked (`db.set_facts_failed`,
-    keyed on its size and mtime) and left out of later fills until the file changes; when ffprobe itself is missing
-    or can't run, nothing is marked and the next fill tries again. Progress goes out as the "facts" phase; `unreadable` is the import's count so far. The caller
-    holds the library lock. Returns the rows filled."""
-    token = token or CancelToken()
-    filled = 0
+    §0.3; the import's first pass, and what `library facts` and a convert run first for a library whose files are from
+    before schema 8): `read_facts` into `store_facts`. A file ffprobe can't read is no import failure: its row is
+    marked and left out of later fills until the file changes; when ffprobe itself is missing or can't run, nothing
+    is marked and the next fill tries again. Progress goes out as the "facts" phase; `unreadable` is the import's
+    count so far. The caller holds the library lock. Returns the rows filled."""
     with db.connect(paths.db_file) as conn:
         rows = db.files_without_facts(conn)
-        if not rows:
-            return 0
-        pacer = _Pacer(emit, "facts", len(rows), unreadable)
-        for done, (file_id, path) in enumerate(rows, 1):
-            token.check()
-            try:
-                audio = quality.file_audio(probe(path))
-            except Exception as e:  # noqa: BLE001 - gone, unreadable or no sound: the tags pass and the scan say so
-                # ffprobe ran and found nothing in the file: marked, so the next fill skips it until the file changes.
-                # An OSError is ffprobe missing or not runnable (or the file unreachable): nothing to hold against it
-                if not isinstance(e, OSError) and not _gone(path):
-                    db.set_facts_failed(conn, file_id)
-            else:
-                db.set_file_facts(conn, file_id, audio)
-                filled += 1
-            pacer.step(done, unreadable)
-    return filled
+        return store_facts(conn, read_facts(rows, emit=emit, token=token, probe=probe, unreadable=unreadable))
 
 
 class _Run:

@@ -23,7 +23,7 @@ const D: DownloadsView = {
 let calls: [string, unknown[]][] = [];
 let nextJob = 1;
 function fakeWindow(over: Record<string, (...a: any[]) => any> = {}) {
-  const job = (name: string) => async (...a: unknown[]) => { calls.push([name, a]); return { ok: true, job_id: nextJob++ }; };
+  const job = (name: string) => async (...a: unknown[]) => { calls.push([name, a]); return { ok: true, job_id: `job:${(nextJob++).toString(16).padStart(8, '0')}` }; };
   const w = new EventTarget() as any;
   w.pywebview = { api: {
     find_logins: async () => ({ ok: true, ...LOGINS }),
@@ -36,7 +36,7 @@ function fakeWindow(over: Record<string, (...a: any[]) => any> = {}) {
   } };
   (globalThis as any).window = w;
 }
-const finish = (job_id: number, kind: string, extra: object = {}) => dispatch({ type: 'JobFinished', job_id, kind,
+const finish = (job_id: string, kind: string, extra: object = {}) => dispatch({ type: 'JobFinished', job_id, kind,
   ok: true, problem: null, message: '', result: null, ...extra } as any);
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -65,7 +65,7 @@ describe('AccountFlow', () => {
     expect(f.phase(D)).toEqual({ kind: 'checking', browserName: 'Chrome' });
     expect(f.busy).toBe(true);
     await flush();
-    finish(1, 'setup_account', { result: { check: { ok: true, problem: null, kbps: 256, message: 'Works.' } } });
+    finish('job:00000001', 'setup_account', { result: { check: { ok: true, problem: null, kbps: 256, message: 'Works.' } } });
     await p;
     expect(calls[0]).toEqual(['setup_account', ['youtube', 'chrome', 'Profile 2']]);
     expect(f.active).toBeNull();
@@ -78,7 +78,7 @@ describe('AccountFlow', () => {
     await f.load();
     const p = f.useLogin('chrome', 'Profile 2');
     await flush();
-    finish(1, 'setup_account', { result: { check: { ok: false, problem: 'no_premium', kbps: 160, message: 'No Premium.' } } });
+    finish('job:00000001', 'setup_account', { result: { check: { ok: false, problem: 'no_premium', kbps: 160, message: 'No Premium.' } } });
     await p;
     const ph = f.phase(D);
     expect(ph).toMatchObject({ kind: 'result', tone: 'warn', message: 'No Premium.' });
@@ -96,7 +96,7 @@ describe('AccountFlow', () => {
     expect(f.phase(D).kind).toBe('waiting');   // another service's event
     dispatch({ type: 'SignInPhase', service: 'soundcloud', phase: 'checking', browser: 'chrome', browser_name: 'Chrome' });
     expect(f.phase(D)).toEqual({ kind: 'checking', browserName: 'Chrome' });
-    finish(1, 'account_sign_in', { ok: false, problem: 'failed', message: "Didn't see a login in 10 minutes. Sign in again." });
+    finish('job:00000001', 'account_sign_in', { ok: false, problem: 'failed', message: "Didn't see a login in 10 minutes. Sign in again." });
     await p;
     const ph = f.phase(D);
     expect(ph).toMatchObject({ kind: 'result', tone: 'problem', message: "Didn't see a login in 10 minutes. Sign in again." });
@@ -114,7 +114,7 @@ describe('AccountFlow', () => {
     const p = f.signIn('chrome', 'Default');
     await flush();
     await f.cancel();
-    finish(1, 'account_sign_in', { ok: false, problem: 'stopped', message: 'Stopped.' });
+    finish('job:00000001', 'account_sign_in', { ok: false, problem: 'stopped', message: 'Stopped.' });
     await p;
     expect(calls.map((c) => c[0])).toEqual(['account_sign_in', 'stop_sign_in']);
     expect(f.phase(D)).toEqual(picked);
@@ -139,20 +139,20 @@ describe('AccountFlow', () => {
     const f = new AccountFlow('youtube', () => {});
     const p = f.checkAgain({ ...D.youtube, state: 'on', browser: 'chrome', browser_name: 'Chrome', profile: 'Profile 2' });
     await flush();
-    finish(1, 'setup_account', { result: { check: { ok: true, problem: null, kbps: 256, message: '' } } });
+    finish('job:00000001', 'setup_account', { result: { check: { ok: true, problem: null, kbps: 256, message: '' } } });
     await p;
     expect(calls[0]).toEqual(['setup_account', ['youtube', 'chrome', 'Profile 2']]);
   });
   it('picks up a sign-in still waiting from before', async () => {
     fakeWindow({ job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
-      sign_in: { id: 7, kind: 'account_sign_in', running: true, last: { SignInPhase: { type: 'SignInPhase',
+      sign_in: { id: 'job:00000007', kind: 'account_sign_in', running: true, last: { SignInPhase: { type: 'SignInPhase',
         service: 'youtube', phase: 'waiting', browser: 'chrome', browser_name: 'Chrome' } } } }) });
     const changed = vi.fn();
     const f = new AccountFlow('youtube', changed);
     const off = f.mount();
     await flush(); await flush();
     expect(f.phase(D)).toEqual({ kind: 'waiting', browser: 'chrome', browserName: 'Chrome' });
-    finish(7, 'account_sign_in', { result: { check: { ok: true, problem: null, kbps: 256, message: '' } } });
+    finish('job:00000007', 'account_sign_in', { result: { check: { ok: true, problem: null, kbps: 256, message: '' } } });
     await flush();
     expect(f.active).toBeNull();
     expect(changed).toHaveBeenCalledOnce();
@@ -170,7 +170,7 @@ describe('AccountFlow', () => {
     expect(el.value).toBe('');
     expect(f.phase(D)).toEqual({ kind: 'checking', browserName: null });
     await flush();
-    finish(1, 'setup_qobuz_login', { ok: false, problem: 'failed', message: "Qobuz didn't accept the login." });
+    finish('job:00000001', 'setup_qobuz_login', { ok: false, problem: 'failed', message: "Qobuz didn't accept the login." });
     await p;
     expect(calls[0]).toEqual(['setup_qobuz_login', ['dj@example.com', 'hunter2']]);
     expect(JSON.stringify(f.active)).not.toContain('hunter2');
@@ -181,7 +181,7 @@ describe('AccountFlow', () => {
     const f = new AccountFlow('qobuz', () => {});
     const p = f.checkAgain();
     await flush();
-    finish(1, 'qobuz_check_login');
+    finish('job:00000001', 'qobuz_check_login');
     await p;
     expect(calls[0][0]).toBe('qobuz_check_login');
     f.editQobuz();
@@ -192,7 +192,7 @@ describe('AccountFlow', () => {
     const f = new AccountFlow('qobuz', () => {});
     const p = f.checkAgain();
     await flush();
-    finish(1, 'qobuz_check_login', { ok: false, problem: 'failed', message: "Qobuz didn't accept the login." });
+    finish('job:00000001', 'qobuz_check_login', { ok: false, problem: 'failed', message: "Qobuz didn't accept the login." });
     await p;
     const rejected = f.phase({ ...D, qobuz: { state: 'off', last_check: { ok: false, problem: 'failed', kbps: null, at: '' }, tracks: 3 } });
     expect(rejected).toEqual({ kind: 'result', message: "Qobuz didn't accept the login.", tone: 'problem', retry: { kind: 'form' } });
@@ -207,7 +207,7 @@ describe('AccountFlow', () => {
     const p = f.signOut();
     answerConfirm(true);
     await flush();
-    finish(1, 'setup_forget_account', { ok: false, problem: 'busy', message: 'Wait until the current change is finished.' });
+    finish('job:00000001', 'setup_forget_account', { ok: false, problem: 'busy', message: 'Wait until the current change is finished.' });
     await p;
     const on = { ...D, youtube: { ...D.youtube, state: 'on' as const, browser: 'chrome' as const, browser_name: 'Chrome' } };
     const phase = f.phase(on);

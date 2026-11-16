@@ -259,7 +259,7 @@ def test_main_reads_spotify_once_by_itself_when_it_opens(tmp_path, monkeypatch):
     assert seen == [("refresh", True)]  # the session's one automatic read
 
 
-def test_discjockey_hub_opens_the_window_in_its_own_process_without_holding_the_lock(tmp_path, monkeypatch):
+def test_app_open_opens_the_window_in_its_own_process_without_holding_the_lock(tmp_path, monkeypatch):
     choose_music(tmp_path, monkeypatch)
     opened = []
 
@@ -269,13 +269,12 @@ def test_discjockey_hub_opens_the_window_in_its_own_process_without_holding_the_
         return 0
 
     monkeypatch.setattr(app, "main", fake_main)
-    assert cli.parse_args(["hub"]).command == "hub"
-    assert cli.main(["hub"]) == 0 and opened == [tmp_path]
+    assert cli.main(["app", "open"]) == 0 and opened == [tmp_path]
 
 
 def test_the_launcher_starts_the_hub_without_caffeinate():
     text = (__import__("pathlib").Path(__file__).parents[1] / "bin" / "discjockey").read_text()
-    hub = text.index('if [ "$1" = "hub" ]; then')
+    hub = text.index('if [ "$1" = "app" ] && [ "$2" = "open" ]; then')
     assert 'exec "$DIR/.venv/bin/python" -m discjockey "$@"' in text[hub:text.index("fi", hub)]
 
 

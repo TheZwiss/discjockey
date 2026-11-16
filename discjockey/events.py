@@ -7,6 +7,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Literal
 
 from .models import Action
@@ -18,26 +19,54 @@ class Cancelled(BaseException):
     """The user asked to stop. A BaseException so that `except Exception` handlers never swallow it."""
 
 
-class CancelToken:
-    """Set from any thread (Ctrl-C handler, hub button); checked by the core between and inside steps."""
+CTRL_C_REPEAT_S = 1.0  # uv and caffeinate forward one Ctrl-C a second time: a second press sooner than this is ignored
+STOP_CHECK_S = 0.5  # how often a stop file is looked for at most, and the longest step of a sleep
 
-    def __init__(self) -> None:
+
+class CancelToken:
+    """Set from any thread (Ctrl-C handler, hub button) or, with a stop file, from any process (`job stop` writes the
+    file, design §6.4); checked by the core between and inside steps."""
+
+    def __init__(self, stop_file: Path | None = None) -> None:
         self._event = threading.Event()
+        self._stop_file = stop_file
+        self._next_look = 0.0  # the monotonic time before which the file is not looked for again
 
     def cancel(self) -> None:
         self._event.set()
 
     @property
     def cancelled(self) -> bool:
-        return self._event.is_set()
+        """The event is set or the stop file exists (one `stat` at most every 0.5 s; once seen, it stays)."""
+        if self._event.is_set():
+            return True
+        if self._stop_file is None:
+            return False
+        now = time.monotonic()
+        if now < self._next_look:
+            return False
+        self._next_look = now + STOP_CHECK_S
+        if self._stop_file.exists():
+            self._event.set()
+            return True
+        return False
 
     def check(self) -> None:
-        if self._event.is_set():
+        if self.cancelled:
             raise Cancelled()
 
     def sleep(self, seconds: float) -> None:
-        """Waits, but wakes up at once (raising Cancelled) when Stop is pressed."""
-        self._event.wait(max(0.0, seconds))
+        """Waits, but wakes up at once (raising Cancelled) when Stop is pressed, and within half a second of a stop file
+        appearing: it waits in steps of at most 0.5 s and checks `cancelled` in each."""
+        end = time.monotonic() + max(0.0, seconds)
+        while True:
+            left = end - time.monotonic()
+            if left <= 0:
+                break
+            if self._event.wait(min(STOP_CHECK_S, left)):
+                break
+            if self.cancelled:
+                break
         self.check()
 
 

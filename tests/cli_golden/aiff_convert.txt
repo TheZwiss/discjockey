@@ -1,0 +1,18 @@
+Made 1 file AIFF, gave 1 file its clean name.
+
+Batch        1
+State        done
+Stop reason  none
+Total        2
+Done         2
+Skipped      0
+Failed       0
+Backup       <backup>
+Recovered    none
+Batch id     aiff:1
+
+Results
+Track      Action   State  Reason  Message                                                                                                                     Path                                         Rekordbox               Person steps
+t0aaaaaaa  convert  done   none    new file Library/A/not_lossless/Artist - Song 0.aiff, lined up with rekordbox; the old one moved to Superseded/A/Old 0.mp3  Library/A/not_lossless/Artist - Song 0.aiff  entries: 1, kept: none  id: step:reload_tag, say: Your file is now an AIFF with a clean name and tags, and your rekordbox track plays it with its cues, playlists and history. The sound is the same. On a USB stick? The stick still plays the old file. Rebuild the stick in rekordbox before your next gig., then: check done t0aaaaaaa
+t2aaaaaaa  rename   done   none    now named Artist - Song 2.aiff                                                                                              Library/A/Artist - Song 2.aiff               entries: 3, kept: none  none
+2 of 2 shown

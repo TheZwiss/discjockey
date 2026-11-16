@@ -138,6 +138,7 @@ def test_the_self_test_ignores_an_installed_update(tmp_path):
 
 # --- SQLCipher ---
 
+@pytest.mark.real_sqlcipher_kdf  # the build's own key derivation is what this check is about
 def test_a_keyed_file_opens_only_with_its_key(tmp_path):
     assert selftest.check_sqlcipher(tmp_path) == []
 
@@ -165,7 +166,7 @@ def test_the_run_includes_the_sqlcipher_check(monkeypatch, tmp_path):
 def no_checks(monkeypatch, **replace):
     """Every check passes (returns []) except the ones in `replace`."""
     for name in ("check_modules", "check_imports", "check_programs", "check_conversion", "check_ui",
-                 "check_download_tools", "check_licenses", "check_sqlcipher"):
+                 "check_download_tools", "check_licenses", "check_sqlcipher", "check_cli"):
         monkeypatch.setattr(selftest, name, replace.get(name, lambda *a, **k: []))
 
 
@@ -241,6 +242,62 @@ def test_a_licences_folder_entry_needs_a_folder_with_texts(tmp_path):
     assert selftest.check_licenses(folder) == [f"licences: {folder / 'libs/'} has no texts"]  # there, but empty
     (folder / "libs" / "zlib.txt").write_text("Zlib")
     assert selftest.check_licenses(folder) == []
+
+
+def cli_answers(**by_word):
+    """A runner that answers `<word> --json` with the given text (default: a good envelope) and exit code."""
+    seen = []
+
+    def run(cmd, **kw):
+        word = next(w for w in ("help", "where") if w in cmd)
+        seen.append((word, cmd, kw))
+        text, code = by_word.get(word, ('{"v": 1, "outcome": "ok", "data": {"command": "/app/Discjockey"}}', 0))
+        return subprocess.CompletedProcess(cmd, code, text + "\n", "stderr words")
+    return run, seen
+
+
+def test_the_cli_round_trip_runs_help_and_where_in_the_scratch_support_folder(tmp_path):
+    run, seen = cli_answers()
+    assert selftest.check_cli(tmp_path, run) == []
+    assert [s[0] for s in seen] == ["help", "where"]
+    for word, cmd, kw in seen:
+        assert cmd[-2:] == [word, "--json"]
+        assert kw["env"]["DISCJOCKEY_SUPPORT"] == str(tmp_path) and kw["env"]["DISCJOCKEY_REKORDBOX"] == ""
+
+
+def test_the_cli_round_trip_in_the_frozen_app_runs_the_app_binary_itself(monkeypatch, tmp_path):
+    from discjockey import tools
+    monkeypatch.setattr(tools, "is_frozen", lambda: True)
+    run, seen = cli_answers()
+    assert selftest.check_cli(tmp_path, run) == []
+    assert seen[0][1] == [sys.executable, "help", "--json"] and seen[0][2]["cwd"] is None
+
+
+@pytest.mark.parametrize("answer", ["not json", '{"v": 2, "outcome": "ok", "data": {"command": "x"}}',
+                                    '{"v": 1, "outcome": "failed", "data": {"command": "x"}}',
+                                    '{"v": 1, "outcome": "ok", "data": {}}', '{"v": 1, "outcome": "ok", "data": null}'])
+def test_a_wrong_cli_answer_fails_the_self_test(tmp_path, answer):
+    run, _ = cli_answers(where=(answer, 0))
+    problems = selftest.check_cli(tmp_path, run)
+    assert len(problems) == 1 and problems[0].startswith("command line `where --json` failed")
+
+
+def test_a_cli_that_exits_nonzero_or_cannot_start_fails_the_self_test(tmp_path):
+    run, _ = cli_answers(help=('{"v": 1, "outcome": "ok", "data": {"command": "x"}}', 1))
+    assert len(selftest.check_cli(tmp_path, run)) == 1
+
+    def broken(cmd, **kw):
+        raise OSError("no such program")
+    assert len(selftest.check_cli(tmp_path, broken)) == 2
+
+
+def test_the_real_cli_round_trip_answers_one_envelope_each(tmp_path):
+    assert selftest.check_cli(tmp_path) == []
+
+
+def test_run_checks_runs_the_cli_round_trip(monkeypatch, tmp_path):
+    no_checks(monkeypatch, check_cli=lambda support, run=None: ["c"])
+    assert selftest.run_checks(tmp_path, tmp_path, tmp_path, frozen=False) == ["c"]
 
 
 def test_run_checks_collects_every_problem(monkeypatch, tmp_path):

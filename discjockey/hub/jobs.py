@@ -6,13 +6,13 @@ Events: `HubEvents.emit` only puts the event on a queue; it never blocks and nev
 from __future__ import annotations
 
 import fcntl
-import itertools
 import json
 import logging
 import os
 import threading
 import traceback
 from collections import deque
+from collections.abc import Iterable, Mapping
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -26,13 +26,15 @@ from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
+from ..problem import Problem
+from . import registry
 
 log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class JobStarted:
-    job_id: int
+    job_id: str  # `job:<8 hex>` (registry.new_job_id)
     kind: str  # see Jobs.start
     track_id: str | None
     batch_kind: str | None = None  # an AIFF batch job's kind ("upgrade" | "convert" | "mixed"), as the snapshot's (A10)
@@ -40,7 +42,7 @@ class JobStarted:
 
 @dataclass(frozen=True)
 class JobFinished:
-    job_id: int
+    job_id: str
     kind: str
     ok: bool
     problem: str | None  # None when ok; else a problem kind (bridge contract)
@@ -180,11 +182,13 @@ BUSY_WORDS = {"scan": SCANNING_TEXT, "import": IMPORTING_TEXT}  # what a write a
 ACTIVITY_OPTIONS = 0x00FFFFFF | (1 << 20)  # NSActivityUserInitiated, idle system sleep disabled
 
 
-class Busy(Exception):
-    """A job could not start. kind: busy (the hub's own job runs) | console (a terminal run holds the lock)."""
+class Busy(Problem):
+    """A job could not start. kind: busy (the hub's own job runs) | console (a terminal run holds the lock) |
+    sync_running. `reason`, `next`, `person_steps` and `data` are `Problem`'s (`data.holder` names who holds it)."""
 
-    def __init__(self, message: str, kind: str):
-        super().__init__(message)
+    def __init__(self, message: str, kind: str, *, reason: str | None = None, next: Iterable[Mapping] = (),
+                 person_steps: Iterable[Mapping] = (), data: Mapping | None = None):
+        super().__init__(message, reason=reason, next=next, person_steps=person_steps, data=data)
         self.kind = kind
 
 
@@ -252,7 +256,7 @@ def problem_of(e: BaseException) -> tuple[str, str]:
         return "stopped", "Stopped. Nothing was left half-done."
     if isinstance(e, rbsession.RekordboxOpen):  # a batch or an undo that needs rekordbox closed (design §8's words)
         return "rekordbox_open", str(e)
-    if isinstance(e, rbsession.Busy):  # another window or the Terminal changes rekordbox's library
+    if isinstance(e, (rbsession.Busy, library.SupportBusy)):  # another process changes rekordbox's library, or saves settings
         return "busy", str(e)
     if isinstance(e, batches.Refused):  # nothing in the batch could be done
         return "refused", str(e)
@@ -292,7 +296,7 @@ def service_of(e: BaseException) -> str | None:
 
 @dataclass
 class JobContext:
-    job_id: int
+    job_id: str
     kind: str
     token: CancelToken
     emit: Emit  # records into the snapshot and sends to the window
@@ -302,7 +306,7 @@ class JobContext:
 
 @dataclass
 class Job:
-    id: int
+    id: str
     kind: str
     track_id: str | None
     token: CancelToken
@@ -314,6 +318,7 @@ class Job:
     results: list = field(default_factory=list)  # every ActionFinished so far (as JSON data)
     finished: dict | None = None  # the JobFinished event
     finishing: threading.Lock = field(default_factory=threading.Lock)  # the worker and Stop never both finish it
+    error: BaseException | None = None  # what the work raised (a worker process reads its `Problem` fields off it)
 
     def record(self, event: object) -> None:
         data = event_dict(event)
@@ -332,12 +337,16 @@ class Job:
 
 class Jobs:
     def __init__(self, lock: Path | None, emit: Emit, *, keep_awake=keep_awake,
-                 now: Callable[[], datetime] = datetime.now):
+                 now: Callable[[], datetime] = datetime.now, inline: registry.JobFiles | None = None):
         """`lock`: the library's .lock; None while no music folder is bound (Setup's first steps): then a write job
-        only waits for the hub's other jobs, as there is no library to share with a terminal run."""
+        only waits for the hub's other jobs, as there is no library to share with a terminal run. `inline`: the job
+        folder of a worker process (`adopt`)."""
         self.lock, self.emit, self.keep_awake, self.now = lock, emit, keep_awake, now
+        self.inline: registry.JobFiles | None = None
+        self.inline_token: CancelToken | None = None  # the adopted job's token: Ctrl-C and its `stop` file cancel it
+        if inline is not None:
+            self.adopt(inline)
         self._mutex = threading.Lock()
-        self._ids = itertools.count(1)
         self.current: Job | None = None  # the running (or last) write job
         self.refresh: Job | None = None
         self.sign_in: Job | None = None  # a sign-in waiting for the browser (its own slot: it changes no library)
@@ -349,6 +358,12 @@ class Jobs:
         self._scanning = False  # scan_lock holds the engine lock (without the mutex): writers answer busy
         self._briefs = 0  # how many times lock_briefly has taken it (a probe that overlapped one doesn't count)
 
+    def adopt(self, files: registry.JobFiles) -> None:
+        """A worker process (`job _worker`) runs exactly one job, the one `files` is: `start` takes that job's id, runs
+        the work on the calling (main) thread, which gets the signals and holds the locks, and returns after the
+        job's `JobFinished`. Its token also watches the job's `stop` file."""
+        self.inline, self.inline_token = files, CancelToken(files.dir / "stop")
+
     def bind(self, lock: Path) -> None:
         """The library's lock, once a music folder is bound (at start or when it is first chosen)."""
         with self._mutex:
@@ -358,10 +373,11 @@ class Jobs:
         job = self.current
         return job if job is not None and not job.done.is_set() else None
 
-    def _busy(self) -> Busy | None:
-        """Busy when a write job runs, or only the preview's scan holds the lock (its own words). The mutex is held."""
+    def _busy(self, own: Job | None = None) -> Busy | None:
+        """Busy when a write job runs, or only the preview's scan holds the lock (its own words). The mutex is held.
+        `own`: the calling thread's own job, which does not count (a job that holds no library lock takes it briefly)."""
         job = self.running()
-        if job is not None:
+        if job is not None and job is not own:
             return Busy(BUSY_WORDS.get(job.kind, BUSY_TEXT), "busy")
         return Busy(SCANNING_TEXT, "busy") if self._scanning else None
 
@@ -377,12 +393,14 @@ class Jobs:
     def lock_briefly(self):
         """The engine lock for one short change made outside a write job: a sign-in's or a page check's settings save
         (spec settings-setup §13, one writer at a time). In a write job's own thread the lock is held already, so
-        nothing is taken. Raises Busy (busy: the hub's write job; console: a terminal run) instead of waiting."""
+        nothing is taken. A job that holds no library lock (`start(hold_library=False)`: a settings job) takes it here,
+        and its own run does not make it busy. Raises Busy (busy: the hub's write job; console: a terminal run)
+        instead of waiting."""
         if getattr(self._holder, "on", False):
             yield
             return
         with self._mutex, ExitStack() as stack:  # no write job can start meanwhile (start takes the mutex)
-            if (busy := self._busy()) is not None:
+            if (busy := self._busy(getattr(self._holder, "job", None))) is not None:
                 raise busy
             self._brief, self._briefs = True, self._briefs + 1
             stack.callback(setattr, self, "_brief", False)
@@ -422,20 +440,31 @@ class Jobs:
             self._scanning = self._brief = False
 
     def _new(self, kind: str, track_id: str | None, batch_kind: str | None = None) -> Job:
-        return Job(next(self._ids), kind, track_id, CancelToken(), self.now().isoformat(timespec="seconds"), batch_kind)
+        files = self.inline
+        job_id, token = (files.id, self.inline_token) if files is not None else (registry.new_job_id(), CancelToken())
+        return Job(job_id, kind, track_id, token, self.now().isoformat(timespec="seconds"), batch_kind)
 
     def start(self, kind: str, work: Callable[[JobContext], dict | None], track_id: str | None = None,
-              batch_kind: str | None = None) -> Job:
+              batch_kind: str | None = None, *, hold_library: bool = True) -> Job:
         """A write job: `work(ctx)` runs in a worker thread while holding the engine lock and keeping the Mac awake.
         `batch_kind`: for an AIFF batch job ("upgrade_batch", "aiff_batch", "batch_resume") the batch's kind, so the
-        snapshot of a reloaded window says whose batch runs. Raises Busy at once if another write job runs or the console holds the lock."""
+        snapshot of a reloaded window says whose batch runs. Raises Busy at once if another write job runs or the console holds the lock.
+        Adopted by a worker process (`adopt`): the same checks, then the work runs here, on the calling thread, and the
+        job is finished when this returns. `hold_library=False` is a support-only job (`tools update`, design §6.1; the
+        settings jobs): it waits for the hub's other jobs like any write job but holds no library lock for its run (its
+        own work takes the support lock, and a settings write takes the library lock briefly inside it: lock order
+        support, library, rekordbox.lock), so it runs without a music folder and never makes a library job busy."""
         with self._mutex:
             if (busy := self._busy()) is not None:
                 raise busy
             if self.console_running():
                 raise Busy(CONSOLE_TEXT, "console")
             job = self.current = self._new(kind, track_id, batch_kind)
-            threading.Thread(target=self._run, args=(job, work, True), name=f"hub-job-{job.id}", daemon=True).start()
+            if self.inline is None:
+                threading.Thread(target=self._run, args=(job, work, True, hold_library), name=f"hub-job-{job.id}",
+                                 daemon=True).start()
+        if self.inline is not None:
+            self._run(job, work, True, hold_library)  # outside the mutex: the work takes it again (lock_briefly)
         return job
 
     def start_refresh(self, work: Callable[[JobContext], dict | None]) -> Job:
@@ -518,26 +547,30 @@ class Jobs:
             except Exception:  # noqa: BLE001
                 log.warning("the hook at the start of a write job failed", exc_info=True)
 
-    def _run(self, job: Job, work, write: bool) -> None:
+    def _run(self, job: Job, work, write: bool, hold_library: bool = True) -> None:
         emit = self._job_emit(job)
         emit(JobStarted(job.id, job.kind, job.track_id, job.batch_kind))
         ok, problem, message, result, service = True, None, "", None, None
         ctx = JobContext(job.id, job.kind, job.token, emit)
         try:
             if write:
-                lock = library.run_lock(self.lock) if self.lock is not None else nullcontext()
+                lock = library.run_lock(self.lock) if self.lock is not None and hold_library else nullcontext()
                 with lock, self.keep_awake("Discjockey is changing your library"):
-                    self._holder.on = True
+                    self._holder.on, self._holder.job = hold_library, job
                     try:
-                        self._at_lock()
+                        if self.inline is not None:  # the worker has the library: the registry says so
+                            self.inline.update(status="running", kind=job.kind)
+                        if hold_library:
+                            self._at_lock()
                         result = work(ctx)
                     finally:
-                        self._holder.on = False
+                        self._holder.on, self._holder.job = False, None
             else:
                 result = work(ctx)
             message = ctx.message
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
             ok = False
+            job.error = e
             problem, message = problem_of(e)
             service = service_of(e)
             result = ctx.failed_result
@@ -669,7 +702,7 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
     def work(ctx: JobContext) -> dict:
         try:
             prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock,
-                               want_info=infos is not None)
+                               want_info=infos is not None, scan=True)
         except run.SetupProblem as e:
             store.failed(e.kind, hub_message(e.kind, str(e), e.service), e.service, ctx.token)
             raise

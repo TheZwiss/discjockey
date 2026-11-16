@@ -16,6 +16,13 @@ def fold(s: str) -> str:
     return unicodedata.normalize("NFC", s).casefold()
 
 
+def search_fold(s: str) -> str:
+    """Comparison key for a search: `fold` without accents, so "Beyonce" finds "Beyoncé" (the command line's `track
+    find`). Whatever `fold` finds, this finds too."""
+    plain = unicodedata.normalize("NFKD", s)
+    return unicodedata.normalize("NFC", "".join(c for c in plain if not unicodedata.combining(c))).casefold()
+
+
 def _truncate_utf8(s: str, limit: int) -> str:
     return s.encode("utf-8")[:limit].decode("utf-8", "ignore")
 

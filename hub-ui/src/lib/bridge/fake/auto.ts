@@ -10,6 +10,12 @@ import { dateOnly, isoLocal, makeUpgrade, pathOf, qualityOf, result, runDetail, 
 /** The switch (on unless the state says off). */
 export const autoOn = (s: FakeState): boolean => s.setup.auto_upgrade !== false;
 
+/** words.REKORDBOX_STATE: the engine's words for the library's state (the command line prints them). */
+export const REKORDBOX_STATE_TEXT: Record<RekordboxStatus['state'], string> = {
+  ready: "rekordbox's library can be read", none: 'no rekordbox library on this Mac',
+  unreadable: "rekordbox's library can't be read",
+};
+
 /** `rekordbox_status()`: the library's state and whether rekordbox runs. */
 export const rekordboxStatus = (s: FakeState): RekordboxStatus =>
   ({ state: s.rekordbox_state ?? 'ready', running: !!s.rekordbox_running });

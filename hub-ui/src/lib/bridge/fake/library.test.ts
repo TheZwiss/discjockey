@@ -377,3 +377,16 @@ describe('library views of a playlist (D9)', () => {
     expect(unlisted.rows.map((r) => r.place).sort()).toEqual([...Array(24).fill('Music'), 'Old_Sets', 'Old_Sets']);
   });
 });
+
+describe('the Library search (views.library, names.search_fold)', () => {
+  it('ignores case and accents: "cafe" finds "Café Noir"', async () => {
+    let id = '';
+    const e = createFakeBridge('normal', { speed: 200, prepare: (s) => {
+      const t = s.tracks.find((x) => x.status !== 'missing')!;
+      t.title = 'Café Noir';
+      id = t.track_id;
+    } });
+    expect(must(await e.library('all', null, 'cafe', 'all', null)).rows.map((r) => r.track_id)).toContain(id);
+    expect(must(await e.library('all', null, 'CAFÉ', 'all', null)).rows.map((r) => r.track_id)).toContain(id);
+  });
+});

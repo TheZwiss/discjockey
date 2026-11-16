@@ -19,7 +19,7 @@ from discjockey.library import load_state, save_state
 from discjockey.models import Question, SourceTrack
 from discjockey.rekordbox.locate import Place
 from discjockey.settings import Settings, load_settings, save_settings
-from hub_helpers import fake_spotify, make_api, make_root, make_unbound_api, wait_job
+from hub_helpers import window, fake_spotify, make_api, make_root, make_unbound_api, wait_job
 
 NOW = datetime(2026, 11, 9, 21, 4)
 
@@ -73,7 +73,7 @@ def test_the_switch_is_on_by_default_and_saves_at_once(tmp_path):
     api, rec = make_api(paths)
     assert api.setup_status()["auto_upgrade"] is True
     f = wait_job(api, rec, api.set_auto_upgrade(False))
-    assert (f.ok, f.kind, f.result) == (True, "set_auto_upgrade", {})
+    assert (f.ok, f.kind, f.result) == (True, "set_auto_upgrade", {"auto_upgrade": False})
     assert load_settings(paths.settings_file).auto_upgrade is False and api.setup_status()["auto_upgrade"] is False
     assert wait_job(api, rec, api.set_auto_upgrade(True)).ok
     assert load_settings(paths.settings_file).auto_upgrade is True
@@ -91,7 +91,7 @@ def test_the_switch_changes_nothing_else_in_settings(tmp_path):
 def test_the_switch_must_be_true_or_false(tmp_path, bad):
     api, _ = make_api(make_root(tmp_path))
     answer = api.set_auto_upgrade(bad)
-    assert answer == {"ok": False, "kind": "refused", "message": "on must be true or false."}
+    assert window(answer) == {"ok": False, "kind": "refused", "message": "on must be true or false."}
 
 
 def test_a_settings_file_the_sync_cannot_read_shows_the_switch_off(tmp_path):
@@ -107,12 +107,18 @@ def test_the_switch_is_the_setup_wizards_too_without_a_music_folder(tmp_path):
 
 
 # --- rekordbox_status ---
+def main_facts(answer: dict) -> dict:
+    """The four facts the window's Sync page reads of `rekordbox_status()` (the answer has more: library, version, the
+    size and time of master.db)."""
+    return {k: v for k, v in answer.items() if k in ("ok", "state", "running", "writing", "as_of")}
+
+
 
 def test_rekordbox_status_answers_the_cached_state_and_asks_whether_it_runs_each_time(hub):
     lib, rb, api, rec = hub(["mp3"])
-    assert api.rekordbox_status() == {"ok": True, "state": "ready", "running": False}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "ready", "running": False}
     rb.running = True
-    assert api.rekordbox_status() == {"ok": True, "state": "ready", "running": True}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "ready", "running": True}
     rb.running = False
     assert api.rekordbox_status()["running"] is False
 
@@ -122,11 +128,11 @@ def test_rekordbox_status_says_none_and_unreadable_and_works_without_a_music_fol
     empty.mkdir()
     api, _ = make_unbound_api(tmp_path / "support", rekordbox_running=lambda: True,
                               rekordbox_place=lambda: Place(empty / "master.db", empty / "share", "override", None))
-    assert api.rekordbox_status() == {"ok": True, "state": "none", "running": True}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "none", "running": True}
     lib = make_lib(tmp_path, monkeypatch, ["mp3"])
     lib.place.db.write_bytes(b"not a database")
     api, _ = make_api(lib.paths, rekordbox_running=lambda: False, rekordbox_place=lambda: lib.place)
-    assert api.rekordbox_status() == {"ok": True, "state": "unreadable", "running": False}
+    assert main_facts(api.rekordbox_status()) == {"ok": True, "state": "unreadable", "running": False}
 
 
 # --- sync_preview().auto_upgrade ---
@@ -296,7 +302,7 @@ def test_the_checks_of_an_auto_upgrade_batch_are_named_for_the_sync(hub):
 @needs_ffmpeg
 def test_the_checks_of_a_batch_started_by_hand_still_say_same_track(hub):
     lib, rb, api, rec = hub(["mp3", "aiff"])
-    f = wait_job(api, rec, api.upgrade(lib.tracks, "swap"))
+    f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert f.ok
     item = next(i for i in group(api, "rekordbox_check")["items"] if i.get("batch"))
     assert item["batch"]["started_by"] == "user" and item["detail"].endswith(" · Same track")

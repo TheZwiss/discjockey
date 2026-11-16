@@ -722,6 +722,7 @@ def test_library_sorts_by_folder_with_unlisted_tracks_last():
 
 def test_library_search_all_tracks_and_not_in_a_playlist():
     assert [r["track_id"] for r in views.library(LIB, "all", None, "läuff", "all", "artist", lines=[])["rows"]] == ["c"]
+    assert [r["track_id"] for r in views.library(LIB, "all", None, "lauff", "all", "artist", lines=[])["rows"]] == ["c"]  # accents ignored
     assert views.library(LIB, "all", None, "", "all", "artist", lines=[])["summary"]["tracks"] == 5  # not found ones have no file
     nip = views.library(LIB, "unlisted", None, "", "all", "artist", lines=[])
     assert nip["title"] == "Not in a playlist" and [r["track_id"] for r in nip["rows"]] == ["f"]
@@ -777,6 +778,11 @@ def test_todo_empty_states():
     assert views.todo(state(a=e()), "all", False, {}, TODAY)["empty"] == "all_lossless"
     assert views.todo(state(a=e("missing", hidden=True)), "all", False, {}, TODAY)["empty"] == "all_hidden"
     assert views.todo(state(a=e("missing")), "fake", False, {}, TODAY)["empty"] == "nothing_here"
+    for filt, tracks in (("all", state(a=e())), ("all", state(a=e("missing", hidden=True))), ("fake", state(a=e("missing")))):
+        out = views.todo(tracks, filt, False, {}, TODAY)
+        assert out["empty_text"] == {"all_lossless": "Everything is lossless.", "all_hidden": "Only hidden tracks are left.",
+                                     "nothing_here": "Nothing here."}[out["empty"]]
+    assert views.todo(state(a=e("missing")), "all", False, {}, TODAY)["empty_text"] is None
 
 
 def test_todo_others_from_the_last_run_and_the_preview():
@@ -1024,7 +1030,8 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     assert by["h"]["detail"] == "analyse, set the cues again"
     assert by["h"]["check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": None, "offset_ms": None,
                                 "moved": False, "aligned": False,
-                                "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "old_name": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again."}
+                                "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "old_name": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again.",
+                                "person_steps": [{"id": "step:relocate_new", "say": "This is a different edit. In rekordbox: analyse it again and set the cues again.", "then": "check done h"}]}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
     both = views.todo(s, "all", True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
@@ -2713,7 +2720,7 @@ def test_a_batch_item_says_what_the_batch_did_by_its_kind():
 
 def aiff_batch(batch_id, state="stopped", scope=None, kind="convert", planned=2):
     return AiffBatchRow(batch_id, kind, "user", scope, "2026-11-13T10:00:00", None, state, "stop", None,
-                        {"planned": planned, "done": 1, "skipped": 0, "failed": 0, "undone": 0})
+                        "window", {"planned": planned, "done": 1, "skipped": 0, "failed": 0, "undone": 0})
 
 
 def test_stopped_batch_is_the_newest_stopped_one_with_items_left_in_its_scope():

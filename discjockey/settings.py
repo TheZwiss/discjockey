@@ -7,8 +7,9 @@ import os
 from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
+from . import library
 from .accounts import ACCOUNTS, BROWSERS, DEFAULT_LIMITS
 
 DEFAULT_DAILY_LIMIT = 60
@@ -202,19 +203,20 @@ def load_settings(path: Path) -> Settings:
     return s
 
 
-def _extra_json(day: str | None, amount: int) -> dict | None:
+def extra_json(day: str | None, amount: int) -> dict | None:
+    """The one-time extra as settings.json keeps it (`{date, amount}`, null when none is set)."""
     return {"date": day, "amount": amount} if day else None
 
 
 def save_settings(path: Path, s: Settings) -> None:
-    data = {"daily_qobuz_limit": s.daily_qobuz_limit, "extra_today": _extra_json(s.extra_date, s.extra_amount),
+    data = {"daily_qobuz_limit": s.daily_qobuz_limit, "extra_today": extra_json(s.extra_date, s.extra_amount),
             "qobuz_skipped": s.qobuz_skipped, "spotify_skipped": s.spotify_skipped,
             "import_skipped": s.import_skipped, "read_liked_music": s.read_liked_music,
             "auto_upgrade": s.auto_upgrade,
             "warnings_seen": dict(s.warnings_seen),
             "qobuz_last_check": dict(s.qobuz_last_check) if s.qobuz_last_check else None,
             "accounts": {k: {"browser": a.browser, "profile": a.profile, "daily_limit": a.daily_limit,
-                             "extra_today": _extra_json(a.extra_date, a.extra_amount),
+                             "extra_today": extra_json(a.extra_date, a.extra_amount),
                              "last_check": dict(a.last_check) if a.last_check else None,
                              "liked_only": a.liked_only}
                          for k, a in s.accounts.items()}}
@@ -222,3 +224,19 @@ def save_settings(path: Path, s: Settings) -> None:
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def update_settings(path: Path, change: Callable[[Settings], Settings]) -> Settings:
+    """The file as it is now, changed by `change`, saved: the one read-change-write of settings.json, under the support
+    lock so that two processes (two windows, a terminal, a worker) never lose each other's change. Raises
+    `library.SupportBusy` when the lock stays held, `SettingsError` for a file that can't be read. Returns what it saved."""
+    with library.support_lock(path.parent):
+        return update_settings_held(path, change)
+
+
+def update_settings_held(path: Path, change: Callable[[Settings], Settings]) -> Settings:
+    """`update_settings` for a caller that holds the support lock already (the hub, which takes the library lock briefly
+    inside it: lock order support, library, rekordbox.lock). The lock is not re-entrant."""
+    new = change(load_settings(path))
+    save_settings(path, new)
+    return new

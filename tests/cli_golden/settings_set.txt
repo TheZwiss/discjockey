@@ -1,0 +1,3 @@
+Upgrade automatically when I sync: off. The upgrades that are ready wait in your to-do list.
+
+Auto upgrade  no

@@ -371,6 +371,7 @@ class BatchRow:
     skipped: int
     undoable: int  # done moves whose undo could run today
     undone_by: int | None  # the latest undo batch of this one
+    via: str = "window"  # where it started: "window" | "terminal"
 
 
 @dataclass(frozen=True)
@@ -397,6 +398,7 @@ class AiffBatchRow:
     state: str  # "running" | "stopped" | "done"
     stop_reason: str | None  # "stop" | "rekordbox_open" | "busy" | "crash"
     backup: str | None  # the rekordbox backup the batch's writes share
+    via: str  # where it started: "window" | "terminal"
     counts: dict[str, int]  # item state -> how many; every state is there
     items: tuple[AiffItemRow, ...] = ()
 

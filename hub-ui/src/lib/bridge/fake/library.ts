@@ -7,6 +7,7 @@ import type {
   PlaylistRow, PreviewAction, Sidebar, TrackLink, WatchedEntry,
 } from '../types';
 import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
+import { foldText } from '../../format';
 import { needsSetting } from './liked';
 import {
   SERVICE_NAME, byQuality, dateOnly, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
@@ -35,6 +36,7 @@ const AWAY_WORDS: Record<Exclude<FolderState, 'here'>, string> = {
 const nfc = (x: string): string => x.normalize('NFC');
 /** names compare as the disk does: NFC, case ignored (names.fold) */
 export const fold = (x: string): string => nfc(x).toLowerCase();
+const searchFold = (x: string): string => foldText(nfc(x));
 const parent = (p: string): string => p.slice(0, p.lastIndexOf('/')) || '/';
 const base = (p: string): string => p.slice(p.lastIndexOf('/') + 1);
 const within = (p: string, root: string): boolean => p === root || p.startsWith(`${root}/`);
@@ -421,8 +423,9 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
     by_quality: by, upgrades_ready: have.filter((e) => e.row.upgrade_ready).length,
     not_lossless: by.good_lossy + by.weak + by.fake,
     to_do: have.filter((e) => e.t!.in_playlists && !e.t!.hidden && todoGroup(e.t!)).length };
-  const q = fold(query ?? '').trim();
-  const search = (list: Entry[]): Entry[] => (q ? list.filter((e) => fold(`${e.row.artist} ${e.row.title}`).includes(q)) : list);
+  // the search ignores case and accents (names.search_fold, as the engine's library search and `track find`)
+  const q = searchFold(query ?? '').trim();
+  const search = (list: Entry[]): Entry[] => (q ? list.filter((e) => searchFold(`${e.row.artist} ${e.row.title}`).includes(q)) : list);
   entries = search(entries);
   also = also && search(also);
   const chips = Object.fromEntries(LIBRARY_FILTERS.map((f) => [f,

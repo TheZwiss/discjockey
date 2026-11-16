@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from pathlib import Path, PurePosixPath
 
 from .. import audio, library, rekordbox
 from ..library import NameReserver, Paths, StateError, watched_root
 from ..names import expected_stem, fold, split_name, strip_id_suffix
+from ..ops import OpProblem
 from ..planner import replacement_dir, superseded_dir
 from ..upgrades import swap_possible
 from . import eligible
@@ -58,16 +60,18 @@ REASON_WORDS = {
 }
 
 
-class PreviewRefused(Exception):
-    """Nothing to preview: `reason` is "unknown_track", "file_missing" or "away"."""
+class PreviewRefused(OpProblem):
+    """Nothing to preview (a `refused` problem): `reason` is "unknown_track", "file_missing" or "away"."""
 
     def __init__(self, reason: str, message: str):
-        super().__init__(message)
-        self.reason = reason
+        super().__init__(message, "refused", reason=reason)
 
 
-class PreviewFailed(Exception):
-    """The answer couldn't be read: the file (ffmpeg, permissions) or the library's records."""
+class PreviewFailed(OpProblem):
+    """The answer couldn't be read (a `failed` problem): the file (ffmpeg, permissions) or the library's records."""
+
+    def __init__(self, message: str):
+        super().__init__(message, "failed")
 
 
 def _under_missing_volume(path: str) -> bool:
@@ -151,9 +155,11 @@ def _clean_tags(paths: Paths | None, entry: dict | None, facts: audio.FileFacts,
 
 
 def preview(paths: Paths | None, *, track: str | None = None, path: Path | str | None = None,
-            offset: Callable[[Path], rekordbox.TimelineOffset] | None = None) -> dict:
+            offset: Callable[..., rekordbox.TimelineOffset] | None = None,
+            reading: Callable[[], AbstractContextManager[bool]] | None = None) -> dict:
     """The command's JSON for the song `track` (its key) or the file `path`. `paths` is the music folder's, None
-    when there is none (then only `path` works, and the library knows nothing)."""
+    when there is none (then only `path` works, and the library knows nothing). `reading`: what `timeline_offset`
+    holds while rekordbox's library is open (the bridge's shared `rekordbox.lock`)."""
     if (track is None) == (path is None):
         raise ValueError("preview takes a track or a path")
     state = None
@@ -181,7 +187,7 @@ def preview(paths: Paths | None, *, track: str | None = None, path: Path | str |
         raise PreviewRefused("file_missing", f"There is no file at {file}.")
     try:
         facts = audio.file_facts(file)
-        timeline = (offset or rekordbox.timeline_offset)(file)
+        timeline = (offset or rekordbox.timeline_offset)(file, **({"reading": reading} if reading else {}))
     except (RuntimeError, OSError) as e:  # ProbeError is a RuntimeError
         raise PreviewFailed(f"Discjockey couldn't read {file.name}: {e}") from None
 
@@ -190,7 +196,10 @@ def preview(paths: Paths | None, *, track: str | None = None, path: Path | str |
     clean = _clean_tags(paths, entry, facts, isinstance(same, Eligible)) if timeline.entries else facts.tags
     rows = [{"id": t.entry.id, "cues": t.cues, "grid": t.grid, "pwv3": t.pwv3, "offset_ms": t.offset_ms,
              "expected_ms": t.expected_ms, "score": t.score, "cloud": t.entry.cloud,
-             "fields_kept": eligible.fields_kept(t.entry, facts.tags, clean)} for t in timeline.entries]
+             "fields_kept": eligible.fields_kept(t.entry, facts.tags, clean), "folder_path": t.entry.folder_path,
+             "content_file": [{"path": f.path, "hash": f.hash, "size": f.size, "updated_at": f.updated_at}
+                              for f in t.entry.content_files], "updated_at": t.entry.updated_at}
+            for t in timeline.entries]
     out = {"ok": True, "track": key if entry else None, "file": str(file.absolute()), "codec": facts.codec,
            "sample_rate": facts.sample_rate, "bits": facts.bits, "new_file": None, "superseded": None,
            "rekordbox": {"state": rb.state, "running": rb.running, "problem": rb.problem},
@@ -205,3 +214,4 @@ def preview(paths: Paths | None, *, track: str | None = None, path: Path | str |
                        "rename": eligible.reason_of(ren)}
     out["new_file"], out["superseded"] = _places(paths, state, key, entry, same, conv, ren_path, ren)
     return out
+

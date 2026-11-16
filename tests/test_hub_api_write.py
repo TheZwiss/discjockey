@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder, make_api, make_root, music_root,
-                         refreshed, wait_job, write)
+                         refreshed, wait_job, write, window)
 
 from discjockey import db, importer, library, run
 from discjockey.sources import spotify
@@ -80,7 +80,7 @@ def test_only_one_change_at_a_time_and_none_during_a_console_run(root):
     api.todo()
     with run_lock(root.lock):
         answer = api.hide("t2", True)
-    assert answer == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
+    assert window(answer) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
     release = threading.Event()
     api._jobs.start("sync", lambda ctx: release.wait(5) and None)
     assert api.hide("t2", True)["kind"] == "busy"
@@ -134,10 +134,10 @@ def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):
 def test_rescan_library_answers_busy_and_console_at_once(root):
     api, rec = make_api(root)
     with run_lock(root.lock):
-        assert api.rescan_library() == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
+        assert window(api.rescan_library()) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}
     release = threading.Event()
     api._jobs.start("sync", lambda ctx: release.wait(5) and None)
-    assert api.rescan_library() == {"ok": False, "kind": "busy", "message": jobs.BUSY_TEXT}
+    assert window(api.rescan_library()) == {"ok": False, "kind": "busy", "message": jobs.BUSY_TEXT}
     release.set()
     api._jobs.wait(5)
 
@@ -152,7 +152,7 @@ def test_a_change_while_a_scan_runs_hears_that_the_library_is_being_checked(root
         release.wait(5)
     api._jobs.start("scan", slow)
     assert running.wait(5)
-    assert api.hide("t2", True) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
+    assert window(api.hide("t2", True)) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
     release.set()
     api._jobs.wait(5)
     entered, done = threading.Event(), threading.Event()
@@ -165,7 +165,7 @@ def test_a_change_while_a_scan_runs_hears_that_the_library_is_being_checked(root
     t = threading.Thread(target=preview_scan)
     t.start()
     assert entered.wait(5)
-    assert api.hide("t2", True) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
+    assert window(api.hide("t2", True)) == {"ok": False, "kind": "busy", "message": jobs.SCANNING_TEXT}
     done.set()
     t.join(5)
 
@@ -173,7 +173,7 @@ def test_a_change_while_a_scan_runs_hears_that_the_library_is_being_checked(root
 def test_swap_through_the_bridge(root):
     api, rec = make_api(root, compare=lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly"))
     api.track("t2")
-    f = wait_job(api, rec, api.upgrade(["t2"], "swap"))
+    f = wait_job(api, rec, api.upgrade(["t2"], "same_track"))
     assert f.ok and f.kind == "upgrade_batch" and (f.result["done"], f.result["state"]) == (1, "done")
     e = load_state(root)["tracks"]["t2"]
     assert e["status"] == "lossless" and e["path"] == "Library/Hard_Bounce/Armin Hermann - Get Naughty.aiff"
@@ -186,7 +186,7 @@ def test_swap_through_the_bridge(root):
 def test_swap_refused_when_the_versions_do_not_line_up(root):
     api, rec = make_api(root, compare=lambda cur, new: Alignment("different", text="doesn't line up"))
     api.track("t2")
-    f = wait_job(api, rec, api.upgrade(["t2"], "swap"))
+    f = wait_job(api, rec, api.upgrade(["t2"], "same_track"))
     assert (f.ok, f.problem) == (False, "refused") and "Not swapped" in f.message
     assert (root.root / LOSSY).read_bytes() == b"lossy audio"
 
@@ -197,7 +197,7 @@ def test_an_upgrade_no_longer_waiting_is_called_a_better_version(tmp_path, monke
     root = make_root(tmp_path)
     api, rec = make_api(root)
     api.track("t2")
-    f = wait_job(api, rec, api.upgrade(["t2"], "swap"))
+    f = wait_job(api, rec, api.upgrade(["t2"], "same_track"))
     assert (f.ok, f.problem) == (False, "refused")                  # a batch of one skips it with the reason
     assert f.result["results"][0]["reason"] == "no_upgrade" and "better version" in f.message
 
@@ -219,7 +219,7 @@ def test_add_new_measures_and_asks_rekordbox_through_the_services(root):
     api, rec = make_api(root, compare=lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly"),
                         timeline_offset=lambda old: seen.append(old) or SimpleNamespace(samples=0))
     api.track("t2")
-    assert wait_job(api, rec, api.upgrade(["t2"], "add_new")).ok
+    assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
     assert seen == [root.root / LOSSY]
     check = load_state(root)["tracks"]["t2"]["rekordbox_check"]
     assert (check["match"], check["aligned"]) == ("exact", True)
@@ -228,7 +228,7 @@ def test_add_new_measures_and_asks_rekordbox_through_the_services(root):
 def test_undo_upgrade_through_the_bridge(root):
     api, rec = make_api(root)
     api.track("t2")
-    assert wait_job(api, rec, api.upgrade(["t2"], "add_new")).ok
+    assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
     [item] = [g for g in api.todo()["groups"] if g["key"] == "rekordbox_check"][0]["items"]
     assert item["track_id"] == "t2" and item["can_undo"] is True
     f = wait_job(api, rec, api.undo_upgrade(["t2"]))
@@ -246,7 +246,7 @@ def test_undo_upgrade_through_the_bridge(root):
 def test_undo_upgrade_refused_when_the_new_file_changed(root):
     api, rec = make_api(root)
     api.track("t2")
-    assert wait_job(api, rec, api.upgrade(["t2"], "add_new")).ok
+    assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
     new = load_state(root)["tracks"]["t2"]["path"]
     (root.root / new).write_bytes(b"edited elsewhere")
     api.todo()
@@ -398,7 +398,7 @@ def test_preview_through_the_media_server(root, monkeypatch):
     row = api.search_candidates("t2")["candidates"][1]
     url = api.preview("t2", row)["url"]
     assert "/cache/previews/youtube_music_abc.aiff?v=" in url
-    assert api.preview("t2", {**row, "source": "qobuz"}) == {"ok": False, "kind": "refused",
+    assert window(api.preview("t2", {**row, "source": "qobuz"})) == {"ok": False, "kind": "refused",
                                                              "message": "Qobuz versions have no preview."}
 
 
@@ -625,7 +625,7 @@ def test_limits_of_a_service_that_is_not_set_up(root):
     api, _ = make_api(root)
     answer = api.limits("youtube")
     assert answer["ok"] and answer["usage"] is None and [c["set_up"] for c in answer["cards"]] == [True, False, False]
-    assert api.save_limits("youtube", 30, 0) == {"ok": False, "kind": "refused",
+    assert window(api.save_limits("youtube", 30, 0)) == {"ok": False, "kind": "refused",
                                                  "message": "Set up YouTube Premium first."}
     assert api.limits("tidal")["ok"] is False
 
@@ -978,7 +978,7 @@ def test_removing_a_folder_forgets_its_files_and_reports_what_downloads_again(li
     preview = api.removal_preview(fid)
     assert (preview["name"], preview["files"], preview["redownload"]) == ("Music", 3, 0)
     done = wait_job(api, rec, api.remove_watched_folder(fid))
-    assert (done.ok, done.kind, done.result) == (True, "folders", {"files": 3, "redownload": 0})
+    assert (done.ok, done.kind, done.result) == (True, "folders", {"name": "Music", "files": 3, "redownload": 0})
     assert [r["kind"] for r in api.watched_folders()["folders"]] == ["library"]
     assert not own_songs(paths) and all(p.is_file() for p in folder.iterdir())  # the files stay where they are
     for bad in (fid, 0, "x", True, None):
@@ -999,7 +999,7 @@ def test_removing_the_folder_of_a_playlist_songs_only_file_makes_it_download_aga
     fid = next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
     assert api.removal_preview(fid) == {"ok": True, "name": "Music", "files": 3, "redownload": 1}
     done = wait_job(api, rec, api.remove_watched_folder(fid))
-    assert done.result == {"files": 3, "redownload": 1}
+    assert done.result == {"name": "Music", "files": 3, "redownload": 1}
     assert load_state(paths)["tracks"]["t3"]["path"] is None
     wanted = [(a["kind"], a["track_id"]) for g in api.sync_preview()["groups"] for a in g["actions"]]
     assert ("acquire", "t3") in wanted  # the preview was planned again at once

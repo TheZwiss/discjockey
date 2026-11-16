@@ -267,26 +267,55 @@ def restore(paths, place: Place | None, backup_id: str, *, running: Callable[[],
         return _restore(paths, place, backup_id, running or process.running, now)
 
 
-def _restore(paths, place: Place | None, backup_id: str, running: Callable[[], bool],
-             now: Callable[[], datetime]) -> RestoreResult:
+def _backup_of(paths, place: Place | None, backup_id: str) -> Backup:
+    """The backup `backup_id` names, or `RestoreRefused` (`no_rekordbox`, `not_found`)."""
     if place is None or not place.db.is_file():
         raise RestoreRefused("no_rekordbox")
     b = find(paths, backup_id)
     if b is None or not (b.folder / "master.db").is_file():
         raise RestoreRefused("not_found")
-    if running():
-        raise RestoreRefused("rekordbox_open")
-    if master.leftovers(place.db):
+    return b
+
+
+def _verified(b: Backup, place: Place, running: bool) -> tuple[str | None, str | None]:
+    """What a restore of `b` checks of the two libraries, in this order: `-wal`/`-shm` beside the current one (`unclean`;
+    with rekordbox running they are normal and not looked at), the backup's own `master.db` against its manifest
+    (`damaged`), the library it was made from against this Mac's (`other_library`: also when the current library can be
+    read and the backup's manifest names no library). A current library that can't be read is not compared: restore is
+    the repair for it, and the backup's own checksum was checked. Answers (dbid, db_version) of the current library,
+    None where it can't be read."""
+    if not running and master.leftovers(place.db):
         raise RestoreRefused("unclean")
     if sha256_file(b.folder / "master.db") != b.manifest.get("master_sha256_before"):
         raise RestoreRefused("damaged")
     try:
-        with master.open_read(place, False) as m:
+        with master.open_read(place, running) as m:
             dbid, db_version = m.dbid, m.db_version
     except master.Unreadable:
         dbid, db_version = None, None
-    if b.manifest.get("dbid") and dbid and b.manifest["dbid"] != dbid:
+    if dbid and b.manifest.get("dbid") != dbid:  # a backup that names no library can't be shown to be this one's
         raise RestoreRefused("other_library")
+    return dbid, db_version
+
+
+def preview(paths, place: Place | None, backup_id: str, running: bool) -> list[dict] | None:
+    """What `restore` would leave missing, before it runs (the dry run): the tracks whose path the backup changes and
+    whose path in the backup names no file, `[{"id", "path", "was"}]` as `RestoreResult.missing_after`; None when
+    the current library can't be read, so what it holds is unknown. The same refusals
+    as `restore` except `rekordbox_open` (`running` says rekordbox runs: the caller says so beside the list). Reads only:
+    no lock, nothing is saved or written; the caller holds `rekordbox.lock` shared while master.db is read (opened
+    shared, not immutable, while rekordbox runs with `-wal` and `-shm` there)."""
+    b = _backup_of(paths, place, backup_id)
+    _verified(b, place, running)
+    return _missing_after(place.db, b.folder / "master.db", running)
+
+
+def _restore(paths, place: Place | None, backup_id: str, running: Callable[[], bool],
+             now: Callable[[], datetime]) -> RestoreResult:
+    b = _backup_of(paths, place, backup_id)
+    if running():
+        raise RestoreRefused("rekordbox_open")
+    dbid, db_version = _verified(b, place, False)
     folders = [(t["track"], [place.share / rel for rel in t["folders"]]) for t in b.manifest.get("tracks") or []]
     saved = Backup._new(paths, place, dbid=dbid, batch_id=None, tracks=folders, db_version=db_version, now=now)
     saved.close(place)
@@ -299,26 +328,34 @@ def _restore(paths, place: Place | None, backup_id: str, running: Callable[[], b
     for src, dst in targets:
         dst.parent.mkdir(parents=True, exist_ok=True)
         replace_bytes(dst, src.read_bytes())
-    return RestoreResult(saved.id, _missing_after(saved.folder / "master.db", place.db))
+    return RestoreResult(saved.id, _missing_after(saved.folder / "master.db", place.db) or [])
 
 
-def _paths_of(db: Path) -> dict[str, str]:
+def _paths_of(db: Path, running: bool = False) -> dict[str, str] | None:
+    """{track id: file path} of the tracks `db` holds; None when `db` can't be read (no key fits, or a query fails).
+    `running`: rekordbox runs now, so a library with `-wal` and `-shm` is opened shared, not immutable."""
+    immutable = master.immutable_for(db, running)
     for key in master.KEYS:
         try:
-            con = master.connect(db, key)
+            con = master.connect(db, key, immutable=immutable)
         except master.sqlcipher3.DatabaseError:
             continue
         try:
             return {str(i): str(p) for i, p in con.execute(
                 "SELECT ID, FolderPath FROM djmdContent WHERE IFNULL(rb_local_deleted, 0) = 0 "
                 "AND IFNULL(FileType, 0) <> ? AND FolderPath IS NOT NULL", (master.STREAMING,))}
+        except master.sqlcipher3.DatabaseError:
+            return None
         finally:
             con.close()
-    return {}
+    return None
 
 
-def _missing_after(saved: Path, restored: Path) -> list[dict]:
-    """The tracks whose path the restore changed and whose restored path names no file."""
-    before, after = _paths_of(saved), _paths_of(restored)
+def _missing_after(saved: Path, restored: Path, running: bool = False) -> list[dict] | None:
+    """The tracks whose path the restore changed and whose restored path names no file; None when either library
+    can't be read. `running`: rekordbox runs now (it applies to a library with `-wal` and `-shm` beside it)."""
+    before, after = _paths_of(saved, running), _paths_of(restored, running)
+    if before is None or after is None:
+        return None
     return [{"id": i, "path": p, "was": before[i]} for i, p in sorted(after.items())
             if i in before and before[i] != p and not os.path.exists(p)]

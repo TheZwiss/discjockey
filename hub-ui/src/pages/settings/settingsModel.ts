@@ -196,7 +196,7 @@ export function reopenNote(waiting: string | null, kind: 'update_tools' | 'rollb
  *  Go back: `update_tools`, `rollback_tools`), so a panel opened while it runs, or after it ended, picks it up: its
  *  id to wait for while it runs, else how it ended. null: no job, or another kind. */
 export function cardJob(job: JobSnap | null, kind: 'setup_spotify_login' | 'update_tools' | 'rollback_tools'):
-  { id: number; running: true } | { id: number; running: false; finished: JobSnap['finished'] } | null {
+  { id: string; running: true } | { id: string; running: false; finished: JobSnap['finished'] } | null {
   if (!job || job.kind !== kind) return null;
   return job.running ? { id: job.id, running: true } : { id: job.id, running: false, finished: job.finished };
 }

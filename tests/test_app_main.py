@@ -20,44 +20,57 @@ def test_the_self_test_starts_no_hub(monkeypatch):
     assert app_main.main([app_main.SELF_TEST_FLAG]) == 3
 
 
-def test_the_app_activates_then_opens_the_hub(monkeypatch):
+def stub_window(monkeypatch):
+    """Records the order of activate, resolve and the hub's start; a window never opens."""
     from discjockey import library
     from discjockey.hub import app
     order = []
     monkeypatch.setattr(tools, "activate", lambda *a, **k: order.append("activate"))
     monkeypatch.setattr(library, "resolve_paths", lambda *a, **k: order.append("resolve") or "resolved")
     monkeypatch.setattr(app, "main", lambda resolved: order.append(("hub", resolved)) or 0)
-    assert app_main.main(["-psn_0_12345"]) == 0  # an argument Finder may pass is ignored
+    return order
+
+
+@pytest.mark.parametrize("argv,parent", [([], 1), (["-psn_0_12345"], 4242), (["-psn_0_12345"], 1)])
+def test_t12_a_finder_start_opens_the_window(monkeypatch, argv, parent):
+    """LaunchServices: no argument with launchd as the parent, or the single `-psn_…` macOS passes."""
+    order = stub_window(monkeypatch)
+    monkeypatch.setattr(os, "getppid", lambda: parent)
+    assert app_main.main(argv) == 0
     assert order == ["activate", "resolve", ("hub", "resolved")]
 
 
-def test_a_console_command_runs_the_console_not_the_hub(monkeypatch):
+def test_t12_no_argument_from_a_shell_prints_the_short_help_and_opens_nothing(tmp_path):
+    """The parent here is pytest, not launchd: the first line names the program's `help --json`; no webview import."""
+    code = ("import sys, discjockey.app_main as m; code = m.main([]); "
+            "print('webview' in sys.modules, code, file=sys.stderr); sys.exit(code)")
+    env = {**os.environ, "DISCJOCKEY_SUPPORT": str(tmp_path / "support"), "DISCJOCKEY_REKORDBOX": str(tmp_path)}
+    r = subprocess.run([sys.executable, "-c", code], cwd=REPO, env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    first = r.stdout.splitlines()[0]
+    assert first.startswith("AI agents: run `") and first.endswith(" help --json` first.")
+    assert "False 0" in r.stderr.splitlines()[-1]
+
+
+def test_t12_app_open_opens_the_window_from_a_shell(monkeypatch):
+    order = stub_window(monkeypatch)
+    monkeypatch.setattr(os, "getppid", lambda: 4242)
+    assert app_main.main(["app", "open"]) == 0
+    assert order == ["activate", "resolve", ("hub", "resolved")]
+
+
+@pytest.mark.parametrize("argv", [["rekordbox", "restore", "x", "--yes"], ["--yes", "--json"], ["where"],
+                                  ["-psn_0_1", "--json"], ["--help"], ["hub"], ["help", "--json"]])
+def test_t12_any_other_argument_reaches_the_command_line_even_from_launchd(monkeypatch, argv):
     from discjockey import cli
     from discjockey.hub import app
     order = []
+    monkeypatch.setattr(os, "getppid", lambda: 1)
     monkeypatch.setattr(tools, "activate", lambda *a, **k: order.append("activate"))
-    monkeypatch.setattr(cli, "main", lambda argv: order.append(("cli", argv)) or 4)
-    monkeypatch.setattr(app, "main", lambda resolved: pytest.fail("a console command must not open the hub"))
-    assert app_main.main(["rekordbox", "restore", "x", "--yes"]) == 4
-    assert order == ["activate", ("cli", ["rekordbox", "restore", "x", "--yes"])]
-
-
-def test_the_console_commands_are_the_parsers_commands():
-    import argparse
-    from discjockey import cli
-    holder = {}
-    real = argparse.ArgumentParser.parse_args
-
-    def spy(self, args=None, namespace=None):
-        holder["choices"] = next(a.choices for a in self._actions if isinstance(a, argparse._SubParsersAction))
-        return real(self, args, namespace)
-
-    argparse.ArgumentParser.parse_args = spy
-    try:
-        cli.parse_args(["setup"])
-    finally:
-        argparse.ArgumentParser.parse_args = real
-    assert set(holder["choices"]) == set(app_main.CLI_COMMANDS)
+    monkeypatch.setattr(cli, "main", lambda args: order.append(("cli", args)) or 4)
+    monkeypatch.setattr(app, "main", lambda resolved: pytest.fail("a command must not open the window"))
+    assert app_main.main(argv) == 4
+    assert order == ["activate", ("cli", argv)]
 
 
 def test_importing_the_entry_starts_nothing():
@@ -92,7 +105,7 @@ def resolve():
     os._exit(0)
 tools.activate = activate
 library.resolve_paths = resolve
-app_main.main([])
+app_main.main(["-psn_0_1"])
 """
     import json
     import tempfile

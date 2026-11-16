@@ -49,13 +49,16 @@ rekordbox write when its file is in rekordbox's library, whatever its format; op
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
 
-from . import align, audio, convert, db, library, ops, rbstep, rename, report as rep, upgrades
+from . import align, audio, convert, db, library, ops, rbstep, rekordbox, rename, report as rep, upgrades
 from .events import BatchProgress, Cancelled, CancelToken, Emit, Result, no_emit
+from .hub.outcomes import person_step
 from .models import AiffBatchRow, AiffItemRow
+from .problem import Problem
 from .rekordbox import Session, eligible
 from .rekordbox import session as rbsession
 from .rekordbox.eligible import Skip
@@ -79,9 +82,6 @@ NOTHING_FILE_ELIGIBLE = "None of these can be changed right now."  # the same fo
 NOTHING_UNDONE = "None of these could be undone."
 STOPPED_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and "
                         "press Resume.")
-# the console's variant of the line above: there is no Resume button to press
-STOPPED_BY_REKORDBOX_CONSOLE = ("rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox "
-                                "and run: discjockey batch resume {batch}.")
 STOPPED_UNDO_BY_REKORDBOX = ("rekordbox was opened, so Discjockey stopped the undo after {done} of {total}. Quit "
                              "rekordbox and undo the rest.")
 _DEFAULT = object()
@@ -167,7 +167,7 @@ class Stopped(Cancelled):
         self.result = result
 
 
-class RekordboxOpen(rbsession.RekordboxOpen):
+class RekordboxOpen(rbsession.RekordboxOpen, Problem):
     """rekordbox runs and the batch needs a rekordbox write (at the start: nothing was changed), or it opened
     during the batch (the item in work was rolled back). The batch is `stopped` (`rekordbox_open`); `resume` after
     rekordbox is quit. `result` is the batch as it stands; the message is for the user. An undo raises it too
@@ -182,7 +182,12 @@ class RekordboxOpen(rbsession.RekordboxOpen):
             done = result.total - sum(1 for i in result.results if i.state == "planned")
             super().__init__(convert.REKORDBOX_OPEN if not done else
                              STOPPED_BY_REKORDBOX.format(done=done, total=result.total))
+        Problem.__init__(self, str(self))  # the answer fields of every problem; a stopped batch adds its step below
         self.result = result
+
+    def stopped_batch(self, batch_id: int) -> None:
+        """The batch waits (`stopped`): what the person does after quitting rekordbox is its Resume, not the command again."""
+        self.person_steps = [{**person_step("quit_rekordbox"), "then": f"batch resume aiff:{batch_id}"}]
 
 
 class Refused(Exception):
@@ -236,8 +241,8 @@ def _batch_result(row: AiffBatchRow) -> BatchResult:
                        counts["failed"], [_item_result(i) for i in row.items], row.backup)
 
 
-def _row(paths, batch_id: int) -> AiffBatchRow:
-    with db.connect(paths.db_file) as conn:
+def _row(paths, batch_id: int, *, read_only: bool = False) -> AiffBatchRow:
+    with db.connect(paths.db_file, read_only=read_only) as conn:
         row = db.aiff_batch(conn, batch_id)
     if row is None:
         raise ValueError(f"there is no AIFF batch {batch_id}")
@@ -246,7 +251,18 @@ def _row(paths, batch_id: int) -> AiffBatchRow:
 
 def result_of(paths, batch_id: int) -> BatchResult:
     """A stored batch as `run` returns it (`batch show`, the To-do page). ValueError when there is no such batch."""
-    return _batch_result(_row(paths, batch_id))
+    return _batch_result(_row(paths, batch_id, read_only=True))
+
+
+NEWER_BATCH = ("A later batch ({later}) changed this track again, so this batch's step can't be undone first. "
+               "Undo that batch first (`batch undo {later}`).")
+
+
+def _later_batch(conn, track: str, batch_id: int) -> int | None:
+    """The id of the batch that did `track` after `batch_id` (its newest `done` item is not this batch's), or None:
+    an undo of `batch_id` would put back that later batch's step, not this one's."""
+    found = db.aiff_item_of(conn, track)
+    return found[0] if found is not None and found[0] != batch_id else None
 
 
 def tracks_of(paths, batch_id: int) -> list[str]:
@@ -255,11 +271,13 @@ def tracks_of(paths, batch_id: int) -> list[str]:
 
 
 def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", scope: str | None = None,
-          now: Callable[[], datetime] = datetime.now) -> int:
+          via: str = "window", now: Callable[[], datetime] = datetime.now) -> int:
     """Records a batch of `items` ((song key, action) pairs, all `planned`) before anything runs; it starts
     `running`. Returns its id. The batch's kind follows its actions (plan stage D §0.13): `same_track` only →
-    `upgrade`, `convert` / `rename` only → `convert`, both → `mixed`. ValueError for no items, an action no batch
-    runs or an unknown starter."""
+    `upgrade`, `convert` / `rename` only → `convert`, both → `mixed`. `via` is where it started: `window` for a batch
+    the window starts, `terminal` for one a command starts; `scope` is what was picked (`selection`,
+    `library:<view>[:<key>]`, `todo:cdj`). ValueError for no items, an action no batch runs, an unknown starter or
+    an unknown place."""
     if not items:
         raise ValueError("a batch needs at least one track")
     for _, action in items:
@@ -269,7 +287,7 @@ def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", 
     kind = "upgrade" if actions == {"same_track"} else "convert" if "same_track" not in actions else "mixed"
     _close_planned_elsewhere(paths, {track for track, _ in items}, now)
     with db.connect(paths.db_file) as conn:
-        return db.start_aiff_batch(conn, kind, started_by, scope, list(items), now())
+        return db.start_aiff_batch(conn, kind, started_by, scope, list(items), now(), via)
 
 
 def _close_planned_elsewhere(paths, tracks: set[str], now: Callable[[], datetime]) -> None:
@@ -299,6 +317,139 @@ def present(paths, e: dict) -> eligible.Present:
     if file.is_file():
         return "here"
     return "missing" if library.online(file, library.watched_roots(paths)) else "away"
+
+
+# --- the dry run of an upgrade (what `upgrade apply --dry-run` answers: the Same track and New track ways) ---
+
+PREVIEW_MODES = {"same_track": "same_track", "new_track": "add_new"}  # the bridge's mode -> the action the plan names
+
+
+def quick_reason(paths, e: dict | None, rb: rekordbox.Status) -> str | None:
+    """Same track's quick answer for a song's entry (`eligible.same_track_quick`: no file is decoded): None when it can
+    run, else the reason."""
+    verdict = Skip("no_upgrade") if e is None else eligible.same_track_quick(e, rb, present(paths, e))
+    return verdict.reason if isinstance(verdict, Skip) else None
+
+
+def preview_row(paths, state: dict, key: str, e: dict | None, mode: str, reason: str | None) -> dict:
+    """One song of an upgrade dry run: `planned` or `skipped` (with its `reason`), and the files a run would make. `key`
+    is the song's key, the id the row is addressed by (a plan's item)."""
+    row = {"key": key, "action": PREVIEW_MODES[mode], "state": "skipped" if reason else "planned", "reason": reason,
+           "file": str(paths.root / e["path"]) if e and e.get("path") else None, "new_file": None, "superseded": None}
+    if reason or e is None:
+        return row
+    try:
+        if mode == "new_track":
+            new, old = upgrades.add_new_names(paths, state, key, e, e["upgrade"].get("status", "lossless"))
+        elif upgrades.swap_possible(e):
+            new = e["path"]
+            old = upgrades.swap_backup_name(paths, library.NameReserver(paths.root, state), key, e["path"])
+        else:
+            new, old = convert.plan_names(paths, state, key, e, e["upgrade"])
+    except (FileExistsError, KeyError, ValueError):  # no free name now: the run finds out
+        return row
+    row["new_file"], row["superseded"] = str(paths.root / new), str(paths.root / old)
+    return row
+
+
+def preview_space(paths, state: dict, rows: Sequence[dict]) -> list[dict]:
+    """What the new AIFF files of the planned `rows` need, per drive: the sum over the songs that become a new file (a
+    swap writes into the file it replaces and renders in .discjockey/.tmp). `{drive, needed, free, enough}` each."""
+    need: dict[int, list] = {}
+    for row in rows:
+        e = state["tracks"][row["key"]]
+        if row["action"] == "same_track" and upgrades.swap_possible(e) or not row["new_file"]:
+            continue
+        try:
+            places = convert.space_needed(paths, paths.root / e["upgrade"]["file"],
+                                          Path(row["new_file"]).relative_to(paths.root).as_posix())
+        except (RuntimeError, OSError):  # the download can't be probed: the run says so for that song
+            continue
+        for folder, nbytes in places:
+            entry = need.setdefault(library.device(folder), [folder, 0])
+            entry[1] += nbytes
+    return [{"drive": str(folder), "needed": n, "free": (free := convert.free_space(folder)), "enough": free >= n}
+            for folder, n in need.values()]
+
+
+def upgrade_preview(paths, state: dict, tracks: Sequence[str], mode: str, rb: rekordbox.Status) -> dict:
+    """What an upgrade of `tracks` would do (`mode`: `same_track` or `new_track`), asked the way the run
+    asks it first, without a file decoded: `{mode, total, planned, skipped, items, space, rekordbox}`. Each item is a
+    song's `preview_row`; `space` the free space per drive; `rekordbox.needs_rekordbox_closed` whether a Same track
+    that is not a swap would need rekordbox closed. Reads only."""
+    rows = []
+    for key in dict.fromkeys(tracks):
+        e = state["tracks"].get(key)
+        if mode == "same_track":
+            reason = quick_reason(paths, e, rb)
+        else:
+            reason = "no_upgrade" if not e or not e.get("upgrade") else \
+                {"away": "away", "missing": "file_missing"}.get(present(paths, e))
+        rows.append(preview_row(paths, state, key, e, mode, reason))
+    planned = [r for r in rows if r["state"] == "planned"]
+    needs_closed = rb.running and mode == "same_track" and any(
+        not upgrades.swap_possible(state["tracks"][r["key"]]) for r in planned)
+    return {"mode": mode, "total": len(rows), "planned": len(planned), "skipped": len(rows) - len(planned),
+            "items": rows, "space": preview_space(paths, state, planned),
+            "rekordbox": {"state": rb.state, "running": rb.running, "needs_rekordbox_closed": needs_closed}}
+
+
+def discard_preview(paths, state: dict, tracks: Sequence[str]) -> dict:
+    """What Discard of `tracks` would do: `{mode: "discard", total, planned, skipped, items}`. One item per song,
+    `{key, action: "discard", state: planned | skipped, reason, file, parked}`: `file` is the current file (it stays),
+    `parked` the downloaded better version that is deleted for good and not offered again. Reads only."""
+    rows = []
+    for key in dict.fromkeys(tracks):
+        e = state["tracks"].get(key)
+        up = (e or {}).get("upgrade")
+        reason = None if up else "no_upgrade"
+        rows.append({"key": key, "action": "discard", "state": "skipped" if reason else "planned", "reason": reason,
+                     "file": str(paths.root / e["path"]) if e and e.get("path") else None,
+                     "parked": str(paths.root / up["file"]) if up else None})
+    planned = sum(1 for r in rows if r["state"] == "planned")
+    return {"mode": "discard", "total": len(rows), "planned": planned, "skipped": len(rows) - planned, "items": rows}
+
+
+def track_undo_preview(state: dict, tracks: Sequence[str], rekordbox_running: bool, root,
+                       newer: Mapping[str, int] | None = None) -> dict:
+    """What `undo_upgrade` of `tracks` would do: `{total, planned, skipped, items, rekordbox}`. One item per song,
+    `{key, action: "undo", state: planned | skipped, reason, message, file, step}`: a track that `upgrades.can_undo`
+    skips with `reason` and its words (`upgrades.UNDO_BLOCKED`); `step` is the kind of file step an undo would put back
+    (`swap`, `add_new`, `convert`, `rename`). `rekordbox.needs_rekordbox_closed`: a step that wrote rekordbox can only be
+    undone with rekordbox quit. Whether the files changed since is only known when the undo runs. `newer` ({song key:
+    id of the later AIFF batch that did it again}, `batch_undo_preview` only): such a song is `skipped` with the reason
+    `newer_batch` and `NEWER_BATCH`'s words, as `undo` refuses it."""
+    rows = []
+    for key in dict.fromkeys(tracks):
+        e = state["tracks"].get(key)
+        later = (newer or {}).get(key)
+        blocked = "newer_batch" if later else upgrades.undo_blocker(e)
+        words = NEWER_BATCH.format(later=f"aiff:{later}") if later else upgrades.UNDO_BLOCKED.get(blocked)
+        u = upgrades.upgrade_undo(e)
+        rows.append({"key": key, "action": "undo", "state": "skipped" if blocked else "planned", "reason": blocked,
+                     "message": words,
+                     "file": str(root / e["path"]) if e and e.get("path") else None,
+                     "step": None if blocked else u["kind"]})
+    planned = [r for r in rows if r["state"] == "planned"]
+    needs_closed = rekordbox_running and any((upgrades.upgrade_undo(state["tracks"][r["key"]]) or {}).get("repoint")
+                                             for r in planned)
+    return {"total": len(rows), "planned": len(planned), "skipped": len(rows) - len(planned), "items": rows,
+            "rekordbox": {"running": rekordbox_running, "needs_rekordbox_closed": needs_closed}}
+
+
+def batch_undo_preview(paths, state: dict, batch_id: int, rekordbox_running: bool) -> dict:
+    """What `undo` of the whole batch would do (design §7.4: the dry run of `batch undo aiff:<n>`): `track_undo_preview`
+    of the batch's `done` items, newest first (the order an undo goes), with `batch` (`aiff:<n>`). A done item the
+    undo cannot put back is `skipped` with its reason and words (`upgrades.undo_blocker`). ValueError for a batch
+    that is not there. A done item whose song a later batch did again is `skipped` as `newer_batch` (`undo` refuses it
+    the same way). Opens library.db read only."""
+    with db.connect(paths.db_file, read_only=True) as conn:
+        row = db.aiff_batch(conn, batch_id)
+        if row is None:
+            raise ValueError(f"there is no AIFF batch {batch_id}")
+        tracks = [i.track for i in reversed(row.items) if i.state == "done"]
+        newer = {t: later for t in tracks if (later := _later_batch(conn, t, batch_id))}
+    return {"batch": f"aiff:{batch_id}", **track_undo_preview(state, tracks, rekordbox_running, paths.root, newer)}
 
 
 def _needs_write(paths, state: dict, items: Sequence[tuple[str, str]]) -> Callable:
@@ -674,6 +825,12 @@ def undo(paths, target: int | Sequence[str], *, emit: Emit = no_emit, token: Can
                 e = state["tracks"].get(track)
                 if batch is not None:
                     emit(BatchProgress(batch, n, len(tracks), track, _name(e, track)))
+                    with db.connect(paths.db_file, read_only=True) as conn:
+                        later = _later_batch(conn, track, batch)
+                    if later:  # the track's newest step is a later batch's: undoing now would put that one back
+                        results.append(UndoItem(track, "refused", "newer_batch",
+                                                NEWER_BATCH.format(later=f"aiff:{later}")))
+                        continue
                 kind = _undo_kind(e)
                 try:
                     done = upgrades.undo(paths, state, track, session=session)

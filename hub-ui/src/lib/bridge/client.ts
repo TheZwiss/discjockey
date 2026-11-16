@@ -4,7 +4,7 @@ import type {
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
-  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, AiffPlan, AiffScope,
+  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, RekordboxStatusAnswer, AiffPlan, AiffScope,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
 import { waitForJob } from '../stores/jobs';
@@ -40,9 +40,10 @@ export interface Bridge {
   media_url(track_id: string, which: Which): Promise<Res<{ url: string }>>;
   setup_status(): Promise<Res<SetupStatus>>;      select(track_id: string | null): Promise<Res<{}>>;
   /** rekordbox on this Mac now; works without a music folder. The Sync page reads it when it opens and on window focus */
-  rekordbox_status(): Promise<Res<RekordboxStatus>>;
+  rekordbox_status(): Promise<Res<RekordboxStatusAnswer>>;
   /** What Make all lossless files AIFF, a selection's Convert or the CDJ group's Convert all would do now (issue 33
-   *  stage D): a read of the files' stored facts, no decoding. `refused` for a scope that is none of the three */
+   *  stage D): a read of the files' stored facts, no decoding; own files whose facts are not stored yet (at most 50) are
+   *  probed in memory and never stored, as the run fills them first. `refused` for a scope that is none of the three */
   aiff_plan(scope: AiffScope): Promise<Res<{ plan: AiffPlan }>>;
   // read with network (refused with sync_running during any sync)
   search_candidates(track_id: string): Promise<Res<Candidates>>;
@@ -68,9 +69,10 @@ export interface Bridge {
   reject_current(track_id: string): Promise<JobStart>;
   /** "Done, checked in rekordbox" for tracks (a batch card sends its done tracks) */
   rekordbox_checked(track_ids: string[]): Promise<JobStart>;
-  /** Replace tracks with their better versions; one track is a list of one. `swap` (Same track, any format) is one
-   *  AIFF batch (job `upgrade_batch`); `add_new` / `discard` run the list one after the other */
-  upgrade(track_ids: string[], mode: 'swap' | 'add_new' | 'discard'): Promise<JobStart>;
+  /** Replace tracks with their better versions; one track is a list of one. `same_track` (any format) is one AIFF
+   *  batch (job `upgrade_batch`); `new_track` / `discard` run the list one after the other (jobs `upgrade_add_new` /
+   *  `upgrade_discard`) */
+  upgrade(track_ids: string[], mode: 'same_track' | 'new_track' | 'discard'): Promise<JobStart>;
   /** Upgrade all: Same track for every parked upgrade the list counts as possible (job `upgrade_batch`) */
   upgrade_all(): Promise<JobStart>;
   /** Convert to AIFF for songs, or only the name for a clean AIFF (each file's own answer decides): one batch, job
@@ -205,9 +207,9 @@ export function _resetBridge(): void {
 }
 
 export type JobOutcome<R> =
-  | { ok: true; job_id: number; result: R }
+  | { ok: true; job_id: string; result: R }
   /** `result`: what a job that ended with a problem still carries (a stopped move batch: the moves it made), else null */
-  | { ok: false; job_id: number | null; kind: ProblemKind; message: string; result?: R | null };
+  | { ok: false; job_id: string | null; kind: ProblemKind; message: string; result?: R | null };
 
 function problemToast(kind: ProblemKind, message: string): void {
   toasts.show({ tone: 'problem', title: problemCopy(kind).title, body: message || undefined });

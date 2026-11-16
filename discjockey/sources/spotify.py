@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from ..events import CancelToken
+from .. import library
 from ..library import SupportPaths
 from ..models import FetchedPlaylist, PlaylistInfo, PlaylistLine, SourceTrack
 from .base import LoginState, SourceError
@@ -102,17 +103,18 @@ def _save_token(path: Path, token: dict) -> None:
     """Written next to the old file and swapped in, so a crash never leaves a half-written (lost) login."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(token, f, indent=2)
-            f.flush()
-            os.fsync(f.fileno())
-        os.chmod(tmp, 0o600)  # also if an old .tmp file had other permissions
-        os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+    with library.support_lock(path.parent, wait_s=library.SUPPORT_LOGIN_WAIT_S):  # a login file: one writer at a time
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(token, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, 0o600)  # also if an old .tmp file had other permissions
+            os.replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
 
 def _wait_for_redirect(url: str, open_browser, on_url=None, token=None) -> dict:

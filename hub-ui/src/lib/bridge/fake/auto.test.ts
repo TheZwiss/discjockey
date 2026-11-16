@@ -7,7 +7,7 @@ import { AUTO_REFUSED_SHORT } from '$lib/decisions/decisionModel';
 import { isBatch } from '../types';
 import type { Fail, RekordboxStatus, RunDetail, SetupStatus, SyncPreview, Todo, TodoItem } from '../types';
 
-const until = (evs: HubEvent[], jobId: number, ms = 3000) => new Promise<HubEvent>((resolve, reject) => {
+const until = (evs: HubEvent[], jobId: string, ms = 3000) => new Promise<HubEvent>((resolve, reject) => {
   const t0 = Date.now();
   const tick = () => {
     const hit = evs.find((e) => e.type === 'JobFinished' && e.job_id === jobId);
@@ -21,7 +21,7 @@ function make(scenario: string) {
   const evs: HubEvent[] = [];
   const f = createFakeBridge(scenario, { speed: 50, emit: (e) => evs.push(e) });
   const run = async (start: Promise<unknown>) => {
-    const s = (await start) as { ok: boolean; job_id?: number };
+    const s = (await start) as { ok: boolean; job_id?: string };
     return s.ok ? until(evs, s.job_id!) : (s as unknown as Fail);
   };
   const status = async () => (await f.setup_status()) as SetupStatus & { ok: true };
@@ -39,11 +39,13 @@ describe('fake Auto-upgrade', () => {
     expect(await m.f.set_auto_upgrade('yes' as unknown as boolean)).toMatchObject({ ok: false, kind: 'refused', message: 'on must be true or false.' });
   });
   it('rekordbox_status answers its state and whether it runs', async () => {
-    expect(await make('normal').f.rekordbox_status()).toEqual({ ok: true, state: 'ready', running: false } satisfies RekordboxStatus & { ok: true });
+    expect(await make('normal').f.rekordbox_status()).toMatchObject({ ok: true, state: 'ready', running: false,
+      state_text: "rekordbox's library can be read" } satisfies Partial<RekordboxStatus> & { ok: true; state_text: string });
     const m = make('normal');
     m.f._ctx.s.rekordbox_running = true;
     m.f._ctx.s.rekordbox_state = 'unreadable';
-    expect(await m.f.rekordbox_status()).toEqual({ ok: true, state: 'unreadable', running: true });
+    expect(await m.f.rekordbox_status()).toMatchObject({ ok: true, state: 'unreadable', running: true,
+      state_text: "rekordbox's library can't be read" });
   });
   it('the preview counts the upgrades the phase would do, and is null with the switch off', async () => {
     const m = make('normal');

@@ -484,7 +484,7 @@
           "const": "JobStarted"
         },
         "job_id": {
-          "type": "integer"
+          "type": "string"
         },
         "kind": {
           "type": "string"
@@ -518,7 +518,7 @@
           "const": "JobFinished"
         },
         "job_id": {
-          "type": "integer"
+          "type": "string"
         },
         "kind": {
           "type": "string"

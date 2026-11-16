@@ -502,10 +502,13 @@ def test_a_file_moved_by_hand_is_not_downloaded_again(paths):
     assert "Checked your Library: 1 file you moved." in [m.text for m in events if isinstance(m, Message)]
 
 
-def test_a_dry_run_scans_too(paths):
+def test_a_dry_run_stores_no_scan_unless_asked_to(paths):
     rel = placed(paths)
     (paths.root / rel).unlink()
-    prep = run.prepare(paths, dry_run=True)
+    prep = run.prepare(paths, dry_run=True)  # the command line's: it plans on the last scan (issue 39 design §7.1)
+    assert library.load_state(paths)["tracks"]["t1"]["file_gone"] is None
+    assert prep.state["tracks"]["t1"]["path"] == rel
+    prep = run.prepare(paths, dry_run=True, scan=True)  # the window's refresh asks for the scan
     assert library.load_state(paths)["tracks"]["t1"]["file_gone"] == date.today().isoformat()
     assert prep.state["tracks"]["t1"]["path"] is None  # the plan works on the files as they are
     assert "t1" in [a.track.id for a in prep.plan.actions if a.kind == "acquire"]
@@ -1129,7 +1132,7 @@ def test_an_upgrade_parked_and_done_in_one_sync_is_told_once(tmp_path, monkeypat
     assert ("upgrade_ready", "elsewhere") in sections
     text = path.read_text()
     assert "## Upgraded (your cues stayed) (2)" in text
-    assert "## Better version found, waiting for you (run discjockey upgrades) (2)" in text   # stale + elsewhere
+    assert "## Better version found, waiting for you (run discjockey upgrade list) (2)" in text   # stale + elsewhere
 
 
 @needs_ffmpeg
@@ -1326,3 +1329,16 @@ def test_the_real_rekordbox_services_are_the_default(tmp_path, monkeypatch):
     [options] = seen
     assert options["running"] is run.process.running and options["compare"] is run.align.compare_files
     assert options["place"] == run.locate() and callable(options["now"])
+
+
+def test_a_dry_run_with_extra_plans_with_it_but_saves_nothing(paths):
+    save_settings(paths.settings_file, Settings())
+    before = paths.settings_file.read_bytes()
+    base = run.prepare(paths, dry_run=True)
+    room = lambda prep: run.Budget(prep.state, lambda: None, prep.settings).remaining()  # noqa: E731
+    prep = run.prepare(paths, dry_run=True, extra=20)
+    assert paths.settings_file.read_bytes() == before  # the dry run granted nothing to today's real runs
+    assert (prep.settings.extra_date, prep.settings.extra_amount) == (date.today().isoformat(), 20)
+    assert room(prep) == room(base) + 20  # but its plan counts the extra
+    run.prepare(paths, extra=20)  # a real run still saves it
+    assert paths.settings_file.read_bytes() != before

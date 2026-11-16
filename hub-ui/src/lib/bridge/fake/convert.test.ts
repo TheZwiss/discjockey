@@ -33,7 +33,7 @@ function setup() {
   const f = createFakeBridge('normal', { speed: 400, emit: (e) => evs.push(e) });
   const s: FakeState = (f as any)._ctx.s;
   s.tracks = s.tracks.filter((t) => t.source !== 'manual');           // only the files this test sets up are own
-  const finished = async (id: number) => {
+  const finished = async (id: string) => {
     for (let i = 0; i < 400; i++) {
       const e = evs.find((x) => x.type === 'JobFinished' && x.job_id === id);
       if (e) return e as Extract<HubEvent, { type: 'JobFinished' }>;
@@ -41,7 +41,7 @@ function setup() {
     }
     throw new Error('the job did not finish');
   };
-  const run = async (start: Promise<{ ok: boolean; job_id?: number }>) => {
+  const run = async (start: Promise<{ ok: boolean; job_id?: string }>) => {
     const r = await start;
     if (!r.ok) throw new Error(JSON.stringify(r));
     return finished(r.job_id!);
@@ -373,5 +373,21 @@ describe('the fake bridge: Convert, Rename and Make all', () => {
     expect(lib.aiff_stopped).toEqual({ batch_id: 1, left: 1 });
     expect(((await f.todo('all', false)) as Todo & { ok: true }).groups.find((g) => g.key === 'upgrade_ready')?.stopped ?? null).toBeNull();
     expect(await f.batch_resume(1)).toMatchObject({ ok: true });
+  });
+});
+
+describe('the fake bridge: the keys an ok answer of the engine always carries (also those only the command line reads)', () => {
+  it('rekordbox_status, set_auto_upgrade, a run summary and a track carry them', async () => {
+    const { f, s, run, detail } = setup();
+    const status = (await f.rekordbox_status()) as object;
+    expect(Object.keys(status).filter((k) => k !== 'ok').sort()).toEqual(keys('rekordbox_status'));
+    has((await run(f.set_auto_upgrade(false))).result as object, 'set_auto_upgrade_result');
+    expect(s.runs.length).toBeGreaterThan(0);
+    const dash = (await f.dashboard()) as { last_runs: { kind?: string }[] };
+    expect(dash.last_runs.every((r) => r.kind === 'sync')).toBe(true);
+    const lossy = s.tracks.find((t) => t.status === 'not_lossless')!;
+    expect(typeof (await detail(lossy.track_id)).cutoff_text).toBe('string');
+    const lossless = s.tracks.find((t) => t.status === 'lossless')!;
+    expect((await detail(lossless.track_id)).cutoff_text).toBeNull();
   });
 });

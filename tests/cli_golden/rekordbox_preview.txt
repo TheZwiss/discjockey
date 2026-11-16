@@ -1,0 +1,22 @@
+Track        t2
+File         <tmp>/Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff
+Codec        mp3
+Sample rate  44100
+Bits         none
+New file     none
+Superseded   none
+Entries      none
+
+Rekordbox
+Running  no
+State    rekordbox's library can be read
+Problem  none
+
+Timing
+Offset samples  0
+Result          not in your rekordbox collection
+
+Eligible
+Same track  no better version is waiting
+Convert     a file Discjockey downloaded is clean already
+Rename      a file Discjockey downloaded is clean already

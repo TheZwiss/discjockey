@@ -620,7 +620,7 @@ file either way; the only difference is what rekordbox sees, which you pick unde
 With this switch on, which it is at first, the end of every sync does what **Upgrade all** does: **Same track** for the
 upgrades that need no decision, the ones measured as the same edit as your file. A different edit, or two files
 Discjockey can't compare, always waits for you on the To-do page. You see the switch in **Setup** (Downloads) and in
-**Settings** under **Upgrades**; in the Terminal, `settings auto-upgrade off` (or `on`; without a word it says which)
+**Settings** under **Upgrades**; in the Terminal, `settings set auto-upgrade off` (or `on`; `settings show` says which it is)
 does the same, with the program path from [When something breaks](#when-something-breaks) in front of it. Turned off,
 a sync moves no file at all; **Upgrade all** still works by hand. Turning it on also covers the upgrades already
 waiting.
@@ -737,10 +737,10 @@ yet isn't listed until it has.
 Playing on XDJ players (XDJ-RX3, XDJ-XZ, XDJ-700) or an older CDJ? They stop at 48 kHz and some don't play FLAC or ALAC: Make
 all lossless files AIFF makes every lossless file one they play.
 
-**In the Terminal:** `discjockey convert <track>…`, `convert --all lossless [--in playlist:<name> | folder:<path> |
-unlisted]`, `convert --all cdj` and `rename <track>… | --all` do the same, each with `--dry-run` to see the plan first
-(CONTRIBUTING.md lists them with their JSON). They are for scripts and agents; the window's buttons are the way for
-everyone else.
+**In the Terminal:** `discjockey aiff convert <track>…`, `aiff convert --all [--in playlist:<name> | folder:<path> |
+unlisted]`, `aiff convert --all --todo cdj` and `aiff rename <track>… | --all [--in …]` do the same, each with
+`--dry-run` to see the plan first (`discjockey help aiff` lists them; add `--json` to any of them for one JSON answer).
+They are for scripts and agents; the window's buttons are the way for everyone else.
 
 ## rekordbox
 
@@ -804,13 +804,15 @@ time: open rekordbox once and quit it normally).
   copies Discjockey made and put rekordbox's whole library back as one of them holds it (the commands are below).
   This drops every change you made in rekordbox since that backup, and Discjockey saves your current library first
   (its name is printed). Tracks Discjockey replaced after the backup point at their old files, which are in
-  `Superseded/`: undo those replaces first (`batch list` shows the numbers), or Relocate them in rekordbox.
+  `Superseded/`: undo those replaces first (`batch list` shows them: `aiff:12` is batch 12), or Relocate them in rekordbox.
+  `--dry-run` shows which tracks that would be, and changes nothing.
 
 ```
 /Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox backups
+/Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox restore <name> --dry-run
 /Applications/Discjockey.app/Contents/MacOS/Discjockey rekordbox restore <name> --yes
 /Applications/Discjockey.app/Contents/MacOS/Discjockey batch list
-/Applications/Discjockey.app/Contents/MacOS/Discjockey batch undo <number>
+/Applications/Discjockey.app/Contents/MacOS/Discjockey batch undo aiff:<number> --yes
 # In a checkout of the code, bin/discjockey takes the place of the long path.
 ```
 

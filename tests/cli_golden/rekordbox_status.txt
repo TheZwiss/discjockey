@@ -1,0 +1,9 @@
+rekordbox's library can be read
+
+Running      no
+Problem      none
+Version      none
+Library      <tmp>/rekordbox/master.db
+Db version   6000
+Modified at  2023-11-14T22:13:20
+Size         139264

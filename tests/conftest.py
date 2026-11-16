@@ -1,10 +1,21 @@
+import subprocess
 import sys
+import webbrowser
 
 import pytest
 import yt_dlp
 
 from discjockey import app_update, tool_updates
 from discjockey.rekordbox import process as rekordbox_process
+
+# Tests that do not wait for what a test does not need (each module says what it changes and the marker that turns it
+# off): importing a fixture here is what registers it.
+import tool_memo
+from speed_durability import _durability  # noqa: F401
+from speed_sqlcipher import _fast_sqlcipher_key  # noqa: F401
+from tool_memo import _real_tools  # noqa: F401
+
+subprocess.run = tool_memo.run  # an ffprobe / ffmpeg run on bytes seen before is answered from memory
 
 
 class _Offline:
@@ -23,6 +34,25 @@ def _no_real_yt_dlp(monkeypatch):
 def _scratch_support(tmp_path_factory, monkeypatch):
     """No test reads or writes the real ~/Library/Application Support/Discjockey (or a config.json there)."""
     monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(tmp_path_factory.mktemp("support")))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_app_opened(monkeypatch):
+    """No test opens a real app, folder or page: `Services()` binds `open_url` (webbrowser.open), `open_path` and `reveal`
+    (`subprocess.run(["open", ...])`), and the command line binds the real ones. A test that reaches one fails and says so;
+    it stubs the opener (hub_helpers' `services`, or `Services(open_path=...)`)."""
+    real = subprocess.run
+
+    def guarded(args, *a, **k):
+        if isinstance(args, (list, tuple)) and args and args[0] == "open":
+            raise AssertionError(f"a test tried to open {list(args)}: stub the opener")
+        return real(args, *a, **k)
+
+    def refuse(*a, **k):
+        raise AssertionError("a test tried to open a web page: stub the opener")
+
+    monkeypatch.setattr(subprocess, "run", guarded)
+    monkeypatch.setattr(webbrowser, "get", refuse)
 
 
 @pytest.fixture(autouse=True)
@@ -46,6 +76,7 @@ def _no_real_rekordbox_library(tmp_path_factory, monkeypatch):
     """No test reads the maintainer's rekordbox library: DISCJOCKEY_REKORDBOX points at an empty folder (no
     library: state "none"). A test that needs one builds it there or elsewhere with rekordbox_helpers.make_master."""
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(tmp_path_factory.mktemp("rekordbox")))
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX_SHARE", "")  # a worker that ran in this process leaves none behind
 
 
 @pytest.fixture(autouse=True)
