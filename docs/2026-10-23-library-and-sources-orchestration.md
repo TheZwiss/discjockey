@@ -530,7 +530,12 @@ Results:
     breaks on two-method commands; C-6 noun --help usage error; C-8 golden checks substrings; C-11 check batch id
     batch:N; C-12 To-do page hides Upgrade all/Resume facts), 11 M; decisions C-1/C-5 → reviewer's picks. Issue 39
     ~13.85M, phase 1 ~11.73M. Ub split again by the record (~4x material → ~280k): Ub1 contract + hub-ui (Opus),
-    Ub2 docs + U9/U10/U12 + S6 design row + S3 plan note (Opus). Ub1 RUNNING.
+    Ub2 docs + U9/U10/U12 + S6 design row + S3 plan note (Opus). Ub1 done: **263k**
+    (135 calls) → phase1/phase-review-window.md: 0 C, 1 I (W-1 decision: the window's aiff_plan now ffprobes up
+    to 50 fact-less files per panel open, undocumented, untested; pick (b) keep + document + test, as design §7.1
+    wants panel = dry run = run; coordinator takes it), 10 M; S6 → change design row 424 (W-11); U8 → views search
+    via names.search_fold (W-10); vitest 553 touched ok; fix round runs npm run check. Issue 39 ~14.11M, phase 1
+    ~11.99M. Ub2 (docs) RUNNING.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
