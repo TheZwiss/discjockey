@@ -1812,18 +1812,18 @@ def rehearse_convert(work: Path) -> int:
     print("RH1: prepare the copy and the scratch library")
     ctx = prepare_convert(work, picks, checks)
     ctx["work"] = work
-    # a real library has its files' facts stored (the import and scan store them); the CDJ group and the rename's
-    # "facts unchanged" check read the stored ones, so the scratch library gets them the way a library does
-    code, env, err = cli(work, "rh1-facts", "library", "facts", "--wait", "3600")
-    songs = library.load_state(ctx["paths"])["tracks"]
-    missing = [label for label, i in ctx["info"].items() if songs[i["tid"]].get("file_codec") is None]
-    checks.add("RH1 `library facts` stored the facts of every file", code == 0 and not missing,
-               f"exit {code}, no facts stored for: {missing or 'none'}")
     ctx["anlz_before"] = {p["label"]: {f.name: f.read_bytes() for f in anlz_files(work, p)} for p in ctx["all"]}
     view = f"folder:Library/{FOLDER}"  # a Library folder's key is relative to the music folder
     batches = []
     try:
         plans = rh2_dry(work, ctx, checks, view)["ids"]  # each run binds its own dry run's plan (`--plan`)
+        # the dry runs read the facts of these unscanned files in memory; a real library has them stored (the import
+        # and scan store them), and the rename's "facts unchanged" check compares against the stored ones
+        code, env, err = cli(work, "rh1-facts", "library", "facts", "--wait", "3600")
+        songs = library.load_state(ctx["paths"])["tracks"]
+        missing = [label for label, i in ctx["info"].items() if songs[i["tid"]].get("file_codec") is None]
+        checks.add("RH2 `library facts` after the dry runs stored the facts of every file", code == 0 and not missing,
+                   f"exit {code}, no facts stored for: {missing or 'none'}")
         batches.append(rh3_make_all(work, ctx, view, checks, state, plans["RH3"]))
         batches.append(rh4_cdj(work, ctx, checks, state, plans["RH4"]))
         batches.append(rh5_lossy(work, ctx, checks, state, plans["RH5"]))
