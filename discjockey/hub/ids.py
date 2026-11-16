@@ -92,7 +92,7 @@ def _wrong_kind(kind: str, allowed: tuple[str, ...], text: str) -> BadId:
 
 
 def _article(kind: str) -> str:
-    return f"a {kind}" if kind != "aiff" else "an aiff batch"
+    return {"aiff": "an aiff batch", "moves": "a move batch"}.get(kind, f"a {kind}")
 
 
 def _names(allowed: tuple[str, ...]) -> str:

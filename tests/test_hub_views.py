@@ -777,6 +777,11 @@ def test_todo_empty_states():
     assert views.todo(state(a=e()), "all", False, {}, TODAY)["empty"] == "all_lossless"
     assert views.todo(state(a=e("missing", hidden=True)), "all", False, {}, TODAY)["empty"] == "all_hidden"
     assert views.todo(state(a=e("missing")), "fake", False, {}, TODAY)["empty"] == "nothing_here"
+    for filt, tracks in (("all", state(a=e())), ("all", state(a=e("missing", hidden=True))), ("fake", state(a=e("missing")))):
+        out = views.todo(tracks, filt, False, {}, TODAY)
+        assert out["empty_text"] == {"all_lossless": "Everything is lossless.", "all_hidden": "Only hidden tracks are left.",
+                                     "nothing_here": "Nothing here."}[out["empty"]]
+    assert views.todo(state(a=e("missing")), "all", False, {}, TODAY)["empty_text"] is None
 
 
 def test_todo_others_from_the_last_run_and_the_preview():

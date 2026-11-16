@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from hub_helpers import LOSSLESS, choose_music, make_root, write_state
+from hub_helpers import LOSSLESS, choose_music, cmd, make_root, write_state
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
@@ -347,6 +347,21 @@ def test_the_support_folder_of_a_test_is_a_scratch_folder():
     assert "Application Support" not in str(library.support_dir())
 
 
+def test_a_test_cannot_open_a_real_app_or_page(tmp_path):
+    """conftest's guard (C-18): the opener the command line binds (`Services()`) and the calls under it refuse."""
+    import subprocess
+    import webbrowser
+    from discjockey.hub.api import Services
+    missing = tmp_path / "nothing-here"
+    for call_ in (lambda: subprocess.run(["open", str(missing)], check=False),
+                  lambda: subprocess.run(["open", "-R", str(missing)], check=False),
+                  lambda: Services().open_path(missing), lambda: Services().reveal(missing),
+                  lambda: webbrowser.get()):
+        with pytest.raises(AssertionError, match="stub the opener"):
+            call_()
+    assert subprocess.run(["echo", "hi"], capture_output=True, text=True).stdout == "hi\n"  # other commands run
+
+
 # --- the generic printer and the page framework ---
 
 def test_the_generic_page_prints_words_for_facts_and_every_field_with_verbose():
@@ -399,14 +414,54 @@ def test_colour_only_on_a_terminal_that_wants_it():
 def test_a_problem_prints_its_message_and_steps_on_stderr_and_exits_with_its_number(monkeypatch, capsys):
     from discjockey.cli import envelope
     env = envelope.envelope("track hide", "needs_person", reason="rekordbox_open", message="rekordbox is open.",
-                            person_steps=[{"id": "step:quit_rekordbox", "say": "Quit rekordbox.", "then": "carry on"}],
-                            next=[{"run": "discjockey track hide x", "why": "after that"}])
+                            person_steps=[{"id": "step:quit_rekordbox", "say": "Quit rekordbox.", "then": "track hide x"}],
+                            next=[{"run": "track hide x", "why": "after that"}])
     assert cli.emit(env, parser.Flags()) == EXIT["needs_person"] == 4
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err.splitlines() == [
-        "rekordbox is open.", "Your turn: Quit rekordbox. Then: carry on", "Next: discjockey track hide x  (after that)"]
+        "rekordbox is open.", f"Your turn: Quit rekordbox. Then: {cmd('track hide x')}", f"Next: {cmd('track hide x')}  (after that)"]
     assert cli.emit(env, parser.Flags(json=True)) == 4
     assert json.loads(capsys.readouterr().out)["person_steps"][0]["id"] == "step:quit_rekordbox"
+
+
+def test_the_command_lines_own_constants_are_defined_once():
+    from discjockey.cli.render import generic
+    assert parser.HOUSEKEEPING is catalog.HOUSEKEEPING and parser.DEFAULT_LIMIT is generic.DEFAULT_LIMIT
+    for name in ("HELP", "WHERE", "APP_OPEN", "CALL", *("JOB_" + w for w in ("LIST", "SHOW", "FOLLOW", "WAIT", "STOP"))):
+        assert getattr(parser, name) in parser.HOUSEKEEPING, name
+
+
+def test_every_command_the_envelope_names_is_a_full_command_line(monkeypatch, capsys):
+    from discjockey.cli import envelope, housekeeping
+    path = housekeeping.command_path()
+    env = envelope.envelope("sync read", "needs_person", reason="rekordbox_open", message="Open.",
+                            person_steps=[{"id": "step:quit_rekordbox", "say": "Quit.", "then": None},
+                                          {"id": "step:reload_tag", "say": "Reload.", "then": "check done t1"}],
+                            next=[{"run": "sync read", "why": "again"}, {"run": f"{path} job show job:1", "why": "x"}],
+                            data={"person_steps": [{"then": "check done t1"}]})
+    assert cli.emit(env, parser.Flags(json=True)) == 4
+    out = json.loads(capsys.readouterr().out)
+    assert [n["run"] for n in out["next"]] == [cmd("sync read"), f"{path} job show job:1"]  # one path, never two
+    assert [s["then"] for s in out["person_steps"]] == [None, cmd("check done t1")]
+    assert out["data"] == {"person_steps": [{"then": "check done t1"}]}  # data is the bridge's answer, left alone
+    # a path with a space (a checkout under "DJ Downloader/") is quoted, once, also where the line already has it
+    monkeypatch.setattr(housekeeping, "command_path", lambda: "/Users/x y/bin/discjockey")
+    quoted = "'/Users/x y/bin/discjockey'"
+    spaced = envelope.envelope("sync read", "ok", next=[{"run": "sync read", "why": "a"}, {"run": f"{quoted} job wait j", "why": "b"}])
+    assert cli.runnable(spaced)["next"] == [{"run": f"{quoted} sync read", "why": "a"}, {"run": f"{quoted} job wait j", "why": "b"}]
+    from discjockey.cli import follow
+    assert follow.first_line("job:1") == f"Job job:1 started (follow: {quoted} job follow job:1)"
+    assert follow.running_envelope("job wait", {"id": "job:1", "status": "running"})["next"][0]["run"].startswith(quoted + " job wait")
+
+
+def test_both_your_turn_lines_start_with_the_one_prefix(monkeypatch, capsys):
+    from discjockey.cli import envelope, follow
+    monkeypatch.setattr(envelope, "YOUR_TURN", "Over to you: ")
+    env = envelope.envelope("track hide", "needs_person", reason="rekordbox_open",
+                            person_steps=[{"id": "step:quit_rekordbox", "say": "Quit rekordbox.", "then": None}])
+    assert cli.notices(env)[-1] == "Over to you: Quit rekordbox."
+    source = Path(follow.__file__).read_text()
+    assert "Your turn" not in source and "envelope.YOUR_TURN" in source
 
 
 def test_the_envelope_rejects_a_word_it_does_not_know():

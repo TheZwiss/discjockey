@@ -29,7 +29,7 @@ from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PLAN_LABELS, auto_upgrade_line, check_text, result_folder
 from ..settings import Settings
-from ..words import person_steps
+from ..words import TODO_EMPTY, person_steps
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
@@ -1963,7 +1963,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     # the page header's count of checks is tracks (a batch is one item in `chips` but holds `size` tracks)
     check_tracks = sum(1 for e in state["tracks"].values() if e.get("rekordbox_check"))
     return {"chips": chips, "check_tracks": check_tracks, "hidden_count": hidden, "show_hidden": show_hidden,
-            "groups": groups, "empty": empty}
+            "groups": groups, "empty": empty, "empty_text": TODO_EMPTY.get(empty)}
 
 
 def todo_others(prep, last_report: dict | None) -> dict[str, str]:

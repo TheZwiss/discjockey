@@ -7,3 +7,8 @@ a better version is waiting for you
 Id  Artist         Title        Quality   Detail
 t2  Armin Hermann  Get Naughty  16.0 kHz  Waits for rekordbox to be closed
 1 of 1 shown
+
+Upgrade ready › All
+N  1
+M  0
+K  0

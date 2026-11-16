@@ -9,9 +9,11 @@ all three for free:
 * T4: `--json`'s `data` equals the bridge's answer minus `ok` (and `next`, which the envelope carries)."""
 import json
 import os
+import re
 import shlex
 import shutil
 import time
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -121,8 +123,29 @@ def test_t7_prime_every_leaf_of_data_is_in_the_verbose_text(entry, fixture, caps
     data = json.loads(out)["data"]
     code, text, _ = run([*words(entry), "--verbose", "--limit", "0"], capsys)
     assert code == 0
-    missing = [leaf for leaf in generic.leaves(data) if leaf not in text]
+    missing = dropped(data, text)
     assert not missing, f"{entry.command}: {missing[:5]} are not in the text"
+
+
+def dropped(data, text: str) -> list[str]:
+    """The leaves of `data` the text does not print as often as `data` holds them. A leaf counts as a whole word: `no`
+    in "nothing", `1` in "12" and a relative path inside an absolute one are not it (a substring test passed a page
+    that dropped every boolean, null and small number)."""
+    out = []
+    for leaf, n in Counter(generic.leaves(data)).items():
+        if len(re.findall(rf"(?<![\w.:/-]){re.escape(leaf)}(?![\w.:/-])", text)) < n:
+            out.append(leaf)
+    return out
+
+
+def test_dropped_finds_a_boolean_a_null_and_a_small_number_a_substring_would_find():
+    text = "12 of 340 shown · nonetheless nothing here"
+    data = {"a": False, "b": None, "n": 1}
+    assert [leaf for leaf in generic.leaves(data) if leaf not in text] == []  # the old substring test found all three
+    assert dropped(data, text) == ["no", "none", "1"]
+    assert dropped(data, "a: no, b: none, n: 1 · 12 of 340 shown") == []
+    assert dropped({"a": True, "b": True}, "yes") == ["yes"]  # two of them, one printed
+    assert dropped({"p": "a/b.mp3"}, "in /music/a/b.mp3") == ["a/b.mp3"]  # a relative path is not the end of an absolute one
 
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))

@@ -15,6 +15,7 @@ no catalogue entry and have no `HubApi` method; `catalog.HOUSEKEEPING` lists the
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 from pathlib import Path
 
@@ -265,11 +266,11 @@ def _list_page() -> list[dict]:
 def run_help(parsed: Parsed) -> dict:
     topic = parsed.args.get("topic") or []
     flags: Flags = parsed.flags
-    path = command_path()
+    path = shlex.quote(command_path())  # a line a shell can take, also where the path holds a space
     if not topic:
         if flags.json:
             return envelope.envelope("help", "ok", message=FIRST_LINE.format(path=path), data={
-                "command": path, "version": __version__, "global_flags": GLOBAL_FLAGS, "commands": index(), "call_methods": call_methods()})
+                "command": command_path(), "version": __version__, "global_flags": GLOBAL_FLAGS, "commands": index(), "call_methods": call_methods()})
         return envelope.envelope(
             "help", "ok", message=FIRST_LINE.format(path=path), data={"commands": _list_page()},
             next=[{"run": f"{path} help <word> [<verb>]", "why": "one word or command in detail"}])

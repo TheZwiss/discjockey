@@ -67,7 +67,7 @@ def test_the_index_describes_a_write_by_its_catalogue_entry():
 def test_the_short_help_starts_with_the_agents_line_and_lists_the_words(capsys):
     code = cli.main(["help"])
     out, err = capsys.readouterr()
-    path = housekeeping.command_path()
+    path = shlex.quote(housekeeping.command_path())  # a line a shell can take
     assert code == 0 and out.splitlines()[0] == f"AI agents: run `{path} help --json` first."
     for word in ("rekordbox", "help", "where", "app open", "call"):
         assert any(line.startswith(word + " ") for line in out.splitlines()), word

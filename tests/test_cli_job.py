@@ -10,6 +10,7 @@ which the worker never reads."""
 import json
 import os
 import re
+import shlex
 import signal
 import sys
 import threading
@@ -223,7 +224,7 @@ def test_the_first_stderr_line_names_the_job_before_anything_else(env, capsys):
     answer = call.start_job(rescan(), {}, "library scan", parser.Flags(detach=True), argv=argv)
     env.seen.add(answer["job"])
     err = capsys.readouterr().err.splitlines()
-    path = housekeeping.command_path()
+    path = shlex.quote(housekeeping.command_path())
     assert err[0] == f"Job {answer['job']} started (follow: {path} job follow {answer['job']})"
     assert re.fullmatch(r"Job job:[0-9a-f]{8} started \(follow: .+ job follow job:[0-9a-f]{8}\)", err[0])
     open_gate(marker)

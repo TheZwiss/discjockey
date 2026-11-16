@@ -43,7 +43,8 @@ absolute path of the program.
   payload, through the same refusals as the noun-verb command. `discjockey app open` opens the window.
 - **The answer:** with `--json`, stdout holds exactly one object, for a usage error and a crash too; without it the
   answer is a text page, and notices and problems go to stderr. The keys, in this order: `v` (1), `command`,
-  `outcome`, `reason`, `message`, `data`, `next` (commands to run next), `person_steps` (what only the person can do),
+  `outcome`, `reason`, `message`, `data`, `next` (commands to run next), `person_steps` (what only the person can do: `{id, say, then}`; `then` is the command to run afterwards,
+  or `null` for the same command again; every `next[].run` and every `then` starts with this program's path),
   `recovered` (always a list), `job`, `as_of` (`{scanned_at, read_at}`: when the index was last scanned and the
   playlists last read, from the stored records; both `null` without a music folder), `sandbox`.
 - **Exit codes** are the outcome's: 0 `ok`, 1 `failed`, 2 `bad_args`, 3 `busy`, 4 `needs_person`, 5 `stopped`,

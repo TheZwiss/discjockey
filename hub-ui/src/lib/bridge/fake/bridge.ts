@@ -1626,10 +1626,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
       .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k],
         ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}) }));
+    const TODO_EMPTY: Record<string, string | undefined> = { all_lossless: 'Everything is lossless.',
+      all_hidden: 'Only hidden tracks are left.', nothing_here: 'Nothing here.' };  // words.TODO_EMPTY
     const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'
       ? 'nothing_here' as const : hidden_count ? 'all_hidden' as const : 'all_lossless' as const;
     const check_tracks = s.tracks.filter((t) => t.rekordbox_check).length;
-    return { chips, check_tracks, hidden_count, show_hidden, groups, empty };
+    return { chips, check_tracks, hidden_count, show_hidden, groups, empty, empty_text: empty ? TODO_EMPTY[empty] ?? null : null };
   }
 
   function linesProblem(lines: PlaylistLine[]): string | null {

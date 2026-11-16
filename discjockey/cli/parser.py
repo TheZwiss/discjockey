@@ -17,7 +17,8 @@ from dataclasses import dataclass, field
 
 from ..hub import catalog, ids
 from ..hub.api import RESOLVE_WORDS, CliApi
-from ..hub.catalog import Entry
+from ..hub.catalog import HOUSEKEEPING, Entry
+from .render.generic import DEFAULT_LIMIT
 
 LEGACY_WORDS = frozenset(("setup", "update"))
 # Old words that are gone: what the usage error tells a person (or an agent) who still types one (design §12)
@@ -34,14 +35,12 @@ MOVED = {("upgrades",): "`upgrades` is not a command any more: say `upgrade …`
 GLOBAL_BOOL = {"--json": "json", "--jsonl": "jsonl", "--detach": "detach", "--verbose": "verbose",
                "--no-color": "no_color"}
 GLOBAL_VALUE = {"--wait": "wait", "--wait-busy": "wait_busy"}
-DEFAULT_LIMIT = 200
 CALL = ("call",)
 HELP, WHERE, APP_OPEN = ("help",), ("where",), ("app", "open")
 # The command line's own words (`catalog.HOUSEKEEPING`): they run no catalogue entry (`housekeeping.py`; the `job`
 # words are the job client's, `follow.py`).
 JOB_LIST, JOB_SHOW, JOB_FOLLOW, JOB_WAIT, JOB_STOP = (("job", w) for w in ("list", "show", "follow", "wait", "stop"))
 JOB_WORDS = (JOB_LIST, JOB_SHOW, JOB_FOLLOW, JOB_WAIT, JOB_STOP)
-HOUSEKEEPING = (HELP, WHERE, APP_OPEN, CALL, *JOB_WORDS)
 # what the `job` words take, by the name it gets in `Parsed.args`: a positional job id (flag None: `job:…` or `current`)
 # and their own switches
 JOB_ARGS = {JOB_LIST: {"all": "--all"}, JOB_SHOW: {"job": None, "log": "--log"},

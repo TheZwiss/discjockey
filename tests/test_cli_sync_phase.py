@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 
 import pytest
+from hub_helpers import cmd
 
 from batch_helpers import needs_ffmpeg
 from discjockey import library
@@ -60,7 +61,8 @@ def test_the_phase_alone_upgrades_two_same_edit_tracks_in_one_auto_upgrade_batch
     assert (row.id, row.started_by, row.state, row.scope, row.via) == (1, "auto_upgrade", "done", "sync", "terminal")
     assert found.row(0)["FolderPath"].endswith("Song 0.aiff")  # rekordbox's row points at the new file
     assert env["message"] == "Upgraded 2 tracks; your cues stayed."
-    assert [n["run"] for n in env["next"]] == ["batch show aiff:1", "check list", f"report show {env['data']['report']}"]
+    assert [n["run"] for n in env["next"]] == [cmd("batch show aiff:1"), cmd("check list"),
+                                                     cmd(f"report show {env['data']['report']}")]
     assert env["data"]["batch_id"] == "aiff:1" and [s["id"] for s in env["person_steps"]] == ["step:reload_tag"]
     # the report: a run of its own kind that holds the block
     code, shown = run_json(["report", "show", "last"], capsys)
@@ -333,4 +335,4 @@ def test_golden_the_page_of_the_phase_alone(lib, capsys, tmp_path):
     text = re.sub(r"report:\d{4}-\d{2}-\d{2}_\d{6}", "report:<stamp>", text)
     text = re.sub(r"\d{8}T\d{6}Z(?:-\d+)?", "<backup>", text)
     check_golden("sync_run", text)
-    assert "Your turn: " in err and "Next: batch show aiff:1" in err
+    assert "Your turn: " in err and f"Next: {cmd('batch show aiff:1')}" in err

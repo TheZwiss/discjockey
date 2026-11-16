@@ -18,6 +18,7 @@ import types
 from contextlib import contextmanager
 
 import pytest
+from hub_helpers import cmd
 
 from batch_helpers import make_lib, needs_ffmpeg, use
 from convert_helpers import EXACT
@@ -125,9 +126,9 @@ def test_same_track_on_three_tracks_is_one_aiff_batch_that_the_result_names(lib,
     assert (data["batch"], data["batch_id"], data["total"], data["done"]) == (1, "aiff:1", 3, 3)
     [row] = batches_of(found)
     assert (row.id, row.started_by, row.state) == (1, "user", "done")
-    assert [n["run"] for n in env["next"]] == ["batch show aiff:1", "check list"]
+    assert [n["run"] for n in env["next"]] == [cmd("batch show aiff:1"), cmd("check list")]
     [step] = [s for s in env["person_steps"] if s["id"] == "step:reload_tag"]
-    assert step["then"] == "check done --batch aiff:1" and all(t in step["say"] for t in found.tracks)
+    assert step["then"] == cmd("check done --batch aiff:1") and all(t in step["say"] for t in found.tracks)
     assert [r["person_steps"][0]["id"] for r in data["results"]] == ["step:reload_tag"] * 3
     assert found.row(0)["FolderPath"].endswith("Song 0.aiff")  # rekordbox's row points at the new file
     assert data["backup"]  # rekordbox's library was backed up before the batch wrote to it
@@ -152,8 +153,8 @@ def test_new_track_with_a_plan_runs_only_the_plans_items_and_says_where_to_reloc
     assert found.entry(2)["upgrade"] and not found.entry(0)["upgrade"]  # c stayed parked, a was added
     [step] = env["person_steps"]
     new_file = str(found.paths.root / data["results"][0]["path"])
-    assert step["id"] == "step:relocate_new" and new_file in step["say"] and step["then"] == f"check done {a}"
-    assert data["results"][0]["person_steps"] == [step]
+    assert step["id"] == "step:relocate_new" and new_file in step["say"] and step["then"] == cmd(f"check done {a}")
+    assert data["results"][0]["person_steps"] == [{**step, "then": f"check done {a}"}]  # the envelope's `then` is a full command line
     assert env["next"] == []  # a New track has no batch
     assert batches_of(found) == [] and rbbackup.backups(found.paths) == []  # no batch record, rekordbox never opened
 
@@ -268,7 +269,7 @@ def test_rekordbox_open_before_a_batch_of_one_track_needs_the_person_and_closes_
     code, env = run_json(["upgrade", "apply", found.tracks[0], *SAME], capsys)
     assert (code, env["outcome"], env["reason"]) == (NEEDS_PERSON, "needs_person", "rekordbox_open")
     [step] = env["person_steps"]
-    assert (step["id"], step["then"]) == ("step:quit_rekordbox", "the same command")
+    assert (step["id"], step["then"]) == ("step:quit_rekordbox", None)
     assert env["next"] == []  # nothing to resume: the batch is closed
     [row] = batches_of(found)
     assert row.state == "done" and found.entry(0)["upgrade"]
@@ -281,12 +282,12 @@ def test_rekordbox_open_midway_leaves_a_stopped_batch_and_the_step_says_to_resum
     monkeypatch.setattr(process, "running", lambda: True)
     code, env = run_json(["upgrade", "apply", *found.tracks, *SAME], capsys)
     assert (code, env["reason"]) == (NEEDS_PERSON, "rekordbox_open")
-    assert [s["then"] for s in env["person_steps"]] == ["batch resume aiff:1"]
+    assert [s["then"] for s in env["person_steps"]] == [cmd("batch resume aiff:1")]
     [row] = batches_of(found)
     assert row.state == "stopped"
     code, env = run_json(["upgrade", "apply", "--all"], capsys)  # Upgrade all while a stopped batch waits: resume it
     assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "not_stopped")
-    assert env["next"][0]["run"] == "batch resume aiff:1" and len(batches_of(found)) == 1
+    assert env["next"][0]["run"] == cmd("batch resume aiff:1") and len(batches_of(found)) == 1
 
 
 def test_new_track_with_every_name_taken_fails_that_song_and_still_does_the_next(lib, capsys):
@@ -395,7 +396,7 @@ def test_golden_the_page_of_a_new_track_apply(lib, capsys, tmp_path):
     code, out, err = run(["upgrade", "apply", *found.tracks, *NEW], capsys)
     assert code == OK and "upgrade_apply" in WRITES
     check_golden("upgrade_apply", out.replace(str(tmp_path), "<tmp>"))
-    assert "Your turn: " in err and "relocate" in err and "Then: check done t1aaaaaaa" in err
+    assert "Your turn: " in err and "relocate" in err and f"Then: {cmd('check done t1aaaaaaa')}" in err
 
 
 # --- upgrade discard, track undo, check done (V1.11 part b) ---
@@ -478,7 +479,7 @@ def test_track_undo_puts_new_tracks_back_and_a_second_undo_has_nothing_to_undo(l
     assert (data["total"], data["undone"], data["refused"], data["failed"]) == (2, 2, 0, 0)
     assert sorted(r["track"] for r in data["results"]) == sorted(found.tracks)
     assert found.entry(0)["path"] == found.olds[0] and found.entry(0)["upgrade"]
-    assert env["next"] == [{"run": "upgrade list", "why": "the better versions wait there again"}]
+    assert env["next"] == [{"run": cmd("upgrade list"), "why": "the better versions wait there again"}]
     code, env = run_json(["track", "undo", found.tracks[0], "--yes"], capsys)  # nothing left: the job is refused
     assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "refused")
     assert env["message"] == env["data"]["results"][0]["message"] and env["data"]["undone"] == 0

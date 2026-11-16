@@ -21,6 +21,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import shlex
 import signal
 import sys
 import time
@@ -48,8 +49,9 @@ WINDOW_STOP = "{job} belongs to the window, which stops its jobs with its own St
 
 
 def command_path() -> str:
+    """The program's path as a shell takes it: quoted when it holds a space (a checkout's `DJ Downloader/`)."""
     from . import housekeeping  # housekeeping imports this module
-    return housekeeping.command_path()
+    return shlex.quote(housekeeping.command_path())
 
 
 def default_wait() -> float:
@@ -337,7 +339,7 @@ def drive(files: registry.JobFiles, command: str, flags: Flags, *, wait: float |
             if printer is not None and live_steps(rec) != shown_steps:
                 shown_steps = live_steps(rec)
                 for step in shown_steps:
-                    print(f"Your turn: {step.get('say')}", file=sys.stderr, flush=True)
+                    print(f"{envelope.YOUR_TURN}{step.get('say')}", file=sys.stderr, flush=True)
             if len(interrupts.presses) > handled:
                 handled = len(interrupts.presses)
                 if not own:

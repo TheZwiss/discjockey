@@ -5,10 +5,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from . import generic, todo, track
+from . import generic, report, todo, track
 
 HAND_PAGES: dict[str, Callable] = {"todo list": todo.page, "upgrade list": todo.page, "check list": todo.page,
-                                   "track show": track.page}
+                                   "track show": track.page, "report show": report.page}
 
 
 def page_for(command: str | None) -> Callable:

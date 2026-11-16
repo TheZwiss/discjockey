@@ -21,7 +21,7 @@ export type Fail = {
   /** The command line's view of the same problem (issue 39, `discjockey/hub/outcomes.py`); the window ignores it.
    *  Always present on an answer of the engine, optional here so the fake bridge needs no change. */
   outcome?: Outcome; reason?: string; next?: { run: string; why: string }[];
-  person_steps?: { id: string; say: string; then: string }[]; data?: Record<string, unknown> | null;
+  person_steps?: { id: string; say: string; then: string | null }[]; data?: Record<string, unknown> | null;
 };
 export type Outcome = 'ok' | 'failed' | 'bad_args' | 'busy' | 'needs_person' | 'stopped' | 'partial' | 'refused' | 'running';
 export type Res<T> = ({ ok: true } & T) | Fail;
@@ -107,7 +107,7 @@ export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swap
   /** the steps only the person can do in rekordbox (the command line's; the window words its own numbered steps from
    *  the same facts): `id` ("step:reload_tag", "step:relocate_new"), `say` (the engine's sentence for the check), `then`
    *  ("check done <track>"); none for a check that leaves nothing to do (a clean name) */
-  person_steps?: { id: string; say: string; then: string }[] };
+  person_steps?: { id: string; say: string; then: string | null }[] };
 
 // --- the import of the user's own music (plan library stage 4, I11; contract "Watched folders and the import") ---
 /** One file of a question or a duplicate group. `path` is absolute for an import folder's file; `audio_url` is null
@@ -493,6 +493,9 @@ export type Todo = {
      *  all can do now / what waits; no `m`) and `stopped` the newest stopped `todo:*` batch with items left */
     all?: { n: number; m?: number; k: number }; stopped?: { batch_id: number; left: number } | null }[];
   empty: EmptyKind | null;
+  /** `empty`'s words for the command line ("Everything is lossless."), null for no state or one the engine has no
+   *  words for; the window keeps its own copy (copy.ts EMPTY) until phase 6 */
+  empty_text: string | null;
 };
 
 /** `owner_name` is "" when the name already says it (a SoundCloud likes list, "{username}'s likes"). */

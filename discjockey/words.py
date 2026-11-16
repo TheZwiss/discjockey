@@ -48,7 +48,7 @@ NOUN_WORDS = {
 NO_PLAYLIST = "No playlist called “{name}”."
 NO_SONG = "Your library has no song {key}. `track find <words>` finds a song's id."
 NO_REPORT_YET = "There is no run report yet."
-NO_REPORT = "There is no report {stamp}. `report list` lists them."
+NO_REPORT = "There is no report {stamp}. `report show last` shows the newest; a sync prints the id of its report."
 NO_FOLDER = "No folder at {path}."
 NOT_WATCHED = "{path} is not one of the watched folders. `folder list` names them."
 LIBRARY_NOT_REMOVABLE = "{path} is your Library: it is always watched and cannot be removed."
@@ -182,6 +182,12 @@ def person_steps(track_id: str, check: dict | None, new_path: str | None = None)
     else:
         return []
     return [{**person_step(name, tracks=track_id), "say": say}]
+
+
+# The To-do page's words for an empty list (`HubApi.todo`'s `empty_text`, from its `empty`); the window keeps its own copy
+# (hub-ui copy.ts `EMPTY`) until phase 6
+TODO_EMPTY = {"all_lossless": "Everything is lossless.", "all_hidden": "Only hidden tracks are left.",
+              "nothing_here": "Nothing here."}
 
 
 TIMING_WORDS = {

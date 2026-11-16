@@ -24,7 +24,7 @@ from discjockey.events import CancelToken
 from discjockey.hub import ids, plan_store
 from discjockey.hub.api import CliApi
 from discjockey.library import Paths
-from hub_helpers import choose_music, make_root, wait_job
+from hub_helpers import choose_music, cmd, make_root, wait_job
 from rekordbox_helpers import save_library
 from test_cli_upgrade import inline_workers, run, run_json, stale_keys  # noqa: F401 - the fixture and helpers of the other command tests
 
@@ -785,7 +785,7 @@ def test_a_dry_run_reads_at_most_fifty_files_in_memory_and_writes_nothing_but_it
     assert hashes(paths.support, paths.root, skip=skip) == before and all(row[1] is None for row in facts_stored(paths))
     if refused:
         assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "facts_missing"), env
-        assert env["next"][0]["run"] == "library facts" and env["data"] == {"missing": 51, "most": 50}
+        assert env["next"][0]["run"] == cmd("library facts") and env["data"] == {"missing": 51, "most": 50}
         assert not (paths.support / "plans").exists()
         code, env = run_json(["library", "facts"], capsys)  # the explicit write the answer names ...
         assert code == OK and env["data"]["filled"] == 51
@@ -806,7 +806,7 @@ def test_convert_songs_is_one_batch_started_by_the_user(world, capsys):
     assert (data["batch"], data["batch_id"], data["state"], data["total"], data["done"]) == (1, "aiff:1", "done", 3, 3)
     assert [(r["track"], r["action"], r["state"]) for r in data["results"]] == [
         (found.tracks[0], "convert", "done"), (found.tracks[1], "convert", "done"), (found.tracks[2], "rename", "done")]
-    assert env["message"] == "Made 2 files AIFF, gave 1 file its clean name." and [n["run"] for n in env["next"]][0] == "batch show aiff:1"
+    assert env["message"] == "Made 2 files AIFF, gave 1 file its clean name." and [n["run"] for n in env["next"]][0] == cmd("batch show aiff:1")
     assert data["results"][0]["rekordbox"] == {"entries": ["1"], "kept": []} and data["backup"]
     assert [b.id for b in rbbackup.backups(found.paths)] == [data["backup"]]
     for i in range(3):
@@ -829,8 +829,8 @@ def test_the_page_of_a_run_is_the_batch_and_what_to_do_in_rekordbox(world, capsy
     code, out, err = run(["aiff", "convert", found.tracks[0], found.tracks[2]], capsys)
     assert code == OK and "aiff_convert" in WRITES
     check_golden("aiff_convert", scrubbed(out, tmp_path))
-    assert "Made 1 file AIFF, gave 1 file its clean name." in out + err and "Next: batch show aiff:1" in err
-    assert "Your turn: " in err and "Then: check done" in err  # the Reload Tag step of a convert
+    assert "Made 1 file AIFF, gave 1 file its clean name." in out + err and f"Next: {cmd('batch show aiff:1')}" in err
+    assert "Your turn: " in err and f"Then: {cmd('check done')}" in err  # the Reload Tag step of a convert
 
 
 def test_the_page_of_a_rename_run(world, capsys, tmp_path):
@@ -1014,7 +1014,7 @@ def test_rekordbox_open_needs_the_person_and_resume_finishes_after_it_quit(world
     data = env["data"]
     assert (data["state"], data["stop_reason"], data["done"], data["total"]) == ("stopped", "rekordbox_open", 0, 3)
     assert (found.music(), found.dump()) == before and data["backup"] is None
-    assert [s["then"] for s in env["person_steps"]] == ["batch resume aiff:1"]
+    assert [s["then"] for s in env["person_steps"]] == [cmd("batch resume aiff:1")]
     code, env = run_json(["aiff", "rename", "--all"], capsys)  # the same two files again: a new try, a new batch
     assert (code, env["reason"]) == (NEEDS_PERSON, "rekordbox_open") and n_batches(found) == 2
     monkeypatch.setattr(process, "running", lambda: False)

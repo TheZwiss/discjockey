@@ -140,7 +140,7 @@ def page(payload: Mapping, *, message: str | None = None, verbose: bool = False,
     return Page(headline, _sections(payload, None, {used} if used else (), verbose, limit, offset))
 
 
-def rest(payload: Mapping, placed: Collection[str], *, verbose: bool = False, limit: int = DEFAULT_LIMIT,
-         offset: int = 0) -> list[Section]:
-    """The fields of `payload` a hand page did not place (its top-level keys), as sections under "More"."""
-    return _sections({k: v for k, v in payload.items() if k not in placed}, "More", (), verbose, limit, offset)
+def rest(payload: Mapping, placed: Collection[str], *, heading: str | None = "More", verbose: bool = False,
+         limit: int = DEFAULT_LIMIT, offset: int = 0) -> list[Section]:
+    """The fields of `payload` a hand page did not place (its top-level keys), as sections under `heading` ("More")."""
+    return _sections({k: v for k, v in payload.items() if k not in placed}, heading, (), verbose, limit, offset)

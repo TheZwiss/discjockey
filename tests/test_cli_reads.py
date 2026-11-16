@@ -5,7 +5,7 @@ cutoff sentence, and the pages' headings."""
 import json
 
 import pytest
-from hub_helpers import LOSSLESS, LOSSY, choose_music, entry, make_root, services, write, write_state
+from hub_helpers import LOSSLESS, LOSSY, choose_music, cmd, entry, make_root, services, write, write_state
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
@@ -111,7 +111,7 @@ def test_find_says_what_to_say_with_no_words_or_path(rich, capsys):
 def test_a_search_with_no_hit_is_ok_and_names_sync_read_when_the_read_is_old(rich, capsys):
     code, env = data_of(["track", "find", "nobody"], capsys)
     assert code == 0 and env["outcome"] == "ok" and env["data"] == {"rows": [], "total": 0}
-    assert [n["run"] for n in env["next"]] == ["sync read"]  # nothing was ever read
+    assert [n["run"] for n in env["next"]] == [cmd("sync read")]  # nothing was ever read
     assert env["as_of"]["read_at"] is None
 
 
@@ -193,6 +193,49 @@ def test_the_todo_page_places_the_windows_group_names_and_the_waits_mark(rich, c
     assert "chips" not in text.lower()
 
 
+def todo_payload(**over):
+    chips = {"all": 3, "upgrade_ready": 3}
+    group = {"key": "upgrade_ready", "label": "Upgrade ready", "hint": "a better version is waiting for you", "items": [],
+             "all": {"n": 2, "m": 1, "k": 0}, "stopped": {"batch_id": 4, "left": 2}}
+    return {"chips": chips, "check_tracks": 0, "hidden_count": 0, "show_hidden": False, "groups": [group], "empty": None,
+            "empty_text": None, **over}
+
+
+def todo_text(payload, **kw):
+    from discjockey.cli.render import layout, todo
+    return layout.render(todo.page(payload, **kw))
+
+
+def test_the_todo_page_prints_a_groups_own_facts_under_its_name():
+    """Upgrade all's counts and the stopped batch that waits to be resumed are the group's, not the items' (C-12)."""
+    for kw in ({}, {"verbose": True}):
+        text = todo_text(todo_payload(), **kw)
+        assert "Upgrade ready › All" in text and "Upgrade ready › Stopped" in text, kw
+        assert "Left      2" in text and "N  2" in text, kw  # the field names stand until the state words (V6.1) come
+    nothing_stopped = todo_text(todo_payload(groups=[{**todo_payload()["groups"][0], "stopped": None}]))
+    assert "Stopped" not in nothing_stopped and "Upgrade ready › All" in nothing_stopped
+
+
+def test_the_todo_page_says_an_empty_list_in_the_windows_words_not_an_engine_key():
+    payload = todo_payload(groups=[], empty="all_lossless", empty_text="Everything is lossless.")
+    plain = todo_text(payload)
+    assert "Nothing to show  Everything is lossless." in plain and "all_lossless" not in plain
+    assert "all_lossless" in todo_text(payload, verbose=True)  # --verbose prints the key and its words
+
+
+def test_limit_and_offset_are_refused_with_json_and_page_the_text(rich, capsys):
+    for flag in (["--limit", "1"], ["--offset", "1"]):
+        for form in ("--json", "--jsonl"):
+            code, out, _ = run(["todo", "list", form, *flag], capsys)
+            env = json.loads(out.splitlines()[-1])
+            assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "usage"), (flag, form)
+            assert "page the text page" in env["message"]
+    code, out, _ = run(["todo", "list", "--json"], capsys)
+    assert code == 0 and sum(len(g["items"]) for g in json.loads(out)["data"]["groups"]) >= 3  # the whole list, unpaged
+    code, text, _ = run(["todo", "list", "--limit", "1"], capsys)
+    assert code == 0 and "1 of " in text
+
+
 def test_todo_group_filters_to_one_group_and_a_wrong_one_is_bad_args(rich, capsys):
     _, text, _ = run(["todo", "list", "--group", "upgrade_ready"], capsys)
     assert "Upgrade ready" in text and "Check in rekordbox" not in text
@@ -256,7 +299,7 @@ def test_a_search_with_no_hit_keeps_parity_with_the_bridge_but_for_next(rich, ca
     answer = api.find_tracks(["nobody", "here"])
     _, env = data_of(["track", "find", "nobody", "here"], capsys)
     assert env["data"] == {k: v for k, v in answer.items() if k not in ("ok", "next")}
-    assert env["next"] == answer["next"]
+    assert env["next"] == [{**n, "run": cmd(n["run"])} for n in answer["next"]]  # the envelope prints full command lines
 
 
 def test_every_list_prints_the_ids_a_command_takes_next(rich, capsys):

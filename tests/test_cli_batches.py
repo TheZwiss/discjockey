@@ -178,7 +178,8 @@ def test_report_show_of_a_run_that_is_not_there_is_unknown_id(lib, capsys):
     for typed in ("report:2020-01-01_000000", "2020-01-01_000000"):
         code, env = data_of(["report", "show", typed], capsys)
         assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "unknown_id"), typed
-        assert "2020-01-01_000000" in env["message"] and "report list" in env["message"]
+        assert "2020-01-01_000000" in env["message"] and "report show last" in env["message"]
+        assert "report list" not in env["message"]  # `report list` is not built yet: no words point at it
 
 
 def test_report_show_of_another_kind_of_id_is_bad_id_kind(lib, capsys):
@@ -193,3 +194,13 @@ def test_report_show_prints_the_typed_id_that_parses_back(lib, capsys):
     assert code == 0 and env["outcome"] == "ok" and env["data"]["run"]["id"] == f"report:{stamp}"
     from discjockey.hub import views
     assert views.runs([(stamp, {})])[0]["id"] == f"report:{stamp}"  # the list's rows carry it too
+
+
+def test_report_show_prints_the_id_once_and_verbose_prints_both_forms(lib, capsys):
+    stamp = with_report(lib)
+    assert cli.main(["report", "show", "last"]) == 0
+    text = capsys.readouterr().out
+    assert f"Id              report:{stamp}" in text and "Run id" not in text
+    assert cli.main(["report", "show", "last", "--verbose"]) == 0
+    verbose = capsys.readouterr().out
+    assert "Run id" in verbose and f"report:{stamp}" in verbose

@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from ..hub.outcomes import EXIT, REASONS
 
 VERSION = 1
+YOUR_TURN = "Your turn: "  # what starts each line of `person_steps` on stderr (`cli/__init__.py` notices, `follow.py`)
 NO_AS_OF = {"scanned_at": None, "read_at": None}
 
 
