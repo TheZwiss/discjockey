@@ -6,6 +6,10 @@ import yt_dlp
 from discjockey import app_update, tool_updates
 from discjockey.rekordbox import process as rekordbox_process
 
+# Tests that do not wait for what a test does not need (each module says what it changes and the marker that turns it
+# off): importing a fixture here is what registers it.
+from speed_sqlcipher import _fast_sqlcipher_key  # noqa: F401
+
 
 class _Offline:
     def __init__(self, *a, **k):
