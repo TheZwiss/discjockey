@@ -492,19 +492,27 @@ Results:
     path, worktree, YOUR HALF / NOT yours, the earlier groups' decisions list, overrides written into every command
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
-    Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
-    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). V1.13a fa5da9be + b e0968bea. Review done. V1.13 merged (3cafe9b9). V1.14a a52ce2fc + b 35901f1a. Review done. RUNNING: V1.14 fix round.
-   
-    NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
-    master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
-    rekordbox library, support folder or music. If scripts/rekordbox_rehearsal.py can only rehearse on a copy of the
-    real library, the agent reports that and the real-copy rehearsal moves to the morning with the user (rekordbox
-    closed). Then V1.13 (a/b, review, fix + rehearse-convert; carry #9: convert_cmd `_plan` takes reader_lock and
-    answers `writing`), V1.14 (a/b, review, fix + rehearse-sync), V1.15 (a/b, review, fix on a scratch library;
-    carry: `tools update` terminal path via `_support_job`'s registry check if it lands there). Then Opus phase
-    review (all "FOR PHASE REVIEW" items in the V1.x entries below + the carry list in memory project_issue39_cli),
-    its fix round, `npm run verify` once on the phase branch (run_in_background), CI green (gh run list), merge
-    feat/cli-1-live-slice into main, push. Phase 1 spent ~6.9M so far (issue 39 ~8.99M + V1.12b running).
+    **STATE 2026-11-16 ~midday (before a compact): USER SAID "pause after this agent is done".** RUNNING: V1.14 fix
+    round (fix-round agent, committed, finishing its last full pytest in the background). On its notice: check ps,
+    log its size below the V1.14 review entry, then STOP and wait for the user's go (no rehearse-sync until then).
+    Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
+    Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
+    NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
+    - Every agent runs the full pytest in the FOREGROUND, Bash timeout 600000 (no background run, no interim wakes);
+      fix-round.md and ui-build.md carry it. Prompts: replace "run it in the background and wait for its notification".
+    - Review agents run only the touched tests, never the full suite.
+    - Rehearsals on a COPY of the real library with the user present (rekordbox closed); made-up data only when the
+      script's steps changed and never ran. So: V1.14 rehearse-sync on made-up data STAYS (RH2-RH6 moved, unrun;
+      builder at scratchpad/rehearsal-v1.13/build_fake.py, stereo); V1.15 gets NO rehearsal; one real-copy session in
+      the user's A-D morning covers rehearse, rehearse-convert and rehearse-sync.
+    NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
+    library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
+    material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
+    the design/plan sentence "a dry run writes exactly its plan" to plans/, cache/ and RJ jobs/) → its fix round →
+    `npm run verify` once on the phase branch (run_in_background, my own) → CI green → merge into main, push → STOP
+    before A-D, morning summary (incl. the real-copy rehearsal session).
+    Cost: phase 1 ~10.2M of 5.4M plan (issue 39 ~12.24M incl. the V1.14 fix); left to the stop point ~1.5-1.9M
+    (told the user). Audit told the user: reviews earned their cost (V1.12 undo bug etc.), made-up rehearsals mostly not.
   - **NIGHT RUN (2026-11-14 ~23:55, user asleep, go: "finish the design work through the night"):** scope = steps 2-5
     only (design → adversarial review → design fixes → build plan), then STOP for the user's go before any build.
     Step 2 running: Opus designer, brief `brief-39-design.md`, output `docs/2026-11-14-agent-cli-design.md` (est.
