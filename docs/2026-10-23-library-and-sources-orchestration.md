@@ -474,23 +474,37 @@ Results:
   rehearsal on a copy; merged into main once CI + verify are green, the user 2026-11-09: "merge it when your tests pass"; no release before its live test) → stage D (design direction, build) → issue 40 design
   round only (its build waits for the stage B live test, per the issue). Every dispatch through the gate (§2).
 - **RESUME HERE after a compact (2026-11-09 ~02:40):**
-  - **CURRENT STATE (2026-11-15 evening, issue 39 phase 1 building; read this first):** standing user go: build
-    phase 1, reviews, phase review, merge, then the A-D live tests WITHOUT asking between steps (ping the user only
-    for P steps at the Mac; stop only for product decisions, the Qobuz "Use this" note before phase 2, extras E2-E9).
-    Plan: docs/2026-11-15-agent-cli-plan-v2.md. Briefs: ~/DJ Downloader/.claude/issue39/phase1/V1.x.md (gate passed).
-    Phase branch feat/cli-1-live-slice, kept checked out in worktree .claude/worktrees/cli1-live; per group: branch
-    feat/cli-1-N from it + worktree .claude/worktrees/cli1-N; after the agent: my own full pytest in background if it
-    changed anything after its last full run; `git worktree remove`, then in cli1-live `git merge --no-ff feat/cli-1-N`
-    + `git merge --no-ff main`, check_public, push; log size here; next group. Dispatch prompt pattern = V1.8's (brief
-    path, worktree, D3/D4/D10/D11 note, earlier groups' decisions, no real data, full pytest at end, report <10 lines).
-    Merged: V1.1-V1.11 (+ V1.11 review/fix) + V1.7 review/fix/rehearsal + follower fix. RUNNING: V1.12.
-    Next: V1.9, V1.10 (no own review); V1.11-V1.15 each: build → Sonnet review (findings file in phase1/) → fix-round
-    agent that also runs the rehearsal on a copy (V1.11+V1.12 share one `rehearse`; made-up data only, never the
-    user's support folder/library); then Opus phase review + fix, `npm run verify` once on the phase branch (bg), CI
-    green, merge to main, then the live tests (v1 plan §7 runbook). CARRY: review-V1.7 #9 → V1.12/V1.13 prompts
-    (convert_cmd `_plan` + batch_cmd `_rekordbox_status` take reader_lock and answer `writing`) and the `tools update`
-    builder (terminal update via `_support_job`'s registry check); phase review items are in the V1.x entries below.
-    Phase 1 spent so far ~2.41M; remaining est. ~4.0M (not measured: plan prices +~15% as groups have landed).
+  - **CURRENT STATE (2026-11-16 ~01:40, NIGHT RUN, user asleep; read this first):** user's go 2026-11-16 ~01:35: "prepare
+    for a compact ... then work through the night". Standing go (2026-11-15): build phase 1, reviews, phase review,
+    merge WITHOUT asking between steps; stop only for product decisions, the Qobuz "Use this" note (phase 2), extras
+    E2-E9, and P steps at the Mac. TONIGHT'S STOP POINT: phase 1 merged into main (CI green, verify green) — then STOP
+    before the A-D live tests (they need the user at the Mac and the real music folder/rekordbox) and write a short
+    morning summary. If the usage limit cuts an agent: Claude Code resumes at the reset; resume that agent by
+    SendMessage (rule 7), never a duplicate.
+    Plan: docs/2026-11-15-agent-cli-plan-v2.md. Briefs: ~/DJ Downloader/.claude/issue39/phase1/V1.x.md.
+    Phase branch feat/cli-1-live-slice, checked out in worktree .claude/worktrees/cli1-live; per group: branch
+    feat/cli-1-N from it + worktree .claude/worktrees/cli1-N; after the build/fix: `git worktree remove`, then in
+    cli1-live `git merge --no-ff feat/cli-1-N` + `git merge --no-ff main`, check_public, push; log size here (commit
+    on main + push); next group.
+    SPLIT RULE (since V1.10): groups land 1.4-3.5x the plan price, so every remaining group is built in two halves
+    (part a, part b) on the same branch, each est. 190-260k, then (V1.11-V1.15) a Sonnet review of the whole group
+    (findings file phase1/review-V1.N.md) and a fix-round agent. Dispatch prompt pattern = the V1.12b prompt (brief
+    path, worktree, YOUR HALF / NOT yours, the earlier groups' decisions list, overrides written into every command
+    line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
+    pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
+    Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
+    V1.12a committed 8a980af0 on feat/cli-1-12. RUNNING: V1.12b (rekordbox backups/restore + delete batch_cmd.py,
+    upgrades_cmd.py; carry item #9 for `_rekordbox_status`).
+    NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
+    master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
+    rekordbox library, support folder or music. If scripts/rekordbox_rehearsal.py can only rehearse on a copy of the
+    real library, the agent reports that and the real-copy rehearsal moves to the morning with the user (rekordbox
+    closed). Then V1.13 (a/b, review, fix + rehearse-convert; carry #9: convert_cmd `_plan` takes reader_lock and
+    answers `writing`), V1.14 (a/b, review, fix + rehearse-sync), V1.15 (a/b, review, fix on a scratch library;
+    carry: `tools update` terminal path via `_support_job`'s registry check if it lands there). Then Opus phase
+    review (all "FOR PHASE REVIEW" items in the V1.x entries below + the carry list in memory project_issue39_cli),
+    its fix round, `npm run verify` once on the phase branch (run_in_background), CI green (gh run list), merge
+    feat/cli-1-live-slice into main, push. Phase 1 spent ~6.9M so far (issue 39 ~8.99M + V1.12b running).
   - **NIGHT RUN (2026-11-14 ~23:55, user asleep, go: "finish the design work through the night"):** scope = steps 2-5
     only (design → adversarial review → design fixes → build plan), then STOP for the user's go before any build.
     Step 2 running: Opus designer, brief `brief-39-design.md`, output `docs/2026-11-14-agent-cli-design.md` (est.
