@@ -493,8 +493,7 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
-    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. Fix 02ebb757 done. RUNNING: V1.12 rehearsal agent
-    (made-up data).
+    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). Review done. V1.12 merged (c3bdc5ff). RUNNING: V1.13a.
    
     NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
     master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
@@ -759,6 +758,14 @@ Results:
     V1.12 fix 02ebb757: fix-round **172k** (est. 150-200k; cut once by the usage limit at 4:50, resumed by message;
     full 5349 passed): all 11 fixed, I-1..I-5 test-first. `batch undo` refuses `newer_batch`; busy job carries the
     stopped batch; `master.immutable_for` public. Issue 39 ~9.78M. Next: rehearsal agent (Sonnet, made-up source).
+    V1.11+V1.12 rehearsal: Sonnet **133k** (est. 150-230k; 49 calls): made-up rekordbox source (6 tracks, 35 s,
+    builder kept at scratchpad/rehearsal-v1.12/build_fake.py for the V1.13/V1.14 rehearsals), 107 PASS, 0 FAIL, 9 NOTE;
+    step 8 restore byte-equal. No repo change. Not proven by made-up data: real encoder delays, odd tags/paths, real
+    Qobuz parked files, size, a master.db rekordbox itself last wrote → real-copy rehearsal with the user (morning
+    list). V1.12 merged + main → c3bdc5ff, pushed. V1.12 total ~1.25M. Issue 39 ~9.91M.
+    V1.13 split: part a = facts split (`read_facts`/`store_facts`, `HubApi.fill_facts`, `library facts`), dry-run facts
+    in memory + 50-file limit, `HubApi.resolve("collection")`, `plan_id` on convert/rename/make_aiff; part b = `aiff
+    convert`/`aiff rename` commands, convert_cmd.py removal + rehearse-convert + docs, carry #9.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
