@@ -26,6 +26,19 @@ REKORDBOX_PROBLEM = {
 # a dry run plans on the last scan; this is what it says when a folder has changed since (design §7.1)
 SCAN_OLDER = "Library/ or a watched folder changed after the last scan, so this plan is on the files as that scan saw them."
 
+# a collection (`--in`) that is not there (`HubApi.resolve("collection", ...)`; the words the console's `convert --in` had)
+NO_PLAYLIST = "No playlist called “{name}”."
+NO_FOLDER = "No folder at {path}."
+BAD_COLLECTION = "A collection is all, unlisted, playlist:<name> or folder:<path>."
+
+# file facts (`library facts`, and the dry runs that read a few in memory: design §5.3, §7.1)
+FACTS_MISSING = ("{n} files have not been read yet, which is more than a preview reads ({most} at most). "
+                 "Read them once first, then try again.")
+FACTS_READ = "Read the facts of {n} file{s}."
+FACTS_NONE = "Nothing to read: Discjockey knows the facts of every file already."
+FACTS_WOULD = "{n} file{s} would be read."
+FACTS_UNREADABLE = "{n} file{s} could not be read and {stay} without facts."
+
 # `rekordbox restore` (design §7.4): why a restore was refused (`RestoreRefused.reason`), what it says when done, and what
 # it says of the tracks that now point at files Discjockey moved
 RESTORE_REFUSED = {

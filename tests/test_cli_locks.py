@@ -205,6 +205,8 @@ DRIVERS = {
     "freshness": lambda api, rec: api.freshness(),
     "resolve": lambda api, rec: api.resolve("track", ["t1"]),
     "rescan_library": lambda api, rec: wait_job(api, rec, api.rescan_library()),
+    "fill_facts": lambda api, rec: wait_job(api, rec, api.fill_facts()),
+    "facts_preview": lambda api, rec: api.facts_preview(),
     "track": lambda api, rec: api.track("t2"),
     "todo": lambda api, rec: api.todo(),
     "find_tracks": lambda api, rec: api.find_tracks("naughty"),

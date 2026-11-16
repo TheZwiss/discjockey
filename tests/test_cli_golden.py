@@ -28,7 +28,7 @@ from discjockey.hub import catalog
 
 GOLDEN = Path(__file__).parent / "cli_golden"
 READS = [e for e in parser.built() if e.kind == "R"]
-WRITES = ["upgrade_apply", "upgrade_discard", "track_undo", "check_done", "batch_resume", "batch_undo", "rekordbox_restore"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
+WRITES = ["library_facts", "upgrade_apply", "upgrade_discard", "track_undo", "check_done", "batch_resume", "batch_undo", "rekordbox_restore"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
 
 
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version

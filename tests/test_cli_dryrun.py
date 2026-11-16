@@ -452,6 +452,7 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "track undo": [({"track_ids": "all-tracks"}, {})],
     "batch undo": [({"batch_id": "a-batch"}, {})],
     "rekordbox restore": [({"backup": "a-backup"}, {})],
+    "library facts": [({}, {})],
 }
 
 

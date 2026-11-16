@@ -336,7 +336,9 @@ def test_the_facts_of_files_from_before_they_were_stored_are_filled_first(hub):
     lib, box, api, rec = hub(["clean", "chain"])
     with db.connect(lib.paths.db_file) as conn:
         conn.execute("UPDATE files SET file_codec = NULL, file_rate = NULL, file_bits = NULL, file_kbps = NULL")
-    assert api.aiff_plan({"kind": "lossless", "view": "all"})["plan"]["total"] == 0     # nothing known yet
+    assert api.aiff_plan({"kind": "lossless", "view": "all"})["plan"]["total"] == 2     # read in memory, never stored
+    with db.connect(lib.paths.db_file) as conn:
+        assert db.facts_missing(conn) == 2
     f = wait_job(api, rec, api.make_aiff({"kind": "lossless", "view": "all"}))
     assert f.ok and f.result["done"] == 2
     progress = [(e.phase, e.done, e.total) for e in rec.events if type(e).__name__ == "ImportProgress"]

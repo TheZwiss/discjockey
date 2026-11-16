@@ -27,13 +27,16 @@ included (its tracks can't be known), and stops the batch when rekordbox runs: s
 """
 from __future__ import annotations
 
+import os
+import unicodedata
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 
-from . import audio, batches, cdj, convert, db, library, playlists_file as pf, quality, rbstep, rename
+from . import audio, batches, cdj, convert, db, importer, library, playlists_file as pf, quality, rbstep, rename, words
 from .hub import views
 from .library import NameReserver, Paths
+from .ops import OpProblem
 from .models import FileAudio, WatchedFolder, entry_audio
 from .names import expected_stem, fold
 from .rekordbox import eligible, master
@@ -51,6 +54,19 @@ AIFF_LINE = "AIFF · 16-bit · 44.1 kHz"  # what a Convert makes (the details ca
 NO_ANSWER = ("file_missing", "downloaded", "upgrade_waits")
 UNREADABLE = "Discjockey couldn't read this file. Nothing was changed."
 NOTHING_TO_CHANGE = "Nothing to change: these are clean AIFFs already."
+
+MOST_UNREAD = 50  # a dry run reads this many files that lack stored facts (in memory); more are `library facts`'s
+
+
+class FactsMissing(OpProblem):
+    """A dry run (or a plan before a run) met more own files without stored facts than it reads in memory: `refused`,
+    `facts_missing`, `next`: `library facts`, which reads and stores them."""
+
+    def __init__(self, n: int):
+        super().__init__(words.FACTS_MISSING.format(n=n, most=MOST_UNREAD), "refused", reason="facts_missing",
+                        next=[{"run": "library facts", "why": "reads the facts of these files once and stores them"}],
+                        data={"missing": n, "most": MOST_UNREAD})
+
 
 # the reasons a file can't run now but may later, in the order `waiting` lists them
 WAITING = ("away", "file_missing", "no_name", "rekordbox_unreadable", "cloud", "rename_blocked", "upgrade_waits")
@@ -240,15 +256,76 @@ def _pick(paths: Paths, state: dict, scope: Mapping, lines, records, watched, he
         problems = cdj.group_members(state, held=held)
         return CDJ_LABEL, list(problems), problems
     if kind == "lossless":
-        view, key = scope.get("view", "all"), scope.get("key")
-        if view not in views.LIBRARY_VIEWS:
-            raise ValueError(f"view must be one of {', '.join(views.LIBRARY_VIEWS)}")
-        if view in ("playlist", "folder") and not key:
-            raise ValueError(f"a {view} view needs its key")
-        lines, records, watched = view_inputs(paths, view, lines, records, watched)
-        found = views.library_files(state, view, key, lines=lines, records=records, watched=watched)
-        return found.title, [k for k in found.keys if _is_lossless(state["tracks"][k])], {}
+        title, keys = _view_keys(paths, state, scope, lines, records, watched)
+        return title, [k for k in keys if _is_lossless(state["tracks"][k])], {}
     raise ValueError(f"scope kind must be one of {', '.join(SCOPE_KINDS)}")
+
+
+def _view_keys(paths: Paths, state: dict, scope: Mapping, lines, records, watched) -> tuple[str, list[str]]:
+    """The view's title and all its files' keys as `views.library_files` lists them (no filter or search), before the
+    `lossless` scope leaves out what isn't lossless."""
+    view, key = scope.get("view", "all"), scope.get("key")
+    if view not in views.LIBRARY_VIEWS:
+        raise ValueError(f"view must be one of {', '.join(views.LIBRARY_VIEWS)}")
+    if view in ("playlist", "folder") and not key:
+        raise ValueError(f"a {view} view needs its key")
+    lines, records, watched = view_inputs(paths, view, lines, records, watched)
+    found = views.library_files(state, view, key, lines=lines, records=records, watched=watched)
+    return found.title, list(found.keys)
+
+
+# --- the facts a dry run reads in memory ---
+
+def _unread_keys(paths: Paths, state: dict, scope: Mapping, lines, records, watched, held: Collection[str]) -> list[str]:
+    """The songs the plan of `scope` would have to know the stored facts of, which lack them: an own song with a file
+    and no stored codec. Which songs the plan looks at depends on facts for two scopes (the lossless filter, the CDJ
+    rule), so the whole view's songs (no filter) and every song the CDJ group could hold are asked."""
+    kind = scope.get("kind")
+    if kind == "tracks":
+        keys = list(dict.fromkeys(scope["tracks"]))
+    elif kind == "cdj":
+        keys = [k for k, e in state["tracks"].items() if k not in held and not e.get("hidden") and not e.get("upgrade")
+                and e.get("status") != "missing"]
+    elif kind == "lossless":
+        keys = _view_keys(paths, state, scope, lines, records, watched)[1]
+    else:
+        return []  # `_pick` says what is wrong with the scope
+    tracks = state["tracks"]
+    return [k for k in keys if (e := tracks.get(k)) is not None and e.get("source") == eligible.OWN and e.get("path")
+            and entry_audio(e) is None]
+
+
+def _normal(path: str | Path) -> str:
+    return unicodedata.normalize("NFC", os.path.normpath(path))
+
+
+def with_facts(paths: Paths, state: dict, scope: Mapping, *, probe: Callable[[Path], quality.AudioInfo] = quality.probe,
+               lines: Sequence[pf.Row] | None = None, records: Mapping | None = None,
+               watched: Sequence[WatchedFolder] | None = None, held: Collection[str] = ()) -> dict:
+    """`state` with the facts of the scope's own files that have none stored, read in memory (design §7.1: a dry run
+    stores nothing). Only files `library facts` would store are read (`db.files_without_facts`: online, not held,
+    no failed-probe mark that still fits): up to `MOST_UNREAD`; more raise `FactsMissing`. Opens library.db read-only,
+    writes nothing; a library without one has none to read. A file ffprobe can't read keeps no facts, as in the
+    fill. Returns `state` itself when there is nothing to read, else a copy whose tracks hold the facts."""
+    if not paths.db_file.exists():
+        return state
+    keys = _unread_keys(paths, state, scope, lines, records, watched, held)
+    if not keys:
+        return state
+    with db.connect(paths.db_file, read_only=True) as conn:
+        lacking = {_normal(path): (file_id, path) for file_id, path in db.files_without_facts(conn)}
+    wanted = {k: lacking[_normal(paths.root / state["tracks"][k]["path"])] for k in keys
+              if _normal(paths.root / state["tracks"][k]["path"]) in lacking}
+    if len(wanted) > MOST_UNREAD:
+        raise FactsMissing(len(wanted))
+    by_id = {file_id: key for key, (file_id, _) in wanted.items()}
+    found = {}
+    for fact in importer.read_facts(list(wanted.values()), probe=probe):
+        if fact.audio is not None:
+            found[by_id[fact.file_id]] = {**state["tracks"][by_id[fact.file_id]], "file_codec": fact.audio.codec,
+                                          "file_rate": fact.audio.rate, "file_bits": fact.audio.bits,
+                                          "file_kbps": fact.audio.kbps}
+    return {**state, "tracks": {**state["tracks"], **found}} if found else state
 
 
 # --- one file ---

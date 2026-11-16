@@ -47,6 +47,7 @@ from .hub import views
 from .library import LockHeld, NoLibrary, Paths, StateError
 from .rekordbox import process
 from .rekordbox.preview import REASON_WORDS
+from .words import NO_FOLDER, NO_PLAYLIST
 from .cli.legacy_out import failed, no_library, say
 
 OK, FAILED, NO_LIBRARY, BUSY, REKORDBOX_OPEN, STOPPED = 0, 1, 2, 3, 4, 5
@@ -58,8 +59,6 @@ READING = "Reading what your files are: {done} of {total}"
 VERBS = {"convert": "Converting", "rename": "Renaming"}
 LOSSY_NOTE = "{n} of these {are} lossy: an AIFF made from them sounds the same and takes 5–10 times the space."
 BAD_IN_FORM = "--in is playlist:<name>, folder:<path> or unlisted."
-NO_PLAYLIST = "No playlist called “{name}”."
-NO_FOLDER = "No folder at {path}."
 BAD_IN_WITH_TRACKS = "--in narrows --all; it means nothing with named songs."
 BAD_IN_WITH_CDJ = "--all cdj is the whole group of files CDJs won't play well; --in can't narrow it."
 
