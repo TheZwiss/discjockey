@@ -496,6 +496,23 @@ Results:
     round DONE 8ebb70f9; rehearse-sync PASS; V1.14 MERGED (1444f8fe). Suite speed-up merged (3f4b6044, ~1 min).
     V1.15a done. User "pause" → "NOW!": V1.15b stopped before any change; user "continue" → V1.15b re-dispatched
     (same prompt), then review, fix, Opus phase review, merge into main (standing go until phase 1 is on main).
+    STATE 2026-11-16 evening (before a compact): V1.15b done 63cb37fa (121k); V1.15 review 117k (0 C, 2 I, 6 M:
+    marker matched case-insensitively/anywhere; real trash_item untested; --into unconstrained …) → .claude/issue39/
+    phase1/review-V1.15.md. RUNNING: V1.15 fix round (fix-round agent, worktree cli1-15). On its notice: check ps, log,
+    merge V1.15 (worktree remove, merge into cli1-live + main, check_public, push), then PHASE REVIEW per the advisor:
+    (1) measure on the merged head; (2) CI on the phase branch is green at 3f4b6044 (run 43848513430 failed once on
+    the flaky test_cli_job says_running → item S10); (3) split BY CONCERN, two Opus agents: SAFETY half = api.py +
+    engine diff + cli/call.py, cli/worker.py, hub/registry.py, plan_store.py + rehearsal script + make_upgrade_test.py +
+    the suite-speed harness (tests/conftest.py, tests/tool_memo.py); SURFACE half = parser, render, housekeeping,
+    follow, catalog, outcomes, ids, words, envelope + contract doc + hub-ui diff (types.ts/fake/contract together) +
+    design sections by grep; tests grep-by-need; wc -c each half after assigning; (4) items file with S/U tags:
+    ~/DJ Downloader/.claude/issue39/phase1/phase-review-items.md (S1-S11, U1-U12); (5) tell the user the measured
+    size + running total BEFORE dispatch (old estimate 300-500k will likely be exceeded; don't trim material);
+    touched tests only, findings files section by section, fixes stated for Sonnet; decide one or two fix rounds
+    after the counts. Then verify (run_in_background by me), CI, merge into main, morning summary (incl. AAC 420
+    gap U12, real-copy rehearsal session, cost, Qobuz "Use this" note). AFTER phase 1: discuss Opus plan + Fable
+    advisor + Sonnet build vs current setup. Suite now ~1 min (interim background wakes: no report to the user).
+    Issue 39 ~13.07M (incl. V1.15 review 117k), phase 1 ~10.95M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
