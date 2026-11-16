@@ -493,8 +493,26 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     **STATE 2026-11-16 ~midday (before a compact): USER SAID "pause after this agent is done".** RUNNING: V1.14 fix
-    round DONE 8ebb70f9 (200k, 5489 passed, logged below the V1.14 review entry). PAUSED: wait for the user's go
-    (no rehearse-sync until then).
+    round DONE 8ebb70f9; rehearse-sync PASS; V1.14 MERGED (1444f8fe). Suite speed-up merged (3f4b6044, ~1 min).
+    V1.15a done. User "pause" → "NOW!": V1.15b stopped before any change; user "continue" → V1.15b re-dispatched
+    (same prompt), then review, fix, Opus phase review, merge into main (standing go until phase 1 is on main).
+    STATE 2026-11-16 evening (before a compact): V1.15b done 63cb37fa (121k); V1.15 review 117k (0 C, 2 I, 6 M:
+    marker matched case-insensitively/anywhere; real trash_item untested; --into unconstrained …) → .claude/issue39/
+    phase1/review-V1.15.md. RUNNING: V1.15 fix round (fix-round agent, worktree cli1-15). On its notice: check ps, log,
+    merge V1.15 (worktree remove, merge into cli1-live + main, check_public, push), then PHASE REVIEW per the advisor:
+    (1) measure on the merged head; (2) CI on the phase branch is green at 3f4b6044 (run 43848513430 failed once on
+    the flaky test_cli_job says_running → item S10); (3) split BY CONCERN, two Opus agents: SAFETY half = api.py +
+    engine diff + cli/call.py, cli/worker.py, hub/registry.py, plan_store.py + rehearsal script + make_upgrade_test.py +
+    the suite-speed harness (tests/conftest.py, tests/tool_memo.py); SURFACE half = parser, render, housekeeping,
+    follow, catalog, outcomes, ids, words, envelope + contract doc + hub-ui diff (types.ts/fake/contract together) +
+    design sections by grep; tests grep-by-need; wc -c each half after assigning; (4) items file with S/U tags:
+    ~/DJ Downloader/.claude/issue39/phase1/phase-review-items.md (S1-S11, U1-U12); (5) tell the user the measured
+    size + running total BEFORE dispatch (old estimate 300-500k will likely be exceeded; don't trim material);
+    touched tests only, findings files section by section, fixes stated for Sonnet; decide one or two fix rounds
+    after the counts. Then verify (run_in_background by me), CI, merge into main, morning summary (incl. AAC 420
+    gap U12, real-copy rehearsal session, cost, Qobuz "Use this" note). AFTER phase 1: discuss Opus plan + Fable
+    advisor + Sonnet build vs current setup. Suite now ~1 min (interim background wakes: no report to the user).
+    Issue 39 ~13.07M (incl. V1.15 review 117k), phase 1 ~10.95M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
@@ -823,6 +841,28 @@ Results:
     hold_library=False, `*_held` variants; set_music_folder reordered); sync's own Qobuz config/Spotify token saves
     still take support inside library → issue 42 in docs/issues.md (number free on main; check other branches at
     merge). Lock-order sentence in CLAUDE.md. Issue 39 ~12.25M. Paused by the user after it.
+    User go 2026-11-16 afternoon ("continue"): through to phase 1 merged into main; AFTER phase 1 discuss with the
+    user: Opus plan + Fable advisor + Sonnet build vs the current setup (bring measured cost per role).
+    V1.14 rehearse-sync (made-up): Sonnet **96k** (est. 120-200k; 14 calls): 152 PASS, 0 FAIL, 8 NOTE; first runs
+    failed only on the fake (spare MP3 had no cues → correctly upgraded, not refused); build_fake.py fixed in
+    scratchpad/rehearsal-v1.14/; repo unchanged. V1.14 merged → phase branch 1444f8fe (issue 42 unique). Issue 39 ~12.35M.
+    V1.15a 9ad51310: Sonnet **145k** (est. 150-230k; 42 calls; full 5502 passed in 6:01, foreground call auto-moved
+    to the background by Claude Code at 180 s → interim wake). `--click` kinds + `--attach-upgrades` (two calls: after
+    `folder add`); default upgrade = click 30 ms later (shifted), `--same-edit` exact. Stage D gaps (no kind added,
+    FOR V1.15 REVIEW/FIX to decide): 24-bit 96 kHz WAV; `click_final.aiff` vs the marker-in-name rule; AAC 420 kbps
+    (ffmpeg aac writes ~225k on clicks). Legacy `update` stays (tools update not runnable yet); it refuses busy (exit 3)
+    while the registry holds update_tools/rollback_tools. Issue 39 ~12.50M.
+    SUITE SPEED (user 2026-11-16): suite was ~25 s on 2026-10-23, now 4.5-6 min; Claude Code moves a foreground call to
+    the background after 180 s. User: no 3-way split; make the suite fast. Profiling run on the phase branch first.
+    Suite speed: Sonnet **332k** (est. 170-260k; 493 calls) on feat/suite-speed, tests/docs only: 365 s → ~63 s, 5496
+    passed. Causes: drive flushes (F_FULLFSYNC + library.db pragmas) ~250 s, repeated ffprobe/ffmpeg ~54 s, SQLCipher
+    KDF ~19 s, worksteal. Losses: real flush/KDF/tool runs only in pin tests + the timing test (`real_*` markers);
+    tool memo answers identical bytes+command; goldens ignore a backup's -N suffix. Merged → phase 3f4b6044 and into
+    feat/cli-1-15 (2ce1e058: 5509 passed in 62.7 s). Issue 39 ~12.83M.
+    V1.15b first dispatch stopped by the user ("pause" → "NOW!") before any change (size not reported).
+    V1.15b 63cb37fa: Sonnet **121k** (est. 150-230k; 30 calls; full 5518 passed in 51.9 s, foreground). `--clean <ID>|
+    --all-marked [--into]` (Trash via NSFileManager, osascript fallback; Trash before entries leave library.db),
+    `--remove` gone, `wav96` + `--messy-name`; no aac420 (aac_at max ~322 kbit/s). Issue 39 ~12.95M. Review next.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
