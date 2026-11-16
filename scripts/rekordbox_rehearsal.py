@@ -1203,8 +1203,8 @@ DERIVED = (
      ("-ar", "96000", "-c:a", "pcm_s24be", "-write_id3v2", "1", "-f", "aiff")),
     ("AIFF 16/44.1 wrong tags (derived)", "derived_tags.aiff", "tags", "Rehearsal tags", 12,
      ("-ar", "44100", "-c:a", "pcm_s16be", "-write_id3v2", "1", "-f", "aiff")),
-    ("AAC 420 kbps (derived)", "derived_aac.m4a", "aac", "Rehearsal AAC", 4, ("-c:a", "aac", "-b:a", "420k")),
-)
+    ("AAC 420 kbps (derived)", "derived_aac.m4a", "aac", "Rehearsal AAC", 4, ("-ar", "96000", "-c:a", "aac", "-b:a", "420k")),
+)  # 96 kHz: ffmpeg's AAC encoder stops near 225 kbps at 44.1 kHz whatever it is asked for
 RECORD_TITLES = {"MP3 #1": "Rehearsal MP3", "M4A 44.1 #1": "Rehearsal M4A 44", "M4A 48 #1": "Rehearsal M4A 48"}
 LOSSLESS_SET = ("FLAC (derived)", "AIFF 24-bit 96 kHz (derived)", "AIFF 16/44.1 wrong tags (derived)", PCM)
 CDJ_SET = ("AAC 420 kbps (derived)",)
@@ -1812,6 +1812,13 @@ def rehearse_convert(work: Path) -> int:
     print("RH1: prepare the copy and the scratch library")
     ctx = prepare_convert(work, picks, checks)
     ctx["work"] = work
+    # a real library has its files' facts stored (the import and scan store them); the CDJ group and the rename's
+    # "facts unchanged" check read the stored ones, so the scratch library gets them the way a library does
+    code, env, err = cli(work, "rh1-facts", "library", "facts", "--wait", "3600")
+    songs = library.load_state(ctx["paths"])["tracks"]
+    missing = [label for label, i in ctx["info"].items() if songs[i["tid"]].get("file_codec") is None]
+    checks.add("RH1 `library facts` stored the facts of every file", code == 0 and not missing,
+               f"exit {code}, no facts stored for: {missing or 'none'}")
     ctx["anlz_before"] = {p["label"]: {f.name: f.read_bytes() for f in anlz_files(work, p)} for p in ctx["all"]}
     view = f"folder:Library/{FOLDER}"  # a Library folder's key is relative to the music folder
     batches = []
