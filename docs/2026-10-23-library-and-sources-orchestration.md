@@ -578,7 +578,10 @@ Results:
     verify on 64bc4210: 1216 shots, 0 problems; smoke ok (11 routes). CI on the phase branch FAILED since the V1.15
     merge (runs 43903786073, 43966337920): 4 tests in test_make_upgrade_test.py, "Encoder not found" for mp3 (CI's
     shipped ffmpeg has no MP3 encoder); 5635 passed. Missed because I didn't check CI after the V1.15 merge. CI fix
-    (Sonnet, branch feat/cli-1-ci, worktree cli1-ci) RUNNING.
+    (Sonnet, branch feat/cli-1-ci, worktree cli1-ci)
+    CI fix done 044279b0: Sonnet **65k** (10 calls; 5651 passed in 90.3 s): shipped ffmpeg has no libmp3lame; kit
+    checks the encoder first (exit 2 with the kinds that work), refusal test uses flac, MP3 cases skip without the
+    encoder. Merged into the phase branch + main: 092c1f16, pushed; CI running. Issue 39 ~15.53M, phase 1 ~13.41M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
