@@ -15,7 +15,7 @@ import discjockey.cli as cli
 from discjockey.hub import jobs, registry
 from discjockey.hub.registry import Registry
 
-ROOTS = {"music": None, "support": "/s", "rekordbox": None, "sandbox": None}
+ROOTS = {"music": None, "support": "/s", "rekordbox": None, "rekordbox_share": None, "sandbox": None}
 
 
 def make(tmp_path, music=None):

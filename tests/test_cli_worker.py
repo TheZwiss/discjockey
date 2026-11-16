@@ -30,6 +30,7 @@ SHIM = """
 import json, os, pathlib, sys, time
 from discjockey import tools
 tools.activate()
+from discjockey.rekordbox.locate import locate
 from discjockey.hub import api as A
 from discjockey.cli import worker
 job_id, mode, marker = sys.argv[1:4]
@@ -40,7 +41,8 @@ def scan(self):
         if mode == "roots":
             pathlib.Path(marker).write_text(json.dumps({
                 "env_support": os.environ["DISCJOCKEY_SUPPORT"], "env_rekordbox": os.environ["DISCJOCKEY_REKORDBOX"],
-                "paths_support": str(self._paths.support), "paths_root": str(self._paths.root)}))
+                "paths_support": str(self._paths.support), "paths_root": str(self._paths.root),
+                "share": str(locate().share) if locate() else None}))
             return {}
         pathlib.Path(marker).write_text("started")
         if mode == "crash":
@@ -307,6 +309,18 @@ def test_a_job_without_a_rekordbox_folder_sees_no_rekordbox_library(env):
     assert json.loads(w.marker.read_text())["env_rekordbox"] == ""  # set but empty: no library, never the real one
 
 
+def test_a_job_finds_the_analysis_folder_the_client_saw_not_a_guess(env, tmp_path):
+    folder = tmp_path / "rb-elsewhere"
+    folder.mkdir()
+    (folder / "master.db").write_bytes(b"")
+    w = env.start("roots", roots=env.roots(rekordbox=str(folder), rekordbox_share=str(tmp_path / "analysis-elsewhere")))
+    wait_for(w.ended)
+    assert json.loads(w.marker.read_text())["share"] == str(tmp_path / "analysis-elsewhere")
+    w = env.start("roots", roots=env.roots(rekordbox=str(folder)))  # none recorded: the folder's own share, as before
+    wait_for(w.ended)
+    assert json.loads(w.marker.read_text())["share"] == str(folder / "share")
+
+
 # --- busy and --wait-busy ---
 
 def test_two_workers_for_writes_at_once_one_runs_one_is_busy(env):
@@ -326,6 +340,19 @@ def test_two_workers_for_writes_at_once_one_runs_one_is_busy(env):
 def test_a_busy_library_nobody_registered_answers_console_with_an_unknown_holder(env):
     from discjockey import library
     with library.run_lock(env.paths.lock):  # a terminal run of the old kind, in this very process
+        w = env.start("quick")
+        wait_for(w.ended)
+    result = w.result()
+    assert (result["outcome"], result["reason"], result["data"]) == ("busy", "console", {"holder": {"via": "unknown"}})
+
+
+def test_a_running_read_job_is_never_named_as_the_libraries_holder(env):
+    from discjockey import library
+    rj = env.registry.create("aiff", "aiff convert", {}, "terminal", env.roots())  # the claim stays: it is alive
+    rj.update(method="aiff_plan", status="running")
+    rj.flush()
+    env.seen.add(rj.id)
+    with library.run_lock(env.paths.lock):
         w = env.start("quick")
         wait_for(w.ended)
     result = w.result()

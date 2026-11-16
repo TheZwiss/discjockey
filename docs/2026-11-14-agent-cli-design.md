@@ -521,7 +521,7 @@ declares the locks it takes.
 ### 6.3 How a job runs
 
 **From the terminal: a worker process.**
-1. The client parses and checks the command line, resolves the roots (music, support, rekordbox, sandbox) as it sees
+1. The client parses and checks the command line, resolves the roots (music, support, rekordbox, rekordbox_share, sandbox) as it sees
    them, writes `state.json` (`queued`) and starts the worker `Discjockey job _worker <id>` in a new session (stdin and
    stdout to `/dev/null`, stderr to `log.txt`; a write job under its own `caffeinate -i -w <pid>`).
 2. The worker takes `alive`, records `pid` and `pid_started`, and builds a headless `HubApi` (§8.1) **from the roots

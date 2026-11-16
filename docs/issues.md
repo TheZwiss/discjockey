@@ -11,6 +11,7 @@ while it holds the library lock for the whole run: Qobuz's `config.toml` (`qobuz
 `_save_secrets`) and Spotify's token (`sources/spotify._save_token`). They take the support lock inside the library
 lock. No deadlock is possible (the support lock is a leaf, waited for 2 s, then `busy`), but the order is the other
 way. Fix: take the support lock before the library lock for a run that logs in, or move the saves out of the run.
+The in-run saves wait up to 60 s (phase 1 review S-7), so a tools install no longer loses a refreshed token.
 
 ## 41. To-do multi-select for the other groups' actions (Hide, Find a version, …) (2026-11-08)
 

@@ -222,6 +222,8 @@ def try_flock(fd: int) -> bool:
 
 SUPPORT_LOCK = ".support.lock"
 SUPPORT_WAIT_S, SUPPORT_RETRY_S = 2.0, 0.02
+# a login file a running job must keep (a rotated Spotify token, Qobuz's app secrets): waits out a tools install
+SUPPORT_LOGIN_WAIT_S = 60.0
 SUPPORT_BUSY = "Another Discjockey process is saving its own settings. Try again in a moment."
 
 
@@ -234,15 +236,15 @@ class SupportBusy(Problem):
 
 
 @contextmanager
-def support_lock(support: Path):
+def support_lock(support: Path, *, wait_s: float | None = None):
     """`<support>/.support.lock`, exclusive for the block: one read-change-write of settings.json, config.json, the
     login files or the tools folder at a time across every Discjockey process of this support folder (two windows,
-    a window before Setup, a terminal, a worker; design §6.1). Waits up to `SUPPORT_WAIT_S`, then raises SupportBusy.
+    a window before Setup, a terminal, a worker; design §6.1). Waits up to `wait_s` (`SUPPORT_WAIT_S`), then raises SupportBusy.
     The OS lets go of it if the process dies. Not re-entrant: a second hold in the same process waits like any other."""
     support.mkdir(parents=True, exist_ok=True)
     fd = os.open(support / SUPPORT_LOCK, os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        deadline = time.monotonic() + SUPPORT_WAIT_S
+        deadline = time.monotonic() + (SUPPORT_WAIT_S if wait_s is None else wait_s)
         while True:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

@@ -56,6 +56,7 @@ def _no_real_rekordbox_library(tmp_path_factory, monkeypatch):
     """No test reads the maintainer's rekordbox library: DISCJOCKEY_REKORDBOX points at an empty folder (no
     library: state "none"). A test that needs one builds it there or elsewhere with rekordbox_helpers.make_master."""
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(tmp_path_factory.mktemp("rekordbox")))
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX_SHARE", "")  # a worker that ran in this process leaves none behind
 
 
 @pytest.fixture(autouse=True)

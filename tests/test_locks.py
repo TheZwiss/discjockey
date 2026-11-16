@@ -155,9 +155,9 @@ def test_every_write_site_of_the_support_folder_holds_the_support_lock(support, 
     taken = []
     real = library.support_lock
 
-    def recording(folder):
+    def recording(folder, **kwargs):
         taken.append(Path(folder))
-        return real(folder)
+        return real(folder, **kwargs)
 
     monkeypatch.setattr(library, "support_lock", recording)
     update_settings(support / "settings.json", lambda s: s)
@@ -488,3 +488,24 @@ def test_a_writer_can_start_while_a_plan_read_is_past_its_lookups(tmp_path, monk
 def test_the_locks_words_are_the_four_of_the_design():
     assert catalog.LOCKS == ("library", "support", "rekordbox_w", "rekordbox_r")
     assert all(e.locks <= set(catalog.LOCKS) for e in catalog.ENTRIES)
+
+
+def test_a_login_save_can_wait_longer_than_the_default_for_the_support_lock(tmp_path):
+    def hold_briefly(seconds):
+        with library.support_lock(tmp_path):
+            time.sleep(seconds)
+
+    assert library.SUPPORT_LOGIN_WAIT_S == 60.0
+    holder = threading.Thread(target=hold_briefly, args=(0.3,))
+    holder.start()
+    time.sleep(0.1)  # the holder has the lock
+    with library.support_lock(tmp_path, wait_s=1):  # waits the 0.2 s that are left
+        pass
+    holder.join()
+    holder = threading.Thread(target=hold_briefly, args=(0.5,))
+    holder.start()
+    time.sleep(0.1)
+    with pytest.raises(library.SupportBusy):
+        with library.support_lock(tmp_path, wait_s=0.1):
+            pass
+    holder.join()

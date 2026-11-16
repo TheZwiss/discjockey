@@ -458,7 +458,7 @@ class Registry:
         files = JobFiles(self.root / job_id)
         files.claim()  # before state.json exists: a reader that sees the job sees it alive
         files.update(id=job_id, kind=kind, command=command, args=dict(args or {}), via=via,
-                     roots={"music": None, "support": None, "rekordbox": None, "sandbox": None, **roots},
+                     roots={"music": None, "support": None, "rekordbox": None, "rekordbox_share": None, "sandbox": None, **roots},
                      pid=None, pid_started=None, status="queued", started=_now(), ended=None, person_steps=[])
         return files
 

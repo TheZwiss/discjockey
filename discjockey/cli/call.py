@@ -18,6 +18,7 @@ from datetime import datetime
 from .. import tools
 from ..hub import catalog, registry, select
 from ..hub.catalog import Entry
+from ..rekordbox import lock as rb_lock
 from ..rekordbox.locate import locate
 from . import bind, envelope, follow, worker
 from .parser import BATCH_SELECTION_WORDS, SELECTION_WORDS, Flags, parameters_of, selects, signature_of
@@ -304,10 +305,12 @@ def start_job(entry: Entry, kwargs: Mapping, command: str, flags: Flags, *,
     (`queued`, claimed), the worker started and handed the claim, then the first answer: the job's own envelope when
     it has ended, else `running` (exit 8) with its id (or, with --detach, `ok`). The first stderr line names the job. Killing this process afterwards never touches the worker."""
     here = bind.resolved()
+    if entry.kind == "J":  # a write: its lock file exists before it starts, so a reader of rekordbox holds something
+        rb_lock.ensure(here.support)
     place = locate()
     roots = {"music": str(here.paths.root) if here.paths is not None else str(here.music_folder) if here.music_folder else None,
              "support": str(here.support), "rekordbox": str(place.db.parent) if place is not None else None,
-             "sandbox": None}
+             "rekordbox_share": str(place.share) if place is not None else None, "sandbox": None}
     reg = registry.Registry(here.support)
     reg.prune(datetime.now())
     files = reg.create(entry.method, command, dict(kwargs), "terminal", roots)

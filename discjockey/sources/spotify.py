@@ -103,7 +103,7 @@ def _save_token(path: Path, token: dict) -> None:
     """Written next to the old file and swapped in, so a crash never leaves a half-written (lost) login."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    with library.support_lock(path.parent):  # a login file: one writer at a time across processes
+    with library.support_lock(path.parent, wait_s=library.SUPPORT_LOGIN_WAIT_S):  # a login file: one writer at a time
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:

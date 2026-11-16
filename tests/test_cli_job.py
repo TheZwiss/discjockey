@@ -150,7 +150,9 @@ def test_no_flag_and_stdout_not_a_terminal_waits_the_default_then_says_running(e
     env.seen.add(answer["job"])
     assert 0.9 <= time.monotonic() - started < 8
     assert (answer["outcome"], answer["reason"], envelope.exit_code(answer)) == ("running", "still_running", 8)
-    assert answer["job"] == answer["data"]["job"] and answer["data"]["status"] == "running"
+    assert answer["job"] == answer["data"]["job"] and answer["data"]["status"] in ("queued", "running")
+    wait_for(lambda: marker.exists())  # the worker's start (imports, library lock) can pass the 1 s wait under load
+    assert env.registry.get(answer["job"]).state()["status"] == "running"
     open_gate(marker)
     wait_for(lambda: reader_of(env, env.registry.get(answer["job"])).result() is not None)
 
@@ -172,13 +174,24 @@ def test_wait_1_with_a_real_worker_answers_running_and_the_job_goes_on(env):
     env.seen.add(answer["job"])
     assert (answer["outcome"], envelope.exit_code(answer)) == ("running", 8) and answer["job"]
     reader = env.registry.get(answer["job"])
-    assert reader.state()["status"] == "running" and reader.is_alive()
+    wait_for(lambda: reader.state()["status"] == "running" and reader.is_alive())  # the start can pass the 1 s wait
     open_gate(marker)
     wait_for(lambda: reader.result() is not None and not reader.is_alive())
     assert reader.result()["outcome"] == "ok"
 
 
 # --- --detach ---
+
+def test_a_write_job_makes_the_rekordbox_lock_file_before_its_worker_runs(env):
+    lock_file = env.paths.support / "rekordbox.lock"
+    assert not lock_file.exists()
+    marker, argv = shim_argv(env, "gate", "lockfile")
+    answer = call.start_job(rescan(), {}, "library scan", parser.Flags(detach=True), argv=argv)
+    env.seen.add(answer["job"])
+    assert lock_file.exists() and lock_file.read_bytes() == b""  # made empty, so a reader has something to hold
+    open_gate(marker)
+    wait_for(lambda: env.registry.get(answer["job"]).result() is not None)
+
 
 def test_detach_returns_once_the_worker_runs_with_exit_0(env):
     marker, argv = shim_argv(env, "gate", "detach")
@@ -549,6 +562,58 @@ def test_a_read_job_runs_as_a_job_without_the_library_lock(env):
     assert writer.state()["status"] == "running"  # the write job was never disturbed, and the read was not busy
     writer.open_gate()
     wait_for(writer.ended)
+
+
+def test_a_stop_request_ends_a_read_job_at_once_and_saves_no_plan(env):
+    entry = replace(catalog.by_method("aiff_plan")[0], planned=None)
+    marker = env.tmp / "rj-stop-marker"
+    started = []
+
+    def go():
+        started.append(call.start_job(entry, {"scope": {"kind": "cdj"}}, "aiff convert", parser.Flags(),
+                                      argv=lambda i: [sys.executable, "-c", RJ_SHIM, i, "gate", str(marker)]))
+
+    thread = threading.Thread(target=go)
+    thread.start()
+    wait_for(marker.exists)
+    rj = next(j for j in env.registry.list(all=True) if j.get("method") == "aiff_plan")
+    env.seen.add(rj["id"])
+    files = env.registry.get(rj["id"])
+    answer = follow.stop("job stop", files)  # no --now: the first request ends a read
+    assert answer["outcome"] == "ok" and answer["data"]["status"] == "stopping"
+    wait_for(lambda: files.result() is not None)
+    thread.join(20)
+    assert (files.result()["outcome"], files.result()["reason"]) == ("stopped", "stop")
+    assert not list((env.paths.support / "plans").glob("*"))  # the plan is saved only after the read returns
+    open_gate(marker)
+
+
+def test_a_real_read_job_worker_writes_only_plans_cache_and_jobs(env):
+    from test_cli_dryrun import tree
+    entry = replace(catalog.by_method("aiff_plan")[0], planned=None)
+    support, music, rekordbox = env.paths.support, env.paths.root, env.tmp / "rekordbox-scratch"
+    rekordbox.mkdir(exist_ok=True)
+    skip = tuple(support / name for name in ("plans", "cache", "jobs"))
+
+    def trees():
+        return tree(support, skip), tree(music, (support, *skip)), tree(rekordbox)
+    before = trees()
+    marker = env.tmp / "rj-tree-marker"
+    started = []
+
+    def go():
+        started.append(call.start_job(entry, {"scope": {"kind": "cdj"}}, "aiff convert", parser.Flags(),
+                                      argv=lambda i: [sys.executable, "-c", RJ_SHIM, i, "gate", str(marker)]))
+
+    thread = threading.Thread(target=go)
+    thread.start()
+    wait_for(marker.exists)
+    open_gate(marker)
+    thread.join(20)
+    answer = started[0]
+    env.seen.add(answer["job"])
+    assert answer["outcome"] == "ok" and answer["data"]["plan_id"].startswith("plan:")
+    assert trees() == before  # the real worker (its environment, events writer, log) wrote nothing else
 
 
 def test_call_run_hands_a_read_job_entry_to_the_job_client(monkeypatch):

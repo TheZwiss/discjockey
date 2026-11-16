@@ -290,6 +290,43 @@ def test_a_read_beside_a_writer_sees_what_it_committed_and_leaves_the_writers_fi
     assert not Path(f"{lib.db_file}-wal").exists() and not Path(f"{lib.db_file}-shm").exists()
 
 
+def test_the_tidy_checkpoints_a_writers_committed_row_with_fullfsync(lib, monkeypatch):
+    class Recorder:
+        def __init__(self, conn):
+            self.conn, self.calls = conn, []
+
+        def execute(self, sql, *args):
+            self.calls.append(sql)
+            return self.conn.execute(sql, *args)
+
+        def close(self):
+            self.calls.append("close")
+            self.conn.close()
+
+    tidies = []
+    real = db.sqlite3.connect
+    monkeypatch.setattr(db.sqlite3, "connect",
+                        lambda *a, **kw: (tidies.append(Recorder(real(*a, **kw))) or tidies[-1]) if kw.get("timeout") == 0
+                        else real(*a, **kw))
+    assert not Path(f"{lib.db_file}-wal").exists()
+    reader = db.connect(lib.db_file, read_only=True)  # no sidecars before it: its first read makes them
+    reader.execute("SELECT COUNT(*) FROM sqlite_master").fetchall()
+    writer = db.connect(lib.db_file)
+    with db.transaction(writer):
+        writer.execute("UPDATE watched_folders SET last_scan = '2026-11-03T09:00:00'")
+    writer.close()  # not the last connection: its pages stay in the log
+    assert Path(f"{lib.db_file}-wal").exists()
+    reader.close()  # now the tidy is the last connection and checkpoints the row
+    assert not Path(f"{lib.db_file}-wal").exists() and not Path(f"{lib.db_file}-shm").exists()
+    plain = real(str(lib.db_file))
+    try:
+        assert plain.execute("SELECT last_scan FROM watched_folders").fetchone()[0] == "2026-11-03T09:00:00"
+    finally:
+        plain.close()
+    [tidy] = tidies
+    assert tidy.calls[:2] == ["PRAGMA fullfsync = ON", "PRAGMA checkpoint_fullfsync = ON"] and tidy.calls[-1] == "close"
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root can write anywhere")
 def test_in_a_folder_nobody_can_write_the_read_is_immutable_and_still_works(lib):
     before = lib.db_file.read_bytes()

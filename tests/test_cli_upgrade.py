@@ -9,6 +9,7 @@ Part b's commands (`upgrade discard`, `track undo`, `check done`) reuse `inline_
 text pages are pinned by `tests/cli_golden/{upgrade_discard,track_undo,check_done}.txt`."""
 from __future__ import annotations
 
+import copy
 import json
 import os
 import signal
@@ -666,3 +667,23 @@ def test_golden_the_pages_of_a_discard_an_undo_and_a_check(lib, capsys, tmp_path
     code, out, err = run(["check", "done", found.tracks[0]], capsys)
     assert code == OK and "check_done" in WRITES
     check_golden("check_done", out.replace(str(tmp_path), "<tmp>"))
+
+
+def test_check_done_batch_leaves_a_song_a_later_batch_changed_again(lib, capsys):
+    found = lib(["mp3", "aiff"])
+    first = apply_same(found, capsys)
+    run_json(["upgrade", "apply", found.tracks[0], *SAME], capsys)  # batch 2 exists (it found nothing to do here)
+    state = library.load_state(found.paths)  # ...as if it had redone the first song: its open check is that batch's
+    state["tracks"][found.tracks[0]]["rekordbox_check"]["batch"] = 2
+    library.save_state(found.paths, state)
+    before = copy.deepcopy(found.entry(0))
+    code, env = run_json(["check", "done", "--batch", first], capsys)
+    rows = {r["track"]: r for r in env["data"]["results"]}
+    assert rows[found.tracks[1]]["state"] == "done"
+    assert (rows[found.tracks[0]]["state"], rows[found.tracks[0]]["reason"]) == ("skipped", "newer_batch")
+    assert "aiff:2" in rows[found.tracks[0]]["message"] and (code, env["outcome"]) == (PARTIAL, "partial")
+    assert found.entry(0) == before and found.entry(1)["rekordbox_check"] is None  # check, undo and download stay
+    code, env = run_json(["check", "done", "--batch", "aiff:2"], capsys)
+    assert [r["track"] for r in env["data"]["results"]] == [found.tracks[0]] and code == OK
+    assert found.entry(0)["rekordbox_check"] is None
+

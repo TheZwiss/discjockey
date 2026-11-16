@@ -13,7 +13,7 @@ from ..events import CancelToken
 from ..hub.api import CliApi
 from ..hub.jobs import Job
 from ..hub.registry import JobFiles
-from ..rekordbox.locate import ENV as REKORDBOX_ENV
+from ..rekordbox.locate import ENV as REKORDBOX_ENV, SHARE_ENV
 
 SUPPORT_ENV = library.SUPPORT_ENV  # `DISCJOCKEY_SUPPORT`
 
@@ -63,6 +63,7 @@ def adopt_environment(roots: dict) -> None:
     folders of the job's `roots`, not the worker's own environment."""
     os.environ[SUPPORT_ENV] = str(roots["support"])
     os.environ[REKORDBOX_ENV] = str(roots["rekordbox"]) if roots.get("rekordbox") else ""  # empty: no rekordbox library
+    os.environ[SHARE_ENV] = str(roots["rekordbox_share"]) if roots.get("rekordbox_share") else ""  # as the client saw it
 
 
 def job_token(api: CliApi) -> CancelToken:
