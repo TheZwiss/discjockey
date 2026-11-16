@@ -493,8 +493,8 @@ Results:
     line, node_modules symlink, timing-test flake note, full pytest at end in bg, report <10 lines). Review prompt
     pattern = the V1.11 review; fix prompt = the V1.11 fix (decisions answered by the outcome rules, not by the user).
     Merged: V1.1-V1.11 (+V1.11 review/fix), V1.7 review/fix/rehearsal, follower fix. Phase branch head 90cc0afe.
-    V1.12a committed 8a980af0 on feat/cli-1-12. RUNNING: V1.12b (rekordbox backups/restore + delete batch_cmd.py,
-    upgrades_cmd.py; carry item #9 for `_rekordbox_status`).
+    V1.12a 8a980af0 + V1.12b ef6b8856 on feat/cli-1-12 (built). RUNNING: V1.12 review (Sonnet).
+   
     NEXT: V1.12 review → V1.12 fix round, which ALSO runs the V1.11+V1.12 rehearsal: on MADE-UP data only (fixture
     master via tests/rekordbox_helpers.make_master + scratch tracks, scratch support folder); never the user's
     rekordbox library, support folder or music. If scripts/rekordbox_rehearsal.py can only rehearse on a copy of the
@@ -741,6 +741,13 @@ Results:
     support folder or library changed. FOR PHASE REVIEW: `parse_id("track:1", ("aiff",))` → unknown_id not
     bad_id_kind; `batch resume` without id = argparse words; window "Undo all" still sends `undo_upgrade` with track
     ids (design row wants `batch_undo`). Issue 39 ~8.99M.
+    Part b ef6b8856: Sonnet **404k** (est. 190-260k; 193 calls; full 5337 passed). rekordbox backups/restore
+    (`rekordbox_restore_preview` dry run takes reader_lock, `writing` while a writer holds it; restore checks in
+    `backup.preview`/`_verified`); batch_cmd.py + upgrades_cmd.py deleted (30+19 tests: 14 ported, rest duplicates or
+    old prompts); carry #9 `_rekordbox_status` gone with batch_cmd; convert/rename helpers parked in convert_cmd.py
+    until V1.13; rehearsal script step 8 (backups, restore dry run + --yes, byte-equal), not run yet; ceiling 93.
+    FOR REVIEW: a job ending `busy` on a held rekordbox.lock carries no batch data (`worker._busy`), so an agent
+    isn't told which batch stopped. V1.12 total 729k vs plan 200k. Issue 39 ~9.39M.
   - **NOW (2026-11-14 night, user asleep, go for issue 39 through the night):** issue 39 = the agent CLI, before the
     A–D live tests (the user wants an agent to run them through commands). User's rule: today's commands are evidence,
     not a template; design the CLI from first principles before building. Steps: 0 raw lists (done: scratchpad
