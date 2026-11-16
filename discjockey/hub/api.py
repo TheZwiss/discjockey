@@ -120,6 +120,8 @@ LIBRARY_METHODS = frozenset((
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
+# What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
+RESOLVE_WORDS = {"upgrade_way": "same-track|new-track"}
 
 
 @dataclass
@@ -3081,7 +3083,7 @@ class CliApi(HubApi):
     (tests/test_hub_api.py): the window's `HubApi` has none of these."""
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
-                 "collection": "_resolve_collection", "folder": "_resolve_folder"}  # kind -> the method that makes it (grows per group)
+                 "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -3533,6 +3535,12 @@ class CliApi(HubApi):
         if row is None:
             raise BadId("unknown_id", f"There is no AIFF batch {found.value}.")
         return int(found.value)
+
+    def _resolve_batch(self, text: str) -> str:
+        """`batch show`: a batch as typed, `aiff:<n>` or `moves:<n>` (a bare number is `bad_id_kind`); `batch_detail`
+        reads it again and says when no batch has it."""
+        parse_id(text, BATCH_KINDS)
+        return text.strip()
 
     def _resolve_upgrade_way(self, text: str) -> str:
         """`--way`: `same-track` or `new-track` (the snake_case spellings too) as the bridge's mode."""

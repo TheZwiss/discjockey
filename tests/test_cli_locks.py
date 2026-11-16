@@ -8,6 +8,7 @@ The probes (`jobs.lock_free`, the console watch) are not takes: they never hold 
 from __future__ import annotations
 
 import sys
+import threading
 
 import pytest
 
@@ -21,8 +22,30 @@ from discjockey.rekordbox import lock as rb_lock
 
 
 class Recorder:
+    """`words` are the takes in the order the lock functions were called; `events` are the holds as they open and close:
+    `("take", word, thread)` when the lock is held, `("release", word, thread)` when the block ends."""
+
     def __init__(self):
         self.words: list[str] = []
+        self.events: list[tuple[str, str, int]] = []
+
+
+class Held:
+    """The context manager a lock function returned, noting when its hold opens and when it ends."""
+
+    def __init__(self, inner, rec: Recorder, word: str):
+        self.inner, self.rec, self.word = inner, rec, word
+
+    def __enter__(self):
+        value = self.inner.__enter__()
+        self.rec.events.append(("take", self.word, threading.get_ident()))
+        return value
+
+    def __exit__(self, *exc):
+        try:
+            return self.inner.__exit__(*exc)
+        finally:
+            self.rec.events.append(("release", self.word, threading.get_ident()))
 
 
 @pytest.fixture
@@ -40,7 +63,7 @@ def fake_locks(monkeypatch):
 
         def take(*args, **kwargs):
             rec.words.append(words[name])
-            return real(*args, **kwargs)
+            return Held(real(*args, **kwargs), rec, words[name])
         take.__name__ = name
         return take
 
@@ -348,35 +371,58 @@ def order_of(box, drive) -> list[str]:
 RANK = {"support": 0, "library": 1, "rekordbox_r": 2, "rekordbox_w": 2}  # the two rekordbox.lock takes are one rank
 
 
-# Entries whose driver takes a shared `rekordbox.lock` hold (a reader's `with` block: the preview that comes before the
-# job) and, after it has ended, the library lock. The recorder sees takes, not releases, so these fail the rule as the
-# review wrote it; whether a reader that never waits and is gone before the library is taken breaks the order is the
-# coordinator's decision (phase 1 review S-9 report). Strict: the day one passes, this list must shrink.
-READER_BEFORE_LIBRARY = {"upgrade:upgrade apply", "upgrade_all:upgrade apply", "make_aiff:aiff convert",
-                         "convert:aiff convert", "rename:aiff rename"}
+def disorder_of(events: list[tuple[str, str, int]]) -> str | None:
+    """The first lock taken while a later one is held (in one thread), else None. The rule is about holds that are open
+    together: a lock that was let go before the next is taken (a reader's preview, then the library) is no breach."""
+    held: dict[int, list[str]] = {}
+    for what, word, thread in events:
+        mine = held.setdefault(thread, [])
+        if what == "release":
+            mine.remove(word)
+            continue
+        later = [h for h in mine if RANK[h] > RANK[word]]
+        if later:
+            return f"{word} is taken while {later[0]} is held: {[e[:2] for e in events]}"
+        mine.append(word)
+    return None
 
 
-def _order_case(entry):
-    own = f"{entry.method}:{' '.join(entry.command)}"
-    marks = [pytest.mark.xfail(strict=True, reason="a reader's hold before the library lock: S-9, undecided")] \
-        if own in READER_BEFORE_LIBRARY else []
-    return pytest.param(entry, id=own, marks=marks)
-
-
-@pytest.mark.parametrize("entry", [_order_case(e) for e in BUILT])
+@pytest.mark.parametrize("entry", [pytest.param(e, id=f"{e.method}:{' '.join(e.command)}") for e in BUILT])
 def test_a_built_entry_takes_its_locks_in_the_stated_order(entry, box):
-    """Lock order is support, library, rekordbox.lock: no entry takes `support` after the library or rekordbox.lock,
-    or the library after rekordbox.lock (a reader after a writer is allowed: both are `rekordbox.lock`, one after the
-    other)."""
+    """Lock order is support, library, rekordbox.lock: a lock taken while another is held comes later in that order
+    (a reader after a writer is allowed: both are `rekordbox.lock`). Only holds that are open together count."""
     if entry.kind in ("W", "dropped"):
         return
     own = f"{entry.method}:{' '.join(entry.command)}"
     driver = DRIVERS.get(own) or DRIVERS.get(entry.method)
-    words = order_of(box, driver)
-    highest = 0
-    for word in words:
-        assert RANK[word] >= highest, f"{word} is taken after a later lock: {words}"
-        highest = max(highest, RANK[word])
+    api, events, rec = box
+    rec.words.clear()
+    rec.events.clear()
+    driver(api, events)
+    assert disorder_of(rec.events) is None, disorder_of(rec.events)
+
+
+def test_the_order_check_fails_when_the_library_is_taken_while_the_reader_hold_is_open(box, tmp_path):
+    """The check is not blind: a driver that takes `library` inside a `rekordbox_r` hold is a breach, and the same two
+    takes one after the other (the hold let go first) are not."""
+    api, events, rec = box
+    support, music = api._support.support, api._paths.root / ".discjockey"
+    rec.events.clear()
+    with rb_lock.reader_lock(support):
+        with library.run_lock(music / "scratch.lock"):
+            pass
+    assert "library is taken while rekordbox_r is held" in (disorder_of(rec.events) or "")
+    rec.events.clear()
+    with rb_lock.reader_lock(support):
+        pass
+    with library.run_lock(music / "scratch.lock"):
+        pass
+    assert disorder_of(rec.events) is None
+    rec.events.clear()
+    with library.run_lock(music / "scratch.lock"):  # the allowed way round: the reader inside the library lock
+        with rb_lock.reader_lock(support):
+            pass
+    assert disorder_of(rec.events) is None
 
 
 def _music_elsewhere(api, rec):

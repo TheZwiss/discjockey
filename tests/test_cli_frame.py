@@ -462,3 +462,27 @@ def test_the_removed_words_are_bad_args_that_say_what_to_say_instead(argv, say, 
     assert (code, env["outcome"], env["reason"]) == (2, "bad_args", "usage") and say in env["message"]
     code, out, err = run(argv, capsys)  # the plain page says it too, on stderr
     assert code == 2 and out == "" and say in err
+
+
+# --- the command line's words for a wrong line (phase review C-7, C-15) ---
+
+@pytest.mark.parametrize("argv,message", [
+    (["batch", "resume"], "Say which batch: aiff:N."),
+    (["batch", "show"], "Say which batch: aiff:N|moves:N."),
+    (["job", "show"], "Say which job: job:ID|current."),
+    (["call"], "Say which method: call <METHOD>."),
+    (["settings", "set", "auto-upgrade"], "Say on or off."),
+    (["todo", "list", "--foo"], "todo list does not take --foo. `help todo list` lists what it takes."),
+    (["upgrade", "apply", "x", "--way"], "--way needs a value."),
+    (["todo", "list", "--limit", "many"], "--limit takes a number, not many."),
+])
+def test_a_wrong_line_is_answered_in_the_command_lines_words_not_argparses(argv, message, capsys):
+    code, env = run_json([*argv, "--json"], capsys)
+    assert (code, env["outcome"], env["reason"], env["message"]) == (2, "bad_args", "usage", message)
+
+
+def test_a_usage_error_under_jsonl_still_ends_with_the_envelope_line(capsys):
+    code, out, err = run(["todo", "list", "--jsonl", "--bogus"], capsys)
+    lines = out.splitlines()
+    assert code == 2 and len(lines) == 1 and err == ""
+    assert json.loads(lines[0])["outcome"] == "bad_args" and "--bogus" in json.loads(lines[0])["message"]

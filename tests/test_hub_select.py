@@ -325,7 +325,8 @@ def test_help_lists_the_selection_words_of_a_command_that_takes_songs(built_bulk
     monkeypatch.setitem(catalog.ALL_OF, "demo bulk", "check_done")
     row = housekeeping.index_entry(("demo", "bulk"), [built_bulk])
     assert row["flags"] == ["--all", "--rows", "--in", "--todo", "--search", "--quality"]
-    assert "[--rows]" in row["usage"]
+    assert "(TRACK... | - | --all | --rows)" in row["usage"] and "[--in COLLECTION]" in row["usage"]
+    assert row["songs"] == ["TRACK...", "-", "--all", "--rows"]
     monkeypatch.delitem(catalog.ALL_OF, "demo bulk")
     assert "--all" not in housekeeping.index_entry(("demo", "bulk"), [built_bulk])["flags"]
     read = housekeeping.index_entry(("todo", "list"), [e for e in catalog.ENTRIES if e.command == ("todo", "list")])

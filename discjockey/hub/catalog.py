@@ -11,7 +11,8 @@ Flags are not written here. `effective_params(entry)` makes them from the method
 a parameter without a default is a positional, one with a default is `--its-name` (hyphens for underscores, a
 trailing `_id` dropped: `plan_id` is `--plan`), a list parameter is a positional that takes many, and a dict
 parameter has no word of its own (its entry says which `resolve` kind builds it). An entry's `params` overrides only
-what the design names differently. `fixed` binds arguments a command never takes from the user.
+what the design names differently. `fixed` binds arguments a command never takes from the user; `match` names the literal words (a login row's service) that pick
+the entry when a command has several (`DISPATCH`).
 
 `planned` is "phase N" while the command is not built: T1 counts it as covered, the parser and `help --json` leave
 it out, and the last phase's test fails while any is left. `locks` (design §6.1) names the locks a command takes,
@@ -56,6 +57,7 @@ class Entry:
     partial: frozenset[str] = frozenset()  # per-item states that make a run `partial` (filled by group 1.11)
     params: Mapping[str, Arg] = field(default_factory=dict)  # overrides of the generated flags only
     fixed: Mapping[str, object] = field(default_factory=dict)
+    match: Mapping[str, str] = field(default_factory=dict)  # words that pick this entry among a command's (a login row's service); not passed to the method
     cli_first: bool = False             # a method the command line needs and the window does not have yet
     planned: str | None = None
     example: str = ""
@@ -108,6 +110,32 @@ ALL_NARROWS: dict[str, tuple[str, ...]] = {"aiff convert": ("where", "todo"), "a
 # without it is a usage error (`parser.PHASE_ONLY_WORDS`).
 PHASE_ONLY: dict[str, str] = {"sync run": "--auto-upgrade-only"}
 
+# How a command with several non-read entries picks the one that runs, `<command> -> the rule in words` (every such command
+# has a row: tests/test_hub_catalog.py). The first four are in `call`/`parser` today; the rest are built by the groups that
+# build those commands, which write the dispatch in `call.choose` and test it. `login ...` entries name their service in
+# `Entry.match`.
+DISPATCH: dict[str, str] = {
+    "aiff convert": "`--all` runs make_aiff (ALL_METHOD), named songs or --rows run convert; --dry-run runs aiff_plan",
+    "aiff rename": "rename runs the songs; --dry-run and `--all` run aiff_plan with only=rename",
+    "upgrade apply": "`--all` runs upgrade_all (ALL_METHOD), named songs run upgrade with --way",
+    "sync run": "`--auto-upgrade-only` runs auto_upgrade_run; the whole sync (start_sync) is phase 4's",
+    "batch undo": "the id kind of the first word: `aiff:N` runs batch_undo, `moves:N` runs undo_moves",
+    "version use": "`--link URL` runs use_link, else a candidate runs use_candidate",
+    "duplicate keep": "a file id as the second word runs supersede_duplicate, `--all` runs keep_duplicates",
+    "folder crates show": "several folders run set_crates_shown, one runs set_crate_shown",
+    "folder crates hide": "several folders run set_crates_shown, one runs set_crate_shown",
+    "folder crates default": "several folders run set_crates_shown, one runs set_crate_shown",
+    "login check": "the service word: qobuz runs qobuz_check_login, any other runs setup_account with the saved browser",
+    "login sign-in": "the service word: spotify runs setup_spotify_login, any other runs account_sign_in",
+    "login sign-out": "the service word: spotify runs spotify_sign_out, any other runs setup_forget_account",
+    "login skip": "the service word: qobuz runs setup_skip_qobuz, spotify runs setup_skip_spotify",
+}
+
+# The built methods that work without a bound music folder (every other one answers `refused`, `no_library` first): a
+# fact `help --json` lists as the `no_library` reason. tests/test_cli_housekeeping.py runs every built read with none
+# chosen to pin it (`set_auto_upgrade` is a write: probed by hand, it answers `ok` with none chosen).
+NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade"))  # Settings works before a folder is chosen
+
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
 # ... of the Auto-upgrade phase alone: only a track that failed (a track that waits for rekordbox or was refused is not a failure, R24)
@@ -135,12 +163,13 @@ def confirm_words(entry: "Entry") -> str | None:
 
 def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapping[str, Arg] | None = None,
        fixed: Mapping[str, object] | None = None, needs_yes: bool = False, dry_run: str | None = None,
-       cli_first: bool = False, built: bool = False, locks: Iterable[str] = (), partial: Iterable[str] = ()) -> Entry:
+       cli_first: bool = False, built: bool = False, locks: Iterable[str] = (), partial: Iterable[str] = (),
+       match: Mapping[str, str] | None = None) -> Entry:
     """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command.
     `partial`: the per-item states that end a finished run `partial` (design §4.3, R24)."""
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
                  params=params or {}, fixed=fixed or {}, cli_first=cli_first, locks=frozenset(locks),
-                 partial=frozenset(partial),
+                 partial=frozenset(partial), match=match or {},
                  planned=None if built or kind in ("W", "dropped") else PHASE, example=example)
 
 
@@ -254,18 +283,19 @@ ENTRIES: tuple[Entry, ...] = (
     _e("downloads_view", "login list", "R", "login list"),
     _e("find_logins", "login find", "R", "login find soundcloud", params={"service": _positional()}),
     _e("setup_account", "login use", "J", params={"service": _positional(), "browser": Arg("--browser")}),
+    _e("setup_account", "login check", "J", params={"service": _positional(), "browser": _derived("saved_browser")}),
     _e("account_sign_in", "login sign-in", "J", params={"service": _positional(), "browser": Arg("--browser")}),
     _e("open_privacy_settings", "open privacy-settings", "R", "open privacy-settings"),
     _e("setup_check_account", "", "dropped"),
     _e("setup_forget_account", "login sign-out", "J", params={"service": _positional()}, needs_yes=True),
-    _e("qobuz_check_login", "login check qobuz", "J"),
+    _e("qobuz_check_login", "login check", "J", match={"service": "qobuz"}),
     _e("setup_qobuz_login", "login qobuz", "J", params={
         "email": Arg("--email"), "password": Arg("--password-stdin", type="bool", resolve="stdin", secret=True)}),
-    _e("setup_skip_qobuz", "login skip qobuz", "J"),
+    _e("setup_skip_qobuz", "login skip", "J", match={"service": "qobuz"}),
     _e("setup_save_client_id", "login spotify", "J", params={"client_id": Arg("--client-id")}),
-    _e("setup_spotify_login", "login sign-in spotify", "J"),
-    _e("spotify_sign_out", "login sign-out spotify", "J", needs_yes=True),
-    _e("setup_skip_spotify", "login skip spotify", "J"),
+    _e("setup_spotify_login", "login sign-in", "J", match={"service": "spotify"}),
+    _e("spotify_sign_out", "login sign-out", "J", needs_yes=True, match={"service": "spotify"}),
+    _e("setup_skip_spotify", "login skip", "J", match={"service": "spotify"}),
     _e("set_auto_upgrade", "settings set auto-upgrade", "J", "settings set auto-upgrade off",
        params={"on": _positional(type="bool")}, built=True, locks={"library", "support"}),
     _e("setup_check_tools", "tools status", "R", "tools status"),
@@ -343,7 +373,7 @@ ENTRIES: tuple[Entry, ...] = (
        'rekordbox preview "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff"',
        params={"track_id": _positional("track")}, cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("batches", "batch list", "R", "batch list", cli_first=True, built=True),
-    _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional()}, cli_first=True,
+    _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional("batch")}, cli_first=True,
        built=True),
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("upgrade_preview", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),

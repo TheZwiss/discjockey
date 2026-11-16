@@ -77,12 +77,22 @@ absolute path of the program.
   once).
   Each word leaves with the group that builds its replacement.
 
-`help --json` layout: `data` is `{command, version, global_flags: [{flag, says}], commands: [...]}`. Each command:
+`help --json` layout: `data` is `{command, version, global_flags: [{flag, says}], commands: [...], call_methods: [...]}`
+(`call_methods`: every bridge method `call` accepts). Each command:
 `command` (`rekordbox status`), `kind` (`R` read, `RJ` read that may run as a job, `J` write job, `J-control`
-stops a job, `B` brief save, `words` for `help`, `where`, `app open` and `call`), `writes`, `job` (runs as a job),
-`args` (`{name, word, positional, many, required, type}`: what the person types), `flags` (the ones beside the
-arguments: `--dry-run`, `--yes`, `--limit`, `--offset`), `needs_yes`, `dry_run`, `locks`, `reasons` (the `reason`s the
-command may answer with), `example` and `usage`. A command that is not built yet is not listed.
+stops a job, `B` brief save, `words` for `help`, `where`, `app open`, `call` and the `job` words), `writes`, `job` (runs as a job),
+`args` (`{name, word, positional, many, required, type, id}`: what the person types; `word` is the form of a positional
+(`aiff:N`, `on|off`, `FOLDER`) or the flag, `id` the id kind a value is read as, else `null`; a command that selects
+songs has `track_ids` not required: `songs` lists the ways), `songs` (`["TRACK...", "-", "--all", "--rows", "--batch"]`,
+each only where the command has it; empty for a command that selects none), `flags` (the ones beside the arguments:
+`--dry-run`, `--yes`, `--limit`, `--offset`, the selection words), `flag_values` (the word of the value of each flag that takes
+one: `{"--in": "COLLECTION", "--way": "same-track|new-track"}`), `required_flags` (flags the command cannot run
+without), `needs_yes`, `dry_run`, `locks`, `methods` (the bridge methods it runs, `call`'s names), `dry_run_method`,
+`reasons` (the `reason`s the command line and the catalogue know the command answers with; an engine rule may still answer
+`refused` or `failed` with a reason of its own, `facts_missing` or an eligibility reason, always one word of the closed
+list in `discjockey/hub/outcomes.py`), `example` and `usage` (`(TRACK... | - | --all | --rows)` is the songs, `[--in
+COLLECTION]` a flag with its value, a flag without brackets one the command cannot run without). `<noun> --help` and
+`<noun> <verb> --help` are `help <noun> [<verb>]`. A command that is not built yet is not listed.
 
 ## Tests
 

@@ -111,7 +111,7 @@ def test_resume_takes_a_typed_aiff_id_only_and_an_unknown_one_is_bad_args(lib, c
         code, env = run_json(["batch", "resume", text], capsys)
         assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", reason), text
     code, env = run_json(["batch", "resume"], capsys)
-    assert (code, env["outcome"]) == (BAD_ARGS, "bad_args") and "BATCH_ID" in env["message"]
+    assert (code, env["outcome"]) == (BAD_ARGS, "bad_args") and env["message"] == "Say which batch: aiff:N."
 
 
 def test_resume_while_the_library_lock_is_held_is_busy_and_changes_nothing(lib, capsys, monkeypatch):

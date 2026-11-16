@@ -53,7 +53,7 @@ def emit(env: dict, flags: Flags) -> int:
 
 
 def _run(argv: list[str]) -> int:
-    flags = Flags(json="--json" in argv)  # what a usage error needs before the line is read
+    flags = Flags(json="--json" in argv, jsonl="--jsonl" in argv)  # what a usage error needs before the line is read
     words = parser.words_of(argv)[0]
     command = " ".join(words[:2])
     try:
@@ -84,6 +84,10 @@ def main(argv: list[str] | None = None) -> int:
         return worker.main(argv[2:])
     if [a for a in argv if a != "--json"] in (["--help"], ["-h"]):  # the usual first probe: the short list
         argv = ["help", *(a for a in argv if a == "--json")]
+    elif {"--help", "-h"} & set(argv):  # `upgrade --help`, `upgrade apply -h`: the help of that word or command
+        rest = [a for a in argv if a not in ("--help", "-h")]
+        if parser.route(rest) == "new":
+            argv = ["help", *parser.words_of(rest)[0], *(["--json"] if "--json" in argv else [])]
     if parser.route(argv) == "legacy":
         from . import legacy
         return legacy.main(argv)

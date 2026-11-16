@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import re
 from collections.abc import Collection
 from dataclasses import dataclass, field
 
-from ..hub import catalog
-from ..hub.api import CliApi
+from ..hub import catalog, ids
+from ..hub.api import RESOLVE_WORDS, CliApi
 from ..hub.catalog import Entry
 
 LEGACY_WORDS = frozenset(("setup", "update"))
@@ -197,8 +198,24 @@ PHASE_ONLY_WORDS = ("{command} runs only the sync's last phase for now: say {fla
                     "`discjockey --yes` (or `discjockey --dry-run` to look first).")
 
 
-SELECTION_FLAGS = {"--rows": ("rows", True), "--in": ("where", False), "--todo": ("todo", False),
-                   "--search": ("search", False), "--quality": ("quality", False)}  # flag -> (Flags field, switch?)
+SELECTION_FLAGS = {"--rows": ("rows", True, None), "--in": ("where", False, "COLLECTION"),
+                   "--todo": ("todo", False, "GROUP"), "--search": ("search", False, "WORDS"),
+                   "--quality": ("quality", False, "QUALITY")}  # flag -> (Flags field, switch?, the value's word in `help`)
+VALUE_FLAGS = {"--limit": "N", "--offset": "N"}  # the flags of a read that take a number (value word)
+
+
+def form_of(name: str, arg: catalog.Arg) -> str:
+    """What a person types for this argument (or for a flag's value), as `help` and the usage errors write it: the
+    `--way` words, the id kind's form (`ids.FORMS`), `plan:ID` for a plan, `on|off` for a switch word, else the
+    parameter's name."""
+    kind = arg.resolve.split(":")[0] if arg.resolve else None
+    if arg.resolve in RESOLVE_WORDS:
+        return RESOLVE_WORDS[arg.resolve]
+    if kind in ids.FORMS:
+        return ids.FORMS[kind]
+    if name == "plan_id":
+        return ids.FORMS["plan"]
+    return "on|off" if arg.type == "bool" else name.upper()
 
 
 def selects(entry: Entry) -> bool:
@@ -248,9 +265,8 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
     signature = signature_of(primary.method)
     taken = set()
     for name, arg in catalog.effective_params(primary, signature).items():
-        optional = signature.parameters[name].default is not inspect.Parameter.empty
-        if arg.positional:
-            leaf.add_argument(name, nargs="*" if arg.many else "?" if optional else None, metavar=name.upper(),
+        if arg.positional:  # never an argparse-required positional: `parse` says what is missing, in the command line's words
+            leaf.add_argument(name, nargs="*" if arg.many else "?", metavar=name.upper(),
                               default=argparse.SUPPRESS, **({"type": _switch} if arg.type == "bool" else {}))
         elif arg.flag:
             taken.add(arg.flag)
@@ -263,7 +279,7 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
         if flag == "--all":
             leaf.add_argument(flag, dest="_sel_all", action="store_true", default=argparse.SUPPRESS)
         elif flag in SELECTION_FLAGS:
-            field_name, switch = SELECTION_FLAGS[flag]
+            field_name, switch, _ = SELECTION_FLAGS[flag]
             leaf.add_argument(flag, dest=f"_sel_{field_name}", action="store_true" if switch else "store",
                               default=argparse.SUPPRESS)
         elif flag in catalog.PHASE_ONLY.values():
@@ -295,12 +311,12 @@ def build() -> _Parser:
         elif cmd in JOB_ARGS:
             for name, flag in JOB_ARGS[cmd].items():
                 if flag is None:
-                    leaf.add_argument(name, metavar=name.upper(), default=argparse.SUPPRESS)
+                    leaf.add_argument(name, nargs="?", metavar=name.upper(), default=argparse.SUPPRESS)
                 else:
                     leaf.add_argument(flag, dest=name, action="store_true", default=argparse.SUPPRESS)
         leaf.set_defaults(_command=cmd)
     call = nouns.add_parser(CALL[0], add_help=False, allow_abbrev=False)
-    call.add_argument("method")
+    call.add_argument("method", nargs="?", default=None)
     call.add_argument("--args", dest="args_text", default=None, metavar="JSON|-")
     call.add_argument("--password-stdin", dest="password_stdin", action="store_true")
     call.add_argument("--dry-run", dest="_dry_run", action="store_true", default=argparse.SUPPRESS)
@@ -325,12 +341,37 @@ def _check_words(words: list[str]) -> None:
         raise UsageError(f"Say what to do with {words[0]}: {', '.join(verbs)}.")
 
 
+def _what(name: str) -> str:
+    """`batch_id` as the word a person says: `batch`; `track_ids` as `track`; `client_id` as `client`."""
+    for tail in ("_ids", "_id"):
+        if name.endswith(tail):
+            name = name[:-len(tail)]
+    return name.replace("_", " ")
+
+
+def _usage_words(words: list[str], e: UsageError) -> UsageError:
+    """argparse's sentence as the command line's own (the root parser's `prog` names no command, so the words are made
+    here, where the line's words are known). Any other message stays as it is."""
+    command = max((" ".join(c) for c in [*commands(), *HOUSEKEEPING] if tuple(words[:len(c)]) == c), key=len, default="")
+    text = e.message
+    if (m := re.fullmatch(r"unrecognized arguments: (.*)", text)) and command:
+        text = f"{command} does not take {m.group(1)}. `help {command}` lists what it takes."
+    elif m := re.fullmatch(r"argument (\S+): expected one argument", text):
+        text = f"{m.group(1)} needs a value."
+    elif m := re.fullmatch(r"argument (\S+): invalid \w+ value: '(.*)'", text):
+        text = f"{m.group(1)} takes a number, not {m.group(2)}."
+    return UsageError(text, e.reason)
+
+
 def parse(argv: list[str]) -> Parsed:
     """Reads one line of the new commands. Raises `UsageError`."""
     flags, rest = split_globals(argv)
     words, _ = words_of(rest)
     _check_words(words)
-    ns = vars(build().parse_args(rest))
+    try:
+        ns = vars(build().parse_args(rest))
+    except UsageError as e:
+        raise _usage_words(words, e) from None
     command = tuple(ns.pop("_command"))
     for key in [k for k in ns if k.startswith(("_noun", "_word"))]:
         del ns[key]
@@ -349,6 +390,10 @@ def parse(argv: list[str]) -> Parsed:
                 raise UsageError(f"--{key} cannot be negative.")
             setattr(flags, key, value)
     if command in HOUSEKEEPING:
+        if command in JOB_ARGS and "job" in JOB_ARGS[command] and "job" not in ns:
+            raise UsageError(f"Say which job: {ids.FORMS['job']}.")
+        if command == CALL and ns.get("method") is None:
+            raise UsageError("Say which method: call <METHOD>.")
         return Parsed(command, [], ns, flags, words)
     entries = commands()[command]
     primary = catalog.primary(entries)
@@ -362,7 +407,7 @@ def parse(argv: list[str]) -> Parsed:
         if (arg.positional and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
                 and not (selected and name == "track_ids")):  # --all / --rows say which songs instead
             raise UsageError(_selection_words("batch_id" in signature.parameters) if name == "track_ids"
-                             else f"{name.replace('_', ' ')} is missing.")
+                             else "Say on or off." if arg.type == "bool" else f"Say which {_what(name)}: {form_of(name, arg)}.")
         if (arg.flag and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
                 and not flags.all):  # a flag the method cannot do without; the verb's own --all has its meaning without it
             raise UsageError(f"{arg.flag} is missing.")

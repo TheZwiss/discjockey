@@ -390,15 +390,15 @@ signature changes the design needs (contract changes, §16).
 | `account_sign_in(s,b,p)` | `login sign-in <service> [--browser B] [--profile P]` | J (person) | opens the browser, waits ≤ 10 min for the person; `step:sign_in` shows as live `person_steps` while it waits (§6.5) |
 | `stop_sign_in()` | `job stop <job>` | J-control | |
 | `open_privacy_settings()` | `open privacy-settings` | R (person) | |
-| `setup_check_account(s)` | `login check <service>` | J | unused by the window; the bridge method is dropped, `login check` re-runs `setup_account` with the saved browser |
+| `setup_check_account(s)` | `login check <service>` (any service but qobuz) | J | unused by the window; the bridge method is dropped, `login check` re-runs `setup_account` with the saved browser |
 | `setup_forget_account(s)` | `login sign-out <service> --yes` | J | |
-| `qobuz_check_login()` | `login check qobuz` | J | |
+| `qobuz_check_login()` | `login check <service>` with the service `qobuz` | J | |
 | `setup_qobuz_login(e,p)` | `login qobuz --email E --password-stdin` | J | the password never on argv or in the environment |
-| `setup_skip_qobuz()` | `login skip qobuz` | J | |
+| `setup_skip_qobuz()` | `login skip <service>` with the service `qobuz` | J | |
 | `setup_save_client_id(id)` | `login spotify --client-id ID` | J | |
-| `setup_spotify_login()` | `login sign-in spotify` | J (person) | |
-| `spotify_sign_out()` | `login sign-out spotify --yes` | J | |
-| `setup_skip_spotify()` | `login skip spotify` | J | |
+| `setup_spotify_login()` | `login sign-in <service>` with the service `spotify` | J (person) | |
+| `spotify_sign_out()` | `login sign-out <service> --yes` with the service `spotify` | J | |
+| `setup_skip_spotify()` | `login skip <service>` with the service `spotify` | J | |
 | `set_auto_upgrade(on)` | `settings set auto-upgrade on\|off` | J | |
 | `setup_check_tools()` | `tools status` | R | |
 | `update_tools()` | `tools update` | J | touches only the support folder: no music folder, no library lock (A §5.3) |
