@@ -164,6 +164,8 @@ def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> 
     listing, failed = _listing(entry, command, flags)
     if failed is not None:
         return {}, failed
+    if flags.all and command == "aiff rename" and args.get("plan_id"):
+        listing = {**listing, "plan": args["plan_id"]}  # the run answers for the plan's songs too (V1.10's plan rule)
     answer = api.select_listing(listing)
     if not answer.get("ok"):
         return {}, envelope.from_answer(command, answer)
@@ -185,7 +187,7 @@ def _plan_entry(command: str, kwargs: Mapping) -> tuple[Entry, dict]:
 def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
     """The entry's `--dry-run` (design §7.1): its `dry_run` method on the last scan, answering `as_of.scanned_at` and,
     when a watched folder changed after that scan, `next: library scan`. An answer that lists its items (each with a
-    `key`) is stored as a plan (`plan_store`: the one file a dry run writes) and its id is `data.plan_id`, which
+    `key`) is stored as a plan (`plan_store`: the plan file a dry run writes) and its id is `data.plan_id`, which
     `--plan` runs."""
     answer = getattr(api, entry.dry_run)(**{k: v for k, v in kwargs.items() if k in parameters_of(entry.dry_run)})
     env = envelope.from_answer(command, answer, as_of=_as_of(api))

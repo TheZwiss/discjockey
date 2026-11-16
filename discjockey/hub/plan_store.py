@@ -1,7 +1,8 @@
 """Plans (issue 39, design §7.1): what a dry run saw, kept for the write that follows it.
 
 A dry run answers its items (each with a key) and its command line saves them here, `<support>/plans/<12 hex>.json`:
-the one file a dry run may write. `<write> --plan plan:<12 hex>` then runs only those items, each asked again as it
+the plan file a dry run writes (beside `cache/` and, for a read job, its record under `jobs/`).
+`<write> --plan plan:<12 hex>` then runs only those items, each asked again as it
 runs (the engine's own per-item checks stay): `bind` is the rule that tells an item that still stands from one whose
 answer changed (skipped, `changed`) and one that is new since the plan (left out, listed under `new_since_plan`).
 It is the window's sync rule (`run.select_actions` with `new_since_preview`) made general, so the write jobs of the

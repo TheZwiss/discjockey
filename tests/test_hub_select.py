@@ -134,7 +134,8 @@ def test_rows_of_a_playlist_hold_the_also_rows(lib):
     assert shown["also"] and not shown["rows"]
     ids = api.select_listing({"in": "playlist:Hard_Bounce"})["ids"]
     assert ids == rows_of(shown) == [r["track_id"] for r in shown["also"]]
-    assert api.select_listing({"in": "playlist:Nowhere"})["ids"] == []  # the view says `gone`, as `library list` does
+    nowhere = api.select_listing({"in": "playlist:Nowhere"})  # a playlist nothing is called is no empty list (V1.13)
+    assert (nowhere["ok"], nowhere["outcome"], nowhere["reason"]) == (False, "bad_args", "unknown_id")
 
 
 def test_a_folder_that_is_not_in_the_library_selects_nothing(lib):

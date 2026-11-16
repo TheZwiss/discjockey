@@ -57,6 +57,12 @@ absolute path of the program.
   [--wait S]` and `job stop <job|current> [--now]` work on any job from any process (`current` is the one running write
   job of this music folder); Ctrl-C in the command that started a job stops it safely, a second press a second later
   stops it at once. A `--jsonl` answer is one event per line, then the envelope.
+- **Dry runs:** a `--dry-run` changes no byte of the music folder, the rekordbox folder, `settings.json` or `library.db`;
+  it stores its plan (`<support>/plans/`), caches (`cache/`) and, when it is a read job (`aiff … --dry-run`), the
+  job's own record (`jobs/`). `--plan <id>` then runs that plan. On the aiff commands: `--rows` and `rename --all` with
+  no song, and a plan of a clean library, are `ok` with `total` 0; `aiff convert --all` on a clean library is
+  `refused`; a dry run with more than 50 own files whose facts are unread is `refused` (`facts_missing`, next
+  `library facts`; the window plans on the facts stored).
 - **Scratch folders:** a command run by hand always sets `DISCJOCKEY_SUPPORT=<scratch folder>` and
   `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real
   library and the real rekordbox library. `where` prints what a process resolved.

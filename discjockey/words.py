@@ -32,8 +32,9 @@ NO_FOLDER = "No folder at {path}."
 BAD_COLLECTION = "A collection is all, unlisted, playlist:<name> or folder:<path>."
 
 # file facts (`library facts`, and the dry runs that read a few in memory: design §5.3, §7.1)
-FACTS_MISSING = ("{n} files have not been read yet, which is more than a preview reads ({most} at most). "
+FACTS_MISSING = ("{n} files have not been read yet, which is more than can be read at once ({most} at most). "
                  "Read them once first, then try again.")
+LOSSY_NOTE = "{n} of these {are} lossy: an AIFF made from them sounds the same and takes 5–10 times the space."
 FACTS_READ = "Read the facts of {n} file{s}."
 FACTS_NONE = "Nothing to read: Discjockey knows the facts of every file already."
 FACTS_WOULD = "{n} file{s} would be read."

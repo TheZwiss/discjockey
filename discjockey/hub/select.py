@@ -12,7 +12,7 @@ A listing is a mapping:
 | `search`, `quality` | the Library's search words and quality filter (library only) |
 | `group` | a To-do group's key, or `all` (to-do only) |
 | `hidden` | whether To-do's hidden songs are listed too (to-do only) |
-| `verb_all` | the verb's own "all" button (`VERB_ALL`): the songs that button acts on, with nothing else in the listing (`rename_all` takes an `in` too: the collection whose files it looks at) |
+| `verb_all` | the verb's own "all" button (`VERB_ALL`): the songs that button acts on, with nothing else in the listing (`rename_all` takes an `in` too, the collection whose files it looks at, and a `plan`, the dry run whose songs it runs as well) |
 
 A key its source does not take is `bad_args` (`conflicting_flags`), never ignored. Everything here is pure: the views
 are given, nothing is looked up."""
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from . import views
 from .ids import BadId, parse as parse_id
 
-KEYS = ("source", "in", "search", "quality", "group", "hidden", "verb_all")
+KEYS = ("source", "in", "search", "quality", "group", "hidden", "verb_all", "plan")
 SOURCES = ("library", "todo")
 UPGRADE_ALL = "upgrade_all"  # Upgrade all: Same track for every parked upgrade To-do shows as possible
 CHECK_DONE = "check_done"    # "Done, checked" for every check To-do lists
@@ -34,7 +34,7 @@ NO_ROWS = "No song is in that list, so there is nothing to do."
 
 CONFLICT = "conflicting_flags"
 ALL_IS_SAME_TRACK = "All of them is Same track only; name the songs to add them as new tracks."
-NOT_A_LISTING = "A listing is a set of words: source, in, search, quality, group, hidden or verb_all."
+NOT_A_LISTING = "A listing is a set of words: source, in, search, quality, group, hidden, verb_all or plan."
 
 
 @dataclass(frozen=True)
@@ -48,6 +48,7 @@ class Listing:
     group: str = "all"
     hidden: bool = False
     verb_all: str | None = None
+    plan: str | None = None  # `rename_all` only: the plan whose songs the run takes in too
 
 
 def _text(listing: Mapping, name: str) -> str | None:
@@ -82,12 +83,14 @@ def parse(listing: object) -> Listing:
     if verb is not None:
         if verb not in VERB_ALL:
             raise BadId("usage", f"{verb} has no 'all' here: the ones that do are {', '.join(VERB_ALL)}.")
-        if extra := sorted(set(given) - {"verb_all", *(("in",) if verb == RENAME_ALL else ())}):
+        if extra := sorted(set(given) - {"verb_all", *(("in", "plan") if verb == RENAME_ALL else ())}):
             raise BadId(CONFLICT, f"{extra[0]} narrows a listing; the 'all' of a verb is not one.")
         if verb == RENAME_ALL:
             view, key = collection(_text(listing, "in") or "all")
-            return Listing("library", view=view, key=key, verb_all=verb)
+            return Listing("library", view=view, key=key, verb_all=verb, plan=_text(listing, "plan"))
         return Listing("todo", verb_all=verb)
+    if "plan" in given:
+        raise BadId(CONFLICT, "plan belongs to the 'all' of Rename; it narrows no listing.")
     source = _text(listing, "source") or ("todo" if "group" in given or "hidden" in given else "library")
     if source not in SOURCES:
         raise BadId("usage", f"source is {' or '.join(SOURCES)}, not {source}.")

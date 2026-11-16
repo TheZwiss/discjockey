@@ -220,6 +220,26 @@ def test_the_cdj_group_is_found_from_facts_read_in_memory(tmp_path, monkeypatch)
     assert all(row[1] is None for row in facts_stored(paths))
 
 
+def test_the_window_plans_on_stored_facts_when_more_than_fifty_files_lack_them(tmp_path, monkeypatch):
+    """The refusal is the command line's: the window has no action that reads facts, so its Convert panel plans on what
+    is stored (files without facts left out, as before this group) instead of dead-ending."""
+    paths = flacs(tmp_path, monkeypatch, 52)
+    with db.connect(paths.db_file) as conn:  # one file has its facts stored
+        conn.execute("UPDATE files SET file_codec = 'flac', file_rate = 44100, file_bits = 16, file_kbps = 900 "
+                     "WHERE id = (SELECT MIN(id) FROM files)")
+    api, _ = hub_helpers.make_api(paths, rekordbox_place=lambda: None, rekordbox_running=lambda: False)
+    api._svc.probe = fake_probe
+    skip = (paths.support / "plans", paths.support / "cache")
+    before = hashes(paths.support, paths.root, skip=skip)
+    for scope in ({"kind": "lossless", "view": "all", "key": None}, {"kind": "cdj"}):
+        answer = api.aiff_plan(scope)
+        assert answer["ok"], (scope, answer)
+        assert answer["plan"]["total"] == (0 if scope["kind"] == "cdj" else 1), scope  # only the file with facts
+    assert hashes(paths.support, paths.root, skip=skip) == before
+    cli, _ = api_of(paths, rekordbox_place=lambda: None, rekordbox_running=lambda: False)
+    assert cli.aiff_plan({"kind": "lossless", "view": "all", "key": None})["reason"] == "facts_missing"  # still the command line's
+
+
 def test_fifty_one_files_without_facts_are_refused_and_name_library_facts(tmp_path, monkeypatch):
     paths = flacs(tmp_path, monkeypatch, 51)
     api, _ = api_of(paths, rekordbox_place=lambda: None, rekordbox_running=lambda: False)
@@ -870,11 +890,12 @@ def test_a_rename_run_with_a_plan_runs_the_plans_names_as_a_batch_of_the_user(wo
     code, env = run_json(["aiff", "rename", "--all", "--dry-run"], capsys)
     assert code == OK and [i["track"] for i in env["data"]["plan"]["items"]] == [found.tracks[2], found.tracks[3]]
     plan_id = env["data"]["plan_id"]
-    set_rate(found, 3, 48000)  # the fourth needs a Convert now: not a Rename's, so `select` no longer names it
+    set_rate(found, 3, 48000)  # the fourth needs a Convert now: not a Rename's, so `select` no longer names it (the plan does)
     set_rate(found, 4, 48000)  # the fifth, a clean name, is one too: an item that was not in the plan
     code, env = run_json(["aiff", "rename", "--all", "--plan", plan_id], capsys)
-    assert (code, env["outcome"]) == (OK, "ok"), env
-    assert rows_of(env) == [(found.tracks[2], "rename", "done")] and "new_since_plan" not in env["data"]
+    assert (code, env["outcome"]) == (PARTIAL, "partial"), env  # the plan's fourth song answers `changed`, as for any plan run
+    assert rows_of(env) == [(found.tracks[2], "rename", "done"), (found.tracks[3], "rename", "skipped")]
+    assert [r["reason"] for r in env["data"]["results"]][1] == "changed" and "new_since_plan" not in env["data"]
     assert (batch_of(found).started_by, batch_of(found).scope) == ("user", "selection")
     # named songs are bound to the plan the same way: the plan's two songs, both another answer now (renamed; needs a
     # Convert), leave nothing that stands
@@ -1065,6 +1086,51 @@ def test_stop_ends_the_batch_stopped_and_resume_goes_on(world, capsys, monkeypat
     assert code == OK and (env["data"]["state"], env["data"]["done"]) == ("done", 3)
 
 
+def test_a_dry_run_of_lossy_files_says_they_grow(world, capsys):
+    found = world()
+    code, env = run_json(["aiff", "convert", found.tracks[0], found.tracks[2], "--dry-run"], capsys)
+    assert code == OK and env["data"]["plan"]["lossy"] == 1
+    assert env["message"] == "1 of these is lossy: an AIFF made from them sounds the same and takes 5–10 times the space."
+    code, out, err = run(["aiff", "convert", found.tracks[0], found.tracks[1], "--dry-run"], capsys)
+    assert "2 of these are lossy: an AIFF made from them sounds the same and takes 5–10 times the space." in out
+    code, env = run_json(["aiff", "rename", "--all", "--dry-run"], capsys)  # no lossy file in it: no note
+    assert code == OK and env["data"]["plan"]["lossy"] == 0 and env["message"] is None
+
+
+def test_batch_undo_of_a_convert_batch_gives_the_original_files_back(world, capsys):
+    found = world(["chain", "clean"])
+    original = {p: (found.paths.root / p).read_bytes() for p in found.olds}
+    code, env = run_json(["aiff", "convert", "--all"], capsys)
+    assert code == OK and sorted(r[1:] for r in rows_of(env)) == [("convert", "done"), ("rename", "done")], env
+    assert all(not (found.paths.root / p).exists() for p in found.olds[1:])  # the messy name is gone
+    superseded = found.paths.root / "Superseded/A" / Path(found.olds[0]).name
+    assert superseded.exists()  # the old file of the Convert waits there until it is undone
+    code, env = run_json(["batch", "undo", "aiff:1", "--yes"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok") and env["data"]["undone"] == 2, env
+    assert {p: (found.paths.root / p).read_bytes() for p in found.olds} == original
+    assert not superseded.exists()
+    code, env = run_json(["batch", "show", "aiff:1"], capsys)
+    assert code == OK and [r["state"] for r in env["data"]["results"]] == ["undone", "undone"], env
+
+
+def test_a_folder_that_is_no_collection_is_unknown_even_when_the_directory_exists(world, capsys):
+    found = world()
+    (found.paths.root / "Superseded").mkdir(exist_ok=True)
+    (found.paths.root / "Library" / "Empty").mkdir()
+    for typed in ("folder:..", "folder:../x", "folder:Superseded", "folder:Library/../Superseded", "folder:."):
+        code, env = run_json(["aiff", "convert", "--all", "--in", typed, "--dry-run"], capsys)
+        assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", "unknown_id"), (typed, env)
+    code, env = run_json(["aiff", "convert", "--all", "--in", "folder:Library/Empty", "--dry-run"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok")  # a folder of the Library with nothing in it is still a place
+
+
+def test_rows_in_a_playlist_nothing_is_called_is_unknown_not_an_empty_selection(world, capsys):
+    world()
+    for argv in (["aiff", "convert", "--rows", "--in", "playlist:Nope"], ["upgrade", "apply", "--rows", "--in", "playlist:Nope", "--way", "same-track"]):
+        code, env = run_json(argv, capsys)
+        assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", "unknown_id"), (argv, env)
+
+
 def test_the_text_of_a_dry_run_says_what_would_change(world, capsys):
     found = world()
     code, out, err = run(["aiff", "rename", "--all", "--dry-run"], capsys)
@@ -1097,6 +1163,12 @@ def test_select_listing_rename_all_names_the_files_a_rename_would_rename(world):
     assert (clash["outcome"], clash["reason"]) == ("bad_args", "conflicting_flags")
     other = api.select_listing({"verb_all": select.UPGRADE_ALL, "in": "all"})  # only Rename all takes `in`
     assert (other["outcome"], other["reason"]) == ("bad_args", "conflicting_flags")
+    plan = api.select_listing({"verb_all": select.UPGRADE_ALL, "plan": "plan:0123456789ab"})  # only Rename all takes `plan`
+    assert (plan["outcome"], plan["reason"]) == ("bad_args", "conflicting_flags")
+    plan = api.select_listing({"in": "all", "plan": "plan:0123456789ab"})
+    assert (plan["outcome"], plan["reason"]) == ("bad_args", "conflicting_flags")
+    unknown = api.select_listing({"verb_all": select.RENAME_ALL, "plan": "plan:0123456789ab"})
+    assert (unknown["outcome"], unknown["reason"]) == ("bad_args", "unknown_id")
 
 
 def test_aiff_plan_takes_only_rename_or_nothing(world):
@@ -1159,19 +1231,43 @@ def test_a_plan_made_on_facts_read_in_memory_still_binds_after_library_facts_sto
     assert "new_since_plan" not in env["data"]
 
 
-def test_a_plan_with_an_empty_selection_is_not_bound_it_is_done_nothing_to_change(world, capsys):
-    """`rename --all` goes through `select_listing`: when that finds no song there is no run to bind a plan to, so an
-    unknown plan, or a plan whose songs have all been renamed since, is not looked at: `ok`, "Nothing to change". The plan
-    rule of V1.10 (an unknown plan is `unknown_id`, a plan none of whose songs stands is `changed`) binds a run that has
-    songs. Pinned as it is; the report names it as a conflict between the two rules."""
+def test_rename_all_with_a_plan_follows_the_plan_rule_when_nothing_is_selected_any_more(world, capsys):
+    """`rename --all --plan P` runs the plan's songs too, not only today's selection (V1.10's rule): an unknown plan is
+    `unknown_id` even when no song is left to rename, and a plan none of whose songs stands is `changed`."""
     found = world(["clean_free", "mp3"])
     code, env = run_json(["aiff", "rename", "--all", "--dry-run"], capsys)
     plan_id = env["data"]["plan_id"]
     assert code == OK and run_json(["aiff", "rename", "--all"], capsys)[0] == OK  # the name was given
-    for plan in (plan_id, "plan:0123456789ab"):
-        code, env = run_json(["aiff", "rename", "--all", "--plan", plan], capsys)
-        assert (code, env["outcome"], env["message"], env["job"]) == (OK, "ok", NOTHING, None), env
+    code, env = run_json(["aiff", "rename", "--all", "--plan", "plan:0123456789ab"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", "unknown_id"), env
+    code, env = run_json(["aiff", "rename", "--all", "--plan", plan_id], capsys)
+    assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "changed"), env
     assert n_batches(found) == 1
-    # the same plan, run with the songs named, is the plan rule: nothing of it stands
+    # without a plan the same call is done: nothing left to rename
+    code, env = run_json(["aiff", "rename", "--all"], capsys)
+    assert (code, env["outcome"], env["message"]) == (OK, "ok", NOTHING)
+    # the same plan, run with the songs named, is the plan rule too
     code, env = run_json(["aiff", "rename", found.tracks[0], "--plan", plan_id], capsys)
     assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "changed")
+
+
+def test_a_plan_of_other_songs_than_the_named_ones_is_changed_not_ok_with_nothing_done(world, capsys):
+    found = world()
+    code, env = run_json(["aiff", "convert", found.tracks[1], "--dry-run"], capsys)
+    assert code == OK and [i["track"] for i in env["data"]["plan"]["items"]] == [found.tracks[1]]
+    before = found.music()
+    code, env = run_json(["aiff", "convert", found.tracks[0], "--plan", env["data"]["plan_id"]], capsys)
+    assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "changed"), env
+    assert found.music() == before and n_batches(found) == 0
+
+
+def test_rename_all_with_a_plan_answers_a_plan_song_renamed_since_with_a_changed_row(world, capsys):
+    found = world()
+    code, env = run_json(["aiff", "rename", "--all", "--dry-run"], capsys)
+    plan_id = env["data"]["plan_id"]
+    assert code == OK and [i["track"] for i in env["data"]["plan"]["items"]] == [found.tracks[2], found.tracks[3]]
+    assert run_json(["aiff", "rename", found.tracks[2]], capsys)[0] == OK  # one of the two was renamed by hand
+    code, env = run_json(["aiff", "rename", "--all", "--plan", plan_id], capsys)
+    assert (code, env["outcome"], env["data"]["done"], env["data"]["skipped"]) == (6, "partial", 1, 1), env
+    assert sorted(rows_of(env)) == sorted([(found.tracks[2], "rename", "skipped"), (found.tracks[3], "rename", "done")])
+    assert [r["reason"] for r in env["data"]["results"] if r["state"] == "skipped"] == ["changed"]

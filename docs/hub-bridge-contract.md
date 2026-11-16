@@ -2135,9 +2135,12 @@ answer `no_library` without a music folder.
   - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Own files without stored
     facts (a library from before they were kept) are read in memory (ffprobe) and never stored (`aiff_plan.with_facts`),
     for the files the scope looks at (a selection's, a view's, every own file the CDJ group could hold) that
-    `library facts` would store: at most 50. With more the answer is `refused` (`kind` `refused`, `reason`
+    `library facts` would store: at most 50. With more, the command line's answer is `refused` (`kind` `refused`, `reason`
     `facts_missing`, `data` `{missing, most: 50}`, `next: library facts`, which reads and stores them) and nothing is
-    planned. A file ffprobe found no sound in (marked) is not counted and is not read.
+    planned; the window has no action that reads facts, so its `aiff_plan` plans on the facts stored (own files without
+    facts are left out) and never refuses for this. A file ffprobe found no sound in (marked) is not counted and is not read.
+    The command line's empty answers: `--rows` and `rename --all` with no song, and a plan of a clean library, are `ok`
+    with `total` 0; `aiff convert --all` on a clean library is `refused`.
 - **`track().aiff`** (`aiff_plan.file_answer`): `null` (no file, a download (also while its drive is away), a better version waiting: the upgrade decision
   stands) or `{action: "convert"\|"rename"\|null, why_not: reason\|null, kind, from, to, name_now, new_name, bytes, lossy,
   cdj: {short, words}\|null}`. `kind`, `to` ("AIFF · 16-bit · 44.1 kHz" for a Convert, null for a rename), `new_name`
@@ -2160,7 +2163,7 @@ answer `no_library` without a music folder.
     (each item's answer as `aiff_plan` gives it now equals the one the dry run saw, keyed by song), as one batch; the
     others are `skipped` with reason `changed` (a named-songs run lists only the songs it was given), and
     `new_since_plan: [track ids]` (only when there are some) lists the songs that have an item now and had none in the
-    plan. A plan none of whose songs stands is `changed` (as for `upgrade`); a plan that had no items (a clean
+    plan. A plan none of whose songs stands (also one whose songs the run does not name) is `changed` (as for `upgrade`); a plan that had no items (a clean
     library) ends the job done with `batch` null and `total` 0 (the command line says "Nothing to change: these are clean
     AIFFs already." unless `new_since_plan` lists songs); an unknown plan is `bad_args`, an old one `refused`
     (`plan_expired`), as for `upgrade`.

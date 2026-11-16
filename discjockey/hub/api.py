@@ -837,10 +837,15 @@ class HubApi:
     def _planned_reading_blind(self, state: dict, scope: dict, only: str | None = None) -> tuple[plans.AiffPlan, bool]:
         """`_planned` for a read (the panel, a dry run, the plan a run binds): the facts of the scope's own files that
         have none stored are read in memory (`aiff_plan.with_facts`), none is stored. `FactsMissing` for more than a
-        read takes. Also whether the plan was made blind (a writer held `rekordbox.lock`: rekordbox's cached state and no
-        lookup of its tracks)."""
+        read takes (the command line's; the window plans on the facts stored). Also whether the plan was made blind (a
+        writer held `rekordbox.lock`: rekordbox's cached state and no lookup of its tracks)."""
         held = self._decided_now(state) if scope.get("kind") == "cdj" else ()
-        state = plans.with_facts(self._paths, state, scope, probe=self._svc.probe, held=held)
+        try:
+            state = plans.with_facts(self._paths, state, scope, probe=self._svc.probe, held=held)
+        except plans.FactsMissing:
+            if self._via == "terminal":
+                raise
+            # the window has no action that reads facts: it plans on what is stored (files without facts left out)
         return self._planned_read(state, scope, only, held=held)
 
     def _aiff_scope(self, scope: object, kinds: Sequence[str] = plans.SCOPE_KINDS) -> dict:
@@ -1047,10 +1052,10 @@ class HubApi:
         key}` or `{kind: "cdj"}`. One read, off the window's thread like `spectrum` (pywebview gives every call its own);
         the tags of the files that need them are remembered, so reopening the panel is quick. The run plans again. Own
         files whose facts are not stored yet (a library from before the facts were kept) are read in memory, never
-        stored (`aiff_plan.with_facts`): up to 50; with more the answer is `refused` (`facts_missing`, `next: library
-        facts`). `only` `"rename"` (the command line's `aiff rename --dry-run`) plans Rename's answer alone, as `rename`
-        runs it: a file that needs a Convert is left as it is. While a writer of any Discjockey process holds
-        `rekordbox.lock` master.db is not opened: the plan takes rekordbox's cached state and no lookup, and its
+        stored (`aiff_plan.with_facts`): up to 50; with more the command line's answer is `refused` (`facts_missing`,
+        `next: library facts`) and the window's plans on the stored facts alone (files without facts left out). `only`
+        `"rename"` (the command line's `aiff rename --dry-run`) plans Rename's answer alone, as `rename` runs it: a file that needs a Convert is left as it is. While a writer of any
+        Discjockey process holds `rekordbox.lock` master.db is not opened: the plan takes rekordbox's cached state and no lookup, and its
         `rekordbox` part says `writing: true`."""
         if only not in (None, "rename"):
             raise ValueError(BAD_AIFF_ONLY)
@@ -2172,12 +2177,12 @@ class HubApi:
         item now and had none in the plan). For named songs, a plan song the person did not name is no `changed` row
         (as `_plan_run`); a plan of a view or of the CDJ group answers every item that no longer stands."""
         now = {i.track: i.to_dict() for i in self._planned_reading(self._state(), scope, only).items}
-        _, bound = self._bind_plan(plan_id, now)
+        plan, bound = self._bind_plan(plan_id, now)
         typed = set(scope["tracks"]) if scope["kind"] == "tracks" else None
         action = only or "convert"
         left = [batches.ItemResult(k, action, "skipped", "changed", PLAN_CHANGED_WORDS, None, None)
                 for k in bound.changed if typed is None or k in typed]
-        if left and not bound.run:  # as `_plan_run`: nothing of the plan stands any more
+        if plan.items and not bound.run:  # as `_plan_run` (a plan of no songs is a clean library)
             raise OpProblem(PLAN_NOTHING, "changed")
         return list(bound.run), left, {"new_since_plan": list(bound.new)} if bound.new else {}
 
@@ -3096,7 +3101,11 @@ class CliApi(HubApi):
         if method == "aiff_plan" and isinstance(result.get("plan"), dict):
             plan = result["plan"]  # a dry run that has nothing to change and nothing waiting says so, as the window's panel does
             clean = not (plan.get("total") or plan.get("waiting") or plan.get("skipped")) and "total" in plan
-            return {"message": plans.NOTHING_TO_CHANGE} if clean else {}
+            if clean:
+                return {"message": plans.NOTHING_TO_CHANGE}
+            if lossy := plan.get("lossy"):  # lossy files grow when they become AIFF (the console's old line)
+                return {"message": engine_words.LOSSY_NOTE.format(n=lossy, are="is" if lossy == 1 else "are")}
+            return {}
         if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
             return self._undo_words(result)
         if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
@@ -3326,9 +3335,12 @@ class CliApi(HubApi):
         else:
             key = typed.as_posix()
         key = key.rstrip("/") or key
+        if ".." in PurePosixPath(key).parts:  # a way out of the place the typed folder is looked for in
+            raise BadId("unknown_id", engine_words.NO_FOLDER.format(path=name))
         lines, _, watched = plans.view_inputs(self._paths, "folder", None, None, None)
+        library = root.resolve() / "Library"  # a folder the sidebar has not listed yet (empty): only below Library/
         if views.view_known(self._state(), "folder", key, lines=lines, watched=watched) or (
-                not typed.is_absolute() and (root / key).is_dir()):
+                not typed.is_absolute() and (root / key).is_dir() and (root / key).resolve().is_relative_to(library)):
             return key
         raise BadId("unknown_id", engine_words.NO_FOLDER.format(path=name))
 
@@ -3435,7 +3447,8 @@ class CliApi(HubApi):
         Library's `in` / `search` / `quality`, To-do's `group` / `hidden`, or a verb's own "all"). Read only, on the last
         scan; the answer is what `library list` / `todo list` with the same words print, a playlist's `also` rows
         included and the rows without a file left out. A verb's "all" that selects none adds `message`, what the window
-        says then. (`select` is the window's own call, which tells the hub where a dropped file goes.)"""
+        says then. Rename's "all" with a `plan` (the command line's `--plan`) answers the plan's songs too, after today's.
+        (`select` is the window's own call, which tells the hub where a dropped file goes.)"""
         want = select.parse(listing)
         state = self._state()
         if want.verb_all == select.UPGRADE_ALL:
@@ -3444,12 +3457,18 @@ class CliApi(HubApi):
             return self._nothing_left({"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))},
                                       NOTHING_TO_CHECK)
         if want.verb_all == select.RENAME_ALL:
-            return self._nothing_left({"ids": self._rename_all_ids(state, want.view, want.key)}, plans.NOTHING_TO_CHANGE)
+            ids = self._rename_all_ids(state, want.view, want.key)
+            if want.plan is not None:  # a run with a plan answers for the plan's songs too (design §7.1)
+                plan = self._bind_plan(want.plan, {})[0]
+                ids = [*ids, *(k for k in plan.items if k not in ids)]
+            return self._nothing_left({"ids": ids}, plans.NOTHING_TO_CHANGE)
         if want.source == "todo":
             return {"ids": select.todo_ids(self._todo(state, want.group, want.hidden))}
         view, key = want.view, want.key
         if view == "folder":
             key = self._folder_key(key or "")
+        elif view == "playlist":  # a playlist nothing is called is `unknown_id`, not an empty list
+            key = self._resolve_collection(f"playlist:{key}")["key"]
         return {"ids": select.library_ids(self._library_view(state, view, key, want.search, want.quality, None))}
 
     def _rename_all_ids(self, state: dict, view: str, key: str | None) -> list[str]:
