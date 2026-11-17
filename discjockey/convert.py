@@ -243,7 +243,7 @@ def _plan_rekordbox(session: Session, entries: list[rekordbox.Entry], old_file: 
     frames = round(info.length * info.sample_rate)
     size = staged.stat().st_size
     changes = [rbwrite.row_change(entry, new_abs, file_size=size, channels=info.channels, frames=frames,
-                                  old_tags=old_tags, clean=clean) for entry in entries]
+                                  old_tags=old_tags, clean=clean, old_file=old_file) for entry in entries]
     return changes, rbstep.plan_splices(session, entries, new_abs)
 
 

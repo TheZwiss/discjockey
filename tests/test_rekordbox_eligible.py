@@ -2,13 +2,15 @@
 tag rules (`expected_tags`, `tags_clean`) and `text_plan`. Pure: no file is read, nothing is decoded."""
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from discjockey.audio import TEXT_FIELDS, FileFacts
 from discjockey.rekordbox import Entry, Status, TimelineOffset
 from discjockey.rekordbox.eligible import (
     ACTIONS, REASONS, Eligible, Skip, aiff_action, convert, expected_tags, fields_kept, reason_of, rename, same_track,
-    same_track_quick, tags_clean, text_plan,
+    changed_since_import, same_track_quick, tags_clean, text_plan,
 )
 from discjockey.rekordbox.offset import EntryTiming
 from discjockey.rekordbox.preview import REASON_WORDS
@@ -265,6 +267,38 @@ def test_text_plan_writes_where_rekordbox_still_shows_the_files_tag():
     assert plan == {"title": "kept", "artist": "write", "album": "write", "label": "write", "isrc": "kept",
                     "comment": "kept"}
     assert fields_kept(edited, old, clean) == ["title", "isrc", "comment"]
+
+
+def test_a_file_changed_since_import_is_no_evidence_that_a_field_is_unedited():
+    # rekordbox wrote the user's title edit into the file's tag too: shown == the file's tag != the clean value
+    old = {**TAGS, "title": "EDIT Song"}
+    edited = row(title="EDIT Song", artist="Artist")
+    assert text_plan(edited, old, TAGS)["title"] == "write"                      # an untouched file: as before
+    assert text_plan(edited, old, TAGS, file_changed=True)["title"] == "kept"
+    assert fields_kept(edited, old, TAGS, file_changed=True) == ["title"]
+    assert text_plan(row(title="Song"), old, TAGS, file_changed=True)["title"] == "write"   # already clean
+    assert text_plan(row(), TAGS, TAGS, file_changed=True)["album"] == "write"              # empty == empty clean
+    assert text_plan(row(comment="Qobuz FLAC · cutoff 16.0 kHz"), TAGS, {**TAGS, "comment": "Qobuz FLAC · lossy"},
+                     file_changed=True)["comment"] == "kept"                  # a line only the old file echoes
+
+
+def test_changed_since_import_compares_the_files_mtime_with_rekordboxs_created_at(tmp_path):
+    f = tmp_path / "a.aiff"
+    f.write_bytes(b"x")
+    at = 1_700_000_000
+    stamp = "2023-11-14 22:13:20.000 +00:00"  # = `at`
+    assert os.path.getmtime(f) > at  # the file was written now, long after this import
+    assert changed_since_import(row(created_at=stamp), f)
+    os.utime(f, (at, at))
+    assert not changed_since_import(row(created_at=stamp), f)
+    os.utime(f, (at + 2, at + 2))                                             # within the 2 s of slack
+    assert not changed_since_import(row(created_at=stamp), f)
+    os.utime(f, (at + 3, at + 3))
+    assert changed_since_import(row(created_at=stamp), f)
+    # unknown is the safe side: no or unreadable created_at, a file that can't be stat'ed
+    os.utime(f, (at, at))
+    assert changed_since_import(row(created_at=None), f) and changed_since_import(row(created_at="soon"), f)
+    assert changed_since_import(row(created_at=stamp), tmp_path / "gone.aiff")
 
 
 def test_text_plan_treats_empty_and_missing_alike_and_a_value_already_clean_as_nothing_to_lose():

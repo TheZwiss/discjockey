@@ -169,11 +169,16 @@ def nfc(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
 
-def plan_text(entry: Entry, old_tags: dict[str, str], clean: dict[str, str]) -> dict[str, TextChange]:
+def plan_text(entry: Entry, old_tags: dict[str, str], clean: dict[str, str], old_file: Path | None = None
+              ) -> dict[str, TextChange]:
     """Per text field what a write does (design §5.11, `eligible.text_plan`): the clean value where rekordbox still
     shows the old file's tag and the value differs, nothing where it already shows the clean value, and the user's
-    own edit kept. A clean value that is empty never blanks what rekordbox shows (the download lacks that tag)."""
-    plan = eligible.text_plan(entry, old_tags, clean)
+    own edit kept. A clean value that is empty never blanks what rekordbox shows (the download lacks that tag).
+    `old_file` is the old file: when it changed since rekordbox imported the row (`eligible.changed_since_import`:
+    rekordbox writes an edit into the file's tags too) its tags are no evidence and only a value already clean is
+    written."""
+    changed = old_file is not None and eligible.changed_since_import(entry, old_file)
+    plan = eligible.text_plan(entry, old_tags, clean, file_changed=changed)
     out = {}
     for f, what in plan.items():
         shown = getattr(entry, f)
@@ -188,7 +193,7 @@ def bit_rate(channels: int) -> int:
 
 
 def row_change(entry: Entry, new_path: str, *, file_size: int, channels: int, frames: int,
-               old_tags: dict[str, str], clean: dict[str, str]) -> RowChange:
+               old_tags: dict[str, str], clean: dict[str, str], old_file: Path | None = None) -> RowChange:
     """The repoint of `entry` to the 16-bit 44.1 kHz AIFF at `new_path` (`frames` samples per channel): identity,
     file facts (`Length` whole seconds rounded down, plan §0.13) and the text plan."""
     new_path = nfc(new_path)
@@ -197,7 +202,7 @@ def row_change(entry: Entry, new_path: str, *, file_size: int, channels: int, fr
         {"FolderPath": new_path, "FileNameL": new_path.rsplit("/", 1)[-1], "FileType": AIFF_TYPE,
          "FileSize": file_size, "BitDepth": 16, "SampleRate": 44100, "BitRate": bit_rate(channels),
          "Length": frames // 44100},
-        plan_text(entry, old_tags, clean))
+        plan_text(entry, old_tags, clean, old_file))
 
 
 def rename_change(entry: Entry, new_path: str) -> RowChange:
@@ -209,10 +214,11 @@ def rename_change(entry: Entry, new_path: str) -> RowChange:
                      {"FolderPath": new_path, "FileNameL": new_path.rsplit("/", 1)[-1]})
 
 
-def text_change(entry: Entry, *, file_size: int, old_tags: dict[str, str], clean: dict[str, str]) -> RowChange:
+def text_change(entry: Entry, *, file_size: int, old_tags: dict[str, str], clean: dict[str, str],
+                old_file: Path | None = None) -> RowChange:
     """The in-place swap's write for `entry`: its text plan and the new `FileSize` (plan §0.6)."""
     return RowChange(entry.id, {"FolderPath": entry.folder_path, "FileNameL": entry.file_name},
-                     {"FileSize": file_size}, plan_text(entry, old_tags, clean))
+                     {"FileSize": file_size}, plan_text(entry, old_tags, clean, old_file))
 
 
 def analysis_folder(place: Place, entry: Entry) -> Path | None:

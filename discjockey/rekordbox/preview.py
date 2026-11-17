@@ -196,7 +196,9 @@ def preview(paths: Paths | None, *, track: str | None = None, path: Path | str |
     clean = _clean_tags(paths, entry, facts, isinstance(same, Eligible)) if timeline.entries else facts.tags
     rows = [{"id": t.entry.id, "cues": t.cues, "grid": t.grid, "pwv3": t.pwv3, "offset_ms": t.offset_ms,
              "expected_ms": t.expected_ms, "score": t.score, "cloud": t.entry.cloud,
-             "fields_kept": eligible.fields_kept(t.entry, facts.tags, clean), "folder_path": t.entry.folder_path,
+             "fields_kept": eligible.fields_kept(t.entry, facts.tags, clean,
+                                                 file_changed=eligible.changed_since_import(t.entry, file)),
+             "folder_path": t.entry.folder_path,
              "content_file": [{"path": f.path, "hash": f.hash, "size": f.size, "updated_at": f.updated_at}
                               for f in t.entry.content_files], "updated_at": t.entry.updated_at}
             for t in timeline.entries]

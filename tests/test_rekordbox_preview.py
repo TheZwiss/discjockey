@@ -2,6 +2,7 @@
 tmp library and a fixture rekordbox (tests/rekordbox_helpers.py). The MP3 is a fixture with an Info/LAME tag."""
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -204,6 +205,20 @@ def test_same_track_keeps_what_the_parked_downloads_text_would_leave_alone(tmp_p
     assert got["entries"][0]["fields_kept"] == []  # the new file says what rekordbox shows: nothing to lose
     parked_file.write_bytes(b"parked")  # a parked file that can't be read: the record's text is the guess
     assert preview(paths, track=OWN)["entries"][0]["fields_kept"] == ["title"]
+
+
+def test_a_title_rekordbox_wrote_into_the_file_too_is_kept_in_the_dry_run(tmp_path, monkeypatch, paths):
+    from mutagen.id3 import ID3, TIT2
+    f = put(paths, MP3, LAME)
+    library(paths, {OWN: entry()})
+    rekordbox_for(tmp_path, monkeypatch, f, Title="EDIT Song", created_at="2023-11-14 22:13:20.000 +00:00")
+    tags = ID3(str(f))  # rekordbox wrote the edit into the file's tag as well
+    tags.add(TIT2(encoding=3, text="EDIT Song"))
+    tags.save(str(f))
+    os.utime(f, (1_700_000_000 - 100, 1_700_000_000 - 100))  # but before the import: nothing changed since
+    assert preview(paths, track=OWN)["entries"][0]["fields_kept"] == []  # the file's tag is the evidence
+    os.utime(f, (1_700_000_100, 1_700_000_100))
+    assert "title" in preview(paths, track=OWN)["entries"][0]["fields_kept"]  # a changed file proves nothing
 
 
 def test_a_clean_aiff_with_a_messy_name_would_only_be_renamed(paths):

@@ -4,12 +4,14 @@ rows (every column of §5.5 and nothing else), the song's records, and every ref
 in tmp_path (tests/convert_helpers.py); crash recovery and undo are in test_convert_file_recovery.py."""
 from __future__ import annotations
 
+import os
 import subprocess
+from datetime import datetime
 
 import numpy as np
 import pytest
 from mutagen.aiff import AIFF
-from mutagen.id3 import APIC, COMM, ID3, TCON, TDRC, ID3NoHeaderError
+from mutagen.id3 import APIC, COMM, ID3, TCON, TDRC, TIT2, ID3NoHeaderError
 
 from audio_helpers import TINY_JPEG, needs_ffmpeg, pcm, picture
 from convert_helpers import NOW, TID, batch_row, file_facts_row, make_own, run_file, session, start_file_batch
@@ -212,6 +214,19 @@ def test_the_users_own_rekordbox_title_is_kept_and_said(tmp_path, monkeypatch):
     assert row_of(env)["Title"] == "My Edit Name"
     assert state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"] == ["title"]
     assert r.note.endswith("Kept your own title in rekordbox.")
+
+
+def test_a_title_rekordbox_wrote_into_the_old_file_too_is_kept(tmp_path, monkeypatch):
+    # rekordbox 7 puts the user's edit into the file's own tags: the file then says what rekordbox shows
+    env = make_own(tmp_path, monkeypatch, row={"Title": "My Edit Name"})
+    edit_old_tags(env, TIT2(encoding=3, text="My Edit Name"))
+    later = row_of(env)["created_at"]
+    stamp = datetime.fromisoformat(later.replace(" +00:00", "+00:00")).timestamp() + 30
+    os.utime(env.paths.root / env.old, (stamp, stamp))
+    r, state = run_file(env)
+    assert row_of(env)["Title"] == "My Edit Name"
+    assert "title" in state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"]
+    assert "title" in r.note
 
 
 # --- tags ---
