@@ -3,6 +3,21 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 43. A file away for one scan loses its song for good (live test B, 2026-11-17) — data loss, before phase 2
+
+Reproduced on made-up data (2026-11-17): an imported click MP3 in a watched folder with a parked upgrade; the file
+moved out, `library scan` → `Gone 1`; moved back, `library scan` → `New 1`. The song (local:2) was deleted with its
+parked upgrade, and the To-do said nothing. The returned file waited as an unlinked import; importing it made a new
+song (local:3) without the upgrade. Cause: spec library-and-sources §6.3 "Gone" + `db.apply_scan`: one scan that
+doesn't see a file deletes its row; an own song with no file left is deleted with its answers
+(`_drop_fileless_own`, `_drop_dead_decisions`); a playlist song gets `file_gone` and the next sync downloads it again
+(from the code; not run). Nothing remembers the content key, so a file put back is never matched again. A scan runs at
+every sync and dry run, when the window opens and when it comes back to the front after a minute, so moving a file
+aside for a minute (tidying, a rekordbox Relocate test, a file opened in another app that saves elsewhere) is enough.
+Present since library stage 1 (2026-10-24): v1.1.0, v1.2.0, v1.2.1. The user's real library shows no loss so far
+(read-only 2026-11-17: no `file_gone`, own ids 889–905 without gaps, no unlinked files). Issue 40's audit asks the
+same question for "out of every watched folder".
+
 ## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
 
 Lock order is support, library, `rekordbox.lock` (CLAUDE.md). Every settings write follows it now (`_settings_job`,
