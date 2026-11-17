@@ -829,6 +829,7 @@ def test_the_page_of_a_run_is_the_batch_and_what_to_do_in_rekordbox(world, capsy
     code, out, err = run(["aiff", "convert", found.tracks[0], found.tracks[2]], capsys)
     assert code == OK and "aiff_convert" in WRITES
     check_golden("aiff_convert", scrubbed(out, tmp_path))
+    assert "step:look" in out and "step:reload_tag" not in out  # rekordbox's text is written: a look, no Reload Tag
     assert "Made 1 file AIFF, gave 1 file its clean name." in out + err and f"Next: {cmd('batch show aiff:1')}" in err
     assert "Your turn: " in err and f"Then: {cmd('check done')}" in err  # the Reload Tag step of a convert
 

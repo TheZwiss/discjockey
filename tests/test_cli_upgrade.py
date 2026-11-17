@@ -127,15 +127,11 @@ def test_same_track_on_three_tracks_is_one_aiff_batch_that_the_result_names(lib,
     [row] = batches_of(found)
     assert (row.id, row.started_by, row.state) == (1, "user", "done")
     assert [n["run"] for n in env["next"]] == [cmd("batch show aiff:1"), cmd("check list")]
-    # a track rekordbox's text was written for gets "have a look" (no Reload Tag), one it was not gets "reload the tags"
-    kinds = [r["person_steps"][0]["id"] for r in data["results"]]
-    assert set(kinds) == {"step:look", "step:reload_tag"}, kinds
-    [look] = [s for s in env["person_steps"] if s["id"] == "step:look"]
-    [reload] = [s for s in env["person_steps"] if s["id"] == "step:reload_tag"]
-    assert look["then"] == reload["then"] == cmd("check done --batch aiff:1")
-    assert look["say"].startswith("In rekordbox, have a look at ") and reload["say"].startswith("In rekordbox, reload the tags of ")
-    for track, kind in ((r["track"], r["person_steps"][0]["id"]) for r in data["results"]):
-        assert (track in look["say"]) == (kind == "step:look") and (track in reload["say"]) == (kind == "step:reload_tag")
+    # every track's rekordbox text was written (or rekordbox has no such track): nothing to reload, just a look
+    assert [r["person_steps"][0]["id"] for r in data["results"]] == ["step:look"] * 3
+    [step] = env["person_steps"]
+    assert step["id"] == "step:look" and step["then"] == cmd("check done --batch aiff:1")
+    assert step["say"].startswith("In rekordbox, have a look at ") and all(t in step["say"] for t in found.tracks)
     assert found.row(0)["FolderPath"].endswith("Song 0.aiff")  # rekordbox's row points at the new file
     assert data["backup"]  # rekordbox's library was backed up before the batch wrote to it
     assert data["results"][2]["rekordbox"] is None  # rekordbox does not hold the third
@@ -471,7 +467,15 @@ def test_a_discard_gives_no_reload_step_even_for_a_song_with_an_open_check(lib, 
     assert words["ok"] and "person_steps" not in words and words["data"]["results"][0]["person_steps"] == []
     same = api.result_words("upgrade", {"batch": None, "total": 1, "done": 1, "skipped": 0, "failed": 0,
                                         "results": [{**done, "action": "same_track"}]})
-    assert [s["id"] for s in same["person_steps"]] == ["step:reload_tag"]
+    assert [s["id"] for s in same["person_steps"]] == ["step:look"]  # Same track's repoint wrote rekordbox's text
+    # a check whose text still has to be reloaded (a swap while rekordbox was open) keeps Reload Tag, apart from the looks
+    state = library.load_state(found.paths)
+    state["tracks"][found.tracks[0]]["rekordbox_check"]["reload_tag"] = True
+    library.save_state(found.paths, state)
+    mixed = api.result_words("upgrade", {"batch": 5, "total": 1, "done": 1, "skipped": 0, "failed": 0,
+                                         "results": [{**done, "action": "same_track"}]})
+    assert [s["id"] for s in mixed["person_steps"]] == ["step:reload_tag"]
+    assert mixed["person_steps"][0]["then"] == "check done --batch aiff:5"
 
 
 def test_track_undo_puts_new_tracks_back_and_a_second_undo_has_nothing_to_undo(lib, capsys):

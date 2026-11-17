@@ -148,7 +148,7 @@ def test_the_checks_of_a_batch_are_one_item_and_batch_undo_puts_them_back(hub):
     assert [t["track_id"] for t in b["tracks"]] == lib.tracks and all(t["can_undo"] for t in b["tracks"])
     assert [t["check"]["batch"] for t in b["tracks"]] == [{"id": r["batch"], "size": 3}] * 3
     mp3, aiff, free = (t["check"] for t in b["tracks"])
-    assert (mp3["reason"], mp3["reload_tag"], mp3["rekordbox"]) == ("repointed", True, {"entries": 1, "kept": []})
+    assert (mp3["reason"], mp3["reload_tag"], mp3["rekordbox"]) == ("repointed", False, {"entries": 1, "kept": []})
     assert (aiff["reason"], aiff["rekordbox"]["entries"]) == ("swapped", 1) and free["rekordbox"] is None
     assert todo["chips"]["rekordbox_check"] == 1 and todo["chips"]["all"] == 1       # a batch counts as one to-do
     rb.running = True                                                                  # undo needs rekordbox closed
