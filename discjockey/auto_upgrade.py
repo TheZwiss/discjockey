@@ -37,7 +37,8 @@ from being decoded again at every sync, and the phase itself (`run_phase`), whic
 - The records on the parked upgrade (plan §0.6): `auto_refused` for a refusal of those kinds (taken from the
   batch's item, with the stamps and the free space measured after the batch) and `auto_waits` (the ISO time
   of the sync that met rekordbox open for it). The phase clears both from every track it tries, and `auto_waits` from
-  every track it reaches with rekordbox closed; both are saved with the run's state. rekordbox open at the end of a
+  every track it reaches with rekordbox closed; both are saved with the run's state. An upgrade's undo brings the parked
+  upgrade back without `auto_waits` (`upgrades.fields_before`): the song is no longer waiting for rekordbox. rekordbox open at the end of a
   sync is said as `waiting_line` (what happened), never as `before_start_line` (the Sync page's line before a start). Nothing else is recorded: other
   skips (`changed`, `unclean`, `busy`, ...) are in this run's results only, so the next sync simply tries again.
 - `Outcome` is the run's block (the report, `--json`, the end screen); its keys are plan stage C §1.6. The results go

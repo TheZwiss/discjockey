@@ -543,13 +543,14 @@ def track_row(track_id: str, e: dict, cover: Url | None = None) -> dict:
 def cue_text(alignment: dict | None, can_swap: bool = True) -> str:
     """The line under a parked better version: what the measurement says about the cue points, and what that means
     for the way it goes in. Only a swap (AIFF only) keeps the rekordbox entry and its cues; a file that cannot be
-    swapped goes in as a new file, which rekordbox sees as a new entry, so the old entry has to be relocated."""
+    swapped goes in as a new file, which rekordbox sees as a new entry; its Relocate offers only files of the same type
+    (live test 2026-11-17), so the cues are set on the new entry."""
     a = alignment or {}
     result = a.get("result")
     ms = abs(a.get("offset_ms") or 0)
     if result in ("exact", "shifted") and not can_swap:
         same = "same edit" if result == "exact" else f"same edit, {ms:.0f} ms apart"
-        return f"{same}, but a new rekordbox entry: relocate the old one to the new file to keep its cues"
+        return f"{same}, but a new rekordbox entry: set its cues there"
     if result == "shifted":
         return f"aligned by {ms:.0f} ms, cues stay"
     return CUE_TEXT.get(result, CUE_TEXT["unknown"])
@@ -752,7 +753,9 @@ def check_status(check: dict | None) -> str:
     if reason == "repointed":
         return "analyse again" if c.get("rekordbox") else "a new AIFF, not in rekordbox"
     if reason == "added_as_new":
-        return "relocate, analyse again" if c.get("match") in ("exact", "shifted") else "analyse, set the cues again"
+        if c.get("match") in ("exact", "shifted") and c.get("relocate"):  # an old AIFF: Relocate takes the new file
+            return "relocate, analyse again"
+        return "add as a new track, set the cues" if c.get("match") in ("exact", "shifted") else "analyse, set the cues again"
     if reason == "wrong_song":
         return "now the right song: analyse again"
     if reason == "converted":  # Convert to AIFF (issue 33 stage D): rekordbox follows the new file by itself

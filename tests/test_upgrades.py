@@ -114,10 +114,21 @@ def test_add_as_new_file(env):
         "lossless", new, "qobuz", "q1", "flac", None, None)
     assert e["last_upgrade_check"] == "2026-10-10" and e["rejected_sources"] == ["qobuz:q0"]
     assert without_undo(e["rekordbox_check"]) == {"reason": "added_as_new", "since": "2026-10-16", "match": "exact",
-                                                  "offset_ms": 0.0, "aligned": False}
+                                                  "offset_ms": 0.0, "aligned": False,
+                                                  "relocate": True}  # the old file is an AIFF: Relocate takes the new one
     # the parked measurement goes with it when the files can't be measured now (these aren't audio)
     assert state["pending"] == [] and records(load_state(paths)) == records(state)
     assert (r.section, r.path, r.status) == ("added_new", new, "lossless")
+
+
+def test_add_as_new_file_says_whether_rekordbox_can_relocate_to_it(env):
+    """rekordbox's Relocate offers only files of the same type (live test 2026-11-17): only an old AIFF is relocatable."""
+    paths, state = env
+    old = "Library/A/not_lossless/Artist - Song.mp3"
+    (paths.root / CURRENT).rename(paths.root / old)
+    state["tracks"]["t1aaaaaaa"]["path"] = old
+    upgrades.add_new(paths, state, "t1aaaaaaa", up(state), now=lambda: datetime(2026, 11, 17, 21, 0))
+    assert state["tracks"]["t1aaaaaaa"]["rekordbox_check"]["relocate"] is False
 
 
 @pytest.mark.parametrize("alignment,match,offset", [
@@ -136,7 +147,8 @@ def test_add_as_new_file_keeps_the_parked_measurement_when_it_cant_measure_now(e
     upgrades.add_new(paths, state, "t1aaaaaaa", upgrade, compare=lambda cur, new: unknown(),
                      now=lambda: datetime(2026, 10, 16, 21, 0))
     assert without_undo(state["tracks"]["t1aaaaaaa"]["rekordbox_check"]) == {
-        "reason": "added_as_new", "since": "2026-10-16", "match": match, "offset_ms": offset, "aligned": False}
+        "reason": "added_as_new", "since": "2026-10-16", "match": match, "offset_ms": offset, "aligned": False,
+        "relocate": True}
 
 
 def test_add_as_new_file_avoids_taken_names(env):

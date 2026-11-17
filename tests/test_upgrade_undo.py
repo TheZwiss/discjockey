@@ -110,7 +110,7 @@ def test_a_rendered_add_keeps_the_download_and_the_renders_key(env):
     step(paths, state, "add_new_rendered")
     check = state["tracks"][TID]["rekordbox_check"]
     assert {k: v for k, v in check.items() if k != "undo"} == {
-        "reason": "added_as_new", "since": "2026-10-31", "match": "shifted", "offset_ms": 0.091, "aligned": True}
+        "reason": "added_as_new", "since": "2026-10-31", "match": "shifted", "offset_ms": 0.091, "aligned": True, "relocate": True}
     u = check["undo"]
     assert (u["kind"], u["file"], u["old"], u["rendered"]) == ("add_new", ROOT_NAME, SUPERSEDED, True)
     assert u["before"]["upgrade"] == original["upgrade"]

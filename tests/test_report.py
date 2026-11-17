@@ -165,21 +165,34 @@ ALIGNED = ("This is the same edit, lined up with your old file to the sample. In
            "the new file (right-click › Relocate); its cues fit exactly.")
 
 
+ABOUT_TYPE = ("rekordbox can't relocate a track to a file of another type. Add the new file to rekordbox as a new "
+              "track and set its cues there; your old track keeps playing the old file in Superseded/.")
+
+
 @pytest.mark.parametrize("check,text", [
-    ({"reason": "added_as_new", "since": "2026-10-16", "match": "exact", "offset_ms": 0.0},
+    ({"reason": "added_as_new", "since": "2026-10-16", "match": "exact", "offset_ms": 0.0, "relocate": True},
      "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."),
-    ({"reason": "added_as_new", "since": "2026-10-16", "match": "shifted", "offset_ms": -23.0},
+    ({"reason": "added_as_new", "since": "2026-10-16", "match": "shifted", "offset_ms": -23.0, "relocate": True},
      "This is the same edit, 23 ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to "
      "within 23 ms."),
-    ({"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0, "aligned": True},
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0, "aligned": True, "relocate": True},
      ALIGNED),
-    ({"reason": "added_as_new", "since": "2026-11-08", "match": "shifted", "offset_ms": -23.0, "aligned": True},
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "shifted", "offset_ms": -23.0, "aligned": True, "relocate": True},
      ALIGNED),  # lined up to the sample: no "within N ms" any more
-    ({"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0, "aligned": False},
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0, "aligned": False, "relocate": True},
      "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."),
-    ({"reason": "added_as_new", "since": "2026-11-08", "match": "shifted", "offset_ms": 12.0, "aligned": False},
+    ({"reason": "added_as_new", "since": "2026-11-08", "match": "shifted", "offset_ms": 12.0, "aligned": False, "relocate": True},
      "This is the same edit, 12 ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to "
      "within 12 ms."),  # rekordbox's timing was unknown: renamed as before, today's words
+    # an old file that isn't an AIFF (no `relocate`): rekordbox's Relocate takes the same type only (live test 2026-11-17)
+    ({"reason": "added_as_new", "since": "2026-11-17", "match": "exact", "offset_ms": 0.0},
+     "This is the same edit. " + ABOUT_TYPE),
+    ({"reason": "added_as_new", "since": "2026-11-17", "match": "shifted", "offset_ms": -23.0},
+     "This is the same edit, 23 ms apart. " + ABOUT_TYPE),
+    ({"reason": "added_as_new", "since": "2026-11-17", "match": "exact", "offset_ms": 0.0, "aligned": True,
+      "relocate": False},
+     "This is the same edit, lined up with your old file to the sample, so cues set at the same times land on the "
+     "same beats. " + ABOUT_TYPE),
     ({"reason": "added_as_new", "since": "2026-11-08", "match": "different", "offset_ms": 0.0, "aligned": True},
      "This is a different edit. In rekordbox: analyse it again and set the cues again."),
     ({"reason": "added_as_new", "since": "2026-10-16", "match": "different", "offset_ms": 0.0},

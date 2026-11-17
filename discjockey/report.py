@@ -78,11 +78,20 @@ RENAMED_NO_TRACK_CHECK = ("Your file has its clean name now. This file isn't in 
 # design §5.11, §8 (binding): the Reload Tag step for tracks whose text Discjockey didn't write (a batch card lists them)
 RELOAD_TAG_STEP = ("In rekordbox's Collection, select the tracks listed here (⌘-click each), right-click › Reload Tag. "
                    "Don't select all: it replaces every name you changed in rekordbox on the tracks you select.")
-# design §8, result 3 (until the live test settles it)
+# design §8, result 3 (the live test of 2026-11-17 settled it: a plain rekordbox USB sync after an upgrade keeps the
+# old files and the old title on the stick, so the rebuild advice stands)
 USB_STEP = "On a USB stick? The stick still plays the old file. Rebuild the stick in rekordbox before your next gig."
 ALIGNED_EDIT_CHECK = ("This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your "
                       "old track to the new file (right-click › Relocate); its cues fit exactly.")
 SAME_EDIT_CHECK = "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
+# Live test 2026-11-17 (design §10, New track): rekordbox's Relocate offers only files of the same type as the track,
+# so for an old file that isn't an AIFF the new AIFF is added as a new track and its cues are set there
+NO_RELOCATE = ("rekordbox can't relocate a track to a file of another type. Add the new file to rekordbox as a new "
+               "track and set its cues there; your old track keeps playing the old file in Superseded/.")
+NO_RELOCATE_ALIGNED = ("This is the same edit, lined up with your old file to the sample, so cues set at the same "
+                       "times land on the same beats. " + NO_RELOCATE)
+NO_RELOCATE_SAME = "This is the same edit. " + NO_RELOCATE
+NO_RELOCATE_SHIFTED = "This is the same edit, {ms:.0f} ms apart. " + NO_RELOCATE
 SHIFTED_EDIT_CHECK = ("This is the same edit, {ms:.0f} ms apart. In rekordbox: relocate the old entry to the new "
                       "file, its cues fit to within {ms:.0f} ms.")
 STATUS_TEXT = {"not_lossless": "not lossless", "fake_lossless": "fake lossless", "missing": "not found"}
@@ -217,8 +226,9 @@ def check_text(check: dict) -> str:
     timeline of the old one; a swapped one `moved`, whether the file moved up out of not_lossless/, and `reload_tag`,
     false when Discjockey wrote rekordbox's text itself; a repointed, converted or renamed one `rekordbox`, the tracks it
     pointed at the new AIFF or name, or None when the file had none). Same edit
-    (exact or shifted): the old entry can be relocated to the new file and keeps its cues, exactly when it was lined
-    up. A real mismatch, no measurement or a record from before it: analyse and cue again."""
+    (exact or shifted): an old AIFF can be relocated to the new file and keeps its cues, exactly when it was lined
+    up (`relocate`, true when the old file is an AIFF: rekordbox's Relocate offers only files of the same type; for any
+    other old file the new one is added as a new track and its cues are set there). A real mismatch, no measurement or a record from before it: analyse and cue again."""
     check = check or {}
     if check.get("reason") == "swapped":
         if check.get("reload_tag") is False:  # stage B wrote rekordbox's text; older records keep Reload Tag
@@ -231,12 +241,14 @@ def check_text(check: dict) -> str:
     if check.get("reason") == "renamed":
         return RENAMED_CHECK if check.get("rekordbox") else RENAMED_NO_TRACK_CHECK
     if check.get("reason") == "added_as_new":
+        relocate = bool(check.get("relocate"))  # the old file is an AIFF too; a record without it names no AIFF
         if check.get("aligned") and check.get("match") in ("exact", "shifted"):
-            return ALIGNED_EDIT_CHECK
+            return ALIGNED_EDIT_CHECK if relocate else NO_RELOCATE_ALIGNED
         if check.get("match") == "exact":
-            return SAME_EDIT_CHECK
+            return SAME_EDIT_CHECK if relocate else NO_RELOCATE_SAME
         if check.get("match") == "shifted":
-            return SHIFTED_EDIT_CHECK.format(ms=abs(check.get("offset_ms") or 0))
+            return (SHIFTED_EDIT_CHECK if relocate else NO_RELOCATE_SHIFTED).format(
+                ms=abs(check.get("offset_ms") or 0))
     return REKORDBOX_CHECK.get(check.get("reason"), "Check this track in rekordbox.")
 
 

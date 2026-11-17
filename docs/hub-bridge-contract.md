@@ -149,7 +149,10 @@ remember=False)` (the command line's) acts on a write's record as it is, with no
   `reject_current` ("None of these"). `added_as_new`: set by `upgrade(id, "new_track")`, with `match` (the parked
   version's measurement: `exact`/`shifted`/`different`/`unknown`), `offset_ms` and `aligned` (the new file was
   rendered lined up with rekordbox's timeline of the old one, so the old track's cues fit it to the sample; false
-  when the timing was unknown and the download was only renamed); records from before them have none of these. `swapped`: set by `upgrade(id, "same_track")`, with `match`, `offset_ms` (the fresh measurement) and `moved`
+  when the timing was unknown and the download was only renamed) and `relocate` (the old file is an AIFF, so
+  rekordbox's Relocate, which offers only files of the same type, can take the new one; false for any other old file
+  and for records without it: the words then say to add the new file as a new track and set its cues there,
+  `report.NO_RELOCATE`); records from before them have none of these. `swapped`: set by `upgrade(id, "same_track")`, with `match`, `offset_ms` (the fresh measurement) and `moved`
   (the file moved up out of not_lossless/). Both upgrade checks also hold `undo` (engine-internal, see
   `upgrades.py`: the fields as they were, both files' content keys, a swap's kept download in
   `.discjockey/undo/`); checks from before undo existed have none. The page sees `can_undo` and, from the undo
@@ -1735,8 +1738,9 @@ old file was moved away to Superseded/, the entry gets `rekordbox_check` (`wrong
 `upgrade(track_id, "new_track")`: the current file moves to `Superseded/<Folder>/` and the new lossless file gets the
 correct name `Library/<Folder>/<Artist - Title>.aiff` (no "(lossless)"; an ID suffix only if another file has that
 name); the entry gets `rekordbox_check` (`added_as_new`, with the measurement of the two files: `match`,
-`offset_ms`, `aligned`), because rekordbox sees a new file as a new entry; the old entry can be relocated to it (by
-hand: right-click › Relocate) and keeps its cues when the two are the same edit. When Discjockey knows rekordbox's
+`offset_ms`, `aligned`), because rekordbox sees a new file as a new entry; an old AIFF entry can be relocated to it (by
+hand: right-click › Relocate; rekordbox offers only files of the same type, so any other old file gets the new one as
+a new track) and keeps its cues when the two are the same edit. When Discjockey knows rekordbox's
 timeline of the old file, the new file is rendered lined up with it (`aligned: true`) and the cues fit to the sample;
 otherwise the download is only renamed and the cues fit to within the measured offset.
 

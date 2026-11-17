@@ -22,7 +22,7 @@ def rich_library(tmp_path, monkeypatch):
     state = library.load_state(paths)
     state["tracks"]["t2"]["upgrade"]["auto_waits"] = True
     state["tracks"]["t1"]["rekordbox_check"] = {"reason": "added_as_new", "since": "2026-10-20", "match": "exact",
-                                                "aligned": True}
+                                                "aligned": True, "relocate": True}
     state["tracks"]["t4"] = entry(artist="Pegassi", title="AEIOU", duration_ms=180000, folder="Hard_Bounce",
                                   path="Library/Hard_Bounce/Pegassi - AEIOU.aiff", status="lossless",
                                   source="qobuz", source_id="q4", source_format="flac",

@@ -104,16 +104,17 @@ def _bits(stream: dict) -> int | None:
     return None
 
 
-def decode_mono(path: Path) -> tuple[np.ndarray, int]:
+def decode_mono(path: Path, rate: int | None = None) -> tuple[np.ndarray, int]:
+    """The file as mono float samples and their rate: the file's own rate, or `rate` (ffmpeg resamples)."""
     info = probe(path)
     r = subprocess.run(
         ["ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0", "-ac", "1",
-         "-f", "f32le", "-acodec", "pcm_f32le", "-"],
+         *(["-ar", str(rate)] if rate else []), "-f", "f32le", "-acodec", "pcm_f32le", "-"],
         capture_output=True, start_new_session=True,
     )
     if r.returncode != 0:
         raise RuntimeError(f"ffmpeg could not decode {Path(path).name}: {r.stderr.decode(errors='replace')[:300]}")
-    return np.frombuffer(r.stdout, dtype=np.float32), info.sample_rate
+    return np.frombuffer(r.stdout, dtype=np.float32), rate or info.sample_rate
 
 
 def _bands(x: np.ndarray, sr: int) -> np.ndarray | None:

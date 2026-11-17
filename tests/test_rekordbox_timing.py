@@ -364,6 +364,35 @@ def test_timeline_offset_measures_real_decodes_exactly(tmp_path, m4a, monkeypatc
 
 
 @needs_ffmpeg
+def test_a_96k_file_is_measured_on_a_44k1_decode_and_accepted(tmp_path):
+    """Live (rekordbox 7, a 24-bit 96 kHz WAV click track): the native decode measured -0.3125 ms with score 0.8797
+    (MIN_SCORE 0.90) and was refused as `timing`; ffmpeg's 44.1 kHz decode measured 0.0 ms, score 0.9491. The
+    measurement now decodes a file above 48 kHz at 44.1 kHz; the answer stays 0."""
+    f = write_wav(tmp_path / "hi.wav", clicks(20, 96000), 96000)
+    audio, rate = quality.decode_mono(f, 44100)
+    assert rate == 44100 and abs(len(audio) - 20 * 44100) < 50
+    place = rekordbox_for_audio(tmp_path, f, audio)
+    got = timeline_offset(f, place=place, running=lambda: False)  # the real probe and decode
+    assert (got.why, got.samples) == ("measured", 0)
+    assert got.entries[0].score is not None and got.entries[0].score > timing.MIN_SCORE
+    assert quality.decode_mono(f)[1] == 96000  # the plain decode of other callers is untouched
+
+
+def test_only_a_file_above_48k_is_decoded_at_44k1(tmp_path):
+    asked = []
+
+    def decode(path, **kw):
+        asked.append(kw)
+        return AUDIO, SR
+    for rate, want in ((96000, {"rate": 44100}), (88200, {"rate": 44100}), (48000, {}), (44100, {})):
+        f = tmp_path / f"{rate}.flac"
+        place = rekordbox(tmp_path / str(rate), [(f, 1, 0, False)])
+        timeline_offset(f, place=place, probe_audio=info("flac", rate), decode=decode, trim=lambda p, c: 0,
+                        running=lambda: False)
+        assert asked.pop() == want, rate
+
+
+@needs_ffmpeg
 @pytest.mark.real_tools  # the time of the real ffmpeg decodes is what this pins,
 @pytest.mark.real_sqlcipher_kdf  # of the real key derivation
 @pytest.mark.real_durability  # and of the real drive flushes
