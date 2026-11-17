@@ -604,9 +604,10 @@ file either way; the only difference is what rekordbox sees, which you pick unde
   When Discjockey can measure how rekordbox's timeline sits against your old file (it reads
   rekordbox's library for that, and never changes it) and the two versions are the same edit,
   the new file is lined up with your old one to the sample, so your cue points fit it exactly.
-  In rekordbox, relocate your old track to the new file by hand: right-click it › **Relocate**
-  and choose the new file (Auto Relocate isn't reliable here, because the new file may have a
-  different name or extension). Then analyse the track again. When Discjockey can't measure
+  rekordbox's **Relocate** (right-click the track) offers only files of the same type, so it
+  works only when your old file is an AIFF too: relocate your old track to the new file by hand
+  and analyse the track again. For any other old file, add the new file to rekordbox as a new
+  track and set its cues there; your old track keeps playing the old file in `Superseded/`. When Discjockey can't measure
   rekordbox's timing, the new file is the download as it is: if the two versions are the same
   edit (they line up, maybe a few milliseconds apart), your cues and beatgrid still fit to
   within that difference; if they are a different edit, analyse the track again and set the

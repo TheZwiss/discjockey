@@ -441,7 +441,7 @@ def test_cue_text(alignment, text):
 
 
 # a file that can't be swapped (MP3, WAV...) goes in as a new file: a new rekordbox entry, cues only by relocating
-NO_SWAP_SAME = "same edit, but a new rekordbox entry: relocate the old one to the new file to keep its cues"
+NO_SWAP_SAME = "same edit, but a new rekordbox entry: set its cues there"
 
 
 @pytest.mark.parametrize("alignment,can_swap,text", [
@@ -449,7 +449,7 @@ NO_SWAP_SAME = "same edit, but a new rekordbox entry: relocate the old one to th
     ({"result": "exact"}, False, NO_SWAP_SAME),
     ({"result": "shifted", "offset_ms": -23.0}, True, "aligned by 23 ms, cues stay"),
     ({"result": "shifted", "offset_ms": -23.0}, False,
-     "same edit, 23 ms apart, but a new rekordbox entry: relocate the old one to the new file to keep its cues"),
+     "same edit, 23 ms apart, but a new rekordbox entry: set its cues there"),
     ({"result": "different"}, True, "doesn't match: would be a new rekordbox entry"),
     ({"result": "different"}, False, "doesn't match: would be a new rekordbox entry"),
     ({"result": "unknown"}, True, "could not compare the two versions"),
@@ -628,7 +628,7 @@ def test_wav_files_go_through_same_track_unless_rekordbox_cannot_be_read():
     up = views.track_detail("t1", wav, [], TODAY, rb=unreadable)["upgrade"]
     assert not up["swap_possible"] and up["why_not"] == "rekordbox_unreadable"
     assert up["rekordbox"] == {"state": "unreadable", "running": False} and up["auto_refused"] is None
-    assert up["cue_text"].endswith(", but a new rekordbox entry: relocate the old one to the new file to keep its cues")
+    assert up["cue_text"].endswith(", but a new rekordbox entry: set its cues there")
     aiff = e("not_lossless", path="Library/A/x.aiff", upgrade=UPGRADE)
     up = views.track_detail("t1", aiff, [], TODAY, rb=unreadable)["upgrade"]
     assert up["swap_possible"] and up["swap_how"] == "in_place"   # an AIFF takes the audio in place
@@ -1051,7 +1051,7 @@ def test_todo_check_tracks_counts_tracks_where_chips_count_items():
 
 
 def test_todo_check_in_rekordbox_words_an_added_file_by_what_was_measured():
-    s = state(a=e(rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "exact"}),
+    s = state(a=e(rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "exact", "relocate": True}),
               b=e(title="B", rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "different"}))
     by = {i["track_id"]: i for i in views.todo(s, "all", False, {}, TODAY)["groups"][0]["items"]}
     assert by["a"]["detail"] == "relocate, analyse again" and by["a"]["check"]["match"] == "exact"
@@ -1068,7 +1068,8 @@ def test_todo_check_in_rekordbox_words_an_added_file_by_what_was_measured():
     ({"reason": "swapped", "reload_tag": False, "moved": True}, "relocate, analyse again"),
     ({"reason": "repointed", "rekordbox": {"entries": ["1"], "kept": []}}, "analyse again"),
     ({"reason": "repointed", "rekordbox": None}, "a new AIFF, not in rekordbox"),
-    ({"reason": "added_as_new", "match": "shifted"}, "relocate, analyse again"),
+    ({"reason": "added_as_new", "match": "shifted", "relocate": True}, "relocate, analyse again"),
+    ({"reason": "added_as_new", "match": "shifted"}, "add as a new track, set the cues"),  # an old file that isn't an AIFF
     ({"reason": "added_as_new", "match": "unknown"}, "analyse, set the cues again"),
     ({"reason": "wrong_song"}, "now the right song: analyse again"),
     (None, "check it in rekordbox"),
@@ -1086,11 +1087,13 @@ def test_check_view_says_where_the_old_file_is_from_the_undo_record():
 
 
 def test_check_view_says_whether_the_new_file_was_lined_up():
-    base = {"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0}
+    base = {"reason": "added_as_new", "since": "2026-11-08", "match": "exact", "offset_ms": 0.0, "relocate": True}
     aligned = views.check_view({**base, "aligned": True})
     assert aligned["aligned"] is True and aligned["text"] == report.ALIGNED_EDIT_CHECK
     old_record = views.check_view(base)  # made before `aligned` existed
     assert old_record["aligned"] is False and old_record["text"] == report.SAME_EDIT_CHECK
+    other_type = views.check_view({**base, "relocate": False, "aligned": True})  # the old file isn't an AIFF
+    assert other_type["text"] == report.NO_RELOCATE_ALIGNED
     assert views.check_view({**base, "aligned": False})["aligned"] is False
     assert views.check_view(None)["aligned"] is False
     assert views.check_view({"reason": "swapped", "aligned": True})["text"] == report.SWAPPED_CHECK

@@ -597,6 +597,11 @@ def test_rekordbox_open_at_the_start_does_nothing_and_marks_the_tracks_as_waitin
     assert rows(again) == [(lib.tracks[0], "done", None), (lib.tracks[1], "done", None),
                            (lib.tracks[3], "refused", "not_analysed")]
     assert "auto_waits" not in upgrade_of(lib, 3) and upgrade_of(lib, 3)["auto_refused"]["reason"] == "not_analysed"
+    # waiting -> upgraded -> undone: the parked upgrade comes back without the mark, so To-do shows no wait detail
+    undone = batches.undo(lib.paths, again.batch, running=lambda: False, place=lib.place, now=lambda: NOW)
+    assert undone.undone == 2
+    for i in (0, 1):
+        assert upgrade_of(lib, i) is not None and "auto_waits" not in upgrade_of(lib, i)
 
 
 def test_at_the_end_of_a_sync_the_words_say_what_happened_not_what_to_do_before_starting():

@@ -152,8 +152,11 @@ def fields_before(e: dict, *, keep_undo: bool = False) -> dict:
     """The fields an upgrade changes, as they were: its undo puts them back. A check that stood before keeps its
     words but not its own undo: one step back only (its kept copy goes at the next clean-up, library._prune_undo).
     `keep_undo`: the convert→rename chain (rename.rename_file after convert_file, one item) keeps the Convert's undo
-    too, so the second undo returns the original file."""
+    too, so the second undo returns the original file. The parked upgrade comes back without `auto_waits`: that mark
+    says a sync met rekordbox open for the song, which stopped being true when the upgrade ran (auto_upgrade)."""
     b = {k: e.get(k) for k in UNDO_FIELDS}
+    if (b["upgrade"] or {}).get("auto_waits"):
+        b["upgrade"] = {k: v for k, v in b["upgrade"].items() if k != "auto_waits"}
     if b["rekordbox_check"] and not keep_undo:
         b["rekordbox_check"] = {k: v for k, v in b["rekordbox_check"].items() if k != "undo"}
     return b
@@ -204,7 +207,9 @@ def add_new(paths: Paths, state: dict, track_id: str, upgrade: dict, compare: Co
     measured = alignment.to_dict() if alignment.result != "unknown" else (upgrade.get("alignment") or {})
     shift = _lined_up_shift(paths.root / e["path"], alignment, offset)
     check = {"reason": "added_as_new", "since": now().date().isoformat(), "match": measured.get("result") or "unknown",
-             "offset_ms": measured.get("offset_ms") or 0.0, "aligned": shift is not None}
+             "offset_ms": measured.get("offset_ms") or 0.0, "aligned": shift is not None,
+             # rekordbox's Relocate offers only files of the same type: the old file must be an AIFF too
+             "relocate": PurePosixPath(e["path"]).suffix.lower() in SWAP_EXTS}
     if not shift:  # nothing to render: the download itself becomes the new file
         keys = undo_keys(paths, upgrade["file"], e["path"])  # read before the move; the move keeps the content
         if keys is not None:

@@ -562,7 +562,8 @@ offline against a real CDJ, firmware differs between players, and a wrong write 
 
 **The words follow the result** (§8 has all three): result 1 → "sync it in rekordbox as usual"; result 2 → the exact
 menu path; result 3 → "rebuild the stick before your next gig", once per batch, with the README explaining how.
-Until the test, stage B's words are result 3's, because that is what is known to work.
+The live test (2026-11-17) landed on result 3: a plain rekordbox USB sync after an upgrade keeps the old files and the
+old title on the stick, so the rebuild advice stands.
 
 ## 7. The stale waveform; rename; what changes on the screens
 
@@ -608,8 +609,14 @@ track; while rekordbox runs it swaps as today and its card keeps the Reload Tag 
 `k = L − round(d · 44100)` (`d` measured when rekordbox has an analysed track for the old file; 0 for AIFF/WAV or no
 track) instead of renaming the parked file; the parked file is held for the undo, as `swap` does. A different or
 unknown edit is renamed as today. `report.SHIFTED_EDIT_CHECK` ("fit to within N ms") is no longer used for new checks;
-older records keep their words (new checks carry `aligned: true`). For an old file that isn't AIFF, the check stops
-advising Relocate if the live test confirms Relocate can't change a file's type.
+older records keep their words (new checks carry `aligned: true`). For an old file that isn't AIFF, the check does
+not advise Relocate: the live test (2026-11-17) confirmed that rekordbox's Relocate offers only files of the same type
+as the track (an .aiff is greyed out for an .m4a or .mp3 track), and that Auto Relocate always finds the old file by
+its exact name, even in Superseded/. The words (`report.NO_RELOCATE`) say: "rekordbox can't relocate a track to a file
+of another type. Add the new file to rekordbox as a new track and set its cues there; your old track keeps playing the
+old file in Superseded/." (for a lined-up file: "…lined up with your old file to the sample, so cues set at the same
+times land on the same beats."). An old AIFF keeps the Relocate words (same type works). The check record says which:
+`relocate` (true when the old file is an AIFF).
 
 **The rekordbox check card.** New reasons `repointed` (an upgrade became a new AIFF), `converted` and `renamed`, plus
 `swapped` and `added_as_new` as today. **One card per batch**: a batch of one looks like today's card; a bigger one
@@ -662,7 +669,7 @@ Console: the new commands (and issue 39's agent docs).
 | Reload Tag step (fallback, §5.11) | "In rekordbox's Collection, select the tracks listed here (⌘-click each), right-click › **Reload Tag**. Don't select all: it replaces every name you changed in rekordbox on the tracks you select." |
 | USB step, result 1 | "On a USB stick? Sync it in rekordbox as usual; it picks up the new file." |
 | USB step, result 2 | "On a USB stick? In rekordbox's Devices, open the stick's track list, right-click the track › {menu item}, then sync the stick." |
-| USB step, result 3 (until the test) | "On a USB stick? The stick still plays the old file. Rebuild the stick in rekordbox before your next gig." |
+| USB step, result 3 (settled by the live test, 2026-11-17) | "On a USB stick? The stick still plays the old file. Rebuild the stick in rekordbox before your next gig." |
 | Console tip (`discjockey upgrades`) | "Quit rekordbox first: for a file that isn't AIFF, Discjockey points your rekordbox track at the new file." |
 
 The UI agent may shorten panel rows to fit the blocks; each meaning stays, with a reason for every change.

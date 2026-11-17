@@ -19,6 +19,9 @@ not:
 `view` (stage B): a batch's `master.RekordboxView` answers instead of an open of its own (two keyed opens per file
 cost ~0.4 s); the answer is the same.
 
+A file above 48 kHz is decoded resampled to 44.1 kHz for the measurement only (the native decode of a 96 kHz
+file scores too low to be trusted); the offset is in seconds, so `samples` is unaffected.
+
 `entries` holds every track's findings for the preview and stage B's batch JSON. The old file is decoded once, only
 when some track has a waveform; its start trim is probed only for a format that can have one. Reads rekordbox's
 library read-only and its analysis files; writes nothing. Raises `RuntimeError` (or `probe.ProbeError`) when ffmpeg
@@ -42,6 +45,7 @@ from .locate import Place, locate
 from .master import Entry, RekordboxView, Status, Unreadable
 
 RATE = 44100
+MEASURE_ABOVE = 48000  # a file above this rate is measured on a 44.1 kHz decode: at 96 kHz the match scores too low
 Why = Literal["no_rekordbox", "not_in_rekordbox", "format", "no_cues", "measured", "not_analysed", "timing",
               "unreadable"]
 
@@ -175,7 +179,9 @@ def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool
                 reasons.add("not_analysed")
             continue
         if audio is None:
-            audio = (decode or quality.decode_mono)(old_file)
+            # Live (rekordbox 7, a 96 kHz WAV): the native decode scored 0.88 and was refused, the 44.1 kHz one 0.95.
+            low = {"rate": RATE} if info.sample_rate > MEASURE_ABOVE else {}
+            audio = (decode or quality.decode_mono)(old_file, **low)
         if expected_s is None:
             trimmed = 0 if zero else (trim or probe.start_trim)(old_file, info.codec)
             expected_s = timing.expected(info.codec, info.sample_rate, trimmed)
