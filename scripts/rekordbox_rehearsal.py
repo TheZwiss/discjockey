@@ -56,7 +56,7 @@ sys.path.insert(0, str(REPO))
 
 from mutagen.aiff import AIFF  # noqa: E402
 
-from discjockey import audio, auto_upgrade, config, library, quality, sources, upgrades, words  # noqa: E402
+from discjockey import audio, auto_upgrade, cdj, config, library, quality, sources, upgrades, words  # noqa: E402
 from discjockey.library import Paths  # noqa: E402
 from discjockey.models import OWN_PREFIX  # noqa: E402
 from discjockey.settings import load_settings  # noqa: E402
@@ -902,12 +902,14 @@ def real_sync(work: Path, tag: str) -> tuple[int, dict, str, float]:
 
 
 def phase_run(work: Path, tag: str, *flags: str) -> tuple[int, dict, str, float]:
-    """The sync's last phase alone (`sync run --auto-upgrade-only [--dry-run]`, waited for to its end: the phase runs in a
-    job and a real one takes minutes). It reads no playlist and never plans an action, so it can't reach a network
+    """The sync's last phase alone (`sync run --auto-upgrade-only [--dry-run]`; a real run is a job and is waited for to its end,
+    it takes minutes; a dry run is the read `auto_upgrade_preview`, answers at once and is not waited for: the CLI
+    refuses `--wait` on it). It reads no playlist and never plans an action, so it can't reach a network
     (every run still has its proxies closed). Returns the exit code, the answer in the shape the checks below read ({ok,
     dry_run, auto_upgrade, counts, report (the .md path), message, start_note}, from the envelope's `data`), the stderr
     and the seconds."""
-    code, env, err, seconds = run_cli(work, tag, "sync", "run", "--auto-upgrade-only", *flags, "--wait", "3600", "--json",
+    wait = () if "--dry-run" in flags else ("--wait", "3600")
+    code, env, err, seconds = run_cli(work, tag, "sync", "run", "--auto-upgrade-only", *flags, *wait, "--json",
                                       offline=True)
     data = env.get("data") or {}
     block = data.get("auto_upgrade")
@@ -1418,7 +1420,12 @@ def prepare_convert(work: Path, picks: list[dict], checks: Checks) -> dict:
                ", ".join(f"{d['label']} {audio.file_facts(Path(d['copy'])).codec}" for d in derived))
     checks.note("RH1 rekordbox's offset d per file before the run (44.1 kHz samples)",
                 ", ".join(f"{label} {i['d']} ({i['why']})" for label, i in info.items()))
-    return {"place": place, "paths": paths, "info": info, "all": everything}
+    # the lossy picks the CDJ group takes as well: the real library's 48 kHz M4As are AAC above 320 kbps. Worked out
+    # from the same function and facts the product's group uses (quality.file_audio of the probe), never assumed.
+    cdj_picks = [p["label"] for p in picks if p["label"] in LOSSY_SET and cdj.cdj_problem(
+        quality.file_audio(quality.probe(Path(p["copy"]))), Path(p["copy"]).suffix.lower()) is not None]
+    checks.note("RH1 picks the CDJ group takes too", ", ".join(cdj_picks) or "none")
+    return {"place": place, "paths": paths, "info": info, "all": everything, "cdj_picks": cdj_picks}
 
 
 def cli(work: Path, tag: str, *args: str) -> tuple[int, dict, str]:
@@ -1474,12 +1481,14 @@ def rh2_dry(work: Path, ctx: dict, checks: Checks, view: str) -> dict:
     checks.add("RH2 Make all dry run changed nothing (tree, library.db, master.db bytes and rows)", ok, detail)
     code, env, data, err = aiff(work, "rh2-cdj", "convert", "--all", "--todo", "cdj", "--dry-run")
     plan_cdj = data.get("plan") or {}
-    checks.add("RH2 CDJ dry run: the AAC only", code == 0 and kinds_of(plan_cdj) == {"aac": 1}
-               and plan_cdj.get("total") == 1, f"kinds {kinds_of(plan_cdj)}, total {plan_cdj.get('total')}")
+    n_cdj = 1 + len(ctx["cdj_picks"])
+    checks.add("RH2 CDJ dry run: the derived AAC and the lossy picks over the CDJ limit",
+               code == 0 and kinds_of(plan_cdj) == {"aac": n_cdj} and plan_cdj.get("total") == n_cdj,
+               f"kinds {kinds_of(plan_cdj)}, total {plan_cdj.get('total')}, expected {n_cdj}")
     ok, detail = same_convert_snapshot(before, convert_snapshot(work, ctx))
     checks.add("RH2 CDJ dry run changed nothing", ok, detail)
     ids = {"RH3": plan_id, "RH4": data.get("plan_id")}
-    names = tuple(ctx["info"][label]["tid"] for label in LOSSY_SET)
+    names = tuple(ctx["info"][label]["tid"] for label in LOSSY_SET if label not in ctx["cdj_picks"])
     code, env, data, err = aiff(work, "rh2-lossy", "convert", *names, "--dry-run")
     ids["RH5"] = data.get("plan_id")
     checks.add("RH2 the three runs each have a plan to run (their dry runs saved one)",
@@ -1760,12 +1769,13 @@ def rh3_make_all(work: Path, ctx: dict, view: str, checks: Checks, state: dict, 
 
 
 def rh4_cdj(work: Path, ctx: dict, checks: Checks, state: dict, plan_id: str | None = None) -> dict:
-    labels = set(CDJ_SET)
+    labels = set(CDJ_SET) | set(ctx["cdj_picks"])
     out = run_batch(work, ctx, "RH4", ("convert", "--all", "--todo", "cdj"), "cdj_all", "convert", labels, checks, state,
                     plan_id=plan_id)
     i = ctx["info"][CDJ_SET[0]]
     checks.add("RH4 the AAC's offset d was 0", i["d"] == 0, f"d {i['d']} ({i['why']})")
-    check_samples(ctx, CDJ_SET[0], False, checks)
+    for label in (*CDJ_SET, *ctx["cdj_picks"]):
+        check_samples(ctx, label, False, checks)
     paths = ctx["paths"]
     after = dump(work / "rb" / "master.db")
     r = row(after, "djmdContent", "ID", i["entry_id"])[1]
@@ -1776,10 +1786,12 @@ def rh4_cdj(work: Path, ctx: dict, checks: Checks, state: dict, plan_id: str | N
 
 
 def rh5_lossy(work: Path, ctx: dict, checks: Checks, state: dict, plan_id: str | None = None) -> dict:
-    labels = set(LOSSY_SET)
-    names = tuple(ctx["info"][label]["tid"] for label in LOSSY_SET)
+    """RH5: Convert by name for the lossy picks the CDJ group did not take (RH4 converted those)."""
+    lossy = [label for label in LOSSY_SET if label not in ctx["cdj_picks"]]
+    labels = set(lossy)
+    names = tuple(ctx["info"][label]["tid"] for label in lossy)
     out = run_batch(work, ctx, "RH5", ("convert", *names), "user", "convert", labels, checks, state, plan_id=plan_id)
-    for label in LOSSY_SET:
+    for label in lossy:
         check_samples(ctx, label, False, checks)
     return out
 
@@ -1817,7 +1829,7 @@ def rehearse_convert(work: Path) -> int:
     one AIFF): the PCM pick under a messy name and four files derived from it (a FLAC, a 24-bit 96 kHz AIFF, a 16/44.1
     AIFF with wrong tags, an AAC at 420 kbps), each derived file with its own copy of the PCM pick's rekordbox row and
     analysis; a scratch Discjockey library with all eight as own songs. Then RH2 dry runs, RH3 Make all lossless files
-    AIFF, RH4 the CDJ group's Convert all, RH5 Convert by name for the three lossy picks, RH6 `batch undo` for each
+    AIFF, RH4 the CDJ group's Convert all, RH5 Convert by name for the lossy picks the CDJ group did not take, RH6 `batch undo` for each
     batch, newest first. Prints PASS/FAIL per check, tracks by label only, writes `W/report.json`. Exit 0 when every
     check passes, 1 otherwise, 2 when it refuses."""
     work = check_work(work)
