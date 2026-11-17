@@ -22,7 +22,7 @@ Click tracks (the live tests of the rekordbox stages B to D need files that are 
 40 s) into the scratch folder, as `Click Test - Click <kind> <bpm> BPM (upgrade test).<ext>` with the artist and title
 tags (the title carries the marker, so every file Discjockey derives from it does too). The kinds: mp3 (LAME, 320
 kbit/s, 44.1 kHz), m4a48 (AAC 256 kbit/s in .m4a, 48 kHz), flac (16-bit 44.1 kHz), aiff (16-bit 44.1 kHz) and aac
-(AAC in .m4a, 44.1 kHz, asked for 420 kbit/s: ffmpeg's encoder writes about 225 kbit/s on a click track). It also writes the lossless upgrade for it,
+(AAC in .m4a, 44.1 kHz, 420 kbit/s with Homebrew's `fdkaac`, about 225 kbit/s without it, see below). It also writes the lossless upgrade for it,
 parked as `Upgrades ready/_Upgrade test/<same name>.aiff`: the same click track as a 16-bit 44.1 kHz AIFF with 30 ms of
 silence in front (a swap must shift), or with `--same-edit` the very same audio (stage C). The upgrade is not yet
 attached to anything: a library track exists only once Discjockey has imported the file. So it takes two calls with the
@@ -32,9 +32,11 @@ needs no upgrade (stage D) simply does not attach it.
 
 Stage D's click tracks also need `wav96` (24-bit 96 kHz WAV) and `--messy-name`, which names the file
 `click_final (upgrade test).<ext>` instead of the tidy name (the marker stays, so `--clean` finds it; the title tag
-still carries it). The AAC at 420 kbit/s the plan asks for is not reachable: ffmpeg's `aac` writes about 225 kbit/s on a
-click track and the AudioToolbox encoder (`aac_at`) stops at about 322 kbit/s for 44.1 or 48 kHz stereo, so `aac` is
-the kind with the highest AAC rate this machine can make.
+still carries it). The AAC at 420 kbit/s (stage D, a file above the CDJs' 320 kbit/s limit) needs the Fraunhofer FDK AAC
+encoder: when `fdkaac` is on PATH (`brew install fdk-aac-encoder`), `aac` is encoded with `fdkaac -b 420000` (AAC-LC,
+about 420 kbit/s on a click track) and the artist and title tags are put on afterwards. Without it `aac` falls back to
+ffmpeg's `aac`, which writes only about 225 kbit/s on a click track (the AudioToolbox encoder `aac_at` stops at about 322
+kbit/s for 44.1 or 48 kHz stereo), and the script says so in its output.
 
 Cleaning up afterwards: remove the test tracks from rekordbox's collection and quit rekordbox, remove the scratch folder
 from Discjockey (`folder remove <scratch> --yes`), then
@@ -113,6 +115,14 @@ def encoder_available(name: str) -> bool:
     except (OSError, subprocess.CalledProcessError):
         return False
     return any(line.split()[1:2] == [name] for line in out.splitlines())
+
+
+FDKAAC_KBPS = 420
+
+
+def fdkaac_path() -> str | None:
+    """The `fdkaac` on PATH (Homebrew's fdk-aac-encoder), or None."""
+    return shutil.which("fdkaac")
 
 
 def _click_encoder(kind: str) -> str:
@@ -304,7 +314,8 @@ def make_click(paths: Paths, kind: str, bpm: float, into: Path, same_edit: bool 
         if here == (paths.root / taken).resolve() or (paths.root / taken).resolve() in here.parents:
             raise ValueError(f"{into} is inside {taken}/. Make the click track in a scratch folder outside the music "
                              "folder's own folders.")
-    if not encoder_available(_click_encoder(kind)):
+    fdk = fdkaac_path() if kind == "aac" else None  # the one kind with a second encoder: ffmpeg's only reaches ~225 kbit/s
+    if not fdk and not encoder_available(_click_encoder(kind)):
         works = [k for k in CLICK_KINDS if encoder_available(_click_encoder(k))]
         raise ValueError(f"This ffmpeg has no {_click_encoder(kind)} encoder, so --click {kind} cannot be made. "
                          f"Kinds that work here: {', '.join(works) or 'none'}.")
@@ -321,7 +332,22 @@ def make_click(paths: Paths, kind: str, bpm: float, into: Path, same_edit: bool 
     work.mkdir(parents=True)
     try:
         made, twin = work / f"click.{ext}", work / "upgrade.aiff"
-        _ffmpeg_from_floats(x, sr, made, muxer, [*codec, "-metadata", f"title={title}", "-metadata", f"artist={artist}"])
+        if fdk:
+            wav = work / "click.wav"
+            _ffmpeg_from_floats(x, sr, wav, "wav", ["-c:a", "pcm_s16le"])
+            try:
+                subprocess.run([fdk, "-b", str(FDKAAC_KBPS * 1000), "-o", str(made), str(wav)], check=True,
+                               capture_output=True, stdin=subprocess.DEVNULL)
+            except (OSError, subprocess.CalledProcessError) as e:
+                detail = getattr(e, "stderr", b"") or b""
+                raise ValueError(f"fdkaac could not write {made.name}: {detail.decode(errors='replace').strip()[-300:] or e}") from e
+            f = MP4(str(made))
+            if f.tags is None:
+                f.add_tags()
+            f.tags["\xa9nam"], f.tags["\xa9ART"] = [title], [artist]
+            f.save()
+        else:
+            _ffmpeg_from_floats(x, sr, made, muxer, [*codec, "-metadata", f"title={title}", "-metadata", f"artist={artist}"])
         if ext in ("aiff", "wav"):
             _tag_id3(made, artist, title)
         delay = None if same_edit else f"adelay=delays={round(UPGRADE_SHIFT_MS * sr / 1000)}S:all=1"
@@ -337,6 +363,9 @@ def make_click(paths: Paths, kind: str, bpm: float, into: Path, same_edit: bool 
     print(f"  {kind}, {bpm:g} BPM, {CLICK_SECONDS} s; its lossless upgrade "
           f"({'the same audio' if same_edit else f'{UPGRADE_SHIFT_MS} ms later'}) waits at "
           f"{parked.relative_to(paths.root).as_posix()}")
+    if kind == "aac":
+        print(f"  the AAC is {FDKAAC_KBPS} kbit/s (fdkaac)" if fdk else
+              f"  the AAC is only about 225 kbit/s (ffmpeg's encoder); `brew install fdk-aac-encoder` gives {FDKAAC_KBPS}")
     print(f"Next: add {into} to Discjockey's folders and import it, then run this script with "
           f"--attach-upgrades --into {into}")
     return target, parked

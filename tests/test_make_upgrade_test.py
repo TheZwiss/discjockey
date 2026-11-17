@@ -513,6 +513,7 @@ def artist_and_title(path):
 def library_only(tmp_path, monkeypatch):
     """An empty library and short click tracks (the click test needs no 40 s)."""
     monkeypatch.setattr(script, "CLICK_SECONDS", 12)
+    monkeypatch.setattr(script, "fdkaac_path", lambda: None)  # the ffmpeg path unless a test sets an fdkaac (CI has none)
     paths = Paths(tmp_path / "music", support=tmp_path / ".support")
     paths.library.mkdir(parents=True)
     save_state(paths, empty_state())
@@ -539,6 +540,45 @@ def test_click_makes_a_decodable_track_with_the_marker_and_a_parked_upgrade(libr
     assert sorted(p.name for p in into.iterdir()) == [name]  # nothing else was made in the scratch folder
     assert not (library_only.tmp / "upgrade-test").exists()
     assert not load_state(library_only)["tracks"]  # the click track is no song of the library until it is imported
+
+
+def test_click_aac_without_fdkaac_says_it_is_about_225_kbit_and_how_to_get_420(library_only, tmp_path, capsys):
+    assert script.main(["--root", str(library_only.root), "--click", "aac", "--into", str(tmp_path / "scratch")]) == 0
+    out = capsys.readouterr().out
+    assert "only about 225 kbit/s" in out and "brew install fdk-aac-encoder" in out and "420" in out
+
+
+@needs_ffmpeg
+def test_click_aac_with_fdkaac_encodes_with_it_at_420_and_tags_the_file(library_only, tmp_path, monkeypatch, capsys):
+    """A fake `fdkaac` (it logs its command line and has ffmpeg write the AAC) pins how the script calls the real one."""
+    from discjockey.quality import probe
+    log = tmp_path / "fdkaac.log"
+    fake = tmp_path / "fdkaac"
+    fake.write_text(f'#!/bin/sh\necho "$@" > "{log}"\nwhile [ "$1" != "-o" ]; do shift; done\n'
+                    f'exec ffmpeg -nostdin -v error -y -i "$3" -c:a aac -b:a 128k -f ipod "$2"\n')
+    fake.chmod(0o755)
+    monkeypatch.setattr(script, "fdkaac_path", lambda: str(fake))
+    into = tmp_path / "scratch"
+    assert script.main(["--root", str(library_only.root), "--click", "aac", "--into", str(into)]) == 0
+    made = into / "Click Test - Click aac 120 BPM (upgrade test).m4a"
+    args = log.read_text().split()
+    assert args[:2] == ["-b", "420000"] and args[2] == "-o" and args[4].endswith("click.wav")
+    assert probe(made).codec == "aac" and artist_and_title(made) == ("Click Test", "Click aac 120 BPM (upgrade test)")
+    out = capsys.readouterr().out
+    assert "the AAC is 420 kbit/s (fdkaac)" in out and "225" not in out
+    assert not (library_only.tmp / "upgrade-test").exists()
+
+
+@needs_ffmpeg
+@pytest.mark.skipif(not __import__("shutil").which("fdkaac"), reason="no fdkaac on PATH")
+def test_click_aac_with_the_real_fdkaac_is_near_420_kbit(library_only, tmp_path, monkeypatch):
+    from discjockey.quality import probe
+    monkeypatch.undo()  # the fixture's fdkaac stub off: the real one on PATH
+    monkeypatch.setattr(script, "CLICK_SECONDS", 12)
+    into = tmp_path / "scratch"
+    assert script.main(["--root", str(library_only.root), "--click", "aac", "--into", str(into)]) == 0
+    info = probe(next(into.iterdir()))
+    assert (info.codec, info.sample_rate) == ("aac", 44100) and 400 <= (info.stream_kbps or info.kbps) <= 440
 
 
 @pytest.mark.parametrize("kind", ["aiff", "wav96"])
