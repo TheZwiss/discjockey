@@ -640,6 +640,20 @@ Results:
     AFTER the tests: one fix round (New track words + README Auto Relocate/stick words), cleanup (test tracks out of
     rekordbox or restore the pristine copy; make_upgrade_test --all-marked; delete scratch copies), then the agent
     setup discussion (Opus plan + Fable advisor + Sonnet build vs current; measured per-role costs above), then phase 2.
+    **LIVE TESTS C + D DONE 2026-11-17 ~15:00.** The window's Sync can't run in the scratch library (needs a real
+    playlist = downloads), so C ran via `sync run --auto-upgrade-only` (bash-guard allows exactly that with both
+    overrides). C: rekordbox open → both wait, master.db byte-identical, To-do marks both; closed → both upgraded, cues
+    + grid 0 ms, fingerprints equal (m4a48 uniform 1.0 ms resample), "EDIT…" title kept; Undo all → every track/file/cue
+    row equal to before-C (only usn/updated_at + rekordbox's agentRegistry differ), old AIFF back (md5); switch off →
+    nothing moves. D (files in ~/Desktop/Discjockey test D, watched; playlist "Test D" in rekordbox): FLAC, AAC 420k
+    (listed "AAC 420 kbps · CDJs stop at 320", Convert all), MP3 by hand, click_final rename: all AIFF 16/44.1, clicks
+    0.000 ms off on rekordbox's timeline, cues/grid 0 ms, still in the playlist; Undo all ×3 → master.db rows equal to
+    before-D; rekordbox open → refused, nothing changed. 96 kHz WAV refused `timing` (native-rate decode: -0.31 ms,
+    score 0.88) → fixed (measure on a 44.1k decode above 48 kHz) and re-tested: AIFF 16/44.1, 0 ms, clicks within 0.045
+    ms. Fix rounds: **143k** (dc9a868a: 96k timing, New track words engine+README, stale auto_waits restored by undo,
+    USB comment), **144k** + resume **160k** (d85baa21 + a6d13ebc: `step:look` instead of a needless Reload Tag after a
+    committed convert/repoint/rename — live-verified; window New track words follow the engine's `relocate`).
+    Issue 39 ~16.45M. Stage C/D live tests passed. NEXT: verify shots of the window words, cleanup, setup discussion.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
