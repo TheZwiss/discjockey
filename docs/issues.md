@@ -18,6 +18,12 @@ Present since library stage 1 (2026-10-24): v1.1.0, v1.2.0, v1.2.1. The user's r
 (read-only 2026-11-17: no `file_gone`, own ids 889–905 without gaps, no unlinked files). Issue 40's audit asks the
 same question for "out of every watched folder".
 
+**Decided (user, 2026-11-17):** a missing file is never decided by one scan. Its row waits as missing (the song keeps
+everything; nothing deleted, nothing downloaded again, as an offline folder's rows); a file with its content key seen
+again anywhere in the watched folders is linked back as Moved; To-do lists the missing songs with their last place.
+"Remove from library" (one, a selection, all) removes an own song only on the user's word; a playlist song waits in
+To-do with "Download again" instead of the sync downloading it by itself. Fix before phase 2 of issue 39.
+
 ## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
 
 Lock order is support, library, `rekordbox.lock` (CLAUDE.md). Every settings write follows it now (`_settings_job`,

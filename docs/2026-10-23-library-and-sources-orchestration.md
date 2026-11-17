@@ -670,6 +670,12 @@ Results:
     first stage against phase 1 (281k/build, 1.06M group fixes over 7). Options 1 (Fable phase review, ~+1.2M) and 2
     (advisor inside builds: each consult reads the whole build context at 4x Sonnet's price) not recommended.
     Waiting for the user's choice, then phase 2.
+    **ISSUE 43 FIRST (2026-11-17 ~17:00, user: "Why are you listing 'vanished song' casually"):** reproduced on made-up
+    data: one scan without the file deletes an own song with its parked upgrade (playlist song: downloaded again);
+    putting the file back never relinks it. In v1.1.0-v1.2.1; the user's real library shows no loss (read-only).
+    User approved the fix (issue 43 "Decided"): missing rows wait, relink by key, To-do group with Remove from
+    library / Download again. Order: Opus plan -> builds -> reviews -> made-up rehearsal -> merge; then the setup choice
+    and phase 2. The setup choice is still open (keep today's setup for issue 43).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
