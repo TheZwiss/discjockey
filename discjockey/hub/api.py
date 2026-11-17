@@ -3241,19 +3241,20 @@ class CliApi(HubApi):
             out["message"] = ", ".join(parts) + "."
         tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
             r.get("state") == "done" and r.get("action") != "discard" for r in results) else {}
-        steps, reload, rows = [], [], []
+        steps, grouped, rows = [], {"reload_tag": [], "look": []}, []
         for r in results:
             mine = []
             if r.get("state") == "done" and r.get("action") != "discard":  # a discard changes no file, so nothing to check
                 new_file = str(self._paths.root / r["path"]) if r.get("action") == "add_new" and r.get("path") else None
                 mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
                 for step in mine:
-                    (steps if step["id"] == "step:relocate_new" else reload).append(step)
+                    (steps if step["id"] == "step:relocate_new" else grouped[step["id"].removeprefix("step:")]).append(step)
             rows.append({**r, "person_steps": mine})
-        if reload:
-            keys = " ".join(step["then"].removeprefix("check done ") for step in reload)
-            then = f"check done --batch aiff:{result['batch']}" if isinstance(result.get("batch"), int) else f"check done {keys}"
-            steps.append({**outcomes.person_step("reload_tag", tracks=keys), "then": then})
+        for name, group in grouped.items():  # one step per kind: reload the tags of these, have a look at those
+            if group:
+                keys = " ".join(step["then"].removeprefix("check done ") for step in group)
+                then = f"check done --batch aiff:{result['batch']}" if isinstance(result.get("batch"), int) else f"check done {keys}"
+                steps.append({**outcomes.person_step(name, tracks=keys), "then": then})
         out["data"] = {**out.get("data", {}), "results": rows}
         if steps:
             out["person_steps"] = steps

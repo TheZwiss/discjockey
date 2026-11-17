@@ -30,9 +30,9 @@ describe('fake rekordbox check text', () => {
   // the same words as tests/test_report.py: the fake mimics report.check_text
   const since = '2026-10-16';
   it('words an added file by what the two files measured as', () => {
-    expect(checkText({ reason: 'added_as_new', since, match: 'exact', offset_ms: 0 }))
+    expect(checkText({ reason: 'added_as_new', since, match: 'exact', offset_ms: 0, relocate: true }))
       .toBe('This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit.');
-    expect(checkText({ reason: 'added_as_new', since, match: 'shifted', offset_ms: -23 }))
+    expect(checkText({ reason: 'added_as_new', since, match: 'shifted', offset_ms: -23, relocate: true }))
       .toBe('This is the same edit, 23 ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to within 23 ms.');
     const different = 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
     for (const match of ['different', 'unknown', undefined]) {
@@ -40,9 +40,14 @@ describe('fake rekordbox check text', () => {
     }
     const lined = 'This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your old track to the new file (right-click › Relocate); its cues fit exactly.';
     for (const match of ['exact', 'shifted']) {
-      expect(checkText({ reason: 'added_as_new', since, match, offset_ms: 12, aligned: true })).toBe(lined);
+      expect(checkText({ reason: 'added_as_new', since, match, offset_ms: 12, aligned: true, relocate: true })).toBe(lined);
     }
     expect(checkText({ reason: 'added_as_new', since, match: 'different', aligned: true })).toBe(different);
+    // an old file that isn't an AIFF: the engine's NO_RELOCATE words (tests/test_report.py)
+    const noRelocate = "rekordbox can't relocate a track to a file of another type. Add the new file to rekordbox as a new track and set its cues there; your old track keeps playing the old file in Superseded/.";
+    expect(checkText({ reason: 'added_as_new', since, match: 'exact', relocate: false })).toBe(`This is the same edit. ${noRelocate}`);
+    expect(checkText({ reason: 'added_as_new', since, match: 'exact', aligned: true }))
+      .toBe(`This is the same edit, lined up with your old file to the sample, so cues set at the same times land on the same beats. ${noRelocate}`);
     expect(checkText({ reason: 'wrong_song', since, match: 'exact' })).toMatch(/^This track now plays the right song/);
   });
 });

@@ -103,10 +103,14 @@ export function upgradeWays(up: Upgrade, swap: boolean): UpgradeWays {
   const same: WayOption = { key: 'swap', name: 'Same track', summary: 'Cues and beatgrid stay', outcomes: newAiff
     ? [{ tone: 'kept', text: 'Your track keeps its cues, playlists and history' }, ...shifted, BECOMES_AIFF, QUIT_STEP]
     : [{ tone: 'kept', text: 'Your track keeps its cues' }, ...shifted] };
+  // rekordbox's Relocate offers only files of the same type: an old file that isn't an AIFF (`swap_how` new_aiff, the
+  // engine's fact) gets the new file as a new track, its cues set there
   const added: WayOption = { key: 'add_new', name: 'New track',
-    summary: fits(r) ? 'Relocate your old track to keep cues' : 'Set the cues again', outcomes: [
+    summary: fits(r) ? (newAiff ? 'Set the cues again, on the same beats' : 'Relocate your old track to keep cues')
+      : 'Set the cues again', outcomes: [
       { tone: 'step', text: 'rekordbox lists it as a new track' },
-      fits(r) ? { tone: 'kept', text: 'Relocate your old track: cues fit' }
+      fits(r) ? (newAiff ? { tone: 'step', text: 'Cues set at the same times land on the same beats' }
+        : { tone: 'kept', text: 'Relocate your old track: cues fit' })
         : r === 'different' ? { tone: 'step', text: 'A different edit: set the cues again' }
         : { tone: 'step', text: 'Unsure if your cues fit: listen first' }] };
   const ready = up.rekordbox?.state !== 'none';
@@ -185,6 +189,10 @@ export const isOwnCheck = (c: Pick<RekordboxCheckView, 'reason'> | undefined): b
 const RELOCATE_NEW: CheckStep = { parts: [{ text: 'Right-click your old track › ' }, { text: 'Relocate', strong: true },
   { text: ' › choose the new file' }] };
 
+/** The engine's words (report.NO_RELOCATE) for an added file whose old file isn't an AIFF: rekordbox's Relocate offers
+ *  only files of the same type, so the new file is added as a new track. */
+const NO_RELOCATE: CheckStep = { parts: [{ text: "rekordbox can't relocate a track to a file of another type. Add the new file to rekordbox as a new track and set its cues there; your old track keeps playing the old file in Superseded/." }] };
+
 /** The beatgrid note of every "analyse again" step (design §8's check text). */
 const BEATGRID = '(lock the beatgrid first if you set it by hand)';
 /** design §8's USB step, result 3 (until the live test says otherwise). */
@@ -246,7 +254,9 @@ export function checkCard(c: RekordboxCheckView | undefined): CheckCard | null {
         note: ms(c) ? `· your cues fit to within ${ms(c)}\u00a0ms` : '· your cues fit' }
       : { parts: [{ text: 'Analyse it again and ' }, { text: 'set the cues again', strong: true }],
         note: c.match === 'different' ? '· a different edit' : "· it couldn't be compared" };
-    return { summary: 'a new track', steps: [RELOCATE_NEW, second], hint: null };
+    // the first step follows the engine's `relocate`: the old file is an AIFF (Relocate), or it isn't (add a new track)
+    const first = c.relocate ? [RELOCATE_NEW, second] : c.match === 'exact' || c.match === 'shifted' ? [NO_RELOCATE] : [second];
+    return { summary: 'a new track', steps: first, hint: null };
   }
   return null;
 }
@@ -414,10 +424,10 @@ export function selectionWays(items: Pick<TodoItem, 'same_track' | 'path'>[]): S
   // `needs_choice` is a different edit or one nobody measured (the item doesn't say which): "may be" is true of both
   const differ = m;
   const added: WayOption = { key: 'add_new', name: `New track · ${count.add_new}`,
-    summary: differ ? 'Cues may need setting again' : 'Relocate your old tracks to keep cues', outcomes: [
+    summary: differ ? 'Cues may need setting again' : 'Set the cues again, on the same beats', outcomes: [
       { tone: 'step', text: 'rekordbox lists them as new tracks' },
       differ ? { tone: 'step', text: `${differ} may be another edit: listen first` }
-        : { tone: 'kept', text: 'Relocate your old tracks: cues fit' }] };
+        : { tone: 'step', text: 'Cues set at the same times land on the same beats' }] };
   if (n) return { choice: true, options: [same, added], fixed: [], reason: null, way: 'swap', tip: null, n, m, k, count };
   const reason = m === items.length ? 'Same track needs the same edit' : 'None of these can stay the same track: each row says why';
   return { choice: false, options: [added], fixed: added.outcomes, reason, way: 'add_new', tip: null, n, m, k, count };

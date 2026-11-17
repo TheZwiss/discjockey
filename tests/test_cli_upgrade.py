@@ -127,9 +127,15 @@ def test_same_track_on_three_tracks_is_one_aiff_batch_that_the_result_names(lib,
     [row] = batches_of(found)
     assert (row.id, row.started_by, row.state) == (1, "user", "done")
     assert [n["run"] for n in env["next"]] == [cmd("batch show aiff:1"), cmd("check list")]
-    [step] = [s for s in env["person_steps"] if s["id"] == "step:reload_tag"]
-    assert step["then"] == cmd("check done --batch aiff:1") and all(t in step["say"] for t in found.tracks)
-    assert [r["person_steps"][0]["id"] for r in data["results"]] == ["step:reload_tag"] * 3
+    # a track rekordbox's text was written for gets "have a look" (no Reload Tag), one it was not gets "reload the tags"
+    kinds = [r["person_steps"][0]["id"] for r in data["results"]]
+    assert set(kinds) == {"step:look", "step:reload_tag"}, kinds
+    [look] = [s for s in env["person_steps"] if s["id"] == "step:look"]
+    [reload] = [s for s in env["person_steps"] if s["id"] == "step:reload_tag"]
+    assert look["then"] == reload["then"] == cmd("check done --batch aiff:1")
+    assert look["say"].startswith("In rekordbox, have a look at ") and reload["say"].startswith("In rekordbox, reload the tags of ")
+    for track, kind in ((r["track"], r["person_steps"][0]["id"]) for r in data["results"]):
+        assert (track in look["say"]) == (kind == "step:look") and (track in reload["say"]) == (kind == "step:reload_tag")
     assert found.row(0)["FolderPath"].endswith("Song 0.aiff")  # rekordbox's row points at the new file
     assert data["backup"]  # rekordbox's library was backed up before the batch wrote to it
     assert data["results"][2]["rekordbox"] is None  # rekordbox does not hold the third

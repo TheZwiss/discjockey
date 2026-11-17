@@ -365,7 +365,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     if (mode === 'add_new') {
       t.rekordbox_check = { reason: 'added_as_new', since: dateOnly(new Date()), match: measured.result,
         offset_ms: measured.offset_ms ?? 0, aligned: measured.result === 'exact' || measured.result === 'shifted',
-        undo: before, old_path: oldPath };
+        relocate: inPlace, undo: before, old_path: oldPath };
     } else {
       t.rekordbox_check = { reason: inPlace ? 'swapped' : 'repointed', since: dateOnly(new Date()), match: measured.result,
         offset_ms: measured.offset_ms ?? 0, ...(inPlace ? { moved: false } : { aligned: true }), reload_tag: false,
