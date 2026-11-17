@@ -590,6 +590,15 @@ Results:
     Morning summary told: real-copy rehearsal session (rehearse, rehearse-convert, rehearse-sync; rekordbox closed);
     cost; Qobuz "Use this" note before phase 2 (V2.6); AAC 420 gap (kit's aac ~225 kbps, aac_at ~322; live step 2
     needs >320); CI was red since the V1.15 merge until 092c1f16 (lesson: check CI after every phase-branch push).
+    **LIVE SESSION 2026-11-17 (user present; user: no Qobuz subscription — not needed: rehearsals offline, live tests
+    on a scratch Discjockey library with no playlists + the real rekordbox):** rekordbox folder copied aside
+    (scratchpad rbcopy/rekordbox-2026-11-17). Real-copy rehearsals: rehearse 157/0; rehearse-sync 185/2; rehearse-convert
+    207/13. Diagnosis (Sonnet **143k**, 47 calls) → phase1/rehearsal-real-copy.md: 0 product bugs; 2 script
+    assumptions (phase_run adds --wait to a dry run = bad_args by design; the user's real 48 kHz M4As are AAC 406-443
+    kbps, over the CDJ limit, so the CDJ group holds them too), 13 cascades; patched copy gave 187/0 and 220/0. Stage A
+    step 1 (closed half) + step 2 pass (MP3 2257, M4A48 21.3 ms, AIFF 0). AAC 420: fdkaac (brew fdk-aac-encoder)
+    writes AAC-LC 419999 bit/s. bash-guard.py knew only the pre-issue-39 nouns (every new noun = 'real sync'): new
+    nouns added to the override list; sync/call still need --dry-run. Issue 39 ~15.67M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
