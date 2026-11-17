@@ -54,7 +54,7 @@ def test_a_stopped_batch_resumes_its_planned_items_and_names_what_is_left_to_do(
     assert [r["state"] for r in data["results"]] == ["done"] * 3
     assert env["message"] == "3 of 3 songs done."
     assert [n["run"] for n in env["next"]] == [cmd("batch show aiff:1"), cmd("check list")]
-    [step] = [s for s in env["person_steps"] if s["id"] == "step:reload_tag"]
+    [step] = [s for s in env["person_steps"] if s["id"] == "step:look"]
     assert step["then"] == cmd("check done --batch aiff:1")
     assert all(found.entry(i)["path"].endswith(f"Song {i}.aiff") for i in range(3))
     assert [(b.id, b.state) for b in batches_of(found)] == [(1, "done")]  # the same batch, not a second one

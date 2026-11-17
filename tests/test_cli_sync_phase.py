@@ -63,7 +63,7 @@ def test_the_phase_alone_upgrades_two_same_edit_tracks_in_one_auto_upgrade_batch
     assert env["message"] == "Upgraded 2 tracks; your cues stayed."
     assert [n["run"] for n in env["next"]] == [cmd("batch show aiff:1"), cmd("check list"),
                                                      cmd(f"report show {env['data']['report']}")]
-    assert env["data"]["batch_id"] == "aiff:1" and [s["id"] for s in env["person_steps"]] == ["step:reload_tag"]
+    assert env["data"]["batch_id"] == "aiff:1" and [s["id"] for s in env["person_steps"]] == ["step:look"]
     # the report: a run of its own kind that holds the block
     code, shown = run_json(["report", "show", "last"], capsys)
     run_data = shown["data"]["run"]

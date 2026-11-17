@@ -467,7 +467,8 @@ def _op(paths: Paths, track_id: str, e: dict, upgrade: dict, alignment: align.Al
             "source": "upgrade", "parked": upgrade["file"], "held": held_place(paths, track_id, upgrade["file"]),
             "entry": upgraded_entry(e, upgrade, new), "before": fields_before(e),
             "check": {"reason": "repointed", "since": now().date().isoformat(), "match": alignment.result,
-                      "offset_ms": alignment.offset_ms, "aligned": True, "batch": batch[0] if batch else None}}
+                      "offset_ms": alignment.offset_ms, "aligned": True, "batch": batch[0] if batch else None,
+                      "reload_tag": False}}  # the step wrote rekordbox's text itself (or rekordbox has no such track)
 
 
 def _file_op(paths: Paths, track_id: str, e: dict, now: Callable[[], datetime], batch: tuple[int, int] | None,
@@ -480,7 +481,8 @@ def _file_op(paths: Paths, track_id: str, e: dict, now: Callable[[], datetime], 
             "source": "file", "parked": None, "held": None, "entry": rbstep.with_audio({**e, "path": new, "placed_by": "app"}, new_audio),
             "before": fields_before(e), "audio": asdict(new_audio), "old_audio": asdict(old_audio),
             "old_placed_by": e.get("placed_by"),
-            "check": {"reason": "converted", "since": now().date().isoformat(), "batch": batch[0] if batch else None}}
+            "check": {"reason": "converted", "since": now().date().isoformat(), "batch": batch[0] if batch else None,
+                      "reload_tag": False}}  # as Same track's: rekordbox's text is written, nothing to reload
 
 
 def kept_note(kept: list[str]) -> str:

@@ -229,7 +229,7 @@ def rename_file(paths: Paths, state: dict, track_id: str, *, session: Session,
                                                              or {}).get("kept") or [])},
           "audio": asdict(file_audio), "rekordbox": rbstep.op_rekordbox(session, changes, splices),
           "check": {"reason": "renamed" if after is None else "converted", "since": now().date().isoformat(),
-                    "batch": batch[0] if batch else None},
+                    "batch": batch[0] if batch else None, "reload_tag": False},
           "marks": {"backed_up": False, "placed": False, "committed": False}}
     return _execute(paths, state, op, session, entries, changes, splices)
 
