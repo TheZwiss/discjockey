@@ -609,6 +609,37 @@ Results:
     it for the old tag (design §5.11 hole). Fix (Sonnet **117k**) 0e063392 on feat/rb-title-edits: changed_since_import
     (file mtime > created_at + 2 s) → keep every differing field; 5660 passed. Lesson (user, angry): never ask the user
     to check what I can measure. Issue 39 ~16.00M.
+    **LIVE SESSION STATE 2026-11-17 ~14:00 (before a compact; user at the Mac; RESUME FROM HERE):**
+    Paths: SCRATCH = this session's scratchpad (full path in memory project_issue39_cli.md). Scratch Discjockey library: support $SCRATCH/live/support, music $SCRATCH/live/music
+    (files hidden from Finder dialogs: give the user the path on the clipboard via pbcopy + ⌘⇧G). Test window:
+    `DISCJOCKEY_SUPPORT=$SCRATCH/live/support DISCJOCKEY_REKORDBOX=$HOME/Library/Pioneer/rekordbox bin/discjockey app
+    open` (run_in_background; restarted on main 0ed468df). rekordbox folder copies: $SCRATCH/rbcopy/rekordbox-2026-11-17
+    (pristine, before any test; restore = copy back with rekordbox closed), before-B, after-B, after-undo, before-A,
+    before-C. Measuring scripts (run from the repo with PYTHONPATH=.): $SCRATCH/cuecheck.py <rb copy> (cue - click
+    onset per cue = fingerprint), $SCRATCH/gridshift.py <before copy> <after copy> (ms the cues/grid moved). bash-guard
+    (~/DJ Downloader/.claude/bash-guard.py) now knows the issue 39 nouns; real rekordbox commands need
+    DISCJOCKEY_REKORDBOX=$HOME/Library/Pioneer/rekordbox written explicitly.
+    DONE: rehearsals on the real copy all green (rehearse 157/0 also with the title fix; sync 187/0; convert 220/0).
+    Stage A: step 1 + 2 pass; step 3: New track via CLI (`upgrade apply <path> --way new-track`) lined up, master.db
+    untouched; rekordbox's manual Relocate greys out an .aiff for an .m4a track (can't change type); Auto Relocate always
+    finds the original by exact name (even in Superseded/) → FIX NEEDED: New track card/`Your turn` words must not
+    advise Relocate for a non-AIFF old file (design line ~607 planned this) + README: drop the Auto Relocate claim.
+    Stage B: all pass after the title fix (merged 0ed468df: eligible.changed_since_import keeps every differing field
+    when the old file changed after import). Stick (the user's real DJ stick, no rebuild ever): plain sync keeps old
+    files + old title → README words decision open. Observation: moving a watched-folder file aside made the song
+    vanish from the library (local:4 mp3) and `library scan` didn't re-add it when it came back (New 0) — check
+    whether that's intended.
+    NOW: stage C on stage B's local:1 (EDIT Click aiff) + local:3 (m4a48) with same-edit upgrades parked (exact, 0
+    samples); Auto-upgrade on; before-C snapshot taken. User step 1: rekordbox open → Sync in the window (expect "wait
+    for rekordbox to be closed", To-do marks both; I verify master.db unchanged vs before-C). Step 2: rekordbox closed
+    → Sync (both upgraded; I check cues/grid via scripts and that "EDIT…" stayed). Step 3: "Undo all from this sync".
+    Step 4: Settings › Upgrades off, Sync: nothing moves. Only ask the user for UI actions/words; measure the rest.
+    STAGE D prepared: $SCRATCH/live/watch-d holds flac 124, wav96 120, mp3 124, click_final (messy aiff), aac 120 at
+    420 kbit/s (fdkaac); NOT yet added to the library (`folder add $SCRATCH/live/watch-d`); user imports into rekordbox,
+    cues, a playlist. Note for the user: their real 48 kHz M4As are 406-443 kbps AAC → Won't play well on CDJs.
+    AFTER the tests: one fix round (New track words + README Auto Relocate/stick words), cleanup (test tracks out of
+    rekordbox or restore the pristine copy; make_upgrade_test --all-marked; delete scratch copies), then the agent
+    setup discussion (Opus plan + Fable advisor + Sonnet build vs current; measured per-role costs above), then phase 2.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
