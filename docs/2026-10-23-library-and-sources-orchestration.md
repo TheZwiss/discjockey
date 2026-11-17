@@ -599,6 +599,16 @@ Results:
     step 1 (closed half) + step 2 pass (MP3 2257, M4A48 21.3 ms, AIFF 0). AAC 420: fdkaac (brew fdk-aac-encoder)
     writes AAC-LC 419999 bit/s. bash-guard.py knew only the pre-issue-39 nouns (every new noun = 'real sync'): new
     nouns added to the override list; sync/call still need --dry-run. Issue 39 ~15.67M.
+    Script fix round (Sonnet **79k**): phase_run --wait only without --dry-run; prepare_convert takes the CDJ group's
+    real picks; kit --click aac uses fdkaac at 420k when present. Real copy: rehearse-sync 187/0, rehearse-convert 220/0;
+    merged e3ae4dc0. STAGE B LIVE (scratch library + real rekordbox; measured by cuecheck/gridshift scripts on folder
+    copies before-B/after-B/after-undo): upgrade all 4 → AIFF, cues + grid 0 ms moved, cue-click fingerprints equal;
+    Undo all refused while rekordbox open, then all back exactly; master.db untouched after; stick plain sync KEEPS the
+    old files + old title (README words decision open); Reload Tag = "Reload Tag". FAIL: user's title edit lost →
+    diagnosis (Sonnet **133k**) phase1/live-B-title.md: rekordbox 7 writes the edit into the AIFF's tags, text_plan took
+    it for the old tag (design §5.11 hole). Fix (Sonnet **117k**) 0e063392 on feat/rb-title-edits: changed_since_import
+    (file mtime > created_at + 2 s) → keep every differing field; 5660 passed. Lesson (user, angry): never ask the user
+    to check what I can measure. Issue 39 ~16.00M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
