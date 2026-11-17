@@ -654,6 +654,22 @@ Results:
     USB comment), **144k** + resume **160k** (d85baa21 + a6d13ebc: `step:look` instead of a needless Reload Tag after a
     committed convert/repoint/rename — live-verified; window New track words follow the engine's `relocate`).
     Issue 39 ~16.45M. Stage C/D live tests passed. NEXT: verify shots of the window words, cleanup, setup discussion.
+    **STATE 2026-11-17 ~16:00 (before a compact; RESUME FROM HERE):** verify on d85baa21: 1219 shots, 0 problems; the
+    coordinator looked at todo-after-add-other-type (row "add as a new track, set the cues", card = NO_RELOCATE words):
+    right. CI: last code push cancelled by the newer docs push 2576f6db, whose run covers all code: check it green.
+    Cleanup done: rekordbox folder = the morning copy (diff -rq identical, 830 tracks, 0 test tracks; the end-of-test
+    folder kept as scratchpad rbcopy/replaced-end-of-tests, the morning copy as rbcopy/rekordbox-2026-11-17: delete
+    both once the user has opened rekordbox and it looks normal); test window stopped; scratch library, the Desktop
+    test folder and all in-between rekordbox copies deleted; no copies of the user's music left in scratch.
+    STILL OPEN: (1) the vanished-song observation (a watched-folder file moved aside and back: the song vanished,
+    `library scan` didn't re-add it) — not yet checked whether intended: diagnose on made-up data before phase 2 (or
+    file in docs/issues.md); (2) issue 33's plans A–D go to docs/archive/ now that their live tests passed (+ issue 33
+    in docs/issues.md: live tests passed 2026-11-17); release only on the user's go. SETUP DISCUSSION given to the
+    user: measured phase 1 per role (builds 54%, group reviews+fixes 19%, Opus phase review+fixes 21%); proposal =
+    Opus plans, ONE Fable 5.2 pass over each plan before builds, Sonnet builds, reviews as now; measure after phase 2's
+    first stage against phase 1 (281k/build, 1.06M group fixes over 7). Options 1 (Fable phase review, ~+1.2M) and 2
+    (advisor inside builds: each consult reads the whole build context at 4x Sonnet's price) not recommended.
+    Waiting for the user's choice, then phase 2.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
