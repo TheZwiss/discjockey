@@ -29,7 +29,7 @@ export type FakeAccount = FakeService & { browser: Browser; profile?: string | n
 /** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
  *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
 export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed'; since: string; match?: string;
-  offset_ms?: number; moved?: boolean; aligned?: boolean; undo?: Partial<FakeTrack>;
+  offset_ms?: number; moved?: boolean; aligned?: boolean; relocate?: boolean; undo?: Partial<FakeTrack>;
   /** stage B: the AIFF batch that left it, whether Reload Tag is still needed, what was written in rekordbox */
   batch?: number; reload_tag?: boolean; rekordbox?: { entries: number; kept: string[] } | null;
   /** as the undo record's `old`: where the old file (added) or the copy of the old audio (swap) is now */
@@ -378,7 +378,8 @@ export function checkStatus(c: RekordboxCheck | null): string {
   if (c?.reason === 'swapped' && c.reload_tag === false) return c.moved ? 'relocate, analyse again' : 'analyse again';
   if (c?.reason === 'swapped') return c.moved ? 'relocate, Reload Tag, analyse again' : 'Reload Tag, analyse again';
   if (c?.reason === 'added_as_new') {
-    return c.match === 'exact' || c.match === 'shifted' ? 'relocate, analyse again' : 'analyse, set the cues again';
+    if (c.match === 'exact' || c.match === 'shifted') return c.relocate ? 'relocate, analyse again' : 'add as a new track, set the cues';
+    return 'analyse, set the cues again';
   }
   if (c?.reason === 'wrong_song') return 'now the right song: analyse again';
   if (c?.reason === 'converted') return c.rekordbox ? 'an AIFF now: nothing to redo' : 'an AIFF now, not in rekordbox';
@@ -388,11 +389,13 @@ export function checkStatus(c: RekordboxCheck | null): string {
 /** As views.check_view. */
 export function checkView(c: RekordboxCheck, batchSize = 1): RekordboxCheckView {
   return { reason: c.reason, since: c.since, match: c.match ?? null, offset_ms: c.offset_ms ?? null, moved: !!c.moved,
-    aligned: !!c.aligned, reload_tag: c.reload_tag !== false, batch: c.batch ? { id: c.batch, size: batchSize } : null,
+    aligned: !!c.aligned, relocate: c.relocate === true, reload_tag: c.reload_tag !== false, batch: c.batch ? { id: c.batch, size: batchSize } : null,
     rekordbox: c.rekordbox ?? null, text: checkText(c), old_path: c.reason === 'renamed' ? null : c.old_path ?? null,
     old_name: c.reason === 'renamed' ? c.oldName ?? null : null,
     person_steps: [] }; // the engine words them (words.person_steps) for the command line; the window ignores them
 }
+/** As report.NO_RELOCATE: rekordbox's Relocate offers only files of the same type. */
+const NO_RELOCATE = "rekordbox can't relocate a track to a file of another type. Add the new file to rekordbox as a new track and set its cues there; your old track keeps playing the old file in Superseded/.";
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues, exactly
  *  when the new file was rendered lined up (`aligned`). */
 export function checkText(check: RekordboxCheck): string {
@@ -419,13 +422,17 @@ export function checkText(check: RekordboxCheck): string {
   if (check.reason === 'wrong_song') {
     return 'This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong song).';
   }
+  const relocate = check.relocate === true;
   if (check.aligned && (check.match === 'exact' || check.match === 'shifted')) {
-    return 'This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your old track to the new file (right-click › Relocate); its cues fit exactly.';
+    return relocate
+      ? 'This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your old track to the new file (right-click › Relocate); its cues fit exactly.'
+      : `This is the same edit, lined up with your old file to the sample, so cues set at the same times land on the same beats. ${NO_RELOCATE}`;
   }
-  if (check.match === 'exact') return 'This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit.';
+  if (check.match === 'exact') return relocate ? 'This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit.' : `This is the same edit. ${NO_RELOCATE}`;
   if (check.match === 'shifted') {
     const ms = Math.abs(Math.round(check.offset_ms ?? 0));
-    return `This is the same edit, ${ms} ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to within ${ms} ms.`;
+    return relocate ? `This is the same edit, ${ms} ms apart. In rekordbox: relocate the old entry to the new file, its cues fit to within ${ms} ms.`
+      : `This is the same edit, ${ms} ms apart. ${NO_RELOCATE}`;
   }
   return 'This is a different edit. In rekordbox: analyse it again and set the cues again.';
 }
@@ -450,7 +457,7 @@ const ALIGN: Record<FakeMatch, Alignment> = {
 /** As views.cue_text. */
 function cueText(kind: FakeMatch, swap: boolean): string {
   if ((kind === 'exact' || kind === 'shifted') && !swap) {
-    return `${kind === 'exact' ? 'same edit' : 'same edit, 12 ms apart'}, but a new rekordbox entry: relocate the old one to the new file to keep its cues`;
+    return `${kind === 'exact' ? 'same edit' : 'same edit, 12 ms apart'}, but a new rekordbox entry: set its cues there`;
   }
   return { exact: 'matches exactly, cues stay', shifted: 'aligned by 12 ms, cues stay',
     different: "doesn't match: would be a new rekordbox entry", unknown: 'could not compare the two versions' }[kind];

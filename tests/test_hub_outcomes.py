@@ -114,7 +114,7 @@ def test_person_step_fills_its_words():
     assert step["say"].startswith("Allow Discjockey to open Music")
     assert outcomes.person_step("quit_rekordbox") == {
         "id": "step:quit_rekordbox", "say": "Quit rekordbox, then tell me to carry on.", "then": None}
-    assert set(outcomes.STEPS) == {"quit_rekordbox", "relocate_new", "reload_tag", "folder_access", "connect_drive"}
+    assert set(outcomes.STEPS) == {"quit_rekordbox", "relocate_new", "reload_tag", "look", "folder_access", "connect_drive"}
 
 
 class Fake:

@@ -74,6 +74,10 @@ def test_the_words_helper_covers_same_track_and_convert_and_leaves_a_clean_name_
     assert same["id"] == "step:reload_tag" and same["say"].endswith("Rebuild the stick in rekordbox before your next gig.")
     (convert,) = words.person_steps("k", {"reason": "converted", "rekordbox": {"entries": [1]}})
     assert convert["id"] == "step:reload_tag" and convert["then"] == "check done k"
+    (committed,) = words.person_steps("k", {"reason": "converted", "reload_tag": False, "rekordbox": {"entries": [1]}})
+    assert committed["id"] == "step:look" and committed["then"] == "check done k" and committed["say"] == convert["say"]
+    (open_swap,) = words.person_steps("k", {"reason": "swapped", "reload_tag": True})
+    assert open_swap["id"] == "step:reload_tag"
     assert words.person_steps("k", {"reason": "renamed"}) == [] and words.person_steps("k", None) == []
     assert words.person_steps("k", {"reason": "added_as_new", "match": "different"}, None)[0]["id"] == "step:relocate_new"
 

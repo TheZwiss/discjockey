@@ -1029,7 +1029,7 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
                                         "the old cues (they belong to the wrong song).")
     assert by["h"]["detail"] == "analyse, set the cues again"
     assert by["h"]["check"] == {"reason": "added_as_new", "since": "2026-10-16", "match": None, "offset_ms": None,
-                                "moved": False, "aligned": False,
+                                "moved": False, "aligned": False, "relocate": False,
                                 "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "old_name": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again.",
                                 "person_steps": [{"id": "step:relocate_new", "say": "This is a different edit. In rekordbox: analyse it again and set the cues again.", "then": "check done h"}]}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
@@ -1094,6 +1094,8 @@ def test_check_view_says_whether_the_new_file_was_lined_up():
     assert old_record["aligned"] is False and old_record["text"] == report.SAME_EDIT_CHECK
     other_type = views.check_view({**base, "relocate": False, "aligned": True})  # the old file isn't an AIFF
     assert other_type["text"] == report.NO_RELOCATE_ALIGNED
+    assert aligned["relocate"] is True and other_type["relocate"] is False  # the window's words follow this fact
+    assert views.check_view({"reason": "added_as_new"})["relocate"] is False  # a record without it names no AIFF
     assert views.check_view({**base, "aligned": False})["aligned"] is False
     assert views.check_view(None)["aligned"] is False
     assert views.check_view({"reason": "swapped", "aligned": True})["text"] == report.SWAPPED_CHECK

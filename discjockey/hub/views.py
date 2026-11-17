@@ -792,8 +792,9 @@ def check_view(check: dict | None, batch_size: int = 1, track_id: str | None = N
     """RekordboxCheck as the To-do panel reads it: the step that left it and what the two files measured as (its
     numbered steps follow them), `aligned` (an added file: Discjockey rendered the new file lined up with rekordbox's
     timeline of the old one, so the old track's cues fit it to the sample; false for a swap and for records from before
-    it), `text` the whole instruction (report.check_text), `old_path` where the old file (an added file) or the copy
-    of the old audio (a swap) is now, from the undo record (null without one). Stage B adds `reload_tag` (a record
+    it), `relocate` (an added file: the old file is an AIFF, so rekordbox's Relocate takes the new file; false for any
+    other old file and for records from before it), `text` the whole instruction (report.check_text), `old_path` where
+    the old file (an added file) or the copy of the old audio (a swap) is now, from the undo record (null without one). Stage B adds `reload_tag` (a record
     without it still asks for Reload Tag: True), `batch` ({id, size}: the AIFF batch that left it and how many checks
     of that batch are open, null for a check of no batch) and `rekordbox` ({entries: how many rekordbox tracks were
     pointed at the new file or had their text written, kept: the fields left as the user edited them}, null when
@@ -818,6 +819,7 @@ def check_view(check: dict | None, batch_size: int = 1, track_id: str | None = N
     old_name = PurePosixPath(undo["old"]).name if c.get("reason") == "renamed" and undo.get("old") else None
     return {"reason": c.get("reason"), "since": c.get("since"), "match": c.get("match"),
             "offset_ms": c.get("offset_ms"), "moved": bool(c.get("moved")), "aligned": bool(c.get("aligned")),
+            "relocate": c.get("relocate") is True,
             "reload_tag": c.get("reload_tag", True) is not False,
             "batch": {"id": c["batch"], "size": batch_size} if c.get("batch") else None,
             "rekordbox": {"entries": len(rb.get("entries") or []), "kept": list(rb.get("kept") or [])} if rb else None,

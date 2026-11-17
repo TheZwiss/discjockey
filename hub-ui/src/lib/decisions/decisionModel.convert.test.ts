@@ -8,7 +8,7 @@ import {
 } from './decisionModel';
 
 const view = (extra: Partial<RekordboxCheckView> = {}): RekordboxCheckView => ({ reason: 'converted', since: '2026-11-14',
-  match: null, offset_ms: null, moved: false, aligned: false, text: 'Your file is now an AIFF with a clean name and tags.',
+  match: null, offset_ms: null, moved: false, aligned: false, relocate: false, text: 'Your file is now an AIFF with a clean name and tags.',
   old_path: 'Superseded/Hard_Bounce/A - x.flac', reload_tag: true, batch: { id: 7, size: 3 }, rekordbox: { entries: 1, kept: [] },
   old_name: null, person_steps: [], ...extra });
 const check = (id: string, c: Partial<RekordboxCheckView> = {}): TodoItem => ({

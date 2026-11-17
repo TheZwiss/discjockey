@@ -96,6 +96,10 @@ export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekord
 export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed' | string;
   since: string | null;
   match: string | null; offset_ms: number | null; moved: boolean; aligned: boolean; text: string; old_path: string | null;
+  /** an added file: the old file is an AIFF, so rekordbox's Relocate takes the new file; false for any other old file
+   *  (rekordbox's Relocate offers only files of the same type: the new file is added as a new track and its cues set
+   *  there) and for records from before it */
+  relocate: boolean;
   /** false when Discjockey wrote rekordbox's text itself (no Reload Tag step); true for older records */
   reload_tag: boolean;
   /** the AIFF batch that left the check and how many of its checks are still open (null: no batch) */
@@ -106,7 +110,7 @@ export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swap
    *  `converted` check's `old_path` is where the old file is now (Superseded/), a `renamed` one has none */
   old_name: string | null;
   /** the steps only the person can do in rekordbox (the command line's; the window words its own numbered steps from
-   *  the same facts): `id` ("step:reload_tag", "step:relocate_new"), `say` (the engine's sentence for the check), `then`
+   *  the same facts): `id` ("step:reload_tag", "step:look", "step:relocate_new"), `say` (the engine's sentence for the check), `then`
    *  ("check done <track>"); an empty list for a check that leaves nothing to do (a clean name) */
   person_steps: { id: string; say: string; then: string | null }[] };
 

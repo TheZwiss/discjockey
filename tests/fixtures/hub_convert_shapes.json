@@ -13,7 +13,7 @@
   "cdj_why": ["reason", "short", "words"],
   "cdj_group_all": ["n", "k"],
   "stopped": ["batch_id", "left"],
-  "check_view": ["reason", "since", "match", "offset_ms", "moved", "aligned", "reload_tag", "batch", "rekordbox", "text", "old_path", "old_name", "person_steps"],
+  "check_view": ["reason", "since", "match", "offset_ms", "moved", "aligned", "relocate", "reload_tag", "batch", "rekordbox", "text", "old_path", "old_name", "person_steps"],
   "batch": ["id", "aiff_id", "size", "started", "started_by", "kind", "tracks"],
   "batch_result": ["batch", "state", "stop_reason", "total", "done", "skipped", "failed", "results", "backup", "recovered"],
   "item_result": ["track", "action", "state", "reason", "message", "path", "rekordbox"],

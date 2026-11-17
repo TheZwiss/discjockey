@@ -469,10 +469,14 @@ describe('upgrade decision', () => {
       'Moved 12 ms to sit on your cues']);
   });
   it('without a swap says what happens and why Same track is off', () => {
-    const mp3 = upgradeWays(upgrade({ swap_possible: false }), false);
+    const mp3 = upgradeWays(upgrade({ swap_possible: false, swap_how: 'new_aiff' }), false);
     expect([mp3.choice, mp3.reason]).toEqual([false, 'Same track needs an AIFF file']);
+    // rekordbox's Relocate offers only files of the same type: no Relocate promise for an old file that isn't an AIFF
+    expect(mp3.options[0].summary).toBe('Set the cues again, on the same beats');
     expect(mp3.fixed.map((o) => [o.tone, o.text])).toEqual([['step', 'rekordbox lists it as a new track'],
-      ['kept', 'Relocate your old track: cues fit']]);
+      ['step', 'Cues set at the same times land on the same beats']]);
+    const aiff = upgradeWays(upgrade({ swap_possible: false }), false);
+    expect(aiff.fixed.map((o) => [o.tone, o.text])[1]).toEqual(['kept', 'Relocate your old track: cues fit']);
     const diff = upgradeWays(upgrade({ alignment: align('different'), swap_safe: false }), false);
     expect(diff.reason).toBe('Same track needs the same edit');
     expect(diff.fixed[1]).toEqual({ tone: 'step', text: 'A different edit: set the cues again' });
@@ -498,7 +502,7 @@ describe('upgrade decision', () => {
 
 describe('rekordbox check after a replace', () => {
   const check = (extra: Partial<RekordboxCheckView>): RekordboxCheckView => ({ reason: 'swapped', since: '2026-10-31',
-    match: 'exact', offset_ms: 0, moved: false, aligned: false, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff',
+    match: 'exact', offset_ms: 0, moved: false, aligned: false, relocate: true, text: 'long', old_path: 'Superseded/Hard_Bounce/A - x (lossy).aiff',
     reload_tag: true, batch: null, rekordbox: null, old_name: null, person_steps: [], ...extra });
   const words = (c: RekordboxCheckView) => checkCard(c)!.steps.map((s) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : ''));
   it('a swap: Reload Tag, analyse; the hint about Auto Relocate', () => {
@@ -520,6 +524,14 @@ describe('rekordbox check after a replace', () => {
     expect(add('shifted', 9)).toBe('Analyse it again · your cues fit to within 9\u00a0ms');
     expect(add('different')).toBe('Analyse it again and set the cues again · a different edit');
     expect(add(null)).toBe("Analyse it again and set the cues again · it couldn't be compared");
+  });
+  it("an added file whose old file isn't an AIFF: the engine's words, no Relocate", () => {
+    const no = (extra: Partial<RekordboxCheckView>) => words(check({ reason: 'added_as_new', relocate: false, ...extra }));
+    const engine = "rekordbox can't relocate a track to a file of another type. Add the new file to rekordbox as a new track and set its cues there; your old track keeps playing the old file in Superseded/.";
+    expect(no({})).toEqual([engine]);
+    expect(no({ match: 'shifted', offset_ms: 9, aligned: true })).toEqual([engine]);
+    expect(no({ match: 'different' })).toEqual(['Analyse it again and set the cues again · a different edit']);
+    expect(no({ match: null })).toEqual(["Analyse it again and set the cues again · it couldn't be compared"]);
   });
   it('an added file lined up with rekordbox: the cues fit exactly', () => {
     const lined = (match: string | null) => words(check({ reason: 'added_as_new', match, offset_ms: 9, aligned: true }));
@@ -703,7 +715,7 @@ describe('the item just acted on (the hold)', () => {
 
   it('a ghost is the row as it was, without what only a to-do has', () => {
     const old = item('t2', 'rekordbox_check', { upgrade_ready: true, can_undo: true, detail: 'Reload Tag',
-      check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, text: 't', old_path: null,
+      check: { reason: 'swapped', since: null, match: null, offset_ms: null, moved: false, aligned: false, relocate: false, text: 't', old_path: null,
         reload_tag: true, batch: null, rekordbox: null, old_name: null, person_steps: [] } });
     const g = ghostOf(old);
     expect(itemKey(g)).toBe(itemKey(old));

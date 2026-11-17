@@ -31,7 +31,7 @@ describe('several upgrades selected', () => {
     const w = selectionWays([item('a', null), item('b', null)]);
     expect(w.options[0].outcomes!.map((o) => o.text)).toEqual(['2 keep their cues, playlists and history', QUIT_REKORDBOX]);
     expect(w.options[1].outcomes!.map((o) => o.text)).toEqual(['rekordbox lists them as new tracks',
-      'Relocate your old tracks: cues fit']);
+      'Cues set at the same times land on the same beats']);
   });
   it('one going says it in the singular', () => {
     const w = selectionWays([item('a', null), item('b', 'needs_choice'), item('c', 'needs_choice')]);

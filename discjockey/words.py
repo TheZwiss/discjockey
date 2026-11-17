@@ -170,7 +170,9 @@ def check_sentence(check: dict) -> str:
 
 def person_steps(track_id: str, check: dict | None, new_path: str | None = None) -> list[dict]:
     """The steps for the open check of `track_id`: an added file (New track) is `step:relocate_new`, with the new
-    file's absolute path (`new_path`) at the end of its sentence; a swap, Same track or Convert is `step:reload_tag`.
+    file's absolute path (`new_path`) at the end of its sentence; a swap, Same track or Convert is `step:reload_tag`
+    while rekordbox's text is still to be reloaded (`reload_tag`, true for a record without it), else `step:look`:
+    Discjockey wrote rekordbox's text itself, and a needless Reload Tag would replace the names the person changed.
     Every step's `then` is `check done <track_id>`. A check that leaves the person nothing to do (a clean name, the
     wrong song) has none."""
     check = check or {}
@@ -178,7 +180,7 @@ def person_steps(track_id: str, check: dict | None, new_path: str | None = None)
     if reason == ADDED_REASON:
         name, say = "relocate_new", check_sentence(check) + (f" The new file: {new_path}" if new_path else "")
     elif reason in SWAP_REASONS:
-        name, say = "reload_tag", check_sentence(check)
+        name, say = ("reload_tag" if check.get("reload_tag", True) is not False else "look"), check_sentence(check)
     else:
         return []
     return [{**person_step(name, tracks=track_id), "say": say}]
