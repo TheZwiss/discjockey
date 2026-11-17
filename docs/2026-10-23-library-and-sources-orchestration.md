@@ -676,6 +676,10 @@ Results:
     User approved the fix (issue 43 "Decided"): missing rows wait, relink by key, To-do group with Remove from
     library / Download again. Order: Opus plan -> builds -> reviews -> made-up rehearsal -> merge; then the setup choice
     and phase 2. The setup choice is still open (keep today's setup for issue 43).
+    Plan done ec4c404c (docs/2026-11-17-missing-files-plan.md, 595 lines): Opus **291k** (est. 180-270k, 82 calls).
+    Groups E1 > E2 > E3a > E3b > U1 > S1 > D1, reviews after each + Opus stage review; plan total 2.3-2.9M. Stage
+    branch feat/missing-files, group worktrees .claude/worktrees/mf-<group> on feat/missing-files-<group>.
+    Open product point for the user: D9 (Download again lets a waiting upgrade go when its download lands).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
