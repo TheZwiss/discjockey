@@ -505,9 +505,14 @@ itself, so the user needs no Reload Tag. The fair look:
   it stays, and the result says "kept your own {field}". A field rekordbox normalised at import also stays: the safe
   side, just not updated. This is safer than Reload Tag, which replaces every text field of the selected tracks,
   edits included.
-- **The one hole, checked first in the live test:** whether rekordbox 7 writes an info edit into the file's tags. If
-  it does, an edit looks like the file's tag. Then the rule also skips a field when the old file changed after
-  rekordbox imported it (file mtime later than the row's `created_at`), and those tracks keep the Reload Tag step.
+- **The one hole, confirmed live for AIFF (2026-11-17) and built as a safeguard:** rekordbox 7 writes an info edit
+  into the audio file's own tags (an AIFF gets an ID3v2.4 chunk and a `NAME` chunk) as well as into its database, so
+  the edit looks like the old file's tag. `eligible.changed_since_import(row, old file)` is true when the old file's
+  mtime is later than the row's `created_at` plus 2 s (also when either is unknown: the safe side). For such a track
+  the old file's tag counts as no evidence: a field is written only where rekordbox already shows the clean value,
+  every other field stays and is said as kept. The same flag goes through the swap, Convert to AIFF, Same track for
+  another format and the dry run (`write.plan_text`, `preview`). Cost, accepted: a file Discjockey rewrote itself
+  after the import (an undone and redone swap) keeps rekordbox's differing text too.
 - **Undo per field** (§5.9) and the whole-row test (§12) cover it; the guard list grows by the lookup tables' columns.
 
 **Fallback** if the live test shows rekordbox rejects or mangles the written fields (created rows, sort order, search):

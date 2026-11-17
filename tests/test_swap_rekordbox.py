@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import subprocess
 from contextlib import contextmanager
+from datetime import datetime
 
 import pytest
 from mutagen.aiff import AIFF
@@ -119,6 +120,47 @@ def test_a_swap_in_a_batch_writes_rekordboxs_text_and_undo_puts_it_back(env):
     assert {k: r[k] for k in ("AlbumID", "LabelID", "ISRC", "FileSize")} == {
         k: was[k] for k in ("AlbumID", "LabelID", "ISRC", "FileSize")}  # back as they were
     assert r["Commnt"] == "my notes"  # the user's edit since stays
+
+
+def rekordbox_edit(paths, place, *, in_file: bool, newer: bool = True, title: str = "EDIT Song") -> None:
+    """The user edits the title in rekordbox 7: the row says `title` and, as rekordbox does, the file's own tag
+    too (`in_file`); `newer`: the file's mtime is after the row's `created_at`."""
+    con = writer(place.db)
+    created = "2023-11-14 22:13:20.000 +00:00"  # long ago, as a real import: a later rewrite of the file is "since"
+    con.execute("UPDATE djmdContent SET Title = ?, created_at = ? WHERE ID = '1'", (title, created))
+    con.commit()
+    con.close()
+    f = paths.root / CURRENT
+    if in_file:
+        write_tags(f, title=title, artists=("Artist",), album="", isrc=None, label=None, cover=None, comment="")
+    when = datetime.fromisoformat(created.replace(" +00:00", "+00:00")).timestamp() + (30 if newer else -30)
+    os.utime(f, (when, when))
+
+
+def test_a_title_edit_rekordbox_wrote_into_the_file_too_stays_through_the_swap_and_a_second_one(env):
+    paths, place = env
+    rekordbox_edit(paths, place, in_file=True)
+    with batch(paths, place) as s:
+        _r, state = swap(paths, s)
+    check = state["tracks"][TID]["rekordbox_check"]
+    # a changed file proves nothing: every field that differs from the clean value stays (the safe side)
+    assert check["rekordbox"]["entries"] == ["1"] and "title" in check["rekordbox"]["kept"]
+    assert check["reload_tag"] is False and row(place)["Title"] == "EDIT Song"
+    upgrades.undo(paths, load_state(paths), TID)  # the undo writes the old audio back (a new mtime), then again
+    assert row(place)["Title"] == "EDIT Song"
+    with batch(paths, place) as s:
+        _r, state = swap(paths, s)
+    assert "title" in state["tracks"][TID]["rekordbox_check"]["rekordbox"]["kept"]
+    assert row(place)["Title"] == "EDIT Song"
+
+
+def test_a_title_the_file_says_too_but_that_the_file_has_not_changed_since_import_is_written(env):
+    paths, place = env
+    rekordbox_edit(paths, place, in_file=True, newer=False)  # the file's tag was already so when rekordbox read it
+    with batch(paths, place) as s:
+        _r, state = swap(paths, s)
+    assert state["tracks"][TID]["rekordbox_check"]["rekordbox"] == {"entries": ["1"], "kept": []}
+    assert row(place)["Title"] == "Song" and row(place)["Album"] == "Album"
 
 
 def before_row(before) -> dict:

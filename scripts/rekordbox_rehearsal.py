@@ -335,6 +335,38 @@ def own_song(path: str, artist: str, title: str, info, codec: str, parked: str, 
     return e
 
 
+def edit_file_title(file: Path, title: str) -> None:
+    """The user's title edit as rekordbox 7 makes it, in the audio file's own tag (live test B, 2026-11-17: it writes
+    an edit into the file as well as into its database; mtime = now, after the row's import)."""
+    from mutagen.flac import FLAC
+    from mutagen.id3 import ID3, TIT2, ID3NoHeaderError
+    from mutagen.mp4 import MP4
+    ext = file.suffix.lower()
+    if ext == ".m4a":
+        m = MP4(str(file))
+        m["\xa9nam"] = [title]
+        m.save()
+    elif ext == ".flac":
+        f = FLAC(str(file))
+        f["title"] = [title]
+        f.save()
+    elif ext in (".aiff", ".aif"):
+        a = AIFF(str(file))
+        if a.tags is None:
+            a.add_tags()
+        a.tags.add(TIT2(encoding=3, text=title))
+        a.save()
+    else:
+        try:
+            t = ID3(str(file))
+        except ID3NoHeaderError:
+            t = ID3()
+        t.add(TIT2(encoding=3, text=title))
+        t.save(str(file))
+    now = time.time()
+    os.utime(file, (now, now))
+
+
 def prepare(work: Path, picks: list[dict], edit_title: str | None, checks: Checks) -> dict:
     """Plan RH step 3. Returns what later steps need per label."""
     rb = work / "rb"
@@ -393,6 +425,10 @@ def prepare(work: Path, picks: list[dict], edit_title: str | None, checks: Check
         info[p["label"]] = {"tid": tid, "parked": parked, "old_tags": facts.tags, "album": album,
                             "reuse_album": bool(reuse), "codec": facts.codec, "old_rel": rel,
                             "swap": facts.codec.startswith("pcm") and copy.suffix.lower() in (".aif", ".aiff")}
+    if edit_title:  # rekordbox writes the edit into the old file's own tag too: the plan must still keep it
+        picked = next(p for p in picks if p["label"] == edit_title)
+        edit_file_title(Path(picked["copy"]), entries[edit_title].title)
+        info[edit_title]["old_tags"] = audio.file_facts(Path(picked["copy"])).tags
     with library.run_lock(paths.lock):
         library.save_state(paths, state)
         state = library.load_state(paths)
@@ -411,7 +447,7 @@ def prepare(work: Path, picks: list[dict], edit_title: str | None, checks: Check
         e = entries[label]
         clean = audio.file_facts(paths.root / i["parked"]).tags
         i["plan"] = {f: {"write": tc.write, "kept": tc.kept, "shown": tc.before_shown}
-                     for f, tc in write.plan_text(e, i["old_tags"], clean).items()}
+                     for f, tc in write.plan_text(e, i["old_tags"], clean, paths.root / i["old_rel"]).items()}
         i["entry_id"] = e.id
         i["comment_before"] = e.comment
     return {"place": place, "paths": paths, "info": info}
@@ -1382,6 +1418,7 @@ def prepare_convert(work: Path, picks: list[dict], checks: Checks) -> dict:
     with master.open_read(place, False) as m:
         entries[EDIT_LABEL] = next(x for x in m.entries_for(Path(edit.folder_path)) if x.id == edit.id)
     checks.add("RH1 the user's title edit is in the copy", entries[EDIT_LABEL].title.endswith(EDIT), EDIT_LABEL)
+    edit_file_title(Path(next(p for p in everything if p["label"] == EDIT_LABEL)["copy"]), entries[EDIT_LABEL].title)
 
     paths = Paths(work / "music", support=work / "support")
     library.write_music_folder(paths.support, paths.root)
@@ -1521,7 +1558,8 @@ def fill_plans(ctx: dict, labels: set[str], checks: Checks) -> None:
         new = paths.root / e["path"]
         clean = audio.file_facts(new).tags
         i["plan"] = {f: {"write": tc.write, "kept": tc.kept, "shown": tc.before_shown}
-                     for f, tc in write.plan_text(i["entry"], i["old_tags"], clean).items()}
+                     for f, tc in write.plan_text(i["entry"], i["old_tags"], clean,
+                                                      paths.root / i["old_rel"]).items()}
         expected = eligible.expected_tags(e, i["old_tags"])
         norm = lambda v: unicodedata.normalize("NFC", (v or "").strip())  # noqa: E731
         wrong = [f for f in ("title", "artist", "album") if norm(clean.get(f)) != norm(expected[f])]

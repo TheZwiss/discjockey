@@ -476,7 +476,8 @@ def _text_changes(session: Session | None, target: Path, staged: Path) -> list[R
     except (OSError, RuntimeError):  # a tag that can't be read: the swap goes on, Reload Tag stays
         return []
     size = staged.stat().st_size
-    return [rbwrite.text_change(x, file_size=size, old_tags=old_tags, clean=clean) for x in entries]
+    return [rbwrite.text_change(x, file_size=size, old_tags=old_tags, clean=clean,
+                                old_file=target) for x in entries]
 
 
 def _write_text(paths: Paths, state: dict, op: dict, session: Session, changes: list[RowChange]) -> None:

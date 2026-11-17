@@ -6,7 +6,9 @@ a passphrase, WAL mode, then a clean close (no `-wal`/`-shm` left). The tables c
 same builder.
 
 A row is a dict of `djmdContent` columns (`ID`, `FileType`, `usn`, …) plus these shortcuts:
-- `path`: the file's whole path (`FolderPath`; `FileNameL` is its name, `FileType` follows the extension);
+- `path`: the file's whole path (`FolderPath`; `FileNameL` is its name, `FileType` follows the extension); when the
+  file exists `created_at` is its mtime plus a minute (rekordbox imported it after the file's last write, see
+  `eligible.changed_since_import`; `updated_at` is `STAMP`), else `STAMP`; a row dict's own `created_at` wins;
 - `artist`, `album`, `label`: names; the lookup row is made (one per name) and its id set;
 - `cues`, `playlists`, `history`, `mytags`: how many `djmdCue` (+ one `contentCue`), `djmdSongPlaylist`,
   `djmdSongHistory` and `djmdSongMyTag` rows the track gets;
@@ -40,6 +42,7 @@ import os
 import struct
 import urllib.parse
 import wave
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -112,6 +115,11 @@ _SHORTCUTS = ("path", "artist", "album", "label", "cues", "playlists", "history"
 ANLZ_EXTS = ("DAT", "EXT", "2EX", "3EX")
 
 
+def _stamp(seconds: float) -> str:
+    """rekordbox's timestamp text for a POSIX time (UTC)."""
+    return datetime.fromtimestamp(seconds, timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " +00:00"
+
+
 def _open(db: Path, key: str):
     con = sqlcipher3.connect(str(db))
     con.execute(f"PRAGMA key = '{key}'")
@@ -182,6 +190,8 @@ def make_master(folder: Path, rows: list[dict], key: str = KEYS[0], version: str
                   "ArtistID": lookup("djmdArtist", spec.get("artist")),
                   "AlbumID": lookup("djmdAlbum", spec.get("album")),
                   "LabelID": lookup("djmdLabel", spec.get("label"))}
+        if os.path.isfile(path):  # imported a minute after the file's last write (see `eligible.changed_since_import`)
+            values["created_at"] = _stamp(os.stat(path).st_mtime + 60)
         values.update({k: v for k, v in spec.items() if k not in _SHORTCUTS})
         put("djmdContent", values)
         if values["AnalysisDataPath"] and spec.get("anlz", True):

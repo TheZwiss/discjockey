@@ -20,9 +20,11 @@ own edit (design §5.11).
 """
 from __future__ import annotations
 
+import os
 import unicodedata
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from datetime import datetime
+from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from .. import quality
@@ -106,24 +108,46 @@ def tags_clean(facts: FileFacts, entry: dict) -> bool:
     return same and (facts.has_cover or not entry.get("image_url"))
 
 
-def text_plan(row: Entry, old_tags: dict[str, str], clean: dict[str, str]) -> dict[str, str]:
+IMPORT_GRACE = 2.0  # seconds: how far after rekordbox's `created_at` a file's mtime still counts as the import's
+
+
+def changed_since_import(row: Entry, path: Path) -> bool:
+    """Whether the old file at `path` was written after rekordbox imported `row` (its mtime is later than the row's
+    `created_at`, UTC, plus `IMPORT_GRACE`). rekordbox writes a text edit into the file's own tags too (confirmed
+    for AIFF), so the file's tag can then only echo the edit: it is no evidence that the field is unedited (design
+    §5.11). Unknown (no `created_at`, an unreadable one, a file that can't be stat'ed) counts as changed: the
+    safe side."""
+    try:
+        stamp = datetime.fromisoformat((row.created_at or "").strip().replace(" +00:00", "+00:00"))
+        if stamp.tzinfo is None:
+            return True
+        return os.stat(path).st_mtime > stamp.timestamp() + IMPORT_GRACE
+    except (ValueError, OSError):
+        return True
+
+
+def text_plan(row: Entry, old_tags: dict[str, str], clean: dict[str, str], *, file_changed: bool = False
+              ) -> dict[str, str]:
     """Per text column of rekordbox's track `row`: "write" where the repoint may put the clean value there, "kept"
     where the user's own edit stays. A field is written when rekordbox's value still equals the old file's tag, or
-    already equals the clean value (nothing to lose); an empty field and a missing tag are equal. The comment is
+    already equals the clean value (nothing to lose); an empty field and a missing tag are equal. With
+    `file_changed` (`changed_since_import`: the old file was written after rekordbox imported it) the old file's tag
+    is no evidence, so only a value already equal to the clean one is written. The comment is
     also written only when rekordbox's value is empty or a quality line Discjockey wrote (any other comment, made
     in rekordbox or in the file's tag, is the user's, like genre and year), or already equals the clean value."""
     plan = {}
     for field in TEXT_FIELDS:
         shown = _norm(getattr(row, field))
-        safe = shown in (_norm(old_tags.get(field)), _norm(clean.get(field)))
+        safe = shown == _norm(clean.get(field)) or (not file_changed and shown == _norm(old_tags.get(field)))
         if field == "comment" and shown != _norm(clean.get(field)):
             safe = safe and (not shown or quality.is_quality_line(shown))
         plan[field] = "write" if safe else "kept"
     return plan
 
 
-def fields_kept(row: Entry, old_tags: dict[str, str], clean: dict[str, str]) -> list[str]:
-    return [f for f, what in text_plan(row, old_tags, clean).items() if what == "kept"]
+def fields_kept(row: Entry, old_tags: dict[str, str], clean: dict[str, str], *, file_changed: bool = False
+                ) -> list[str]:
+    return [f for f, what in text_plan(row, old_tags, clean, file_changed=file_changed).items() if what == "kept"]
 
 
 # --- the three actions ---
