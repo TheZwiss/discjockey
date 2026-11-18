@@ -40,7 +40,11 @@ stage D §3).
 file is missing and whose better version is parked: the same steps with no old file (`superseded` None: step 6 and the
 Superseded/ name are skipped, `old_sha256` None), the alignment the parking stored instead of a measurement, rekordbox's
 `d` from the stored codec (`timeline_offset(codec=…)`, the file is never opened), no rekordbox text column written, and
-the check `placed_missing` whose undo record holds the row's first `missing_since`.
+the check `placed_missing` whose undo record holds the row's first `missing_since` and the row's old size, mtime and
+content key. Its recovery is the step's own (a rolled-back placement leaves the song missing and marked, its parked
+download in Upgrades ready/); its undo has no old file: step 2 is left out, rekordbox goes back to the missing path, the
+new AIFF to .discjockey/undo/, the download to Upgrades ready/, and the row is a missing one again with those facts
+(`library.end_op(missing=…)`); `PLACED_WORDS` are its recovery words.
 No rekordbox track (or no rekordbox at all): steps 3 and 5 are skipped. Every file move goes through `move_path`
 (another drive: a staged copy recorded in the op's `crossing`).
 
@@ -121,10 +125,33 @@ ANLZ_LOST = (" The analysis files of the track couldn't be put back from the bac
              "rekordbox.")
 
 
+# the placement for a missing file (`superseded` None) says these where Same track says the template it is keyed by:
+# its file is missing, so "your file stays at …" would name a file that isn't there
+PLACED_WORDS = {
+    NOT_FINISHED: ("The placement of the better version for {name} was not finished; the song's file is still missing, "
+                   "the better version waits in Upgrades ready/ and your rekordbox track is as it was."),
+    FINISHED: "Finished an interrupted placement of the better version for {name}.",
+    NEEDS_HELP: ("An interrupted placement of the better version for {name} needs your help: your rekordbox track was "
+                 "changed since and points at neither {old} nor {new}. Discjockey left rekordbox alone; the song's "
+                 "file is still missing and the better version waits in Upgrades ready/."),
+    OTHER_MAC_DONE: ("Finished an interrupted placement of the better version for {name} on this Mac's side. Its "
+                     "rekordbox step was made in another rekordbox library than this Mac's: open that one to check "
+                     "the track plays {new}."),
+    OTHER_MAC_UNDONE: ("The placement of the better version for {name} was not finished; the song's file is still "
+                       "missing. Its rekordbox step was made in another rekordbox library than this Mac's: check "
+                       "there that the track plays {old}."),
+}
+
+
 def _say(op: dict, text: str) -> str:
     """`text` (a Same track's words, design §8) as the journal entry `op`'s step says it: a Convert (`source` "file")
-    says "conversion" where Same track says "replace" or "upgrade". Applied to a template, before the names are put in."""
-    return conversion_words(text) if op.get("source") == "file" else text
+    says "conversion" where Same track says "replace" or "upgrade"; the placement for a missing file has its own
+    (`PLACED_WORDS`). Applied to a template, before the names are put in."""
+    if op.get("source") == "file":
+        return conversion_words(text)
+    if op.get("kind") == "convert" and op.get("superseded") is None:
+        return PLACED_WORDS.get(text, text)
+    return text
 
 
 def free_space(path: Path) -> int:
@@ -576,6 +603,7 @@ def _place_op(paths: Paths, track_id: str, e: dict, upgrade: dict, alignment: al
             "before": fields_before(e), "audio": asdict(new_audio),
             "old_audio": None if (old_audio := models.entry_audio(e)) is None else asdict(old_audio),
             "old_placed_by": e.get("placed_by"), "missing_since": e["missing_since"],
+            "missing_facts": library.row_facts(paths, e.get("file_id")),
             "check": {"reason": "placed_missing", "since": now().date().isoformat(), "match": alignment.result,
                       "offset_ms": alignment.offset_ms, "aligned": aligned, "repointed": bool(changes),
                       "batch": batch[0] if batch else None, "reload_tag": False}}  # rekordbox's text is never written
@@ -638,7 +666,8 @@ def _finish(paths: Paths, state: dict, op: dict) -> Result:
                          "file_sha256": op["new_sha256"], "repoint": None if rb is None else rb.get("record"),
                          "backup": None if rb is None else rb.get("backup"), "audio": op.get("old_audio"),
                          "placed_by": op.get("old_placed_by"),
-                         **({"missing_since": op["missing_since"]} if placed else {})}
+                         **({"missing_since": op["missing_since"], "missing_facts": op.get("missing_facts")}
+                            if placed else {})}
     entry = {**op["entry"], "rekordbox_check": check}
     before = state["tracks"].get(track_id) or op["entry"]
     result = _result(track_id, before, op)
@@ -794,12 +823,18 @@ def undo_convert(paths: Paths, state: dict, track_id: str, u: dict, entry: dict,
        `committed`; refused or rolled back there → the old file goes back to Superseded/ and nothing changed;
     4. the new AIFF into .discjockey/undo/ (the clean-up deletes it: its audio is the download's, or the old file's),
        the kept download back to Upgrades ready/, the entry as it was.
+    A placement for a missing file (`place_parked`; `u["old"]` is None, plan §4.5.3) has no old file to bring back:
+    step 2 is left out, rekordbox's tracks go back to the old (missing) path, and step 4 moves the new AIFF to
+    .discjockey/undo/ and the kept download back to Upgrades ready/; the song's row is a missing one again with its
+    first `missing_since` and its old facts, written with the end. A cut before rekordbox's commit has nothing to
+    put back.
     Returns the result's note. `recover_convert_undo` finishes or rolls back a step a crash cut off."""
     from .upgrades import UndoRefused, undo_session, undo_writer, upgrade_name  # upgrades imports this module lazily
     before = u["before"]
     record = u.get("repoint")
     converted = u.get("source") == "file"
-    note = f"the old file is back at {before['path']}"
+    placed = u.get("old") is None  # the placement for a missing file: there is no old file
+    note = f"the song's file is missing again ({before['path']})" if placed else f"the old file is back at {before['path']}"
     if before.get("upgrade"):  # Same track: the better version waits again (Convert has none to hand back)
         note += f"; the {upgrade_name(before['upgrade'])} waits in {before['upgrade']['file']} again"
     with ExitStack() as stack:
@@ -816,15 +851,16 @@ def undo_convert(paths: Paths, state: dict, track_id: str, u: dict, entry: dict,
         roots = watched_roots(paths)
         with deferred_interrupt():  # a Ctrl-C waits until the step is at a safe point
             journal_op(paths, state, op)
-            try:  # step 2
-                move_path(paths.root, op["superseded"], op["old"], op["crossing"].get("0"), roots)
-            except BaseException as err:
-                end_op(paths, state, op, {})
-                if not isinstance(err, Exception):
-                    raise
-                raise UpgradeProblem(f"Could not put your old file back ({err}). Nothing was changed.") from err
-            op["marks"]["restored"] = True
-            mark_op(paths, state, op)
+            if not placed:
+                try:  # step 2
+                    move_path(paths.root, op["superseded"], op["old"], op["crossing"].get("0"), roots)
+                except BaseException as err:
+                    end_op(paths, state, op, {})
+                    if not isinstance(err, Exception):
+                        raise
+                    raise UpgradeProblem(f"Could not put your old file back ({err}). Nothing was changed.") from err
+                op["marks"]["restored"] = True
+                mark_op(paths, state, op)
             if rb is not None:  # step 3: the commit point
                 try:
                     with ExitStack() as write:
@@ -846,9 +882,9 @@ def undo_convert(paths: Paths, state: dict, track_id: str, u: dict, entry: dict,
                 if kept:
                     note += f". {KEPT_NOTE.format(fields=' / '.join(rbstep.TEXT_NAMES[f] for f in kept))}"
             try:  # step 4
-                move_path(paths.root, op["new"], op["staged"], op["crossing"].get("1"), roots)
+                move_path(paths.root, op["new"], op["staged"], op["crossing"].get(str(_new_at(op))), roots)
                 if op["held"]:
-                    move_path(paths.root, op["held"], op["parked"], op["crossing"].get("2"), roots)
+                    move_path(paths.root, op["held"], op["parked"], op["crossing"].get(str(_new_at(op) + 1)), roots)
                 _end_undo(paths, state, op)
             except Exception as err:  # finish right now if the disk allows, else at the next start
                 message = _settle_undo(paths, state, op, roots)
@@ -865,22 +901,36 @@ def _undo_op(paths: Paths, track_id: str, u: dict, entry: dict, record: dict | N
     ready/ (library.CONVERT_PATH_KEYS: every name stays reserved while it runs)."""
     before = u["before"]
     trash = held_place(paths, track_id, u["file"])
-    renames = [(u["old"], before["path"]), (u["file"], trash)]
     parked = (before.get("upgrade") or {}).get("file")
-    if u.get("held"):  # Same track's kept download goes back to Upgrades ready/; a Convert holds none
-        renames.append((u["held"], parked))
+    renames = _undo_moves(u["old"], before["path"], u["file"], trash, u.get("held"), parked)
     crossing, size = journal_crossings(paths.root, renames)
     return {"kind": "convert_undo", "track_id": track_id, "source": u.get("source", "upgrade"),
             "old": before["path"], "superseded": u["old"],
             "new": u["file"], "staged": trash, "held": u.get("held"), "parked": parked, "audio": u.get("audio"), "placed_by": u.get("placed_by"),
+            "missing": None if u.get("old") is not None or not u.get("missing_since") else
+            {**(u.get("missing_facts") or {}), "since": u["missing_since"]},
             "crossing": crossing, "size": size, "entry": rbstep.with_audio(_placed_again(entry, u), _audio_of(u.get("audio"))),
             "rekordbox": None if not record else {"dbid": record["dbid"], "record": record, "outcome": None},
             "marks": {"restored": False, "committed": False}}
 
 
+def _undo_moves(superseded: str | None, old: str, new: str, staged: str, held: str | None,
+                parked: str | None) -> list[tuple[str, str]]:
+    """The moves of an undo, in the order of their `crossing` indices: the old file back from Superseded/ (none for a
+    placement for a missing file), the new AIFF to .discjockey/undo/, the kept download back to Upgrades ready/."""
+    return [*([] if superseded is None else [(superseded, old)]), (new, staged), *([(held, parked)] if held else [])]
+
+
+def _new_at(op: dict) -> int:
+    """The index of the new AIFF's move in an undo's `crossing` (the kept download's follows it)."""
+    return 0 if op["superseded"] is None else 1
+
+
 def _placed_again(entry: dict, u: dict) -> dict:
-    """`entry` (the song as it was) with the read-only `placed_by` of the old file back, as its row gets it with the end."""
-    return {**entry, "placed_by": u["placed_by"]} if u.get("placed_by") else entry
+    """`entry` (the song as it was) with the read-only `placed_by` of the old file back, as its row gets it with the
+    end, and, for a placement's undo, the first `missing_since`."""
+    entry = {**entry, "placed_by": u["placed_by"]} if u.get("placed_by") else entry
+    return {**entry, "missing_since": u["missing_since"]} if u.get("old") is None and u.get("missing_since") else entry
 
 
 def _audio_of(record: dict | None) -> FileAudio | None:
@@ -899,7 +949,8 @@ def _end_undo(paths: Paths, state: dict, op: dict) -> None:
     old_audio = _audio_of(op.get("audio"))
     end_op(paths, state, op, {op["track_id"]: op["entry"]}, rekeyed=[op["old"]],
            audio={op["old"]: old_audio} if old_audio else None,
-           placed_by={op["old"]: op["placed_by"]} if op.get("placed_by") else None)
+           placed_by={op["old"]: op["placed_by"]} if op.get("placed_by") else None,
+           missing={op["old"]: op["missing"]} if op.get("missing") else None)
     if op.get("held"):
         try:
             (paths.root / op["held"]).parent.rmdir()
@@ -909,7 +960,10 @@ def _end_undo(paths: Paths, state: dict, op: dict) -> None:
 
 def _undo_back(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> Recovered:
     """An undo that didn't reach rekordbox's commit: the old file back to Superseded/, the step ends with nothing
-    changed. A staged copy the way back left is removed first."""
+    changed. A staged copy the way back left is removed first. A placement's undo moved nothing before the commit."""
+    if op["superseded"] is None:
+        end_op(paths, state, op, {})
+        return Recovered("", False, False)
     copy = op["crossing"].get("0")
     if copy:
         remove_staged(paths.root / copy)
@@ -926,9 +980,8 @@ def _undo_back(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> 
 
 def _undo_forward(paths: Paths, state: dict, op: dict, roots: Collection[Path]) -> Recovered:
     """Every move of the undo still to do, then its end."""
-    renames = [[op["superseded"], op["old"]], [op["new"], op["staged"]]]
-    if op.get("held"):
-        renames.append([op["held"], op["parked"]])
+    renames = [list(m) for m in _undo_moves(op["superseded"], op["old"], op["new"], op["staged"], op.get("held"),
+                                            op["parked"])]
     step = {"renames": renames, "staged": op["crossing"], "size": op.get("size") or {}}
     r = recover_renames(paths.root, step, roots)
     if not r.wait:

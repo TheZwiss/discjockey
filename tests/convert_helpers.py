@@ -27,6 +27,7 @@ from discjockey.audio import write_tags
 from discjockey.library import Paths, load_state, save_state
 from discjockey.planner import ENTRY_KEYS
 from discjockey.rekordbox import probe
+from discjockey.rekordbox import write as rbwrite
 from discjockey.rekordbox.locate import Place
 from discjockey.rekordbox.session import Session
 from rekordbox_helpers import clicks, make_anlz, make_master, ppth_tag, pqtz_tag, pwv3_from, pwv3_tag, save_library
@@ -252,6 +253,7 @@ STEP_MARKS = {"backed_up": 1, "placed": 2, "record": 3, "committed_unmarked": 4,
 BEFORE_COMMIT = ["rendered", "journaled", "backed_up", "placed", "record"]
 AFTER_COMMIT = ["committed_unmarked", "committed", "superseded", "ended"]
 UNDO_MARKS = {"restored": 1, "outcome": 2, "committed_unmarked": 3, "committed": 3}
+PLACED_UNDO_MARKS = {"outcome": 1, "committed_unmarked": 2, "committed": 2}  # no `restored` mark: no old file to bring back
 
 
 def power_off(monkeypatch, at: str) -> None:
@@ -274,19 +276,22 @@ def power_off(monkeypatch, at: str) -> None:
     _cut_at_mark(monkeypatch, STEP_MARKS[at], at != "committed_unmarked")
 
 
-def power_off_undo(monkeypatch, at: str) -> None:
-    """The same for an undo (`journaled`, `restored`, `outcome`, `committed_unmarked`, `committed`, `ended`)."""
+def power_off_undo(monkeypatch, at: str, *, placed: bool = False) -> None:
+    """The same for an undo (`journaled`, `restored`, `outcome`, `committed_unmarked`, `committed`, `ended`); the undo
+    of a placement for a missing file has no `restored` step (`placed`)."""
     def die(*a, **k):
         raise PowerOff
 
     if at == "journaled":
         monkeypatch.setattr(convert, "move_path", die)
         monkeypatch.setattr(convert, "end_op", die)
+        if placed:  # nothing moves before rekordbox's commit: the cut falls at the write (or at the first move)
+            monkeypatch.setattr(rbwrite.Writer, "undo_repoint", die)
         return
     if at == "ended":
         monkeypatch.setattr(convert, "_end_undo", die)
         return
-    _cut_at_mark(monkeypatch, UNDO_MARKS[at], at != "committed_unmarked")
+    _cut_at_mark(monkeypatch, (PLACED_UNDO_MARKS if placed else UNDO_MARKS)[at], at != "committed_unmarked")
 
 
 def _cut_at_mark(monkeypatch, number: int, written: bool) -> None:

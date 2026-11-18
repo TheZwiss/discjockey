@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from audio_helpers import needs_ffmpeg, pcm
+from audio_helpers import music, needs_ffmpeg, pcm, write_aiff
 from convert_helpers import (
     NOW, PARKED, TID, Env, PowerOff, batch_row, file_rows, make_env, never, next_start, power_off, session, song,
 )
@@ -438,3 +438,33 @@ def test_a_cut_after_the_file_was_placed_is_rolled_back_and_the_song_stays_missi
     assert [ok for _m, ok in messages] == [False] and e["path"] == NOT_LOSSLESS_AIFF and e["upgrade"]["file"] == PARKED
     assert e["file_gone"] and missing_since(env) == [SINCE] and (env.paths.root / PARKED).is_file()
     assert not (env.paths.root / NEW).exists() and row_of(env)["FolderPath"] == str(env.paths.root / env.old)
+
+
+# --- a replaced file's measurement is dropped (plan §4.5.2, added in E4a2) ---
+
+def test_a_file_replaced_in_place_then_missing_is_placed_as_unknown_and_rekordbox_is_left_alone(tmp_path, monkeypatch):
+    env = make_env(tmp_path, monkeypatch, "aiff", entry={"path": NOT_LOSSLESS_AIFF, "upgrade": upgrade_of(SHIFTED)})
+    root = env.paths.root
+    rb_before, analysis = dump(env.place.db), env.anlz_files()
+
+    def scan():
+        library.scan_library(env.paths, lambda m: None, analyze=lambda p: ("pcm_s16be", None))
+        return load_state(env.paths)["tracks"][TID]
+
+    assert scan()["upgrade"]["alignment"]["result"] == "shifted"  # a scan that finds nothing new keeps it
+    write_aiff(root / NOT_LOSSLESS_AIFF, music(1, seed=7))  # other audio under the same name: the file is "replaced"
+    up = scan()["upgrade"]
+    assert "alignment" not in up and up["file"] == PARKED and up["source"] == "qobuz"  # only the measurement goes
+    (root / NOT_LOSSLESS_AIFF).unlink()
+    assert scan()["missing_since"]
+    with db.connect(env.paths.db_file) as conn:
+        conn.execute("UPDATE songs SET file_gone = '2026-11-18'")
+        conn.commit()
+    parked = (root / PARKED).read_bytes()
+
+    r, state = place(env)
+    check = state["tracks"][TID]["rekordbox_check"]
+    assert (check["match"], check["repointed"], check["rekordbox"]) == ("unknown", False, None)
+    assert (root / NEW).read_bytes() == parked  # as it is: k = 0
+    assert dump(env.place.db) == rb_before and env.anlz_files() == analysis  # rekordbox byte for byte
+    assert row_of(env)["FolderPath"] == str(root / env.old) and "isn't the same edit" in r.note

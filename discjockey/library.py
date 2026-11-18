@@ -1026,14 +1026,15 @@ def _finish_step(paths: Paths, conn: sqlite3.Connection, op: dict) -> int:
 def _end_step(paths: Paths, conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict],
               rekeyed: Collection[str], *, item: tuple[int, int, object] | None = None,
               app_placed: Collection[str] = (), audio: Mapping[str, FileAudio] | None = None,
-              placed_by: Mapping[str, str] | None = None) -> int:
+              placed_by: Mapping[str, str] | None = None, missing: Mapping[str, dict] | None = None) -> int:
     """db.end_step with this library's facts; of `rekeyed`, only files in Library/ (as save_state). `item` and
     `app_placed` go through (an AIFF batch's item done with the step; files Discjockey placed). Returns the new
     generation."""
     from . import db
     indexed = [p for p in rekeyed if p.startswith("Library/")]  # Superseded/ and .tmp/ have no rows
     return db.end_step(conn, op_id, tracks, library=paths.library, facts=file_facts(paths), now=datetime.now(),
-                       rekeyed=indexed, item=item, app_placed=app_placed, audio=audio, placed_by=placed_by)
+                       rekeyed=indexed, item=item, app_placed=app_placed, audio=audio, placed_by=placed_by,
+                       missing=missing)
 
 
 # --- a step that keeps its journal entry in the caller's snapshot while it runs (the upgrade swap and its undo,
@@ -1080,14 +1081,15 @@ def mark_op(paths: Paths, state: dict, op: dict) -> None:
 def end_op(paths: Paths, state: dict, op: dict, entries: Mapping[str, dict], *,
            rekeyed: Collection[str] = (), item: tuple[int, int, object] | None = None,
            app_placed: Collection[str] = (), audio: Mapping[str, FileAudio] | None = None,
-           placed_by: Mapping[str, str] | None = None) -> None:
+           placed_by: Mapping[str, str] | None = None, missing: Mapping[str, dict] | None = None) -> None:
     """Ends a journaled `op`: `entries` (song key -> entry; none for a step that changed no entry) and the files
     `rekeyed` (as save_state's) written with the end of its journal entry, in one transaction (_end_step); then
     `state` takes the entries and loses the op. `item` (AIFF batch, seq, result) is marked done and the files
     `app_placed` become Discjockey's (`placed_by = 'app'`) and the file at each path of `audio` gets its `FileAudio`
     (`files.file_*`, which a changed content key cleared) in that transaction; `placed_by` (path -> who) gives a file
-    its `placed_by` back (a Convert's undo). An op journaled through the snapshot (no `op_id`: by a version
-    before issue 25) is ended the way it was then: the entries into `state`, the op out of its pending, save_state."""
+    its `placed_by` back (a Convert's undo); `missing` (path -> {since, size, mtime_ns, content_key}) makes the
+    file's row a missing one again (the undo of a placement for a missing file, db.end_step). An op journaled through
+    the snapshot (no `op_id`: by a version before issue 25) is ended the way it was then: the entries into `state`, the op out of its pending, save_state."""
     if "op_id" not in op:
         state["tracks"].update(entries)
         state["pending"].remove(op)
@@ -1095,9 +1097,18 @@ def end_op(paths: Paths, state: dict, op: dict, entries: Mapping[str, dict], *,
         return
     with _records(paths) as conn:
         state["generation"] = _end_step(paths, conn, op["op_id"], entries, rekeyed, item=item,
-                                        app_placed=app_placed, audio=audio, placed_by=placed_by)
+                                        app_placed=app_placed, audio=audio, placed_by=placed_by, missing=missing)
     state["tracks"].update(entries)
     _mirror(state, op, keep=False)
+
+
+def row_facts(paths: Paths, file_id: int | None) -> dict | None:
+    """The size, mtime and content key the file row `file_id` holds (db.file_facts_of), or None."""
+    from . import db
+    if file_id is None:
+        return None
+    with _records(paths) as conn:
+        return db.file_facts_of(conn, file_id)
 
 
 def _apply_entries(state: dict, op: dict) -> None:

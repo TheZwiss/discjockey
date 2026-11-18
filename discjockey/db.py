@@ -971,6 +971,21 @@ def pending_ops(conn: sqlite3.Connection) -> list[dict]:
     return [json.loads(op) for op in _pending(conn)]
 
 
+def _forget_alignment(conn: sqlite3.Connection, file_id: int) -> int:
+    """The song's parked upgrade was measured against the audio this file had; the audio is another now, so the
+    measurement is dropped (issue 43: a placement for a missing file would take it for the file that is gone and
+    line the cues up for the wrong audio; with none it places the upgrade as it is and leaves rekordbox alone)."""
+    row = conn.execute("SELECT s.id, s.upgrade FROM songs s JOIN files f ON f.song = s.id WHERE f.id = ? "
+                       "AND s.upgrade IS NOT NULL", (file_id,)).fetchone()
+    if row is None:
+        return 0
+    upgrade = json.loads(row[1])
+    if not isinstance(upgrade, dict) or "alignment" not in upgrade:
+        return 0
+    del upgrade["alignment"]
+    return conn.execute("UPDATE songs SET upgrade = ? WHERE id = ?", (_dumps(upgrade), row[0])).rowcount
+
+
 def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
                judged: Mapping[int, tuple[str, int | None, str]] | None = None,
                failed: Mapping[int, str] | None = None) -> int:
@@ -982,9 +997,10 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     rows get the file's size, mtime and key; a moved row takes its new place (placed by the user), and an unlinked
     row already there gives way to it; ambiguous rows keep their candidates; new files and copies become unlinked
     rows (found there by a scan: placed by 'import'; in an import folder with import_state `new`, stage 4).
-    Nothing a song has is deleted (issue 43): a `missing` or `ambiguous` row (its file isn't at its path) gets
-    `missing_since` = this scan's stamp unless it has one (the first scan that missed it stays its date), and keeps
-    everything else; a `back` row (missing before, seen again) loses the mark and its song's `file_gone` (a file that
+    A replaced file's song also loses its parked upgrade's `alignment` (measured against the old audio:
+    `_forget_alignment`). Nothing a song has is deleted (issue 43): a `missing` or `ambiguous` row (its file isn't
+    at its path) gets `missing_since` = this scan's stamp unless it has one (the first scan that missed it stays its
+    date), and keeps everything else; a `back` row (missing before, seen again) loses the mark and its song's `file_gone` (a file that
     came back cancels a Download again the sync hasn't done yet). A `gone` row (nobody's file) is deleted, with the
     keep_both answers that named it; a `gone` id whose row is linked is marked missing instead, never deleted.
     `unjudged` rows keep everything but are marked held (the snapshot's `held`: the planner leaves their songs alone,
@@ -1019,6 +1035,7 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
         for file_id, seen in result.replaced:  # other audio: what the row knew of the old file's own audio is gone
             n += conn.execute(f"UPDATE files SET {facts}, {_CLEAR_FILE_AUDIO} WHERE id = ?",
                               (seen.size, seen.mtime_ns, seen.content_key, stamp, file_id)).rowcount
+            n += _forget_alignment(conn, file_id)
         for file_id, seen in result.moved:
             # an earlier scan's candidate at the target (an unlinked row) gives way to the file that moved there
             n += conn.execute("DELETE FROM files WHERE folder = ? AND path = ? AND id != ? AND song IS NULL",
@@ -1424,6 +1441,13 @@ def add_own_song(conn: sqlite3.Connection, file_id: int, facts: OwnFacts) -> str
             set_file_facts(conn, file_id, facts.audio)
         _bump(conn)
         return key
+
+
+def file_facts_of(conn: sqlite3.Connection, file_id: int) -> dict | None:
+    """The size, mtime and content key a file row holds (what a scan compares), or None for a row that isn't there.
+    A placement for a missing file keeps them for its undo (`end_step(missing=…)`)."""
+    row = conn.execute("SELECT size, mtime_ns, content_key FROM files WHERE id = ?", (file_id,)).fetchone()
+    return None if row is None else {"size": row[0], "mtime_ns": row[1], "content_key": row[2]}
 
 
 def set_file_facts(conn: sqlite3.Connection, file_id: int, audio: FileAudio) -> int:
@@ -2016,7 +2040,7 @@ def finish_step(conn: sqlite3.Connection, op: dict, *, library: Path, facts: Fac
 def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *, library: Path, facts: Facts,
              now: datetime, rekeyed: Collection[str] = (), item: tuple[int, int, object] | None = None,
              app_placed: Collection[str] = (), audio: Mapping[str, FileAudio] | None = None,
-             placed_by: Mapping[str, str] | None = None) -> int:
+             placed_by: Mapping[str, str] | None = None, missing: Mapping[str, dict] | None = None) -> int:
     """The end of a journaled step (run_op's, the upgrade swap's and its undo's), in one transaction: `tracks`
     (song key -> entry; none for a step that changed no entry) as save writes them, but only those songs and their
     file rows (a new song is inserted; `rekeyed` as in save); the pending row `op_id` goes. A file a song outside
@@ -2030,7 +2054,10 @@ def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *
     isn't AIFF). `audio` (entry path -> FileAudio) stores the facts of the file at that path in the same transaction
     (stage D's Convert: the new AIFF's, or the old file's after its undo; the rows' facts were cleared with their
     content key). `placed_by` (entry path -> 'app' | 'user' | 'import') gives the file at that path its `placed_by`
-    back (a Convert's undo: the user's own file is the user's again)."""
+    back (a Convert's undo: the user's own file is the user's again). `missing` (entry path -> `file_facts_of`'s dict
+    plus `since`) makes the row at that path a missing one again (issue 43: the undo of a placement for a missing
+    file): its first `missing_since` and its size, mtime and content key as they were, which a save of a path
+    nothing is at clears."""
     stamp = now.isoformat(timespec="seconds")
     tracks = dict(tracks)
     with transaction(conn):
@@ -2043,6 +2070,10 @@ def end_step(conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict], *
             conn.execute("UPDATE files SET placed_by = 'app' WHERE folder = ? AND path = ?", folders.locate(path))
         for path, who in (placed_by or {}).items():
             conn.execute("UPDATE files SET placed_by = ? WHERE folder = ? AND path = ?", (who, *folders.locate(path)))
+        for path, m in (missing or {}).items():
+            conn.execute("UPDATE files SET missing_since = ?, size = ?, mtime_ns = ?, content_key = ? "
+                         "WHERE folder = ? AND path = ?",
+                         (m["since"], m.get("size"), m.get("mtime_ns"), m.get("content_key"), *folders.locate(path)))
         for path, file_audio in (audio or {}).items():
             file_id = conn.execute("SELECT id FROM files WHERE folder = ? AND path = ?", folders.locate(path)).fetchone()
             if file_id is not None:

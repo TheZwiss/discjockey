@@ -854,8 +854,8 @@ def undo(paths: Paths, state: dict, track_id: str, *, session: Session | None = 
     before = u["before"]
     parked = (before.get("upgrade") or {}).get("file")  # None for a Convert: it parked nothing
     _unchanged(paths, u["file"], u["file_key"], step)
-    if not renamed:  # a rename keeps no old file: its old name is where the file itself goes back to
-        _unchanged(paths, u["old"], u["old_key"], step)
+    if not renamed and u["old"] is not None:  # a rename keeps no old file (its old name is where the file itself goes
+        _unchanged(paths, u["old"], u["old_key"], step)  # back to); nor does a placement for a missing file
     if not converted and (u["kind"] in ("swap", "convert") or u.get("rendered")) \
             and not (paths.root / u["held"]).is_file():
         noun = "swap" if u["kind"] == "swap" else "upgrade"
