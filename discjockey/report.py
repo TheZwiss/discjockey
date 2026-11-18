@@ -33,7 +33,7 @@ SECTIONS = [
     ("rejected", "Marked as the wrong song (searched again next run)"),
     ("hidden", "Hidden from the to-do list"),
     ("unhidden", "Back on the to-do list"),
-    ("redownloaded", "Downloaded again (the file was gone)"),
+    ("redownloaded", "Downloaded again (its file was missing)"),
     ("dropped", "No longer in any playlist (the files stay where they are)"),
     ("missing", "Not found anywhere"),
     ("queued", "Waiting for the next run"),
@@ -98,7 +98,7 @@ STATUS_TEXT = {"not_lossless": "not lossless", "fake_lossless": "fake lossless",
 PLAN_LABELS = [
     ("acquire:new", "Download (new)"),
     ("acquire:retry", "Try again (not found last time)"),
-    ("acquire:redownload", "Download again (the file is gone)"),
+    ("acquire:redownload", "Download again (its file is missing)"),
     ("adopt_bought", "Add a bought file"),
     ("upgrade", "Look for a better version"),
 ]

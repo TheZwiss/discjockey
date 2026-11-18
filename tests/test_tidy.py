@@ -280,8 +280,9 @@ def test_undo_skips_what_moved_on_or_lost_its_place(paths, monkeypatch):
     assert (paths.library / "A" / "A - s3.aiff").read_bytes() == b"audio of s3"
 
 
-@pytest.mark.parametrize("field, value, reason", [("online", False, "offline"), ("held", True, "moved_on")])
-def test_undo_skips_an_offline_or_held_file(paths, field, value, reason):
+@pytest.mark.parametrize("field, value, reason", [("online", False, "offline"), ("held", True, "moved_on"),
+                                                  ("missing_since", "2026-11-10T09:00:00", "moved_on")])
+def test_undo_skips_an_offline_held_or_missing_file(paths, field, value, reason):
     _, done = tidied(paths, ("s1", "A", "B"))
     state = load_state(paths)
     state["tracks"]["s1"][field] = value
