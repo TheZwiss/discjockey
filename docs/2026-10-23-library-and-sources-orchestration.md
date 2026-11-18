@@ -758,6 +758,10 @@ Results:
     U1a (Sonnet) done 4a899afe + static 371ae733 on feat/missing-files-u1: **261k** (77 calls; expected 160-220k):
     missingModel.ts, MissingFlow, todoModel/libraryModel/planModel/endModel, FILE_STATE_TAG Missing, 9 shots entries;
     vitest 1692. Open: PLACED_LABEL copied from report.py (engine should send section labels) -> R-U1. Stage ~4.72M.
+    U1b (Opus ui-build) done c2a59b90 + static 6cba2837: **251k** (75 calls): Page/Details/MissingSelection/Library/
+    BeforeStart/EndScreen; vitest 1693; npm run rules failed (local connect EAGAIN) -> shots agent. Found: placement
+    batches/progress use window 'upgraded' words + batchCheckCard ignores placed_missing words -> engine words in R-U1
+    fix. Taste: 'Last known file' and 'Skipped · n' kept (decided, not asked). Stage so far ~4.97M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
