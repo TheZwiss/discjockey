@@ -193,16 +193,19 @@ def bit_rate(channels: int) -> int:
 
 
 def row_change(entry: Entry, new_path: str, *, file_size: int, channels: int, frames: int,
-               old_tags: dict[str, str], clean: dict[str, str], old_file: Path | None = None) -> RowChange:
+               old_tags: dict[str, str], clean: dict[str, str], old_file: Path | None = None,
+               text: bool = True) -> RowChange:
     """The repoint of `entry` to the 16-bit 44.1 kHz AIFF at `new_path` (`frames` samples per channel): identity,
-    file facts (`Length` whole seconds rounded down, plan §0.13) and the text plan."""
+    file facts (`Length` whole seconds rounded down, plan §0.13) and the text plan. `text=False` (the placement for a
+    missing file, issue 43 §4.5.2: no old file's tags to tell the user's own edit apart) plans no text column: every
+    one stays as rekordbox has it."""
     new_path = nfc(new_path)
     return RowChange(
         entry.id, {"FolderPath": entry.folder_path, "FileNameL": entry.file_name},
         {"FolderPath": new_path, "FileNameL": new_path.rsplit("/", 1)[-1], "FileType": AIFF_TYPE,
          "FileSize": file_size, "BitDepth": 16, "SampleRate": 44100, "BitRate": bit_rate(channels),
          "Length": frames // 44100},
-        plan_text(entry, old_tags, clean, old_file))
+        plan_text(entry, old_tags, clean, old_file) if text else {})
 
 
 def rename_change(entry: Entry, new_path: str) -> RowChange:

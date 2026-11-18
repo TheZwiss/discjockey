@@ -37,7 +37,7 @@ from .offset import TimelineOffset
 REASONS = ("no_upgrade", "needs_choice", "file_missing", "away", "rekordbox_unreadable", "timing", "not_analysed",
            "cloud", "downloaded", "clean_aiff", "named_already", "needs_convert", "no_name", "not_in_library",
            "auto_refused", "unclean", "changed", "space", "rekordbox_open", "busy", "rename_blocked", "relocated",
-           "later_batch", "not_reached", "upgrade_waits")
+           "later_batch", "not_reached", "upgrade_waits", "not_missing")
 # `auto_refused` is the Auto-upgrade phase's own skip (stage C: the phase leaves a track out of its batch because a
 # refusal it recorded still holds; `auto_upgrade.plan` lists those, no item carries the key today); the rest from
 # `unclean` on are what a run finds (stage B): the write is refused (`unclean`, guard 4), the track changed
@@ -46,7 +46,9 @@ REASONS = ("no_upgrade", "needs_choice", "file_missing", "away", "rekordbox_unre
 # the replace; `later_batch`: the track was planned again in a later batch, so an earlier stopped batch gave up its
 # unrun item; `not_reached` (stage C): the sync's Auto-upgrade batch ended (Stop, a crash) before this item;
 # `upgrade_waits` (stage D, plan §0.2): the song has a parked better version, so Convert and Rename leave the old
-# file to Same track (converting it first would cost a render and space for nothing)
+# file to Same track (converting it first would cost a render and space for nothing); `not_missing` (issue 43, D9):
+# the placement of a parked version for a missing file found the file back (or never marked missing), so nothing is
+# placed
 ACTIONS = ("same_track", "convert", "rename")
 AIFF_EXTS = (".aiff", ".aif")
 OWN = "manual"  # the `source` of a file that wasn't downloaded: a bought file or one the import found
@@ -266,3 +268,21 @@ def aiff_action(entry: dict, facts: FileFacts | None, rb: Status, timing: Timeli
     if isinstance(renaming, Eligible) or converting.reason == "clean_aiff":
         return "rename", renaming
     return "convert", converting
+
+
+def place(entry: dict, rb: Status, timing: TimelineOffset | None, *, present: Present) -> Verdict:
+    """Download again on a song with a parked upgrade puts that version in where the missing file was (issue 43, D9,
+    `convert.place_parked`): there must be a parked upgrade, and the file must be gone (`present` "missing"; "here":
+    `not_missing`, "away": `away`). Nothing about the audio can refuse it (the edit is placed as it is when it isn't
+    the same one, the offset is a best guess when unknown); only rekordbox can: a library that can't be read, a track
+    in Cloud Library Sync."""
+    if not entry.get("upgrade"):
+        return Skip("no_upgrade")
+    if present != "missing":
+        return Skip("not_missing" if present == "here" else "away")
+    return _rekordbox_blocks(rb, timing, audio_changes=False) or Eligible()
+
+
+def place_quick(entry: dict, rb: Status, present: Present) -> Verdict:
+    """`place` from what is known without reading rekordbox's tracks (the Auto-upgrade phase's set, the dry run)."""
+    return place(entry, rb, None, present=present)

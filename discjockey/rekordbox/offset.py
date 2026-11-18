@@ -6,6 +6,8 @@ decode of the file sits at `t + d` on rekordbox's timeline. None means unknown, 
 not:
 
 - `no_rekordbox`: no rekordbox library on this Mac: d = 0.
+- `missing_file` (only with `codec`): the file is gone, so it can't be decoded and its start trim can't be probed;
+  some track cares where the timeline sits and the format can have a trim: unknown.
 - `unreadable`: rekordbox's library can't be read (or rekordbox holds it) and the file's format can have a trim:
   unknown. A PCM, FLAC or ALAC file answers `format` instead (its d can only be 0).
 - `not_in_rekordbox`: no rekordbox track holds the file: d = 0.
@@ -15,6 +17,11 @@ not:
   The answer is `measured` when a measurement decided it, `format` when the format did, `no_cues` when no track
   cares (d = 0), and `not_analysed` or `timing` (unknown) when a track couldn't be placed or they disagree;
   `not_analysed` wins over `timing` (analysing the track in rekordbox is what helps first).
+
+`codec` (issue 43, the placement for a missing file): the file's stored codec; the file is then never opened (no
+probe, no decode, no trim). Everything that needs no audio is answered as usual (`no_rekordbox`, `not_in_rekordbox`,
+`no_cues`, `format` for a zero-only codec); a track that cares about a format that can have a trim makes the answer
+`missing_file` (`samples` None).
 
 `view` (stage B): a batch's `master.RekordboxView` answers instead of an open of its own (two keyed opens per file
 cost ~0.4 s); the answer is the same.
@@ -47,7 +54,16 @@ from .master import Entry, RekordboxView, Status, Unreadable
 RATE = 44100
 MEASURE_ABOVE = 48000  # a file above this rate is measured on a 44.1 kHz decode: at 96 kHz the match scores too low
 Why = Literal["no_rekordbox", "not_in_rekordbox", "format", "no_cues", "measured", "not_analysed", "timing",
-              "unreadable"]
+              "unreadable", "missing_file"]
+# the codec a file's extension implies, for a file that is gone and has no stored codec (issue 43, D9): only whether
+# `timing.zero_only` holds for it matters; an extension that tells no codec (.m4a is AAC or ALAC) counts as lossy
+EXT_CODECS = {".aiff": "pcm_s16be", ".aif": "pcm_s16be", ".wav": "pcm_s16le", ".flac": "flac", ".mp3": "mp3",
+              ".m4a": "aac", ".ogg": "vorbis", ".opus": "opus"}
+
+
+def codec_by_extension(path: str | Path) -> str:
+    """A codec name for a file we can't open, from its extension (`EXT_CODECS`); "unknown" for any other."""
+    return EXT_CODECS.get(Path(str(path)).suffix.lower(), "unknown")
 
 
 @dataclass(frozen=True)
@@ -114,13 +130,15 @@ def _analysis(place: Place, entry: Entry) -> tuple[bool, np.ndarray | None]:
 def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool] | None = None,
                     decode: Callable | None = None, trim: Callable | None = None,
                     probe_audio: Callable | None = None, view: RekordboxView | None = None,
-                    reading: Callable[[], AbstractContextManager[bool]] | None = None) -> TimelineOffset:
+                    reading: Callable[[], AbstractContextManager[bool]] | None = None,
+                    codec: str | None = None) -> TimelineOffset:
     """Where rekordbox's timeline sits for `old_file`. `place` defaults to `locate()`, `running` to
     `process.running`, `decode` to `quality.decode_mono`, `trim` to `probe.start_trim`, `probe_audio` to
     `quality.probe`, each looked up at call time. `view`: a batch's open library (its index and status): the answer
     comes from it and nothing is located, asked or opened (`place` and `running` are not used); None opens the
     library for this one answer. `reading`: held while that library is open, yielding False when it must not be opened
-    (a writer holds `rekordbox.lock`: the answer is then `unreadable`, never a read)."""
+    (a writer holds `rekordbox.lock`: the answer is then `unreadable`, never a read). `codec`: see the module
+    docstring; `old_file` is then only a name."""
     rb: Status | None = None
     entries: list[Entry] = []
     cues: dict[str, int] = {}
@@ -149,13 +167,12 @@ def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool
             with (reading or _free)() as free:
                 rb = master.status(place, lambda: is_running) if free else Status(
                     "ready", is_running, None, None, None, None, None)
-        info = (probe_audio or quality.probe)(old_file)
-        zero = timing.zero_only(info.codec)
+        zero = timing.zero_only(codec if codec is not None else (probe_audio or quality.probe)(old_file).codec)
         if rb.state == "none":  # the library went away between locate() and the open
             return TimelineOffset(0, "no_rekordbox", rb, [])
         return TimelineOffset(0 if zero else None, "format" if zero else "unreadable", rb, [])
-    info = (probe_audio or quality.probe)(old_file)
-    zero = timing.zero_only(info.codec)
+    info = None if codec is not None else (probe_audio or quality.probe)(old_file)
+    zero = timing.zero_only(codec if info is None else info.codec)
     if not entries:
         return TimelineOffset(0, "not_in_rekordbox", rb, [])
 
@@ -170,6 +187,13 @@ def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool
         n_cues = cues.get(entry.id, 0)
         if not n_cues and not grid:  # nothing on rekordbox's timeline to keep in place
             findings.append(EntryTiming(entry, n_cues, grid, heights is not None, None, None, None))
+            continue
+        if info is None:  # the file is gone: nothing to measure; only a format with no trim has an answer
+            findings.append(EntryTiming(entry, n_cues, grid, heights is not None, None, None, None))
+            if zero:
+                values.append(0.0)
+            else:
+                reasons.add("missing_file")
             continue
         if heights is None:
             findings.append(EntryTiming(entry, n_cues, grid, False, None, None, None))
@@ -198,7 +222,7 @@ def timeline_offset(old_file: Path, *, place=_LOCATE, running: Callable[[], bool
             values.append(decided.offset_s)
             measured_any = True
 
-    for reason in ("not_analysed", "timing"):
+    for reason in ("not_analysed", "timing", "missing_file"):
         if reason in reasons:
             return TimelineOffset(None, reason, rb, findings)
     if not values:

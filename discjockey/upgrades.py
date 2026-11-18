@@ -162,11 +162,12 @@ def fields_before(e: dict, *, keep_undo: bool = False) -> dict:
     return b
 
 
-def undo_keys(paths: Paths, new: str, old: str) -> dict | None:
-    """The content keys of the two files an undo checks, or None (no undo) if one can't be read."""
+def undo_keys(paths: Paths, new: str, old: str | None) -> dict | None:
+    """The content keys of the two files an undo checks, or None (no undo) if one can't be read. `old` None: the
+    placement for a missing file has no old file (its `old` and `old_key` are None)."""
     try:
         return {"file": new, "file_key": content_key(paths.root / new), "old": old,
-                "old_key": content_key(paths.root / old)}
+                "old_key": None if old is None else content_key(paths.root / old)}
     except OSError:
         return None
 

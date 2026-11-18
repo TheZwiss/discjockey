@@ -78,6 +78,7 @@ CONVERT_REFUSED = {
     "needs_convert": "This file isn't a clean AIFF yet: Convert to AIFF gives it its clean name too. Nothing was "
                      "changed.",
     "away": "The file's drive isn't connected, so nothing was changed.",
+    "not_missing": "The song's file is back where it was, so nothing was put in its place. Nothing was changed.",
     "file_missing": "Discjockey can't find the file where it expects it. Run a sync first, so it can find the file "
                     "again. Nothing was changed.",
 }
