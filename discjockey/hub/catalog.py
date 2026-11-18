@@ -358,6 +358,13 @@ ENTRIES: tuple[Entry, ...] = (
     _e("rekordbox_checked", "check done", "J", "check done --batch aiff:1",
        params={"track_ids": TRACKS, "batch_id": Arg("--batch", resolve="aiff")}, built=True, locks={"library"},
        partial=UPGRADE_PARTIAL),
+    # issue 43: Download again / Remove from library for songs whose file is missing (E3b2 builds the commands; the preview
+    # is their dry run and has no command of its own)
+    _e("missing_files_preview", "", "R", built=True),
+    _e("missing_files", "missing download", "J", params={"track_ids": TRACKS}, fixed={"action": "download_again"},
+       dry_run="missing_files_preview", locks={"library"}),
+    _e("missing_files", "missing remove", "J", params={"track_ids": TRACKS}, fixed={"action": "remove"},
+       needs_yes=True, dry_run="missing_files_preview", locks={"library"}),
     _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK}),
     _e("search_candidates", "version search", "RJ", params={"track_id": TRACK}),
     _e("preview", "version preview", "RJ", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),

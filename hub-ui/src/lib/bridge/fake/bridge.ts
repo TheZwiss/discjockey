@@ -3,7 +3,7 @@ import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
   BatchResult, Candidate, ChangePreview, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, Todo, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
+  AccountCheck, Browser, MissingAction, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, Todo, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
@@ -1107,6 +1107,16 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startJob('undo_moves', null, (finish) => moveJob(finish, async (run) =>
         [await runBatch(s, emit, run, 250 / speed, 'undo', planUndo(s, b), { undoes: b.id })],
       (batches) => batches[0]));
+    },
+    // issue 43: Download again / Remove from library. The real handlers (the scenario's songs, the engine's words) come with the
+    // commands (E3b2); until then the fake answers like a song it cannot act on
+    async missing_files_preview(track_ids: string[], action: MissingAction) {
+      void track_ids; void action;
+      return fail('refused', 'The fake backend does not run Download again or Remove from library yet.');
+    },
+    async missing_files(track_ids: string[], action: MissingAction) {
+      void track_ids; void action;
+      return fail('refused', 'The fake backend does not run Download again or Remove from library yet.');
     },
     async watched_folders() { return ok(watchedFolders(s)); },
     async check_import_folder(path: string) { return ok(checkImportFolder(s, path)); },

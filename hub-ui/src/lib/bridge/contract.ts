@@ -6,7 +6,8 @@
 // remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate, setup_skip_import: +10;
 // set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2; undo_upgrade: +1;
 // set_read_liked_music and add_liked_music (sources round): +2; set_crates_shown (leftovers C2): +1;
-// rekordbox_status and set_auto_upgrade (issue 33 stage C): +2; aiff_plan, convert, rename and make_aiff (stage D): +4.)
+// rekordbox_status and set_auto_upgrade (issue 33 stage C): +2; aiff_plan, convert, rename and make_aiff (stage D): +4;
+// missing_files_preview and missing_files (issue 43): +2.)
 export const CONTRACT_METHODS = [
   // read, any time
   'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
@@ -15,6 +16,8 @@ export const CONTRACT_METHODS = [
   // what Make all, a selection's Convert and the CDJ group's Convert all would do (issue 33 stage D)
   'aiff_plan',
   'tidy_preview', 'move_batches', 'undo_preview', 'watched_folders', 'check_import_folder', 'removal_preview',
+  // what Download again or Remove from library would do for songs whose file is missing (issue 43)
+  'missing_files_preview',
   // brief saves (no job): Favourites and the crate switches
   'set_favourites', 'set_crate_shown', 'set_crates_shown',
   // read with network
@@ -23,6 +26,7 @@ export const CONTRACT_METHODS = [
   'start_sync', 'stop', 'save_playlists', 'save_limits', 'mark_warnings_seen', 'hide', 'never_download', 'add_bought_file',
   'use_candidate', 'use_link', 'reject_current', 'rekordbox_checked', 'upgrade', 'upgrade_all', 'undo_upgrade',
   'batch_resume', 'batch_undo', 'convert', 'rename', 'make_aiff', 'rescan_library',
+  'missing_files',
   'tidy_up', 'undo_moves',
   'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates',
   'supersede_duplicate',
@@ -56,5 +60,5 @@ export const LIBRARY_METHODS = [
   'tidy_preview', 'move_batches', 'undo_preview', 'tidy_up', 'undo_moves',
   'watched_folders', 'set_favourites', 'set_crate_shown', 'set_crates_shown', 'check_import_folder', 'removal_preview',
   'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates', 'supersede_duplicate',
-  'add_liked_music',
+  'add_liked_music', 'missing_files_preview', 'missing_files',
 ] as const satisfies readonly ContractMethod[];

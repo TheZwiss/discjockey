@@ -4,7 +4,7 @@ import type {
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
   RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
-  RemovalPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, RekordboxStatusAnswer, AiffPlan, AiffScope,
+  RemovalPreview, MissingAction, MissingPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, RekordboxStatusAnswer, AiffPlan, AiffScope,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
 import { waitForJob } from '../stores/jobs';
@@ -27,6 +27,9 @@ export interface Bridge {
   watched_folders(): Promise<Res<WatchedFolders>>;
   check_import_folder(path: string): Promise<Res<ImportFolderCheck>>;
   removal_preview(folder_id: number): Promise<Res<RemovalPreview>>;
+  /** What Download again (`download_again`) or Remove from library (`remove`) would do for songs whose file is missing
+   *  (issue 43): one item per song, `will` and the sentence; reads only. An unknown action is `bad_args` */
+  missing_files_preview(track_ids: string[], action: MissingAction): Promise<Res<MissingPreview>>;
   // Favourites and crate switches: brief saves in library.db, no job and no engine lock (D15); `busy` when a running
   // job's write holds the file for too long
   set_favourites(keys: string[]): Promise<Res<FavouritesSaved>>;
@@ -91,6 +94,11 @@ export interface Bridge {
   /** "Undo" on "Check in rekordbox" items with `can_undo`: puts swaps, added files and Same tracks back, newest first */
   undo_upgrade(track_ids: string[]): Promise<JobStart>;
   rescan_library(): Promise<JobStart>;
+  /** Download again or Remove from library for songs whose file is missing (job `missing_files`, result `MissingResult`):
+   *  each song is asked again when the job runs and a changed one is `skipped` with its reason; every song skipped ends
+   *  the job `changed`. Remove is final: no undo, no music file deleted. The plan is made again, so the Sync page shows
+   *  the planned download at once */
+  missing_files(track_ids: string[], action: MissingAction): Promise<JobStart>;
   // other
   show_in_finder(track_id: string, which: Which): Promise<Res<{}>>;   reveal(rel_path: string): Promise<Res<{}>>;
   open_report(run_id: string): Promise<Res<{}>>;   open_external(url: string): Promise<Res<{}>>;

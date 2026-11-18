@@ -1941,7 +1941,8 @@ a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `libra
 `never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`, `upgrade_all`,
 `undo_upgrade`, `batch_resume`, `batch_undo`, `rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
 `undo_moves`, `watched_folders`, `set_favourites`, `set_crate_shown`, `check_import_folder`, `removal_preview`, `add_watched_folder`,
-`remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`, `add_liked_music`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
+`remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`, `add_liked_music`,
+`missing_files_preview`, `missing_files`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.
 
 **Bound but missing.** A folder that vanishes while the hub runs (an unplugged drive) behaves as an unbound one: every
@@ -2244,8 +2245,8 @@ answer `no_library` without a music folder.
 
 A file that one scan doesn't see is never decided: its song waits as missing (`files.missing_since`) with everything it
 has, links back when the file shows up in any watched folder, and To-do lists it. Only the user's word removes an own
-song or downloads a playlist song again. This section is the read side (E3a); the two actions (`missing_files`,
-`missing_files_preview`) and the Auto-upgrade block's placement rows are added with their groups.
+song or downloads a playlist song again. This section is the read side (E3a) and the two actions (`missing_files_preview`,
+`missing_files`, E3b); the Auto-upgrade block's placement rows are added with their group.
 
 - **`todo()`**: `TodoFilter` and `TodoGroupKey` gain `missing_file`; the group is second, after `rekordbox_check` (label
   "Missing files", hint "not where they were; put a file back and it links again"; `chips.missing_file`). It lists every
@@ -2288,4 +2289,43 @@ song or downloads a playlist song again. This section is the read side (E3a); th
   marked Never download, a hidden one, one whose Download again was asked, and four own songs: plain, with a parked
   version, with an open rekordbox check, on a drive that is away). `todo()`, `track()` and `library()` answer from them as
   the engine does (the group, `missing`, `all`, `file_state`, `next_qobuz_check`); the engine's words are pinned against
-  `discjockey/missing.py` by `missingFiles.test.ts`. The actions' handlers come with E3b.
+  `discjockey/missing.py` by `missingFiles.test.ts`. The actions' handlers (`missing_files_preview`, `missing_files`)
+  come with the commands: until then the fake answers both `refused` ("The fake backend does not run Download again or
+  Remove from library yet.").
+
+### The two actions (read: `missing_files_preview`; write job: `missing_files`; both in `LIBRARY_METHODS`)
+
+The action follows the song (`missing.action_for`), never a choice: `download_again` for a song in a playlist, `remove`
+for any other. Both methods take `track_ids` (a non-empty list of song keys, each once; a lone string or an empty list is
+`refused`) and `action` (`download_again` | `remove`; any other word is `bad_args`, "action must be one of
+download_again, remove."). A song the action does not fit is not switched to the other action: it is skipped with its
+reason.
+
+- **`missing_files_preview(track_ids, action)`** (read, the dry run of both commands): `MissingPreview` `{action, items,
+  n, skipped, words}`. One item per song, in the order asked: `{track_id, artist, title, place` (where its file was),
+  `since` (ISO day of the first scan that missed it; null when it is not missing), `will` (the action runs for it now),
+  `reason` (a `why_not` key, null when `will`), `words` (the action's `will` sentence when `will`, else the reason's
+  sentence), `upgrade_waiting}` (a parked better version waits: Download again puts it in instead of a download, Remove
+  deletes it). A key that is no song is an item with `reason: "not_missing"`. `n` counts what will run, `skipped` the
+  rest, `words` is the one line ("2 songs download again at your next sync; 1 is skipped." / "Removes 1 song from your
+  library." / with parked versions among them: "1 song downloads again and 1 gets the better version already waiting
+  for it, at your next sync."). Reads only: no lock beyond the hub's read, nothing is stored.
+- **`missing_files(track_ids, action)`** (write job, kind `missing_files`; answers `busy`, `console` and `sync_running`
+  as every write method): each song is asked again when the job runs under the library lock, so a song that changed
+  since the click (its file came back, the other action became its own, Never download, an open rekordbox check, Download
+  again asked already) is `skipped` with its reason. `JobFinished.result` is `MissingResult` `{action, results, done,
+  skipped, words, recovered}`: `results` one `{track_id, action, state` (`done` | `skipped`)`, reason` (null when done),
+  `words}` per song (a done song's `will` sentence, a skipped song's reason sentence, `wrong_action` naming the action
+  the song gets instead), `done` / `skipped` the keys, `words` the one line of the preview's grammar in the past for
+  Remove ("Removed 2 songs from your library; 1 is skipped."), `recovered` as every job's. **Every song skipped** ends
+  the job `changed` (`message` = `words`) with the same `MissingResult` kept in `JobFinished.result`. The sync's plan
+  is made again when the job ends, so the Sync page shows the planned download at once (a song with a parked version
+  plans none: the sync's last phase places it).
+  - **Download again** sets `file_gone` and changes nothing else: the file row, the parked upgrade and its file, every
+    answer. The next sync downloads the song, or puts its parked version in.
+  - **Remove from library** is final (no undo; the window asks first): it deletes the song's records (its missing file
+    row, the song, its aliases, the answers naming it) and the parked download in `Upgrades ready/` its song had. It
+    deletes no music file: the song's own file is not there, and a parked record that names a path outside `Upgrades
+    ready/` leaves that file alone. Nothing is removed by a scan, a sync or the preview, only by this call.
+- **Problem kinds**: `bad_args` (unknown action), `refused` (no songs), `changed` (every song skipped), and the write
+  methods' `busy` / `console` / `sync_running` / `no_library`.

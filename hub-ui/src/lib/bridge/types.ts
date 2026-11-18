@@ -93,6 +93,21 @@ export type MissingView = { since: string; place: string; action: MissingAction;
 /** `track().missing`: the item's fields plus `line` ("Not seen since 12 Nov. It was in Techno 2019.") and `hint` (what
  *  can be done, by action). Null when the song's file isn't marked missing. */
 export type MissingDetail = MissingView & { line: string; hint: string };
+/** One song of `missing_files_preview` (`missing.preview`): `will` says whether the action runs for it now, `reason` and
+ *  `words` why not otherwise (`words` is the action's `will` sentence when it does), `since` the ISO day its file was
+ *  first missed (null when it is not missing), `upgrade_waiting` a parked better version waits (Download again puts it
+ *  in, Remove deletes it). */
+export type MissingPreviewItem = { track_id: string; artist: string; title: string; place: string; since: string | null;
+  will: boolean; reason: MissingReason | null; words: string; upgrade_waiting: boolean };
+/** `missing_files_preview`: what Download again or Remove would do for these songs. `n` counts what will run, `skipped`
+ *  the rest, `words` is the one line ("2 songs download again at your next sync; 1 is skipped."). */
+export type MissingPreview = { action: MissingAction; items: MissingPreviewItem[]; n: number; skipped: number; words: string };
+/** One song of a finished `missing_files` job: `done`, or `skipped` with its reason's key and sentence. */
+export type MissingItemResult = { track_id: string; action: MissingAction; state: 'done' | 'skipped'; reason: MissingReason | null;
+  words: string | null };
+/** JobFinished.result of `missing_files` (every song skipped ends the job `changed` with this result kept). */
+export type MissingResult = { action: MissingAction; results: MissingItemResult[]; done: string[]; skipped: string[];
+  words: string; recovered: [string, boolean][] };
 /** A `BatchCheckItem`'s batch: `size` open checks, `started` the earliest check's date, `tracks` them as single items. */
 export type BatchCheck = { id: number; size: number; started: string | null;
   /** `aiff:<id>`, the id the command line takes for this batch (the window ignores it) */
@@ -805,7 +820,7 @@ export type JobResults = {
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;
   setup_forget_account: { service: Service };
   never_download: { track_id: string; never: boolean };
-  scan: ScanResult;
+  scan: ScanResult; missing_files: MissingResult;
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
   reject_current: OpResult; rekordbox_checked: CheckedResult; upgrade_batch: AiffBatchResult; aiff_batch: AiffBatchResult; batch_resume: AiffBatchResult;
   upgrade_add_new: AiffBatchResult; upgrade_discard: AiffBatchResult; batch_undo: UndoResult; undo_upgrade: UndoResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };

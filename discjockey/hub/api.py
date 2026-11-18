@@ -30,7 +30,7 @@ from typing import Callable
 from urllib.parse import quote
 
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
-from .. import aiff_plan as plans, audio, cdj, quality
+from .. import aiff_plan as plans, audio, cdj, missing, quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
@@ -117,6 +117,7 @@ LIBRARY_METHODS = frozenset((
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
+    "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
@@ -711,7 +712,7 @@ class HubApi:
         # where a missing file was (the Missing files group's words); the sidebar's count needs none
         where = None
         if not count_only and any(file_missing(e) for e in state["tracks"].values()):
-            where = views.sites(state, pf.load(self._paths.playlists_file).rows, self._records_and_folders()[1]).place
+            where = self._place(state)
         cdj_all = views.cdj_counts(cdj_plan.to_dict()) if cdj_plan else (0, 0)
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
                           questions, groups, files, self._audio, counted, away, rb, present,
@@ -719,6 +720,11 @@ class HubApi:
                           {i: r.started_by for i, r in checked.items()}, cdj_all,
                           views.stopped_batch(rows, scope="todo:"), {i: r.kind for i, r in checked.items()},
                           cdj_plan.waits if cdj_plan else None, decided, self._paths.root, where)
+
+    def _place(self, state: dict) -> Callable[[str], str]:
+        """A file's place in the Folder column's words (a Library folder's playlist name, an import folder's name): where
+        a missing file was."""
+        return views.sites(state, pf.load(self._paths.playlists_file).rows, self._records_and_folders()[1]).place
 
     def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str]) -> plans.AiffPlan:
         """The `cdj` scope's plan for To-do, remembered on the records' generation (every write of songs, files or
@@ -2356,6 +2362,53 @@ class HubApi:
             return body
         return {"job_id": self._jobs.start("rekordbox_checked", work,
                                            track_id=ids[0] if ids is not None and len(ids) == 1 else None).id}
+
+    @staticmethod
+    def _missing_action(action: object) -> str:
+        """The action of a missing file's methods (`missing.ACTIONS`); anything else is `bad_args`."""
+        if action not in missing.ACTIONS:
+            raise BadId("usage", f"action must be one of {', '.join(missing.ACTIONS)}.")
+        return action  # type: ignore[return-value]
+
+    @bridge
+    def missing_files_preview(self, track_ids: list[str], action: str) -> dict:
+        """What Download again or Remove from library would do for songs whose file is missing, answered before it runs
+        (issue 43, plan §4.4; the dry run of `missing download|remove`): `{action, items, n, skipped, words}` as
+        `missing.preview` shapes it, one item per song with `will` and, when it can't, its `reason` and `words`. A song
+        that is not missing (or is no song) is an item that will not run. Reads only. An unknown action is `bad_args`."""
+        action = self._missing_action(action)
+        ids = self._track_list(track_ids)
+        state = self._state()
+        return missing.preview(state, ids, action, self._place(state), self._today())
+
+    @bridge
+    def missing_files(self, track_ids: list[str], action: str) -> dict:
+        """Download again (`download_again`) or Remove from library (`remove`) for songs whose file is missing: a write
+        job (kind "missing_files"; the plan is made again, so the Sync page shows the planned download, or the placement in
+        its Auto-upgrade line, at once). Each song is asked again when the job runs: one that changed since the click
+        is `skipped` with its reason. The result is `{action, results, done, skipped, words}`; every song skipped ends the
+        job `changed` with the same result kept. Remove is final (no undo) and deletes no music file: only the song's
+        records and its parked download in Upgrades ready/. Nothing is removed without this call."""
+        action = self._missing_action(action)
+        ids = self._track_list(track_ids)
+        run_action = missing.download_again if action == missing.DOWNLOAD_AGAIN else missing.remove
+
+        def work(ctx) -> dict:
+            state, recovered = self._begin()
+            results = run_action(self._paths, ids, now=self._svc.now, state=state)
+            done = [r.track_id for r in results if r.state == "done"]
+            body = {"action": action, "results": [r.to_dict() for r in results], "done": done,
+                    "skipped": [r.track_id for r in results if r.state == "skipped"],
+                    "words": missing.run_words(action, results, state), "recovered": recovered}
+            if not done:
+                ctx.failed_result = body
+                raise OpProblem(body["words"], "changed")
+            if action == missing.REMOVE:
+                rep.write_not_lossless(self._paths, library.load_state(self._paths))
+            return body
+
+        return {"job_id": self._jobs.start("missing_files", replanned_work(self._store, work, self._svc.now),
+                                           track_id=ids[0] if len(ids) == 1 else None).id}
 
     def _plan_run(self, plan_id: str, mode: str, ids: list[str], state: dict, typed: set[str] | None = None
                   ) -> tuple[list[str], list[batches.ItemResult], dict]:
