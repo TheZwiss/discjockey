@@ -767,6 +767,9 @@ Results:
     lead/count; batch row_name/row_sub/list_title; batchCheckCard placed_missing steps) + 6 Minor (3,4 = phase 6 moves,
     6 precedent; 5 decided: Select all label counts what it selects). Fix split F1 engine words (3-6), F2 selection +
     Library (1,2, minors 1,2,5). Stage so far ~5.17M.
+    F1 (Sonnet fix-round) 8b7b2373 + 7e685dfb: **180k**: section_labels/part_labels, BatchProgress lead/count (CLI
+    too), batch row_name/row_sub/list_title/card_summary, batchCheckCard placed steps; 6001 passed + golden re-run.
+    Edge -> F2: card_summary null for mixed batches (send it always). Stage so far ~5.35M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
