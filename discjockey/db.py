@@ -971,18 +971,20 @@ def pending_ops(conn: sqlite3.Connection) -> list[dict]:
     return [json.loads(op) for op in _pending(conn)]
 
 
-def _forget_alignment(conn: sqlite3.Connection, file_id: int) -> int:
+def _stale_alignment(conn: sqlite3.Connection, file_id: int) -> int:
     """The song's parked upgrade was measured against the audio this file had; the audio is another now, so the
-    measurement is dropped (issue 43: a placement for a missing file would take it for the file that is gone and
-    line the cues up for the wrong audio; with none it places the upgrade as it is and leaves rekordbox alone)."""
+    measurement is marked `alignment_stale` (issue 43: a placement for a missing file must not take it for the file
+    that is gone and line the cues up for the wrong audio; it places the upgrade as it is and leaves rekordbox alone).
+    The measurement itself stays: Same track on a file that is there measures the two again when it runs, so what
+    the quick answers offer for it is as before."""
     row = conn.execute("SELECT s.id, s.upgrade FROM songs s JOIN files f ON f.song = s.id WHERE f.id = ? "
                        "AND s.upgrade IS NOT NULL", (file_id,)).fetchone()
     if row is None:
         return 0
     upgrade = json.loads(row[1])
-    if not isinstance(upgrade, dict) or "alignment" not in upgrade:
+    if not isinstance(upgrade, dict) or not upgrade.get("alignment") or upgrade.get("alignment_stale"):
         return 0
-    del upgrade["alignment"]
+    upgrade["alignment_stale"] = True
     return conn.execute("UPDATE songs SET upgrade = ? WHERE id = ?", (_dumps(upgrade), row[0])).rowcount
 
 
@@ -997,8 +999,8 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     rows get the file's size, mtime and key; a moved row takes its new place (placed by the user), and an unlinked
     row already there gives way to it; ambiguous rows keep their candidates; new files and copies become unlinked
     rows (found there by a scan: placed by 'import'; in an import folder with import_state `new`, stage 4).
-    A replaced file's song also loses its parked upgrade's `alignment` (measured against the old audio:
-    `_forget_alignment`). Nothing a song has is deleted (issue 43): a `missing` or `ambiguous` row (its file isn't
+    A replaced file's song has its parked upgrade's `alignment` marked stale (measured against the old audio:
+    `_stale_alignment`). Nothing a song has is deleted (issue 43): a `missing` or `ambiguous` row (its file isn't
     at its path) gets `missing_since` = this scan's stamp unless it has one (the first scan that missed it stays its
     date), and keeps everything else; a `back` row (missing before, seen again) loses the mark and its song's `file_gone` (a file that
     came back cancels a Download again the sync hasn't done yet). A `gone` row (nobody's file) is deleted, with the
@@ -1035,7 +1037,7 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
         for file_id, seen in result.replaced:  # other audio: what the row knew of the old file's own audio is gone
             n += conn.execute(f"UPDATE files SET {facts}, {_CLEAR_FILE_AUDIO} WHERE id = ?",
                               (seen.size, seen.mtime_ns, seen.content_key, stamp, file_id)).rowcount
-            n += _forget_alignment(conn, file_id)
+            n += _stale_alignment(conn, file_id)
         for file_id, seen in result.moved:
             # an earlier scan's candidate at the target (an unlinked row) gives way to the file that moved there
             n += conn.execute("DELETE FROM files WHERE folder = ? AND path = ? AND id != ? AND song IS NULL",

@@ -355,7 +355,9 @@ def place_parked(paths: Paths, state: dict, track_id: str, upgrade: dict, *, ses
       `Skipped("away")` for a drive that isn't connected); nothing is measured: the alignment is the one stored at
       parking;
     - the same edit is rendered at `k = L − d` and every rekordbox track of the old path is pointed at it; a
-      different edit (or an unknown one) is placed as it is, `k = 0`, and rekordbox is left alone;
+      different edit (or an unknown one, or a measurement a scan marked `alignment_stale`) is placed as it is,
+      `k = 0`, and rekordbox is left alone (its check says `aligned: false` when the new file takes the missing
+      file's own name, where rekordbox's track plays it now);
     - `d` comes from the stored codec (`timeline_offset(codec=…)`: the missing file is never opened); when it can't be
       known (`missing_file`) the file is placed at `k = L`, still repointed, and the check says `aligned: false`;
     - no text column of rekordbox is written (no old tags to tell the user's own edit apart), nothing goes to
@@ -373,7 +375,10 @@ def place_parked(paths: Paths, state: dict, track_id: str, upgrade: dict, *, ses
         raise rbstep.skipped("away")
     if not models.file_missing(e) or old_file.exists():  # the file came back, or nothing marked it missing
         raise rbstep.skipped("not_missing")
-    alignment = (align.Alignment.from_dict(upgrade["alignment"]) if upgrade.get("alignment") else align.unknown())
+    # a measurement a scan marked stale (the file's audio was replaced after parking) says nothing about the file that
+    # is gone: unknown, so the version is placed as it is and rekordbox is left alone
+    measured = upgrade.get("alignment") and not upgrade.get("alignment_stale")
+    alignment = align.Alignment.from_dict(upgrade["alignment"]) if measured else align.unknown()
     same_edit = alignment.swap_safe
     entries, d = [], 0
     if same_edit:
@@ -382,6 +387,8 @@ def place_parked(paths: Paths, state: dict, track_id: str, upgrade: dict, *, ses
                                own_file=True, codec=codec)
     aligned = d is not None
     new = place_names(paths, state, track_id, e, upgrade)
+    if not same_edit and fold(new) == fold(old_rel) and session.state.state != "none":
+        aligned = False  # it takes the missing file's name: rekordbox's track at that name plays another edit now
     try:
         check_space(paths, paths.root / upgrade["file"], new)
     except RuntimeError as err:  # ffprobe can't read the download
@@ -637,7 +644,9 @@ def _result(track_id: str, e: dict, op: dict) -> Result:
                      "; rekordbox's track plays it, but Discjockey couldn't tell where its timeline sat for the "
                      "missing file, so check that the cues sit on the beat")
         elif check["match"] not in ("exact", "shifted"):
-            note += "; it isn't the same edit, so rekordbox's old track was left as it is"
+            note += ("; it isn't the same edit, so rekordbox's old track was left as it is" if check["aligned"] else
+                     "; it isn't the same edit and has the missing file's name, so rekordbox's track at that name "
+                     "plays it now: check that the cues sit on the beat")
         return Result("swapped", e["folder"], e["artist"], e["title"], track_id, note,
                       status=op["entry"].get("status"), source=op["entry"].get("source"), path=op["new"])
     note = f"new file {op['new']}, lined up with rekordbox; the old one moved to {op['superseded']}"
@@ -1018,7 +1027,8 @@ def recover_convert_undo(paths: Paths, state: dict, op: dict, roots: Collection[
         if rb is not None:
             rows = rb["record"]["rows"]
             side = rbstep.tracks_at(rb["dbid"], {r["id"]: (r["identity_before"]["FolderPath"],
-                                                    r["identity_after"]["FolderPath"]) for r in rows})
+                                                    r["identity_after"]["FolderPath"]) for r in rows},
+                                    {r["id"]: (r.get("facts_before") or {}).get("FileSize") for r in rows})
         if side == "unreadable":
             return Waits(name, Recovered("", False, True), True, _say(op, rbstep.UNDO_UNREADABLE_WAIT).format(name=name))
         if side == "unclean":

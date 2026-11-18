@@ -14,7 +14,7 @@ from convert_helpers import (
 from discjockey import convert, db, library, rbstep
 from discjockey.align import Alignment
 from discjockey.library import load_state
-from discjockey.rekordbox import backup, master
+from discjockey.rekordbox import backup, eligible, master
 from discjockey.rekordbox import write as rbwrite
 from discjockey.rekordbox.eligible import Eligible, Skip
 from discjockey.rekordbox.master import Status
@@ -241,6 +241,30 @@ def test_a_different_or_unknown_edit_is_placed_as_it_is_and_rekordbox_is_left_al
     assert (e["path"], e["upgrade"], e["file_gone"]) == (NEW, None, None) and missing_since(env) == [None]
 
 
+@pytest.mark.parametrize("rekordbox, aligned", [(True, False), (False, True)])
+def test_a_different_edit_that_takes_the_missing_files_name_asks_to_look_at_the_cues(tmp_path, monkeypatch, rekordbox,
+                                                                                    aligned):
+    """Nothing is repointed, but rekordbox's track at that name plays the new file now, with cues made for another
+    edit: the check says so (with no rekordbox library there is no track and nothing to look at)."""
+    env = make_missing(tmp_path, monkeypatch, alignment=Alignment("different", text="x"), entry={"path": NEW},
+                       rekordbox=rekordbox)
+    r, state = place(env)
+    check = state["tracks"][TID]["rekordbox_check"]
+    assert r.path == NEW and (check["aligned"], check["repointed"]) == (aligned, False)
+    assert ("has the missing file's name" in r.note) is (not aligned)
+
+
+def test_a_fresh_measurement_clears_the_stale_mark(tmp_path, monkeypatch):
+    from discjockey import upgrades
+    env = make_missing(tmp_path, monkeypatch)
+    state = load_state(env.paths)
+    e = state["tracks"][TID]
+    e["upgrade"]["alignment_stale"] = True
+    upgrades.keep_measurement(env.paths, state, TID, e, Alignment("different", text="x"))
+    up = load_state(env.paths)["tracks"][TID]["upgrade"]
+    assert up["alignment"]["result"] == "different" and "alignment_stale" not in up
+
+
 # --- the precondition ---
 
 def assert_untouched(env, music, master_db, analysis):
@@ -396,7 +420,6 @@ def test_row_change_without_text_plans_no_text_column(tmp_path, monkeypatch):
 
 
 def test_place_quick_and_place_answer_by_the_plan(tmp_path):
-    from discjockey.rekordbox import eligible
     ready, unreadable = Status("ready", False, None, None, None, None, None), Status("unreadable", False, None, None, None, None, None)
     e = {"upgrade": {"file": PARKED}}
     assert eligible.place_quick({"upgrade": None}, ready, "missing") == Skip("no_upgrade")
@@ -454,7 +477,10 @@ def test_a_file_replaced_in_place_then_missing_is_placed_as_unknown_and_rekordbo
     assert scan()["upgrade"]["alignment"]["result"] == "shifted"  # a scan that finds nothing new keeps it
     write_aiff(root / NOT_LOSSLESS_AIFF, music(1, seed=7))  # other audio under the same name: the file is "replaced"
     up = scan()["upgrade"]
-    assert "alignment" not in up and up["file"] == PARKED and up["source"] == "qobuz"  # only the measurement goes
+    assert up["alignment_stale"] is True and up["alignment"]["result"] == "shifted"  # kept, marked: not the file's now
+    assert up["file"] == PARKED and up["source"] == "qobuz"
+    # a song whose file is there keeps what it was offered: Same track measures the two again when it runs
+    assert eligible.same_track_quick(scan(), Status("none", False, None, None, None, None, None)) == Eligible()
     (root / NOT_LOSSLESS_AIFF).unlink()
     assert scan()["missing_since"]
     with db.connect(env.paths.db_file) as conn:

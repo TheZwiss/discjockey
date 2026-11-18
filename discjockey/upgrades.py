@@ -522,7 +522,8 @@ def keep_measurement(paths: Paths, state: dict, track_id: str, e: dict, alignmen
     files could not be compared) changes nothing: the stored one stays."""
     if alignment.result == "unknown" or not e.get("upgrade"):
         return
-    state["tracks"][track_id] = {**e, "upgrade": {**e["upgrade"], "alignment": alignment.to_dict()}}
+    state["tracks"][track_id] = {**e, "upgrade": {**{k: v for k, v in e["upgrade"].items() if k != "alignment_stale"},
+                                                   "alignment": alignment.to_dict()}}
     save_state(paths, state)
 
 

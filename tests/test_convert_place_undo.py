@@ -402,3 +402,43 @@ def _cut_first_mark(monkeypatch):
         raise PowerOff
     monkeypatch.setattr(convert, "mark_op", mark)
 
+
+
+# --- a new file that takes the missing file's own name: the path can't tell the sides of the commit apart ---
+
+SAME_PATH = {"entry": {"path": NEW}}
+
+
+@pytest.mark.parametrize("at", BEFORE_COMMIT)
+def test_with_the_same_path_a_cut_before_the_commit_rolls_back_and_rekordbox_keeps_its_old_facts(tmp_path, monkeypatch, at):
+    env, before = make_placed_env(tmp_path, monkeypatch, **SAME_PATH)
+    crash_place(env, monkeypatch, at)
+    messages, state = next_start(env)
+    assert messages == ([] if at == "rendered" else [(convert.PLACED_WORDS[convert.NOT_FINISHED].format(name=NAME), False)])
+    assert_rolled_back(env, before, state)  # rekordbox's FileSize, Length, ... as they were: the commit never happened
+
+
+@pytest.mark.parametrize("at", AFTER_COMMIT_WITHOUT_SUPERSEDED)
+def test_with_the_same_path_a_cut_after_the_commit_finishes_and_the_undo_still_works(tmp_path, monkeypatch, at):
+    env, before = make_placed_env(tmp_path, monkeypatch, **SAME_PATH)
+    crash_place(env, monkeypatch, at)
+    messages, _state = next_start(env)
+    assert messages == [(convert.PLACED_WORDS[convert.FINISHED].format(name=NAME), True)]
+    assert row_of(env)["FileSize"] == (env.paths.root / NEW).stat().st_size
+    _r, state = undo(env)
+    assert_undone(env, before, state)
+
+
+@pytest.mark.parametrize("at, finished", [("journaled", False), ("outcome", False), ("committed_unmarked", True),
+                                          ("committed", True)])
+def test_with_the_same_path_a_cut_in_the_undo_is_decided_by_rekordbox_s_file_size(tmp_path, monkeypatch, at, finished):
+    env, before = placed(tmp_path, monkeypatch, **SAME_PATH)
+    after = snapshot(env)
+    crash_undo(env, monkeypatch, at)
+    messages, state = next_start(env)
+    if finished:
+        assert messages == [(convert.UNDO_FINISHED.format(name=NAME), True)]
+        assert_undone(env, before, state)
+    else:
+        assert messages == [(convert.UNDO_NOT_FINISHED.format(name=NAME), False)]
+        assert snapshot(env) == after

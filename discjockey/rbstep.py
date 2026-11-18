@@ -148,7 +148,8 @@ def plan_splices(session: Session, entries: list[rekordbox.Entry], new_abs: str)
         for a in found:
             if str(a.path) not in seen:
                 seen.add(str(a.path))
-                splices.append(a)
+                if rbwrite.sha256_of(a.new_bytes) != a.old_sha256:  # a file that keeps its name has nothing to splice:
+                    splices.append(a)  # and recovery couldn't tell its written bytes from its old ones
     return splices
 
 
@@ -261,13 +262,17 @@ def side_of(paths: Paths, op: dict) -> str:
     if rb is None:  # no rekordbox step: by whether the new file is in place
         return "new" if ours(paths.root / op["new"], op["new_sha256"]) else "old"
     return tracks_at(rb["dbid"], {r["id"]: (r["after"]["FolderPath"], r["before"]["FolderPath"])
-                                  for r in rb["rows"]})
+                                  for r in rb["rows"]},
+                     {r["id"]: r["after"].get("FileSize") for r in rb["rows"]})
 
 
-def tracks_at(dbid: str, paths_of: dict[str, tuple[str, str]]) -> str:
+def tracks_at(dbid: str, paths_of: dict[str, tuple[str, str]], sizes: dict[str, int | None] | None = None) -> str:
     """Where rekordbox's tracks `paths_of` (id -> (new path, old path)) point now: "new" when every one holds its new
     path, "old" when every one holds its old path, else "neither"; "other" for another rekordbox library (or none) on
-    this Mac, "unreadable", "unclean" (a `-wal` or `-shm` alone beside the library while rekordbox is closed)."""
+    this Mac, "unreadable", "unclean" (a `-wal` or `-shm` alone beside the library while rekordbox is closed).
+    `sizes` (id -> the `FileSize` a track holds on its new side): for a track whose two paths are the same (the
+    placement for a missing file whose new file takes the missing one's name, issue 43) the path can't tell the sides
+    apart, so its `FileSize` does."""
     place = rekordbox.locate()
     if place is None or not place.db.is_file():
         return "other"
@@ -281,14 +286,25 @@ def tracks_at(dbid: str, paths_of: dict[str, tuple[str, str]]) -> str:
                 return "other"
             ids = list(paths_of)
             marks = ",".join("?" * len(ids))
-            now = {str(i): p for i, p in m.con.execute(
-                f"SELECT ID, FolderPath FROM djmdContent WHERE ID IN ({marks}) AND IFNULL(rb_local_deleted, 0) = 0",
-                ids)}
+            now = {str(i): (p, size) for i, p, size in m.con.execute(
+                f"SELECT ID, FolderPath, FileSize FROM djmdContent WHERE ID IN ({marks}) "
+                "AND IFNULL(rb_local_deleted, 0) = 0", ids)}
     except master.Unreadable:
         return "unreadable"
-    if all(now.get(i) == new for i, (new, _old) in paths_of.items()):
+
+    def on_new_side(i: str) -> bool | None:
+        """True: the track plays the new file; False: the old one; None: neither."""
+        new, old = paths_of[i]
+        path, size = now.get(i, (None, None))
+        if new == old:  # the path is the same on both sides: the size tells
+            want = (sizes or {}).get(i)
+            return None if path != new else (True if want is None or size == want else False)
+        return True if path == new else False if path == old else None
+
+    sides = [on_new_side(i) for i in paths_of]
+    if all(s is True for s in sides):
         return "new"
-    if all(now.get(i) == old for i, (_new, old) in paths_of.items()):
+    if all(s is False for s in sides):
         return "old"
     return "neither"
 
