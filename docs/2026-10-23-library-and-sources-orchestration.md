@@ -762,6 +762,11 @@ Results:
     BeforeStart/EndScreen; vitest 1693; npm run rules failed (local connect EAGAIN) -> shots agent. Found: placement
     batches/progress use window 'upgraded' words + batchCheckCard ignores placed_missing words -> engine words in R-U1
     fix. Taste: 'Last known file' and 'Skipped · n' kept (decided, not asked). Stage so far ~4.97M.
+    R-U1 (Sonnet) **201k**: not ready: 6 Important (Library parked-upgrade song shows Replace; panel counts/labels/
+    confirm/none-can-run computed in window -> missing.preview button/confirm + all.label; section_labels; BatchProgress
+    lead/count; batch row_name/row_sub/list_title; batchCheckCard placed_missing steps) + 6 Minor (3,4 = phase 6 moves,
+    6 precedent; 5 decided: Select all label counts what it selects). Fix split F1 engine words (3-6), F2 selection +
+    Library (1,2, minors 1,2,5). Stage so far ~5.17M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
