@@ -728,6 +728,11 @@ Results:
     safety: no defect. For E4b: auto_upgrade_preview must count the placement. Stage branch -> E3b. E4a split before
     dispatch (record: D2 384k, D3a 304k): E4a1 the step + rekordbox pointing, E4a2 crash recovery + undo.
     Stage so far ~2.81M.
+    E4a1 (Sonnet) done a1ea586a + e15cd7b9: **269k** (72 calls): place_parked, place_quick, eligible.place,
+    timeline_offset(codec=), row_change(text=False); recovery already works for a placement (2 tests); 5903 passed.
+    Found: a scan that judges the file 'replaced' keeps the parked upgrade's old alignment -> decided (coordinator):
+    apply_scan's replaced branch drops upgrade.alignment, so the placement treats it as unknown (placed as is, no
+    repoint: cues never land off silently); E4a2 builds it. Stage so far ~3.08M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
