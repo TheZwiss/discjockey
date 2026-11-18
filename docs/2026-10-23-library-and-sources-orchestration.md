@@ -754,6 +754,10 @@ Results:
     library measured at 9 (ro), only scratch DBs at 11 -> keep one v11 step (no updater niceties). Stage so far ~4.30M.
     R-E4b fix (Sonnet fix-round) be31c291: **164k**: 4 Important + 2 Minor fixed (places/place_notes, from_sync,
     unreadable -> waits, relocate_new path); 5996 passed. Stage branch -> E4b (be31c291). Stage so far ~4.46M.
+    U1 split (record 300-390k + material ~90k): U1a Sonnet models/flow/tests/shots.json, U1b Opus components.
+    U1a (Sonnet) done 4a899afe + static 371ae733 on feat/missing-files-u1: **261k** (77 calls; expected 160-220k):
+    missingModel.ts, MissingFlow, todoModel/libraryModel/planModel/endModel, FILE_STATE_TAG Missing, 9 shots entries;
+    vitest 1692. Open: PLACED_LABEL copied from report.py (engine should send section labels) -> R-U1. Stage ~4.72M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
