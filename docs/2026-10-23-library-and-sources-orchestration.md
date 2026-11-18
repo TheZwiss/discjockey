@@ -688,6 +688,10 @@ Results:
     Full pytest 5696 passed, 1 failed: test_hub_api_convert CDJ-group test (deleted file now waits as missing and
     stays in the CDJ group) -> E2's cdj.group_members fix, add it to plan §9.1. §9.2 E1 coverage not checked item by
     item -> R-E1. Stage so far: plan 291k + E1 292k = 583k.
+    R-E1 (Sonnet) **130k**: ready after fixes da7086be (MERGED_FIELDS gains missing_since; repro pins id + answer);
+    every §9.2 E1 item has a test; svelte-check clean. Stage branch fast-forwarded to da7086be. Worktree mf-e2 made
+    (main merged in). D9 amendment (Opus, est. 120-180k) running before E2: how the parked version goes in for a
+    missing song. Stage so far 713k.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
