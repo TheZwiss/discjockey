@@ -696,6 +696,14 @@ Results:
     upgrade = convert.place_parked in the sync's last AIFF batch (also with Auto-upgrade off; rekordbox open -> waits),
     on Same track's machinery, stored measurement, no Superseded move, undo -> missing again. New groups E4a (step,
     200-250k) + E4b (phase, 150-200k); stage est. 3.0-3.9M (was 2.3-2.9M). Plan 825 lines. Stage so far 946k.
+    E2 split before dispatch: E2a planner + outcomes, E2b tidy undo/cdj/report words/unchanged-row pins.
+    E2a (Sonnet) done eff6bc35: cut by the 5-hour limit, resumed; size reported only for the resumed part **146k**
+    (first part not reported; counted ~150k -> ~300k). Beyond plan: db._save_files refreshes a missing row on a
+    same-fields redownload (E4a uses the same save). Stage so far ~1.25M.
+    E2b (Sonnet) done 1906dec0 + 6d5061f6: **147k** (55 calls; full suite 5734 passed on the 2nd run; 1st run one
+    teardown flake test_hub_app frame-cap 'hub-refresh-job outlived its test'). Removed the v1.0.0 rejection of a lost
+    file's fallback source on redownload -> R-E2 judges it. For E3a: planModel.ts keeps old 'File gone' words.
+    R-E2 (Sonnet, est. 120-170k) running. Stage so far ~1.40M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
