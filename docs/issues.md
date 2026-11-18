@@ -3,6 +3,14 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 44. test_hub_app teardown flake: a hub job thread outlives its test under a loaded parallel run (2026-11-18)
+
+Seen twice in full parallel pytest runs on feat/missing-files (issue 43), never alone or on rerun:
+`test_main_lifts_the_frame_cap_before_the_window_shows` and `test_main_lets_go_of_the_window_lock_when_the_window_fails_to_start`
+fail in teardown with "a hub job thread outlived its test: hub-refresh-job". The teardown joins `hub-refresh-` threads
+for 5 s, so a slow refresh under load is the likely cause. Fix: find what starts the refresh in these tests and stop
+or join it in the test itself, so the check stays strict; not by raising the wait.
+
 ## 43. A file away for one scan loses its song for good (live test B, 2026-11-17) — data loss, before phase 2
 
 Reproduced on made-up data (2026-11-17): an imported click MP3 in a watched folder with a parked upgrade; the file

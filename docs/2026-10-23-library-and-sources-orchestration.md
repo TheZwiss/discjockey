@@ -714,6 +714,15 @@ Results:
     E3a2 (Sonnet) done c491230a + static a2b1109e: **206k** (46 calls): fake scenario missing_files (10 songs),
     words pinned to missing.py/report.py, planModel 'Download again'; vitest 1621. For U1: format.ts
     FILE_STATE_TAG.file_missing still 'File not found' (§5.4 wants 'Missing'); strip width. Stage so far ~2.0M.
+    R-E3a (Sonnet) **182k**: ready, 6 Minor fixed 45efd84e + static 5147ac70 (types.ts pinned from Python, fake
+    sentences pinned, contract words). For E3b: CLI result rows use missing.reason_words, not outcomes'
+    wrong_action. Stage branch fast-forwarded to E3a. E3b split: E3b1 actions + preview + hub methods + contract,
+    E3b2 commands + CLI render + fake handlers. Stage so far ~2.18M.
+    E3b1 (Sonnet) done bd4f88c5 + a832361a + static a86a78f8: **246k** (74 calls): download_again, remove, preview,
+    hub methods + shapes, 32 tests; 5831 passed; catalogue ceiling 81->83 until E3b2 builds the rows. Stage ~2.43M.
+    E3b2 (Sonnet) done 5394fbd0 + 1d198328: **212k** (68 calls): missing list/download/remove, track show section,
+    fake handlers, CONTRIBUTING; 5863 passed + 1 teardown flake (test_hub_app thread leak, 2nd time -> issue 44).
+    Stage so far ~2.64M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
