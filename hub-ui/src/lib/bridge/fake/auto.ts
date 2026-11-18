@@ -57,10 +57,14 @@ export function autoDetail(s: FakeState, t: FakeTrack, same: string | null, plai
   return plain;
 }
 
-/** `sync_preview().auto_upgrade`: the upgrades the sync's last phase would put in place (waiting ones included), the
- *  recorded refusals left out; null while the switch is off. */
-export function autoPreview(s: FakeState, ready: number): SyncPreview['auto_upgrade'] {
-  return autoOn(s) ? { on: true, ready } : null;
+/** `sync_preview().auto_upgrade` (api._auto_upgrade_ready): `ready` the upgrades the sync's last phase would put in place
+ *  (waiting ones included, the recorded refusals and the placements left out), `places` the missing songs it would give their
+ *  parked better version (with the switch off too), `place_notes` the sentence for them; null while the switch is off and
+ *  nothing is to be placed. */
+export function autoPreview(s: FakeState, ready: number, places: number): SyncPreview['auto_upgrade'] {
+  if (!autoOn(s) && !places) return null;
+  return { on: autoOn(s), ready: autoOn(s) ? ready : 0, places,
+    place_notes: places ? { closed: placePlanLine(places, false), open: placePlanLine(places, true) } : null };
 }
 
 /** views.same_track_reason for a fake track: null when Same track can run now (the quick answer: rekordbox's cached state). */
@@ -118,6 +122,7 @@ export const PLACE_WAITS_WORDS = {
   rekordbox_open: 'Waits for rekordbox to be closed: its better version goes in at your next sync.',
   not_reached: 'The sync stopped before this one; its better version goes in at your next sync.',
   busy: 'Another Discjockey window or the Terminal was changing your rekordbox library; its better version goes in at your next sync.',
+  rekordbox_unreadable: "Discjockey can't open this rekordbox version's library yet, so it can't point your rekordbox track at the file; its better version goes in once it can.",
 } as const;
 export const AUTO_DONE_NOTE = 'Your track keeps its cues, playlists and history';
 /** convert.placed_words: what a finished placement says (the file's name; rekordbox's track plays it with its cues). */

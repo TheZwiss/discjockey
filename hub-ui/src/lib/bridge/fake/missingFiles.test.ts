@@ -398,7 +398,7 @@ describe('the Sync plan after Download again (acquire reason redownload)', () =>
     const { ids, p } = await redownloads(f);
     expect(ids).toEqual([set.asked]);                     // askedParked is placed by the sync's last phase: nothing is downloaded
     expect(p.counts.redownloads).toBe(1);
-    expect(p.groups.find((g) => g.key === 'acquire:redownload')).toMatchObject({ label: 'Download again',
+    expect(p.groups.find((g) => g.key === 'acquire:redownload')).toMatchObject({ label: 'Download again (its file is missing)',
       actions: [{ kind: 'acquire', reason: 'redownload' }] });
     await run([set.plain, set.parked], 'download_again');
     expect((await redownloads(f)).ids.sort()).toEqual([set.asked, set.plain].sort());   // plain joins; parked (a parked version) does not

@@ -113,10 +113,13 @@ export type BatchCheck = { id: number; size: number; started: string | null;
   /** `aiff:<id>`, the id the command line takes for this batch (the window ignores it) */
   aiff_id?: string;
   /** who started the batch (`aiff_batches.started_by`): `auto_upgrade` is the sync's Auto-upgrade phase (its item says
-   *  "Upgraded during your sync" and its foot "Undo all from this sync"); `download_again` is the same phase with the switch
-   *  off (issue 43: it puts in the parked better version of a missing song the user asked to download again; the engine's
-   *  words for its item and foot are the same); null when unknown */
+   *  "Upgraded during your sync"); `download_again` is the same phase with the switch off (issue 43: it puts in the
+   *  parked better version of a missing song the user asked to download again); null when unknown. Only the item's
+   *  `detail` is engine text; the foot words are the window's, chosen by `from_sync` */
   started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all' | 'auto_upgrade' | 'download_again' | (string & {}) | null;
+  /** the sync's last phase made the batch (`started_by` `auto_upgrade` or `download_again`, the engine's list): it reads
+   *  as "Upgraded during your sync", not as a manual Same track */
+  from_sync: boolean;
   /** the batch's own kind (`aiff_batches.kind`): a Convert batch says "Made AIFF"; null when unknown */
   kind: 'upgrade' | 'convert' | 'mixed' | null;
   tracks: TodoItem[] };
@@ -389,7 +392,10 @@ export type SyncPreview = {
   collections: Record<string, string>;
   /** Auto-upgrade before a start: `ready` = the upgrades the sync's last phase would put in place (those that would wait
    *  for rekordbox included; nothing of rekordbox's library is opened for it). null: the switch is off, or no preview */
-  auto_upgrade: { on: boolean; ready: number } | null;
+  /** `on`: the Auto-upgrade switch; `ready`: the upgrades the last phase would do; `places`: the missing songs it would
+   *  put their parked better version in (with the switch off too), `place_notes` the engine's sentence for them (rekordbox
+   *  closed / open; null with none); null: the switch is off and nothing is to be placed */
+  auto_upgrade: { on: boolean; ready: number; places: number; place_notes: { closed: string; open: string } | null } | null;
 };
 
 export type PlannedAction = { kind: string; track_id: string; title: string; artist: string; image_url?: string | null };

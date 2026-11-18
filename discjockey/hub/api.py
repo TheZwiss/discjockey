@@ -499,10 +499,14 @@ class HubApi:
             return False
 
     def _auto_upgrade_ready(self, state: dict) -> dict | None:
-        """`sync_preview().auto_upgrade`: `{on: true, ready: n}` with n the tracks the sync's last phase would upgrade
-        now (`auto_upgrade.plan`, quick: the cached rekordbox state, no read open of its library; a refusal that can't
-        be told to still hold without one counts as holding), counting those that would wait for rekordbox. None when
-        the switch is off (or the file unreadable) or there is no preview (no plan, so no questions to hold songs)."""
+        """`sync_preview().auto_upgrade`: `{on, ready, places, place_notes}`. `on`: the Auto-upgrade switch; `ready`: the
+        tracks the sync's last phase would upgrade now (`auto_upgrade.plan`, quick: the cached rekordbox state, no read
+        open of its library; a refusal that can't be told to still hold without one counts as holding), counting those
+        that would wait for rekordbox, not the placements; `places`: the songs it would put their parked better version
+        in for (Download again on a missing file; with the switch off too), counting those that would wait;
+        `place_notes`: `{closed, open}` the sentence for them (`engine_words.place_plan_line`, rekordbox closed / open), null
+        with none. None when the switch is off and nothing is to be placed (or the settings file is unreadable) or there
+        is no preview (no plan, so no questions to hold songs)."""
         prep = self._store.prep
         if prep is None:
             return None
@@ -510,15 +514,18 @@ class HubApi:
             settings = load_settings(self._support.settings_file)
         except SettingsError:
             return None
-        if not settings.auto_upgrade:  # the placements for missing files run with it off, but they are no "upgrades on"
-            return None
         planned = auto_upgrade.plan(self._paths, state, {q.song_key for q in prep.plan.questions}, settings,
                                     running=self._svc.rekordbox_running, place=self._svc.rekordbox_place(),
                                     status=self._rekordbox_status(), quick=True)
         if planned is None:
             return None
-        coming = [k for k in (*planned.run, *(k for k, _ in planned.waiting)) if k not in planned.place]
-        return {"on": True, "ready": len(coming)}  # the upgrades; the placements are the dry run's rows (E4b2)
+        coming = [k for k in (*planned.run, *(k for k, _ in planned.waiting))]
+        places = sum(1 for k in coming if k in planned.place)
+        if not settings.auto_upgrade and places == 0:
+            return None
+        notes = {"closed": engine_words.place_plan_line(places, False),
+                 "open": engine_words.place_plan_line(places, True)} if places else None
+        return {"on": bool(settings.auto_upgrade), "ready": len(coming) - places, "places": places, "place_notes": notes}
 
     def _checked_batches(self, state: dict) -> dict[int, AiffBatchRow]:
         """The AIFF batches the open rekordbox checks belong to, by id: To-do names the checks of a sync's Auto-upgrade
@@ -3315,7 +3322,8 @@ class CliApi(HubApi):
         for r in results:
             mine = []
             if r.get("state") == "done" and r.get("action") != "discard":  # a discard changes no file, so nothing to check
-                new_file = str(self._paths.root / r["path"]) if r.get("action") == "add_new" and r.get("path") else None
+                its = r.get("path") or (tracks.get(r["track"]) or {}).get("path")  # a placement's row carries none: the song's file now
+                new_file = str(self._paths.root / its) if r.get("action") in ("add_new", "place") and its else None
                 mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
                 for step in mine:
                     (steps if step["id"] == "step:relocate_new" else grouped[step["id"].removeprefix("step:")]).append(step)

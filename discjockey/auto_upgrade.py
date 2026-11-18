@@ -93,13 +93,16 @@ PLACE_WAITS = {
     "not_reached": "The sync stopped before this one; its better version goes in at your next sync.",
     "busy": "Another Discjockey window or the Terminal was changing your rekordbox library; its better version goes in "
             "at your next sync.",
+    # rekordbox's library can't be read: the song is not dropped, it waits (the words of `batches.words`, its ending changed)
+    "rekordbox_unreadable": batches.words("rekordbox_unreadable", "place").removesuffix(". Nothing was changed.")
+                            + "; its better version goes in once it can.",
 }
 PLAN_CHANGED = REASONS["changed"].text  # a track of a plan's run whose answer is another now (`upgrade apply --plan` says it too)
 
 
 @dataclass(frozen=True)
 class Planned:
-    """What the phase would do now. `run`: song keys in To-do's order; `waiting`: (key, "rekordbox_open" | "busy");
+    """What the phase would do now. `run`: song keys in To-do's order; `waiting`: (key, "rekordbox_open" | "busy" | "rekordbox_unreadable");
     `refused`: (key, its `auto_refused` record), held and not tried; `rekordbox_running`: what `running()` said.
     `place`: which keys of `run`, `waiting` and `refused` are placements (Download again for a missing file with a
     parked better version, D9); `run` lists them first."""
@@ -259,7 +262,10 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
                 # one keyed open, only for a placement or a file that isn't an AIFF; a library another Discjockey is
                 # changing is not opened: it is taken as readable, and the batch asks again under its own lock
                 rb = master.status(place, lambda: is_running) if free else views.UNKNOWN_REKORDBOX
-    placed = [k for k in placing if not isinstance(eligible.place_quick(state["tracks"][k], rb, present[k]), Skip)]
+    verdicts = {k: eligible.place_quick(state["tracks"][k], rb, present[k]) for k in placing}
+    # a library rekordbox can't read keeps the placement: it waits (`rekordbox_unreadable`), it is not dropped
+    unreadable = [k for k, v in verdicts.items() if isinstance(v, Skip) and v.reason == "rekordbox_unreadable"]
+    placed = [k for k, v in verdicts.items() if not isinstance(v, Skip)]
     ready = [*placed, *eligible_keys(rb)]
     unchecked = quick or is_running  # rekordbox's library is not read for the stamps: analysis records count as holding
 
@@ -277,9 +283,11 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
             refused.append((k, record))
         else:
             run.append(k)
+    waiting = [(k, "rekordbox_unreadable") for k in unreadable]
+    place_keys = frozenset((*placed, *unreadable))
     if is_running:
-        return Planned([], [(k, "rekordbox_open") for k in run], refused, True, frozenset(placed))
-    return Planned(run, [], refused, False, frozenset(placed))
+        return Planned([], [(k, "rekordbox_open") for k in run] + waiting, refused, True, place_keys)
+    return Planned(run, waiting, refused, False, place_keys)
 
 
 def start_note(block: dict | None) -> str | None:
@@ -298,7 +306,8 @@ def start_note(block: dict | None) -> str | None:
         waits = any(r["state"] == "waiting" and r["reason"] == "rekordbox_open" for r in upgrading)
         lines.append(words.before_start_line(len(upgrading)) if waits else words.auto_plan_line(len(upgrading)))
     if placing:
-        waits = any(r["state"] == "waiting" and r["reason"] == "rekordbox_open" for r in placing)
+        waits = any(r["state"] == "waiting" and r["reason"] in ("rekordbox_open", "rekordbox_unreadable")
+                    for r in placing)  # a library that can't be read waits like an open rekordbox
         lines.append(words.place_plan_line(len(placing), waits))
     return " ".join(lines) or None
 
@@ -376,7 +385,7 @@ def _batch_rows(result: batches.BatchResult, before: Mapping[str, dict]) -> list
             rows.append(_row(e, item.track, "done", None, item.message, placed))
         elif item.state == "failed":
             rows.append(_row(e, item.track, "failed", None, item.message, placed))
-        elif item.reason in WAITS:
+        elif item.reason in _waits(placed):
             rows.append(_row(e, item.track, "waiting", item.reason, _waits(placed)[item.reason], placed))
         elif item.reason in REFUSALS:  # a refusal the phase records: To-do says why
             rows.append(_row(e, item.track, "refused", item.reason, item.message, placed))

@@ -12,7 +12,7 @@ import {
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
-import { AUTO_BATCH_DETAIL, autoDetail, autoOn, autoPreview, autoBlock, backupId, markRefused, markWaiting, phaseEvents, phaseResults,
+import { AUTO_BATCH_DETAIL, autoDetail, autoOn, autoPreview, autoBlock, backupId, placeTracks, markRefused, markWaiting, phaseEvents, phaseResults,
   planPhase, readyTracks, rekordboxStatus, REKORDBOX_STATE_TEXT, sameTrackReasonOf, stopRows, withPhase, AUTO_REFUSED_WORDS, type PhasePlan } from './auto';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
@@ -268,7 +268,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       && t.in_playlists).map((t) => previewAction('acquire', 'retry', t, false, null, t.cover)));
     // Download again was asked for a missing playlist song with no parked better version: the sync downloads it (a parked one
     // is placed by the sync's last phase instead, so it plans none: D12); a Never download song is left out by `add`
-    add('acquire:redownload', 'Download again', s.tracks.filter((t) => t.in_playlists && t.missing && t.fileGone && !t.upgrade)
+    add('acquire:redownload', 'Download again (its file is missing)', s.tracks.filter((t) => t.in_playlists && t.missing && t.fileGone && !t.upgrade)
       .map((t) => previewAction('acquire', 'redownload', t, false, null, t.cover)));
     add('upgrade', 'Look for a better version (weekly check)', s.tracks.filter((t) => qualityOf(t) === 'weak'
       && !t.upgrade && !t.hidden && t.in_playlists).slice(0, 3).map((t) => previewAction('upgrade', 'weekly', t,
@@ -768,7 +768,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         collections: m.names,
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
-        auto_upgrade: autoPreview(s, autoReady()),
+        auto_upgrade: autoPreview(s, autoReady(), placeTracks(s).length),
         empty: p.actions ? null : 'up_to_date' as const });
     },
     async refresh(auto = false) {
@@ -1630,10 +1630,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             // the batch's own kind; a scenario that only sets checks has no record: its checks' reasons say it
             const kind = record?.kind ?? (tracks.some((x) => ['converted', 'renamed'].includes(x.check!.reason)) ? 'convert' : 'upgrade');
             // views._batch_how: "Made AIFF" for a Convert batch, "Clean name" when every check is a clean name
-            const how = started_by === 'auto_upgrade' || started_by === 'download_again' ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
+            const from_sync = started_by === 'auto_upgrade' || started_by === 'download_again';   // views.SYNC_STARTERS
+            const how = from_sync ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
               : tracks.every((x) => x.check!.reason === 'renamed') ? 'Clean name' : 'Made AIFF';
             items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${how}`,
-              batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, kind, tracks } });
+              batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, from_sync, kind, tracks } });
             chips.rekordbox_check++;
             counted.add(key);
           }

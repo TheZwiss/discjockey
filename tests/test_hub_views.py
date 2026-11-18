@@ -2741,6 +2741,16 @@ def test_a_batch_item_says_what_the_batch_did_by_its_kind():
     assert batch_item(swapped)["batch"]["kind"] is None
 
 
+def test_a_batch_says_whether_the_syncs_last_phase_made_it_whichever_way_the_switch_was_set():
+    swapped = batch_state("swapped")
+    from_sync = lambda by: batch_item(swapped, started_by={8: by} if by else {})["batch"]["from_sync"]  # noqa: E731
+    assert [from_sync(by) for by in ("auto_upgrade", "download_again", "user", "upgrade_all", "make_aiff", None)] == [
+        True, True, False, False, False, False]
+    assert views.SYNC_STARTERS == ("auto_upgrade", "download_again")
+    again = batch_item(swapped, started_by={8: "download_again"})
+    assert again["detail"] == "2026-11-13 · Upgraded during your sync"
+
+
 def aiff_batch(batch_id, state="stopped", scope=None, kind="convert", planned=2):
     return AiffBatchRow(batch_id, kind, "user", scope, "2026-11-13T10:00:00", None, state, "stop", None,
                         "window", {"planned": planned, "done": 1, "skipped": 0, "failed": 0, "undone": 0})

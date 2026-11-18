@@ -68,12 +68,11 @@ describe('the batch card', () => {
   });
   it('the sync\'s batch says so in its row, in place of Same track (the user\'s other batches keep their word)', () => {
     expect(AUTO_BATCH_SUB).toBe('Upgraded during your sync');
-    expect(batchRowSub('2026-11-08', '2026-11-08', 'auto_upgrade')).toBe('today · Upgraded during your sync');
-    expect(batchRowSub(null, '2026-11-08', 'auto_upgrade')).toBe('Upgraded during your sync');
-    for (const by of ['user', 'upgrade_all', null, undefined]) {
-      expect(batchRowSub('2026-11-08', '2026-11-08', by ?? null)).toBe('today · Same track');
-    }
-    expect([isAutoBatch('auto_upgrade'), isAutoBatch('user'), isAutoBatch(null)]).toEqual([true, false, false]);
+    expect(batchRowSub('2026-11-08', '2026-11-08', true)).toBe('today · Upgraded during your sync');
+    expect(batchRowSub(null, '2026-11-08', true)).toBe('Upgraded during your sync');
+    expect(batchRowSub('2026-11-08', '2026-11-08', false)).toBe('today · Same track');
+    // the engine says which batches are the sync's (`from_sync`): a Download again batch (switch off) is one, the window keeps no list
+    expect([isAutoBatch({ from_sync: true }), isAutoBatch({ from_sync: false }), isAutoBatch({}), isAutoBatch(null)]).toEqual([true, false, false, false]);
   });
   it('steps for all: analyse them again, the USB stick; no Reload Tag when every text was written', () => {
     const c = batchCheckCard([check('a'), check('b')], name)!;
@@ -115,7 +114,7 @@ describe('the batch card', () => {
 
 describe('several checks selected, and their undo', () => {
   const batch: BatchCheckItem = { ...check('batch:7', {}, { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', kind: 'upgrade', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', from_sync: false, kind: 'upgrade', tracks: [check('b1'), check('b2')] } };
   it('a batch stands for its tracks', () => {
     expect(checkTracks([batch, check('c1')]).map((t) => t.track_id)).toEqual(['b1', 'b2', 'c1']);
   });

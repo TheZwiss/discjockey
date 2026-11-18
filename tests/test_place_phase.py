@@ -250,6 +250,35 @@ def test_rekordbox_open_at_the_start_waits_with_the_song_still_missing_and_the_n
     assert (e["path"], e["upgrade"], e["file_gone"]) == (NEW, None, None)
 
 
+@pytest.mark.parametrize("settings", [ON, OFF], ids=["switch on", "switch off"])
+def test_an_unreadable_rekordbox_library_makes_the_placement_wait_instead_of_dropping_it(tmp_path, monkeypatch,
+                                                                                       settings):
+    from test_aiff_plan import UNREADABLE
+    from discjockey.rekordbox import master
+    lib = make_lib(tmp_path, monkeypatch, ["aiff", "mp3"])
+    mark_missing(lib, 1)
+    state = load_state(lib.paths)
+    planned = plan(lib.paths, state, (), settings, running=never, place=lib.place, status=UNREADABLE)
+    assert lib.tracks[1] in planned.place and lib.tracks[1] not in planned.run  # kept in the set, not dropped
+    assert (lib.tracks[1], "rekordbox_unreadable") in planned.waiting
+    assert PLACE_WAITS["rekordbox_unreadable"] == (
+        "Discjockey can't open this rekordbox version's library yet, so it can't point your rekordbox track at the "
+        "file; its better version goes in once it can.")
+    # the phase: a row that waits with these words, no batch for it, no mark for rekordbox to be closed, the song missing
+    monkeypatch.setattr(master, "status", lambda *a, **k: UNREADABLE)
+    for dry_run in (True, False):
+        out, state, log, events = phase(lib.paths, lib.place, settings=settings, dry_run=dry_run)
+        mine = next(r for r in out.results if r["track"] == lib.tracks[1])
+        assert (mine["state"], mine["reason"], mine["action"]) == ("waiting", "rekordbox_unreadable", "place")
+        assert mine["message"] == PLACE_WAITS["rekordbox_unreadable"]
+        e = load_state(lib.paths)["tracks"][lib.tracks[1]]
+        assert e["file_gone"] == ASKED and "auto_waits" not in e["upgrade"] and e["path"] == lib.olds[1]
+        assert (lib.paths.root / e["upgrade"]["file"]).is_file()
+        note = auto_upgrade.start_note(out.to_dict())
+        assert "1 missing song gets its better version at the end of the sync, once rekordbox is closed." in note
+    assert (("upgrade_waits", PLACE_WAITS["rekordbox_unreadable"]) in [(r.section, r.note) for r in log.results])
+
+
 def test_rekordbox_opening_while_the_placement_is_in_work_rolls_it_back_and_the_next_sync_tries_again(tmp_path,
                                                                                                       monkeypatch):
     env = make_missing(tmp_path, monkeypatch)

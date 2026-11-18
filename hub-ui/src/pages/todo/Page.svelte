@@ -409,7 +409,7 @@
   <!-- a batch's row: the first track's cover, "{n} tracks upgraded" over "{day} · Same track" (the sync's: "· Upgraded during your sync") -->
   {#snippet lead()}<Cover url={i.cover_url} seed={batch?.tracks[0]?.track_id ?? i.track_id} size={28} />{/snippet}
   {#snippet name()}{batch ? batchRowName(batch.size, batch.kind) : artistTitle(i.artist, i.title)}{/snippet}
-  {#snippet sub()}{batch ? batchRowSub(batch.started, localDay(new Date()), batch.started_by, batch.kind, batch.tracks.every((t) => t.check?.reason === 'renamed')) : [i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
+  {#snippet sub()}{batch ? batchRowSub(batch.started, localDay(new Date()), batch.from_sync, batch.kind, batch.tracks.every((t) => t.check?.reason === 'renamed')) : [i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
   {#snippet trailing()}
     {@const b = rowBadge(i)}
     {@const away = batch ? null : rowAway(i)}

@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, NamedTuple
 from urllib.parse import quote_plus
 
-from .. import cdj as cdj_rule, missing as missing_rule, playlists_file as pf
+from .. import batches, cdj as cdj_rule, missing as missing_rule, playlists_file as pf
 from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_MIN_KBPS, SERVICES, SERVICE_NAMES,
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
@@ -1752,6 +1752,7 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
 
 
 BATCH_MADE_AIFF = "Made AIFF"  # the sub of the To-do item of a Convert batch's checks (plan stage D §3)
+SYNC_STARTERS = (batches.AUTO, batches.DOWNLOAD_AGAIN)  # `started_by` of a batch the sync's last phase made
 BATCH_CLEAN_NAME = "Clean name"  # a batch that only gave clean names
 
 
@@ -1759,7 +1760,7 @@ def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> 
     """The words after the day on a batch item: "Upgraded during your sync" (Auto-upgrade), "Made AIFF" (a batch of
     Convert or Rename items: `aiff_batches.kind` `convert` or `mixed`; "Clean name" when every check is a clean name),
     else "Same track"."""
-    if started_by in ("auto_upgrade", "download_again"):  # the sync's last phase, the switch on or off
+    if started_by in SYNC_STARTERS:  # the sync's last phase, the switch on or off
         return AUTO_BATCH_DETAIL
     if kind in ("convert", "mixed"):
         return BATCH_CLEAN_NAME if all(t["check"]["reason"] == "renamed" for t in tracks) else BATCH_MADE_AIFF
@@ -1778,7 +1779,7 @@ def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None
     return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
             "detail": f"{started or ''} · {how}".strip(" ·"),
             "batch": {"id": batch_id, "aiff_id": f"aiff:{batch_id}", "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
-                      "tracks": tracks}}
+                      "from_sync": started_by in SYNC_STARTERS, "tracks": tracks}}
 
 
 def _upgrade_all(rows: list[dict], stopped: tuple[int, int] | None) -> dict:
@@ -2128,8 +2129,9 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
                  where: Callable[[str], str] | None = None, places: Places | None = None,
                  auto_upgrade: dict | None = None) -> dict:
     """The check before the start: every planned action in groups, each with the key the page sends back ticked.
-    `auto_upgrade` (issue 33 stage C): `{on, ready}` from the api (the upgrades the sync's last phase would put in
-    place; None: the switch is off), passed on as it is; null as well while there is no preview.
+    `auto_upgrade` (issue 33 stage C, issue 43): `{on, ready, places, place_notes}` from the api (`ready`: the upgrades
+    the sync's last phase would put in place; `places`: the missing songs it would give their parked better version;
+    None: the switch is off and nothing is to be placed), passed on as it is; null as well while there is no preview.
     `where`: a file's path -> its folder's name (`Sites.place`), for the own songs that belong to no playlist.
     `places`: `song_places`, the folders a file sits in. Each row's `in` lists the collections of the browser column
     its song belongs to (`_members`; Sync's switches leave a row out only when every one of them is off, issue 37),

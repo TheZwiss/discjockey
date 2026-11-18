@@ -572,7 +572,7 @@ describe('playlists and folders in and out of the sync (issue 37)', () => {
 });
 
 describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
-  const idle = { consoleRunning: false, nothingToday: false, auto: { on: true, ready: 4 }, rekordboxRunning: true };
+  const idle = { consoleRunning: false, nothingToday: false, auto: { on: true, ready: 4, places: 0, place_notes: null }, rekordboxRunning: true };
   it('says the sync would put the ready upgrades in place at its end, in rekordbox\'s words (singular for 1)', () => {
     expect(rekordboxOpenLine(4)).toBe('rekordbox is open: quit it before the sync ends, so the sync can put 4 upgrades in place.');
     expect(rekordboxOpenLine(1)).toBe('rekordbox is open: quit it before the sync ends, so the sync can put 1 upgrade in place.');
@@ -580,8 +580,8 @@ describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
   });
   it('needs the switch on and an upgrade ready; rekordbox running is a warning, closed a plan line, unknown says nothing', () => {
     expect(startNote({ ...idle, auto: null })).toBeNull();                       // switch off (or no preview)
-    expect(startNote({ ...idle, auto: { on: false, ready: 4 } })).toBeNull();
-    expect(startNote({ ...idle, auto: { on: true, ready: 0 } })).toBeNull();
+    expect(startNote({ ...idle, auto: { on: false, ready: 4, places: 0, place_notes: null } })).toBeNull();
+    expect(startNote({ ...idle, auto: { on: true, ready: 0, places: 0, place_notes: null } })).toBeNull();
     expect(startNote({ ...idle, rekordboxRunning: null })).toBeNull();           // the bridge could not say: no claim
     expect(startNote({ ...idle, rekordboxRunning: false })).toEqual({ kind: 'auto-plan', text: autoPlanLine(4) });
   });
@@ -589,7 +589,7 @@ describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
     expect(autoPlanLine(4)).toBe('4 upgrades go in at the end; cues stay.');
     expect(autoPlanLine(1)).toBe('1 upgrade goes in at the end; cues stay.');
     expect(autoPlanLine(13).length).toBeLessThan(47);                            // one uncut line in the 280 px of the panel at 1100
-    expect(startNote({ ...idle, rekordboxRunning: false, auto: { on: true, ready: 1 } })?.text).toBe(autoPlanLine(1));
+    expect(startNote({ ...idle, rekordboxRunning: false, auto: { on: true, ready: 1, places: 0, place_notes: null } })?.text).toBe(autoPlanLine(1));
   });
   it('comes after the console-running and nothing-today notes, which are the start\'s own', () => {
     expect(startNote({ ...idle, consoleRunning: true, nothingToday: true })).toEqual({ kind: 'console', text: CONSOLE_RUNNING });

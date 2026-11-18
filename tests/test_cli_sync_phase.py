@@ -373,3 +373,25 @@ def test_a_plan_whose_placement_no_longer_stands_is_changed(lib, capsys):
     library.save_state(found.paths, state)
     code, env = run_json([*PHASE, "--plan", dry["data"]["plan_id"]], capsys)
     assert (code, env["outcome"], env["reason"]) == (7, "refused", "changed") and batches_of(found) == []
+
+
+def test_a_placement_of_a_different_edit_under_a_new_name_has_the_new_file_step_with_its_path(lib, capsys):
+    from discjockey.align import Alignment
+    from test_place_phase import mark_missing
+    found = lib(["mp3", "aiff"])  # the mp3 is placed as an AIFF under a new name; the aiff takes its missing file's name
+    save_settings(found.paths.settings_file, Settings(auto_upgrade=False))
+    for i in (0, 1):
+        mark_missing(found, i)
+    state = library.load_state(found.paths)
+    state["tracks"][found.tracks[0]]["upgrade"]["alignment"] = Alignment("different", text="x").to_dict()
+    library.save_state(found.paths, state)
+    code, env = run_json(PHASE, capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert [(r["track"], r["state"], r["action"]) for r in env["data"]["auto_upgrade"]["results"]] == [
+        (found.tracks[0], "done", "place"), (found.tracks[1], "done", "place")]
+    new_file = str(found.paths.root / found.entry(0)["path"])
+    steps = {s["id"]: s for s in env["person_steps"]}
+    assert set(steps) == {"step:relocate_new", "step:look"}, steps
+    assert new_file in steps["step:relocate_new"]["say"] and steps["step:relocate_new"]["then"] == cmd(
+        f"check done {found.tracks[0]}")
+    assert found.tracks[1] in steps["step:look"]["say"] and new_file not in steps["step:look"]["say"]

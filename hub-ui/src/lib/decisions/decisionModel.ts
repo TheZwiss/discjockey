@@ -589,12 +589,13 @@ export const batchRowName = (n: number, kind: BatchCheck['kind'] = null): string
   (kind === 'convert' || kind === 'mixed' ? `${n} tracks` : `${n} tracks upgraded`);
 /** What a batch's row says it was: "Same track", or for the sync's Auto-upgrade "Upgraded during your sync" (plan §3). */
 export const AUTO_BATCH_SUB = 'Upgraded during your sync';
-export const isAutoBatch = (startedBy: string | null | undefined): boolean => startedBy === 'auto_upgrade';
-export function batchRowSub(started: string | null, today: string, startedBy: string | null = null,
+/** The sync's last phase made the batch (the engine says so: `batch.from_sync`, whichever way the switch was set). */
+export const isAutoBatch = (batch: { from_sync?: boolean } | null | undefined): boolean => !!batch?.from_sync;
+export function batchRowSub(started: string | null, today: string, fromSync = false,
   kind: BatchCheck['kind'] = null, renamed = false): string {
   const day = sinceText(started, today);
   // a Convert batch says what it made ("Clean name" when every check is a clean name, the engine's own word)
-  const how = isAutoBatch(startedBy) ? AUTO_BATCH_SUB : kind === 'convert' || kind === 'mixed' ? (renamed ? 'Clean name' : 'Made AIFF') : 'Same track';
+  const how = fromSync ? AUTO_BATCH_SUB : kind === 'convert' || kind === 'mixed' ? (renamed ? 'Clean name' : 'Made AIFF') : 'Same track';
   return day ? `${day} · ${how}` : how;
 }
 /** A batch of Converts' lead, in `report.CONVERTED_CHECK`'s voice for several files (the single check's `text` says it
