@@ -8,7 +8,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
   cutoffText, pathOf, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, todoFileState, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
+  readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, fileThere, todoFileState, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
@@ -24,6 +24,7 @@ import { toneUrl } from './audio';
 import { BROWSER_NAMES, defaultBrowsers } from './browsers';
 import { CRASHED_MESSAGE } from '../../copy';
 import { downloads } from './downloads';
+import { itemDetail, missingAll, missingDetail, missingScenarios, missingView } from './missingFiles';
 import {
   NO_BATCH, NOTHING_CHOSEN, hasFile, planRename, planTidy, planUndo, renameOffers, retargets, runBatch, seedTidy,
   tidyPreview, tidyRow, tidyWaiting, trackOfId, undoPreview, validMoves, validSaveFiles, moveBatches, outOfPlace,
@@ -103,7 +104,7 @@ const DOWNLOAD_KINDS = ['sync', 'use_candidate', 'use_link'];
 /** Page extensions: src/pages/<page>/fake.ts may add scenarios and override handlers. */
 const pageFakes = import.meta.glob<PageFake>('/src/pages/*/fake.ts', { eager: true });
 export function pageScenarios(): Record<string, (s: FakeState) => void> {
-  const out: Record<string, (s: FakeState) => void> = { ...likedScenarios };
+  const out: Record<string, (s: FakeState) => void> = { ...likedScenarios, ...missingScenarios };
   for (const [path, mod] of Object.entries(pageFakes)) {
     const page = path.split('/').at(-2)!;
     for (const [name, fn] of Object.entries(mod.scenarios ?? {})) out[`${page}:${name}`] = fn;
@@ -814,22 +815,23 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           : t.source === 'soundcloud' ? null   // as the engine: a SoundCloud id is a number, no page link
             : t.source === 'qobuz' ? 'https://open.qobuz.com/track/112233' : null;
       return ok({ track: {
-        ...trackRow(t), sound_checked: !t.unchecked, file_state: t.away ?? 'here', place: trackPlace(s, t), isrc: t.isrc,
+        ...trackRow(t), sound_checked: !t.unchecked, file_state: t.away ?? (t.missing ? 'file_missing' : 'here'), place: trackPlace(s, t), isrc: t.isrc,
         playlists: s.previewRead ? [...t.playlists] : null,
         in_playlist_count: t.playlists.length, quality_line: qualityLine(t), format_line: fileFormatLine(t),
         source_format_line: sourceFormatLine(t), source_how: sourceHowOf(t),
         source_full: q === 'missing' ? null : sourceFull(t),
         source_url: sourceUrl === link.url ? null : sourceUrl,
         track_link: link,
-        next_qobuz_check: q === 'lossless' ? null : q === 'missing' ? (t.next_try_days === 1 ? 'next_sync'
-          : plus(t.next_try_days ?? 5)) : plus(4),
+        // views.next_due: Download again was asked, so the next sync downloads it (or puts its parked version in)
+        next_qobuz_check: t.in_playlists && t.fileGone ? 'next_sync' : q === 'lossless' ? null : q === 'missing'
+          ? (t.next_try_days === 1 ? 'next_sync' : plus(t.next_try_days ?? 5)) : plus(4),
         rejected_sources: [...t.rejected_sources],
         buy_links: { beatport: `https://www.beatport.com/search?q=${query}`, bandcamp: `https://bandcamp.com/search?q=${query}` },
         free_downloads: q === 'lossless' ? [] : [...(t.free_downloads ?? [])],
         bought_name: `Library/${t.folder}/${t.artist} - ${t.title}.wav`,
-        audio_url: q === 'missing' || t.away ? null : media(t, 'current'),
+        audio_url: q === 'missing' || !fileThere(t) ? null : media(t, 'current'),
         upgrade: t.upgrade ? { ...t.upgrade, audio_url: media(t, 'upgrade'), ...rbOf(t) } : null,
-        aiff: fileAnswer(s, t), cutoff_text: cutoffText(t), missing: null,  // the scenario `missing_files` comes with the window
+        aiff: fileAnswer(s, t), cutoff_text: cutoffText(t), missing: missingDetail(s, t),
       } });
     },
     // the engine answers bad_args for a filter that is no group; the window sends only TodoFilter keys
@@ -867,7 +869,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async spectrum(track_id: string, which: Which) {
       const t = track(track_id);
       if (!t || t.status === 'missing') return fail('refused', 'This track has no file yet.');
-      if (t.away) return fail('refused', "This file isn't there.");
+      if (!fileThere(t)) return fail('refused', "This file isn't there.");
       if (which === 'upgrade' && !t.upgrade) return fail('refused', 'There is no upgrade for this track.');
       return later(350, () => ok({ spectrum: fakeSpectrum(which === 'upgrade' ? null : t.cutoff_hz,
         Math.abs(hash(t.track_id)), t.duration_s, which) }));
@@ -1600,12 +1602,14 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           if (!t.hidden) counted.add(t.track_id);
         }
       }
-      const g = t.in_playlists ? todoGroup(t) : null;
+      const g = t.in_playlists || t.missing ? todoGroup(t) : null;
       if (!g) continue;
       if (t.hidden) hidden_count++;
       else { chips[g]++; counted.add(t.track_id); }
-      if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: todoDetail(t, g, g === 'upgrade_ready' ? (plain) => autoDetail(s, t, sameTrackReason(t), plain) : undefined), free: todoFree(t, g),
-        file_state: todoFileState(t), ...(g === 'upgrade_ready' ? { same_track: sameTrackReason(t) } : {}) });
+      if (!t.hidden || show_hidden) items[g].push({ ...trackRow(t), group: g, detail: g === 'missing_file' ? itemDetail(s, t)
+        : todoDetail(t, g, g === 'upgrade_ready' ? (plain) => autoDetail(s, t, sameTrackReason(t), plain) : undefined), free: todoFree(t, g),
+        file_state: todoFileState(t), ...(g === 'upgrade_ready' ? { same_track: sameTrackReason(t) } : {}),
+        ...(g === 'missing_file' ? { missing: missingView(s, t)! } : {}) });
     }
     // stage D: the files CDJs play badly (a song listed there only, hidden as any item)
     const members = cdjMembers(s, true);
@@ -1623,7 +1627,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     chips.all = counted.size;
     const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
       .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k],
-        ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}) })) as Todo['groups'];
+        ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}),
+        ...(k === 'missing_file' ? missingAll(items[k]) : {}) })) as Todo['groups'];
     const TODO_EMPTY: Record<string, string | undefined> = { all_lossless: 'Everything is lossless.',
       all_hidden: 'Only hidden tracks are left.', nothing_here: 'Nothing here.' };  // words.TODO_EMPTY
     const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'

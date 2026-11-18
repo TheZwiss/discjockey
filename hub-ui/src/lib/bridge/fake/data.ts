@@ -87,6 +87,11 @@ export type FakeTrack = {
   cloud?: boolean;
   /** stage D: rekordbox holds a track for this file (default true while rekordbox has a library) */
   inRekordbox?: boolean;
+  /** issue 43: the file waits as missing (the engine's `missing_since`): `since` the ISO day of the scan that missed it,
+   *  `found` the paths a song found in several places has now (the engine's `ambiguous`). Its path stays. */
+  missing?: { since: string; found?: string[] };
+  /** issue 43: Download again was asked (the engine's `file_gone`): the song leaves To-do, the next sync downloads it */
+  fileGone?: boolean;
 };
 /** One move of a move batch as the fake keeps it (the engine's `moves` row). */
 export type FakeMove = {
@@ -289,9 +294,13 @@ export function pathOf(t: FakeTrack): string | null {
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
 /** A to-do item's `file_state` (the contract's): the file's drive or folder state, `no_file` for a song without one. */
-export function todoFileState(t: FakeTrack): 'here' | 'offline' | 'folder_missing' | 'no_file' {
-  return !trackRow(t).path ? 'no_file' : t.away === 'offline' || t.away === 'folder_missing' ? t.away : 'here';
+export function todoFileState(t: FakeTrack): 'here' | 'offline' | 'folder_missing' | 'file_missing' | 'no_file' {
+  // views.file_state: an away drive or folder first (it can't tell), then the stored mark of a file that waits as missing
+  return !trackRow(t).path ? 'no_file' : t.away === 'offline' || t.away === 'folder_missing' ? t.away
+    : t.missing ? 'file_missing' : 'here';
 }
+/** Whether the file can be played: its drive is there and it isn't marked missing (views: `state == "here"`). */
+export const fileThere = (t: FakeTrack): boolean => !t.away && !t.missing;
 export function trackRow(t: FakeTrack): TrackRow {
   return {
     track_id: t.track_id, artist: t.artist, title: t.title, folder: t.folder, duration_s: t.duration_s,
@@ -311,6 +320,10 @@ export function qualityLine(t: FakeTrack): string {
   return `${src} ${(t.codec ?? 'aac').toUpperCase()}${kbps} · cutoff ${khz(t.cutoff_hz ?? 20000)}`;
 }
 export function todoGroup(t: FakeTrack): TodoGroupKey | null {
+  // views._group: a file that waits as missing wins over every other group; once Download again is asked
+  // (`fileGone`) the song is in none (a song with no file and `fileGone` is no Not found either)
+  if (t.missing) return t.fileGone ? null : 'missing_file';
+  if (t.status === 'missing' && t.fileGone) return null;
   if (t.unchecked) return null;  // as views._group: its quality is only the codec's guess
   if (t.other) return 'other';
   if (t.upgrade) return 'upgrade_ready';

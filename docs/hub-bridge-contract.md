@@ -2281,5 +2281,9 @@ song or downloads a playlist song again. This section is the read side (E3a); th
   song gets {Download again | Remove from library} instead."; `found_twice` "Its file is in several places now: keep one
   and it links again."; `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open:
   finish it first."; `asked` "You asked for it already: it happens at your next sync."
-- **Fake backend**: shapes only for now (`missing` absent on every item, the group absent); scenario `missing_files` comes
-  with the window's work.
+- **Fake backend**: scenario `missing_files` (`hub-ui/src/lib/bridge/fake/missingFiles.ts`): the plain scenario with ten
+  songs whose file waits as missing (a playlist song, one with a parked better version, one found in two places, one
+  marked Never download, a hidden one, one whose Download again was asked, and four own songs: plain, with a parked
+  version, with an open rekordbox check, on a drive that is away). `todo()`, `track()` and `library()` answer from them as
+  the engine does (the group, `missing`, `all`, `file_state`, `next_qobuz_check`); the engine's words are pinned against
+  `discjockey/missing.py` by `missingFiles.test.ts`. The actions' handlers come with E3b.

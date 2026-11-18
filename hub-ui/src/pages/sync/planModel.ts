@@ -41,9 +41,15 @@ export function readBlockLine(kind: 'not_set_up' | 'login_expired', service: Pla
 }
 export const PREF_HOW_MANY = 'sync.howMany';
 
+/** The engine's words for the Download again kind (report.PLAN_LABELS "acquire:redownload"; pinned by planModel.test.ts):
+ *  the head is the button's name, the rest says why the row is in the plan. A song's file is missing and the user asked. */
+export const DOWNLOAD_AGAIN = 'Download again';
+export const DOWNLOAD_AGAIN_WHY = 'its file is missing';
+export const DOWNLOAD_AGAIN_LABEL = `${DOWNLOAD_AGAIN} (${DOWNLOAD_AGAIN_WHY})`;
+
 export type KindKey = 'new' | 'retry' | 'redownload' | 'bought' | 'weekly';
 export const KINDS: { key: KindKey; label: string }[] = [
-  { key: 'new', label: 'New' }, { key: 'retry', label: 'Not found last time' }, { key: 'redownload', label: 'File gone' },
+  { key: 'new', label: 'New' }, { key: 'retry', label: 'Not found last time' }, { key: 'redownload', label: DOWNLOAD_AGAIN },
   { key: 'bought', label: 'Bought files' }, { key: 'weekly', label: 'Weekly checks' },
 ];
 
@@ -58,7 +64,7 @@ export function kindOf(a: Pick<PreviewAction, 'kind' | 'reason'>): KindKey {
 /** Why a row is in the plan, in words, one per kind (issue 35): the row's tooltip says it for every row, the why
  *  column for all but a plain new song (its download icon says it; a list of new songs keeps its names' width). */
 export const WHY: Record<KindKey, string> = {
-  new: 'not downloaded yet', retry: 'not found last time', redownload: 'file gone', bought: 'bought file',
+  new: 'not downloaded yet', retry: 'not found last time', redownload: DOWNLOAD_AGAIN_WHY, bought: 'bought file',
   weekly: 'weekly check',
 };
 export const whyOf = (a: Pick<PreviewAction, 'kind' | 'reason'>): string => WHY[kindOf(a)];
@@ -86,7 +92,7 @@ export const inRunOrder = (p: SyncPreview | null): PreviewAction[] => allActions
 // ---------- scope: which playlists, folders and kinds are in this run ----------
 /** Left out: the playlists and folders switched off in the browser column (`off`, by their targets: `playlist:<ref>`,
  *  `folder:<path>`, issue 37) and the weekly checks switched off in the panel (remembered, so new ones come in
- *  switched on). Only the two weekly checks switch as kinds (issue 36): new songs, files gone and bought files are
+ *  switched on). Only the two weekly checks switch as kinds (issue 36): new songs, downloads again and bought files are
  *  left out row by row or per section with the plan's ticks. `legacy`: playlists switched off before issue 37, by
  *  name, until `resolveLegacy` turns them into targets. */
 export type Scope = { off: string[]; kinds: KindKey[]; legacy?: string[] };
@@ -188,7 +194,7 @@ export const isWeeklyKind = (k: string): boolean => (WEEKLY_KINDS as string[]).i
  *  the downloads (the blue family), the weekly checks (the teal family), then bought files, which download nothing. */
 export const KIND_SHARE: { key: KindKey; label: string; tip: string; colour: string }[] = [
   { key: 'new', label: 'New downloads', tip: 'Songs in your playlists with no file yet', colour: 'var(--kind-new)' },
-  { key: 'redownload', label: 'Files gone', tip: 'Downloaded before, but the file isn’t there any more: downloaded again',
+  { key: 'redownload', label: DOWNLOAD_AGAIN, tip: `Songs you asked to download again, ${DOWNLOAD_AGAIN_WHY}: downloaded at this sync`,
     colour: 'var(--kind-gone)' },
   { key: 'retry', label: 'Missing songs', tip: 'Not found last time: looked for again once a week', colour: 'var(--kind-retry)' },
   { key: 'weekly', label: 'Lossy files', tip: 'Files that aren’t lossless: checked once a week for a lossless copy',

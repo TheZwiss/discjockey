@@ -21,7 +21,7 @@
 //   sync:downloads-wait the limit-reached plan with downloads only (no other kinds): nothing runs today,
 //                       Start is off with its reason
 //   sync:many        the long plan plus 12 more playlists (one with a very long name, Peak_Time_Warmup_Selection_2026_Final_v3)
-//                    and actions of all 5 kinds (new, not found last time, file gone, bought, weekly)
+//                    and actions of all 5 kinds (new, not found last time, download again, bought, weekly)
 //   sync:long-names  the long plan with three titles over 120 characters and one track by six artists
 //   sync:auto-done   Auto-upgrade (issue 33 stage C): 13 upgrades ready; Start puts 9 in place at the end of the sync, rekordbox is
 //                    opened after the 10th (3 wait, marked for To-do), 1 is refused (timing). An earlier sync with the phase
@@ -40,6 +40,7 @@ import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
 import { setPref } from '$lib/prefs';
 import type { SyncPreview } from '$lib/bridge/types';
 import { PREF_LAST_SELECTION, type Picked } from './selection';
+import { DOWNLOAD_AGAIN_LABEL } from './planModel';
 
 const ARTISTS = ['Pegassi', 'Vatoz Locoz', 'torbentorben', 'Armin Hermann', 'DJ TALLBOY', 'Nina Kraviz', 'Kölsch',
   'Ben Klock', 'Changing Faces', 'Luude', 'Sub Focus', 'Hannah Laing'];
@@ -85,7 +86,7 @@ function otherKinds(): SyncPreview['groups'] {
     [0, 1].map((j) => previewAction(kind, reason, t(`k${at}_${j}`, at + j), false, null, at + j));
   return [
     { key: 'acquire:retry', label: 'Not found last time', actions: two('acquire', 'retry', 0) },
-    { key: 'acquire:redownload', label: 'File gone', actions: two('acquire', 'redownload', 2) },
+    { key: 'acquire:redownload', label: DOWNLOAD_AGAIN_LABEL, actions: two('acquire', 'redownload', 2) },
     { key: 'adopt_bought', label: 'Bought files', actions: two('adopt_bought', null, 8) },
     { key: 'upgrade', label: 'Weekly checks', actions: two('upgrade', null, 10) },
   ];

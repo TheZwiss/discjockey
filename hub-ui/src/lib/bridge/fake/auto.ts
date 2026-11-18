@@ -75,7 +75,7 @@ export function sameTrackReasonOf(s: FakeState, t: FakeTrack): string | null {
 /** The set of the sync's last phase, in To-do's order (auto_upgrade.plan): Upgrade all's list (hidden left out) filtered
  *  by the quick Same track answer, minus the tracks a recorded refusal still holds. The switch is not asked here. */
 export const readyTracks = (s: FakeState): FakeTrack[] => s.tracks.filter((t) => t.in_playlists && !t.hidden && t.upgrade
-  && sameTrackReasonOf(s, t) === null && !t.upgrade.auto_refused);
+  && !t.missing && sameTrackReasonOf(s, t) === null && !t.upgrade.auto_refused);
 
 /** Makes `n` more tracks of the playlists wait with a lossless version of the same edit (a scenario's Upgrade ready
  *  rows), lossy files first; every other one is an MP3 (Same track makes it a new AIFF). A lossless track is turned into

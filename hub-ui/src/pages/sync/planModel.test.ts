@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { ActionKey, EstimateAccount, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
   chosenOf, everyOff, folderSwitch, memberOn, resolveLegacy, sectionOf,
@@ -6,8 +8,22 @@ import {
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, leftOutTitle, startLabel, tagOf, whyOf, toggleScope, waitsWhole, whyColumn,
+  DOWNLOAD_AGAIN, DOWNLOAD_AGAIN_LABEL, KINDS, KIND_SHARE, WHY,
   WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine, startNote, rekordboxOpenLine, autoPlanLine, NOTHING_TODAY, CONSOLE_RUNNING,
 } from './planModel';
+
+// the engine's words for the Download again kind are the report's plan label (discjockey/report.py PLAN_LABELS)
+describe('the Download again words (issue 43)', () => {
+  const report = readFileSync(fileURLToPath(new URL('../../../../discjockey/report.py', import.meta.url)), 'utf8');
+  it('the label of the kind is the engine\'s plan label', () => {
+    expect(report).toContain(`("acquire:redownload", "${DOWNLOAD_AGAIN_LABEL}")`);
+  });
+  it('the strip and the kind list name the kind by it, and no row says its file is gone', () => {
+    expect(KINDS.find((k) => k.key === 'redownload')!.label).toBe(DOWNLOAD_AGAIN);
+    expect(KIND_SHARE.find((k) => k.key === 'redownload')!.label).toBe(DOWNLOAD_AGAIN);
+    expect(Object.values(WHY).join(' ')).not.toMatch(/gone/i);
+  });
+});
 
 describe('the import hints (W9)', () => {
   it('say the songs that wait for an answer, singular for 1, nothing at 0', () => {
@@ -51,7 +67,7 @@ describe('kinds and tags', () => {
   it('says why in words for every kind, a plain new track included (issue 35: the row tooltip)', () => {
     expect(whyOf(act('acquire', 'a'))).toBe('not downloaded yet');
     expect(whyOf(act('acquire', 'a', 'X', { reason: 'retry' }))).toBe('not found last time');
-    expect(whyOf(act('acquire', 'a', 'X', { reason: 'redownload' }))).toBe('file gone');
+    expect(whyOf(act('acquire', 'a', 'X', { reason: 'redownload' }))).toBe('its file is missing');
     expect(whyOf(act('adopt_bought', 'a'))).toBe('bought file');
     expect(whyOf(act('upgrade', 'a'))).toBe('weekly check');
     // the tag is the same words, left out only for the plain new track
