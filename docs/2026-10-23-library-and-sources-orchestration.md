@@ -745,6 +745,9 @@ Results:
     step rebuilds aiff_batches/aiff_items CHECKs); 5980 passed + 1 wording fix re-run by file. step `look` not
     `reload_tag` (E4a: text columns never written) -> plan amend in D1; CLAUDE.md 'switch off moves no file' -> D1.
     Stage so far ~3.83M.
+    E4b2 (Sonnet) done 2462a7bd: **227k** (73 calls; expected 130-180k): contract/types/fake for placements, check_status
+    words, fake redownload plan + bad_args; hub-level preview/plan-id tests (no engine fix). Open: sync_preview
+    auto_upgrade counts no placements (null with switch off) -> R-E4b fix round. Stage so far ~4.06M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
