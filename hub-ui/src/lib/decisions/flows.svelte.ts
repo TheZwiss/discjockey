@@ -6,7 +6,8 @@ import { api, rekordboxStatus, runJob, type JobOutcome } from '$lib/bridge/clien
 import { onEvent } from '$lib/bridge/events';
 import { waitForJob } from '$lib/stores/jobs';
 import type {
-  AiffBatchResult, AiffPlan, AiffScope, DuplicatePair, JobSnap, JobStart, RekordboxCheckView, RekordboxStatus, Result, TodoItem, UndoResult,
+  AiffBatchResult, AiffPlan, AiffScope, DuplicatePair, JobSnap, JobStart, MissingAction, MissingResult, RekordboxCheckView,
+  RekordboxStatus, Result, TodoItem, UndoResult,
 } from '$lib/bridge/types';
 import { latestOnly } from '$lib/latest';
 import { aiffProblem } from './aiffModel';
@@ -19,6 +20,7 @@ import {
   type BatchEnd,
   type BatchMode, type DuplicatePick, type RunRow, type UndoProblem, type UpgradeWays, type Way,
 } from './decisionModel';
+import { missingEnd, removeConfirm, type MissingEnd } from './missingModel';
 
 /** The bridge's name for each way (`upgrade(ids, mode)`): the page's own words stay as they are. */
 const BRIDGE_MODE = { swap: 'same_track', add_new: 'new_track', discard: 'discard' } as const;
@@ -236,6 +238,65 @@ export class ChecksFlow {
     if (n) toasts.show({ tone: 'success', title: out.result?.words || undoneToast(n) });
   }
 }
+/** Download again and Remove from library for songs whose file waits as missing (issue 43, plan §7.4): one job per
+ *  press (`missing_files(ids, action)`), shared by To-do's details (one song) and the selection panel (several). Remove
+ *  asks first (`removeConfirm`: the plural words for several). Nothing is lost by Download again, so it runs at once.
+ *  After the job the songs have left the Missing files group: the page's selection follows as after a Discard (its
+ *  `onact` is called as the job starts, after the confirm, so it keeps the panel). One song's words come as a toast
+ *  (the engine's `words`; a skip says why); several keep `ended` (the job's words and the skipped songs with theirs)
+ *  until `clear()`: the panel's ended phase. `busy` names the running action. */
+export class MissingFlow {
+  busy = $state<MissingAction | null>(null);
+  ended = $state<MissingEnd | null>(null);
+  #onact: (() => void) | undefined;
+  #name: (track_id: string) => string;
+
+  /** `name`: "Artist – Title" of a track id, for the skipped songs of an end */
+  constructor(opts: { onact?: () => void; name?: (track_id: string) => string } = {}) {
+    this.#onact = opts.onact;
+    this.#name = opts.name ?? ((id) => id);
+  }
+
+  /** The panel's Done, or the next pick: the end is put away. */
+  clear(): void {
+    this.ended = null;
+  }
+  async downloadAgain(ids: string[]): Promise<void> {
+    await this.#run(ids, 'download_again');
+  }
+  /** Asks first ("Remove from your library?", the plural for several). */
+  async remove(ids: string[]): Promise<void> {
+    if (!ids.length || this.busy) return;
+    if (!(await confirm(removeConfirm(ids.length)))) return;
+    await this.#run(ids, 'remove');
+  }
+
+  async #run(ids: string[], action: MissingAction): Promise<void> {
+    if (!ids.length || this.busy) return;
+    this.busy = action;
+    this.ended = null;
+    this.#onact?.();
+    const out = await runJob<MissingResult>(api.missing_files(ids, action), { quiet: true, success: false });
+    this.busy = null;
+    const result = out.result ?? null;
+    // refused before it started (busy, console, a sync running): nothing ran, a toast says why
+    if (!out.ok && out.job_id === null) {
+      toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: out.message || undefined });
+      return;
+    }
+    if (ids.length > 1) {
+      this.ended = missingEnd(result, this.#name);
+      if (!this.ended && !out.ok) toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: out.message || undefined });
+      return;
+    }
+    // one song: its words as a toast; every song skipped (the job ends `changed`) says the song's reason
+    const words = result?.words || (out.ok ? '' : out.message);
+    if (out.ok) { if (words) toasts.show({ tone: 'success', title: words }); return; }
+    const why = result?.results.find((r) => r.state === 'skipped')?.words;
+    toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: why || words || undefined });
+  }
+}
+
 /** Which flow follows a batch job the window didn't start (the window was reloaded). `batch_resume` is one kind for
  *  Same track's batches and for Convert's, so the job's `batch_kind` decides: `convert` and `mixed` are the AIFF
  *  batch flow's, `upgrade` the upgrade batch flow's. A resume with no kind (`null` or missing: a hub that doesn't say)

@@ -231,7 +231,7 @@ export const FILE_STATE_WORDS: Record<Exclude<FileState, 'here'>, string> = {
 export const FILE_STATE_TAG: Record<Exclude<FileState, 'here'>, string> = {
   offline: 'Offline',
   folder_missing: 'Folder not found',
-  file_missing: 'File not found',
+  file_missing: 'Missing',
 };
 /** A list row's file that is away (Library's table, To-do's list): the state its `AwayTag` says, null for a file that is
  *  here and for a song with no file yet (`no_file`, which says Waiting / NOT FOUND instead). */

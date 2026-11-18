@@ -8,7 +8,7 @@ import {
   rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
   titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, artistColumnFor, shownSort, tooManyFor,
   heldRow, holdApplies, withHeld, rowMenu, FILES_SCOPE, MAKE_AIFF, aiffHeader, inspectorSubject, isBatchSubject,
-  keepTableSelection, selectAllRows, tableScope,
+  keepTableSelection, selectAllRows, tableScope, missingNote, missingTodoHref,
 } from './libraryModel';
 import { click, escape, move, single, NONE, type Selection } from '$lib/components/selectionModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
@@ -729,5 +729,15 @@ describe('the header\'s AIFF button (three states)', () => {
     expect(aiffHeader(null, true, 'Resume · 7 left').label).toBe('Resume · 7 left');
     // a run found in a reloaded window has no frozen label: the idle one
     expect(aiffHeader(null, true).label).toBe('Make AIFF…');
+  });
+});
+
+describe('a missing file\'s details (issue 43)', () => {
+  it('"Open in To-do" goes to the Missing files group with the song picked; the note is the engine\'s line and hint', () => {
+    expect(missingTodoHref('t7')).toBe('/todo?filter=missing_file&track=t7');
+    expect(missingTodoHref('a b/c')).toBe('/todo?filter=missing_file&track=a%20b%2Fc');
+    expect(missingNote({ missing: { line: 'Not seen since 12 Nov. It was in Techno 2019.', hint: 'Put the file back.' } as any }))
+      .toEqual({ title: 'Not seen since 12 Nov. It was in Techno 2019.', text: 'Put the file back.' });
+    expect(missingNote({ missing: null })).toBeNull();
   });
 });

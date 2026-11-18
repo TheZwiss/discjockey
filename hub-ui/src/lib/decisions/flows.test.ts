@@ -10,7 +10,8 @@ import { answerConfirm, confirmRequest } from '../components/confirm';
 import { _resetJobs, waitForJob } from '../stores/jobs';
 import { toasts } from '../stores/toasts';
 import { artistTitle } from '../format';
-import { AiffBatchFlow, AiffFlow, ChecksFlow, UpgradeBatchFlow, UpgradeFlow } from './flows.svelte';
+import { AiffBatchFlow, AiffFlow, ChecksFlow, MissingFlow, UpgradeBatchFlow, UpgradeFlow } from './flows.svelte';
+import { missingSet } from '../bridge/fake/missingFiles';
 import type { AiffScope } from '../bridge/types';
 import type { RunRow } from './decisionModel';
 
@@ -597,5 +598,104 @@ describe('UpgradeFlow', () => {
     await new UpgradeFlow().upgrade(b.track_id, 'add_new');
     expect(spy).toHaveBeenLastCalledWith([b.track_id], 'new_track');
     expect(get(toasts)).toMatchObject([{ tone: 'success' }]);
+  });
+});
+
+describe('MissingFlow (Download again and Remove from library, issue 43)', () => {
+  const yes = () => { const stop = confirmRequest.subscribe((p) => { if (p) queueMicrotask(() => { stop(); answerConfirm(true); }); }); };
+  const no = () => { const stop = confirmRequest.subscribe((p) => { if (p) queueMicrotask(() => { stop(); answerConfirm(false); }); }); };
+  const env = () => {
+    const e = setup('missing_files');
+    return { ...e, ids: missingSet(e.s)! };
+  };
+  const titles = () => get(toasts).map((t) => t.title);
+
+  it('Download again runs at once with no question; the song leaves the group and its words are a toast', async () => {
+    const { group, ids } = env();
+    const onact = vi.fn();
+    const flow = new MissingFlow({ onact });
+    const call = vi.spyOn(api, 'missing_files');
+    const before = (await group('missing_file'))!.items.length;
+    const run = flow.downloadAgain([ids.plain]);
+    expect(flow.busy).toBe('download_again');
+    await run;
+    expect(call).toHaveBeenCalledWith([ids.plain], 'download_again');
+    expect(onact).toHaveBeenCalledTimes(1);
+    expect(flow.busy).toBeNull();
+    expect(flow.ended).toBeNull();   // one song: a toast, no panel phase
+    expect(titles()).toEqual(['1 song downloads again at your next sync.']);
+    expect((await group('missing_file'))!.items).toHaveLength(before - 1);
+  });
+
+  it('a second press while it runs, and an empty list, do nothing', async () => {
+    const { ids } = env();
+    const flow = new MissingFlow();
+    const call = vi.spyOn(api, 'missing_files');
+    const first = flow.downloadAgain([ids.plain]);
+    await flow.downloadAgain([ids.parked]);
+    await flow.remove([ids.own]);
+    await first;
+    await flow.downloadAgain([]);
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it('Remove asks first (singular words), and a no changes nothing', async () => {
+    const { ids, s } = env();
+    const onact = vi.fn();
+    const flow = new MissingFlow({ onact });
+    const call = vi.spyOn(api, 'missing_files');
+    no();
+    await flow.remove([ids.own]);
+    expect(call).not.toHaveBeenCalled();
+    expect(onact).not.toHaveBeenCalled();
+    expect(s.tracks.some((t: any) => t.track_id === ids.own)).toBe(true);
+    let asked = '';
+    const stop = confirmRequest.subscribe((p) => { if (p) { asked = `${p.title}|${p.confirmLabel}|${p.tone}`; queueMicrotask(() => { stop(); answerConfirm(true); }); } });
+    await flow.remove([ids.own]);
+    expect(asked).toBe('Remove from your library?|Remove|danger');
+    expect(call).toHaveBeenCalledWith([ids.own], 'remove');
+    expect(onact).toHaveBeenCalledTimes(1);
+    expect(s.tracks.some((t: any) => t.track_id === ids.own)).toBe(false);
+    expect(titles()).toEqual(['Removed 1 song from your library.']);
+  });
+
+  it('several songs: the plural question, and the end keeps the words and the songs the job skipped with their words', async () => {
+    const { ids, s } = env();
+    const flow = new MissingFlow({ name: (id) => `name ${id}` });
+    let asked = '';
+    const stop = confirmRequest.subscribe((p) => { if (p) { asked = p.title; queueMicrotask(() => { stop(); answerConfirm(true); }); } });
+    // ownCheck's rekordbox check is open: the engine skips it, the other two are removed
+    await flow.remove([ids.own, ids.ownParked, ids.ownCheck]);
+    expect(asked).toBe('Remove 3 songs from your library?');
+    expect(flow.ended).toEqual({ action: 'remove', words: 'Removed 2 songs from your library; 1 is skipped.', done: 2,
+      skipped: [{ track_id: ids.ownCheck, name: `name ${ids.ownCheck}`, text: 'Its rekordbox check is still open: finish it first.' }] });
+    expect(titles()).toEqual([]);   // the panel says it, no toast
+    expect(s.tracks.some((t: any) => t.track_id === ids.ownCheck)).toBe(true);
+    flow.clear();
+    expect(flow.ended).toBeNull();
+  });
+
+  it('every song skipped: one song says its reason in a toast, several keep the end with the results', async () => {
+    const { ids } = env();
+    const flow = new MissingFlow();
+    await flow.downloadAgain([ids.twice]);
+    expect(get(toasts)[0]).toMatchObject({ tone: 'problem', body: 'Its file is in several places now: keep one and it links again.' });
+    toasts.clear();
+    await flow.downloadAgain([ids.twice, ids.never]);
+    expect(flow.ended).toMatchObject({ action: 'download_again', done: 0 });
+    expect(flow.ended!.skipped.map((r) => r.text)).toEqual(['Its file is in several places now: keep one and it links again.',
+      'You chose Never download for it.']);
+    expect(titles()).toEqual([]);
+  });
+
+  it('a new press puts the old end away; a refusal before the start is a toast and no end', async () => {
+    const { ids, f } = env();
+    const flow = new MissingFlow();
+    await flow.downloadAgain([ids.plain, ids.parked]);
+    expect(flow.ended).not.toBeNull();
+    vi.spyOn(f, 'missing_files').mockResolvedValue({ ok: false, kind: 'busy', message: 'Another job is running.' } as any);
+    await flow.downloadAgain([ids.twice, ids.never]);
+    expect(flow.ended).toBeNull();
+    expect(get(toasts).at(-1)).toMatchObject({ tone: 'problem', body: 'Another job is running.' });
   });
 });

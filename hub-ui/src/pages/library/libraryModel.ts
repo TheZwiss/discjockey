@@ -188,6 +188,13 @@ export function rowInTodo(r: Pick<LibraryRow, 'status' | 'upgrade_ready' | 'in_p
 export function todoHref(id: string): string {
   return `/todo?track=${encodeURIComponent(id)}`;
 }
+/** A song whose file waits as missing (issue 43; `track().missing` is set): its details' note is the engine's `line` and
+ *  `hint` (`missingNote`), and its one button "Open in To-do" goes to the Missing files group with the song picked. The
+ *  actions stay in To-do (one place decides). */
+export { missingNote } from '$lib/decisions/missingModel';
+export function missingTodoHref(id: string): string {
+  return `/todo?filter=missing_file&track=${encodeURIComponent(id)}`;
+}
 
 // ---------- the quality filter ----------
 /** Remembered filter per collection (a playlist and a Library folder keep their step A key, the folder's name). */
