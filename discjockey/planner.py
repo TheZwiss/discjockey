@@ -218,7 +218,7 @@ def _song_name(artist: str, title: str, duration_ms: int | None) -> tuple[str, s
 # what a playlist song without a file takes over from the own song merged into it (rule 2): the file and what the
 # upgrade checks learned about it (a parked upgrade belongs to the file)
 MERGED_FIELDS = ("path", "status", "source", "source_id", "source_format", "cutoff_hz", "source_kbps", "source_how", "online",
-                 "placed_by", "held", "file_id", "import_state", "first_seen", "last_upgrade_check", "upgrade",
+                 "placed_by", "held", "missing_since", "file_id", "import_state", "first_seen", "last_upgrade_check", "upgrade",
                  "free_downloads", "originals_searched", "qobuz_searched", "declined_streams")
 
 Found = tuple[str, str, str]  # (match "certain" | "plausible", own song key, why)

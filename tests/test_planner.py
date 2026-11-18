@@ -1054,6 +1054,14 @@ def test_a_missing_playlist_song_takes_over_an_own_songs_file():
     assert "local:1" in s["tracks"]  # input state untouched
 
 
+def test_a_playlist_song_that_takes_over_an_own_songs_file_takes_its_missing_mark_too():
+    """Issue 43: the file waits as missing; the song that takes it over must not look as if it had a file there."""
+    s = own_state(("t1", missing_song()), n1=own_entry(1, missing_since="2026-11-10T09:00:00"))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert p.state["tracks"]["t1"]["file_id"] == 101
+    assert p.state["tracks"]["t1"]["missing_since"] == "2026-11-10T09:00:00"
+
+
 def test_a_merged_song_is_planned_for_like_any_other():
     s = own_state(("t1", missing_song()), n1=own_entry(1, status="not_lossless"))
     p = plan([pl("A", night())], s, files_of(s), TODAY)

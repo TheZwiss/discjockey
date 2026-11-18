@@ -431,6 +431,9 @@ def test_an_own_song_whose_file_leaves_every_watched_folder_waits_and_links_back
     x = things(mine)
     key, file_id = x["key"], x["file_id"]
     song_before = load_state(mine)["tracks"][key]
+    with db.connect(mine.db_file) as conn:  # an answer naming the own song
+        db.set_decision(conn, "same_song", "sp9", key, "not_same", datetime(2026, 11, 2))
+        (song_id,) = conn.execute("SELECT id FROM songs WHERE key = ?", (key,)).fetchone()
     shutil.move(x["crate"] / "Own - Song.aiff", x["away"] / "Own - Song.aiff")
     summary, messages = scan(mine)
     assert (summary.missing, summary.gone, summary.back) == (1, 0, 0)
@@ -455,6 +458,10 @@ def test_an_own_song_whose_file_leaves_every_watched_folder_waits_and_links_back
     assert unlinked(mine) == ([], [])  # no unlinked import row, nothing waiting to import
     assert any(f.endswith("Own - Song.aiff") for f in state["files"])
     assert sorted(state["tracks"]) == [key]  # still the same one song
+    with db.connect(mine.db_file) as conn:
+        assert conn.execute("SELECT id FROM songs WHERE key = ?", (key,)).fetchall() == [(song_id,)]
+        assert conn.execute("SELECT count(*) FROM songs").fetchone() == (1,)
+        assert db.decisions(conn)["same_song"] == [["sp9", key, "not_same"]]  # the answer was there all along
 
 
 def test_the_file_put_back_under_another_name_in_another_watched_folder_links_to_the_same_song(mine):
