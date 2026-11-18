@@ -489,6 +489,8 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "upgrade apply": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
     "upgrade discard": [({"track_ids": "all-tracks"}, {})],
     "track undo": [({"track_ids": "all-tracks"}, {})],
+    "missing download": [({"track_ids": "all-tracks"}, {})],  # (these songs' files are there: every one is skipped, nothing is stored)
+    "missing remove": [({"track_ids": "all-tracks"}, {})],
     "batch undo": [({"batch_id": "a-batch"}, {})],
     "rekordbox restore": [({"backup": "a-backup"}, {})],
     "library facts": [({}, {})],

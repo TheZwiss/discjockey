@@ -37,6 +37,7 @@ NOUN_WORDS = {
     "check": "The checks to do in rekordbox after a file changed.",
     "folder": "The folders Discjockey watches for your own files.",
     "library": "Your library: read it again, read file facts.",
+    "missing": "Songs whose file is missing: list them, download again or remove from your library.",
     "rekordbox": "rekordbox's library: its state, what a change would do, its backups.",
     "report": "The reports of past syncs.",
     "settings": "What Settings holds, and changing it.",

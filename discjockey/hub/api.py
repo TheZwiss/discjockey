@@ -80,12 +80,15 @@ NO_AIFF_BATCH = "Discjockey has no record of this batch."
 NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
 UNDO_NONE = batches.NOTHING_UNDONE
 NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
+NO_MISSING_LEFT = {select.DOWNLOAD_AGAIN: "No song whose file is missing waits for Download again.",
+                   select.REMOVE_MISSING: "No song whose file is missing waits for Remove from library."}
 NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
 NEWER_CHECK = "A later batch ({later}) changed this track again, so its check belongs to that batch: `check done --batch {later}`."
 NEWER_CHECK_STEP = "This track was changed again after this batch, so its check is not this batch's: `check done {track}`."
 CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
-NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove"))  # run on what is there when --yes comes: no plan to run
+NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove",
+                         "missing download", "missing remove"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -3185,7 +3188,8 @@ class CliApi(HubApi):
         (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
         for the whole run. An undo says how many tracks went back; "Done, checked" gives each track a row, `done` or
         `skipped` (nothing to check; `outcome: "ok"` when no track had one), and says that the undo ended. Read only: it looks at the records after the job. A
-        method with no words says nothing."""
+        method with no words says nothing. Download again and Remove from library (and their preview) give their one line
+        (`words`); their rows already carry theirs."""
         if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
             return self._upgrade_words(result)
         if method == "batch_resume" and isinstance(result.get("results"), list):
@@ -3198,6 +3202,8 @@ class CliApi(HubApi):
             if lossy := plan.get("lossy"):  # lossy files grow when they become AIFF (the console's old line)
                 return {"message": engine_words.LOSSY_NOTE.format(n=lossy, are="is" if lossy == 1 else "are")}
             return {}
+        if method in ("missing_files", "missing_files_preview") and isinstance(result.get("words"), str):
+            return {"message": result["words"]}  # the rows already carry their words (`results[].words`, `items[].words`)
         if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
             return self._undo_words(result)
         if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
@@ -3724,6 +3730,10 @@ class CliApi(HubApi):
         if want.verb_all == select.CHECK_DONE:
             return self._nothing_left({"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))},
                                       NOTHING_TO_CHECK)
+        if want.verb_all in (select.DOWNLOAD_AGAIN, select.REMOVE_MISSING):
+            ids = (select.download_again_ids if want.verb_all == select.DOWNLOAD_AGAIN else select.remove_missing_ids)(
+                self._todo(state, "missing_file", False))
+            return self._nothing_left({"ids": ids}, NO_MISSING_LEFT[want.verb_all])
         if want.verb_all == select.RENAME_ALL:
             ids = self._rename_all_ids(state, want.view, want.key)
             if want.plan is not None:  # a run with a plan answers for the plan's songs too (design §7.1)

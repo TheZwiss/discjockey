@@ -23,6 +23,7 @@ from rekordbox_helpers import make_master
 import discjockey.cli as cli
 from discjockey import library
 from test_cli_batches import with_batches, with_report
+from test_cli_missing import missing_library
 from test_cli_reads import rich_library
 from discjockey.cli import bind, parser
 from discjockey.cli.render import generic
@@ -30,7 +31,7 @@ from discjockey.hub import catalog
 
 GOLDEN = Path(__file__).parent / "cli_golden"
 READS = [e for e in parser.built() if e.kind == "R"]
-WRITES = ["library_facts", "aiff_convert", "aiff_rename", "upgrade_apply", "upgrade_discard", "track_undo", "check_done", "batch_resume", "batch_undo", "rekordbox_restore", "sync_run", "folder_add", "folder_remove", "settings_set"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
+WRITES = ["library_facts", "aiff_convert", "aiff_rename", "upgrade_apply", "upgrade_discard", "track_undo", "check_done", "batch_resume", "batch_undo", "rekordbox_restore", "sync_run", "folder_add", "folder_remove", "settings_set", "missing_download", "missing_remove"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
 
 
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
@@ -79,10 +80,13 @@ def with_backups(tmp_path, monkeypatch):
 @pytest.fixture
 def fixture(tmp_path, monkeypatch, request, utc):
     """The hub fixtures every read runs on: a library of three songs, a rekordbox library with no tracks, rekordbox
-    closed (conftest). The reads of To-do and one track run on `rich_library` (an upgrade waiting, two open checks)."""
+    closed (conftest). The reads of To-do and one track run on `rich_library` (an upgrade waiting, two open checks), `missing list` on
+    `missing_library` (five songs whose file is missing)."""
     entry = request.node.callspec.params.get("entry") if hasattr(request.node, "callspec") else None
     if entry is not None and entry.command in RICH:
         return rich_library(tmp_path, monkeypatch).root
+    if entry is not None and entry.command == ("missing", "list"):
+        return missing_library(tmp_path, monkeypatch).root
     paths = make_root(tmp_path)
     choose_music(tmp_path, monkeypatch)
     if entry is not None and entry.command[0] == "batch":

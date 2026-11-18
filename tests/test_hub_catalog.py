@@ -23,7 +23,7 @@ from discjockey.hub.catalog import Arg, Entry
 # `auto_upgrade_preview`; `start_sync`'s own `sync run` row stays planned for phase 4), part b `folder add`, `folder remove`
 # (`add_watched_folder`, `remove_watched_folder`, and `removal_preview`, which is its dry run: no command of its own),
 # `settings show` (`settings_view`) and `settings set auto-upgrade` (`set_auto_upgrade`).
-PHASE_1_CEILING = 83  # 80 + the planned `login check <service>` row (`setup_account` with the saved browser: U2) + issue 43's `missing download` / `missing remove` rows (E3b2 builds them)
+PHASE_1_CEILING = 81  # 80 + the planned `login check <service>` row (`setup_account` with the saved browser: U2)
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",

@@ -84,6 +84,8 @@ CONFIRM: dict[str, str] = {
     "track undo": "Undo the last step of these tracks? Your old files go back where they were.",
     "batch undo": "Undo every step this batch did? Your old files go back where they were.",
     "folder remove": "Stop watching this folder? Discjockey forgets its files; the files stay where they are.",
+    "missing remove": "Remove these songs from your library? This can't be undone. Their files are missing, so no music "
+                      "file is deleted; a better version waiting for one of them is.",
     "rekordbox restore": "Put rekordbox's whole library back as this backup holds it? Every change made in rekordbox "
                          "since is dropped. Your library as it is now is saved first.",
 }
@@ -93,7 +95,11 @@ CONFIRM: dict[str, str] = {
 # A bulk command without a row has no `--all` (the parser does not offer it). The groups that build the other verbs add
 # theirs (`aiff convert --all` is a scope, not a list of songs: it is not here, `ALL_METHOD` has it).
 ALL_OF: dict[str, str] = {"upgrade apply": select.UPGRADE_ALL, "check done": select.CHECK_DONE,
-                          "aiff rename": select.RENAME_ALL}
+                          "aiff rename": select.RENAME_ALL, "missing download": select.DOWNLOAD_AGAIN,
+                          "missing remove": select.REMOVE_MISSING}
+
+# The commands for songs whose file is missing (issue 43): their `--all` is the Missing files group's, `all` split by action.
+MISSING = ("missing download", "missing remove")
 
 
 # The method that runs a verb's `--all` when it has one of its own (the window's button: `upgrade_all`), `<command> ->
@@ -142,6 +148,8 @@ UPGRADE_PARTIAL = ("skipped", "failed")
 AUTO_UPGRADE_PARTIAL = ("failed",)
 # ... of an undo: a track whose undo was refused (a file changed since, nothing to undo) or failed
 UNDO_PARTIAL = ("refused", "failed")
+# ... of Download again / Remove from library: a song that was skipped (its file came back, it gets the other action, ...)
+MISSING_PARTIAL = ("skipped",)
 
 
 def primary(entries: "list[Entry]") -> "Entry":
@@ -223,6 +231,8 @@ ENTRIES: tuple[Entry, ...] = (
         "filter": Arg("--group"), "show_hidden": Arg("--hidden", type="bool")}, built=True, locks={"rekordbox_r"}),
     _e("todo", "upgrade list", "R", "upgrade list", params={"show_hidden": Arg("--hidden", type="bool")},
        fixed={"filter": "upgrade_ready"}, built=True, locks={"rekordbox_r"}),
+    _e("todo", "missing list", "R", "missing list", params={"show_hidden": Arg("--hidden", type="bool")},
+       fixed={"filter": "missing_file"}, built=True, locks={"rekordbox_r"}),
     _e("todo", "check list", "R", "check list", params={"show_hidden": Arg("--hidden", type="bool")},
        fixed={"filter": "rekordbox_check"}, built=True, locks={"rekordbox_r"}),
     _e("sidebar", "library collections", "R", "library collections"),
@@ -358,13 +368,15 @@ ENTRIES: tuple[Entry, ...] = (
     _e("rekordbox_checked", "check done", "J", "check done --batch aiff:1",
        params={"track_ids": TRACKS, "batch_id": Arg("--batch", resolve="aiff")}, built=True, locks={"library"},
        partial=UPGRADE_PARTIAL),
-    # issue 43: Download again / Remove from library for songs whose file is missing (E3b2 builds the commands; the preview
-    # is their dry run and has no command of its own)
+    # issue 43: Download again / Remove from library for songs whose file is missing; `missing_files_preview` is their dry run
+    # and has no command of its own
     _e("missing_files_preview", "", "R", built=True),
-    _e("missing_files", "missing download", "J", params={"track_ids": TRACKS}, fixed={"action": "download_again"},
-       dry_run="missing_files_preview", locks={"library"}),
-    _e("missing_files", "missing remove", "J", params={"track_ids": TRACKS}, fixed={"action": "remove"},
-       needs_yes=True, dry_run="missing_files_preview", locks={"library"}),
+    _e("missing_files", "missing download", "J", "missing download --all --dry-run", params={"track_ids": TRACKS},
+       fixed={"action": "download_again"}, dry_run="missing_files_preview", built=True, locks={"library"},
+       partial=MISSING_PARTIAL),
+    _e("missing_files", "missing remove", "J", "missing remove --all --yes", params={"track_ids": TRACKS},
+       fixed={"action": "remove"}, needs_yes=True, dry_run="missing_files_preview", built=True, locks={"library"},
+       partial=MISSING_PARTIAL),
     _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK}),
     _e("search_candidates", "version search", "RJ", params={"track_id": TRACK}),
     _e("preview", "version preview", "RJ", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),

@@ -1,0 +1,13 @@
+1 song downloads again and 1 gets the better version already waiting for it, at your next sync.
+
+Action     download_again
+Done       t1, t2
+Skipped    none
+Words      1 song downloads again and 1 gets the better version already waiting for it, at your next sync.
+Recovered  none
+
+Results
+Track id  Action          State  Reason  Words
+t1        download_again  done   none    Downloads again at your next sync
+t2        download_again  done   none    Gets the better version already waiting for it at your next sync; nothing is downloaded
+2 of 2 shown

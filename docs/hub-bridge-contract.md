@@ -2289,9 +2289,13 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   marked Never download, a hidden one, one whose Download again was asked, and four own songs: plain, with a parked
   version, with an open rekordbox check, on a drive that is away). `todo()`, `track()` and `library()` answer from them as
   the engine does (the group, `missing`, `all`, `file_state`, `next_qobuz_check`); the engine's words are pinned against
-  `discjockey/missing.py` by `missingFiles.test.ts`. The actions' handlers (`missing_files_preview`, `missing_files`)
-  come with the commands: until then the fake answers both `refused` ("The fake backend does not run Download again or
-  Remove from library yet.").
+  `discjockey/missing.py` by `missingFiles.test.ts`. `missing_files_preview` and `missing_files` answer from the same
+  state with the engine's rules and words (`previewMissing`, `runMissing`, `summary`; the summary line's sentences are
+  pinned against `tests/test_missing_actions.py`): Download again sets `fileGone` (the song leaves To-do, its parked
+  version stays), Remove deletes an own song and its parked version, a song the action does not fit is a `skipped` row
+  with its reason, and every song skipped ends the job `changed` with the result kept. An unknown action is `refused` in
+  the fake (the window sends only the two words; the engine says `bad_args`). The fake's Sync plan does not list the
+  download that Download again asks for.
 
 ### The two actions (read: `missing_files_preview`; write job: `missing_files`; both in `LIBRARY_METHODS`)
 
@@ -2329,3 +2333,10 @@ reason.
     ready/` leaves that file alone. Nothing is removed by a scan, a sync or the preview, only by this call.
 - **Problem kinds**: `bad_args` (unknown action), `refused` (no songs), `changed` (every song skipped), and the write
   methods' `busy` / `console` / `sync_running` / `no_library`.
+- **Command line** (`discjockey missing list | download | remove`): `missing list [--hidden]` is `todo` with the filter
+  `missing_file`; `missing download` and `missing remove` take songs (a song key, or the path of a missing row's old
+  file) or `--all`, which is this group's `all` split by action (the songs the window's "Select all · n" selects; with
+  none left the command answers `ok`, "No song whose file is missing waits for …", and starts no job). `--dry-run` is
+  `missing_files_preview`; `missing remove` needs `--yes`. A run with a skipped song ends `partial` (exit 6), a run in
+  which every song was skipped `refused` (exit 7); `data` is the method's answer, its rows `{track_id, action, state,
+  reason, words}`.

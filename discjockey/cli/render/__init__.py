@@ -8,6 +8,7 @@ from collections.abc import Callable
 from . import generic, report, todo, track
 
 HAND_PAGES: dict[str, Callable] = {"todo list": todo.page, "upgrade list": todo.page, "check list": todo.page,
+                                   "missing list": todo.page,
                                    "track show": track.page, "report show": report.page}
 
 
