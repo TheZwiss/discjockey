@@ -708,6 +708,9 @@ Results:
     removal stands: 'Wrong song?' (ops._move_away) still rejects a source while a file is there. Stage branch
     fast-forwarded to E2. E3a split before dispatch: E3a1 missing.py + views + api reads + contract doc/types
     (same commit as shapes), E3a2 fake scenario + planModel words. Stage so far ~1.53M.
+    E3a1 (Sonnet) done 676be7d8 + 40ffc820: **269k** (94 calls; est. 220-260k): missing.py, views rows, To-do group,
+    track_detail, Library rows, contract section, TodoGroup union; 5791 passed + golden updated; static stale ->
+    E3a2 ends with the static build. Stage so far ~1.80M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
