@@ -147,7 +147,8 @@ def test_the_parked_version_is_placed_and_the_track_follows_it_with_its_cues_and
     assert env.anlz_files().keys() == anlz_before.keys()
     (b,) = backup.backups(env.paths)
     assert (b.batches, b.tracks) == ([], 1)
-    assert "plays it" in r.note and "Superseded" not in r.note
+    assert r.note == "Its better version is in, at Artist - Song.aiff; rekordbox's track plays it with its cues."
+    assert r.section == "placed_missing"
 
 
 def test_no_rekordbox_track_for_the_file_places_it_lined_up_and_writes_nothing_of_rekordbox(tmp_path, monkeypatch):
@@ -187,7 +188,7 @@ def test_a_lossy_file_that_is_gone_places_at_L_repointed_and_the_check_asks_to_l
     check = state["tracks"][TID]["rekordbox_check"]
     assert (check["aligned"], check["repointed"]) == (False, True)
     assert row_of(env)["FolderPath"] == str(env.paths.root / NEW)
-    assert "check that the cues sit on the beat" in r.note
+    assert r.note == "Its better version is in, at Artist - Song.aiff; check its cues in rekordbox."
 
 
 def test_a_lossy_file_without_cues_or_grid_is_aligned(tmp_path, monkeypatch):
@@ -236,7 +237,7 @@ def test_a_different_or_unknown_edit_is_placed_as_it_is_and_rekordbox_is_left_al
     assert (check["reason"], check["repointed"], check["rekordbox"]) == ("placed_missing", False, None)
     assert dump(env.place.db) == before and env.anlz_files() == analysis and backup.backups(env.paths) == []
     assert row_of(env)["FolderPath"] == str(env.paths.root / env.old)  # the old track keeps naming the missing file
-    assert "isn't the same edit" in r.note
+    assert r.note == "Its better version is in, at Artist - Song.aiff."  # rekordbox's old track was left as it is
     e = state["tracks"][TID]
     assert (e["path"], e["upgrade"], e["file_gone"]) == (NEW, None, None) and missing_since(env) == [None]
 
@@ -251,7 +252,7 @@ def test_a_different_edit_that_takes_the_missing_files_name_asks_to_look_at_the_
     r, state = place(env)
     check = state["tracks"][TID]["rekordbox_check"]
     assert r.path == NEW and (check["aligned"], check["repointed"]) == (aligned, False)
-    assert ("has the missing file's name" in r.note) is (not aligned)
+    assert r.note.endswith("check its cues in rekordbox." if not aligned else "Artist - Song.aiff.")
 
 
 def test_a_fresh_measurement_clears_the_stale_mark(tmp_path, monkeypatch):
@@ -493,4 +494,4 @@ def test_a_file_replaced_in_place_then_missing_is_placed_as_unknown_and_rekordbo
     assert (check["match"], check["repointed"], check["rekordbox"]) == ("unknown", False, None)
     assert (root / NEW).read_bytes() == parked  # as it is: k = 0
     assert dump(env.place.db) == rb_before and env.anlz_files() == analysis  # rekordbox byte for byte
-    assert row_of(env)["FolderPath"] == str(root / env.old) and "isn't the same edit" in r.note
+    assert row_of(env)["FolderPath"] == str(root / env.old) and r.note.endswith("Song.aiff.")

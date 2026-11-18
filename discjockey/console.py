@@ -7,6 +7,7 @@ from collections.abc import Callable
 from .auto_upgrade import before_start_line
 from .events import ActionFinished, ActionStarted, BatchProgress, Message, Progress, StepChanged, Waiting
 from .report import folder_label
+from .words import place_plan_line
 
 VERBS = {"adopt_bought": "Adding bought file", "acquire": "Downloading", "upgrade": "Looking for a better version"}
 STEP_TEXT = {"search": "searching", "download": "downloading", "check": "checking length",
@@ -44,11 +45,14 @@ UPGRADE_HELD = "Not tried this sync (refused before, and nothing changed since):
 
 def upgrade_lines(block: dict | None, name_of: Callable[[str], str], *, full: bool) -> list[str]:
     """The console's Auto-upgrade lines for the plan, from the dry-run block (`auto_upgrade.run_phase(...,
-    dry_run=True).to_dict()`, None with the switch off): how many upgrades go in at the end, the Sync page's
+    dry_run=True).to_dict()`, None when nothing may run): how many upgrades go in at the end, the Sync page's
     before-start line when rekordbox is open, and with `full` (the dry run) each upgrade with its way and the held
-    refusals with their reason. `name_of(song key)` is "Artist - Title". None or nothing to do: no lines."""
+    refusals with their reason. The placements for missing files (issue 43, D9) are told apart: their own clause
+    (`words.place_plan_line`) and, with `full`, each song. `name_of(song key)` is "Artist - Title". None or nothing to
+    do: no lines."""
     rows = (block or {}).get("results") or []
-    coming = [r for r in rows if r["state"] in ("would", "waiting")]
+    coming = [r for r in rows if r["state"] in ("would", "waiting") and r.get("action") != "place"]
+    placing = [r for r in rows if r["state"] in ("would", "waiting") and r.get("action") == "place"]
     held = [r for r in rows if r["state"] == "refused"]
     lines: list[str] = []
     if coming:
@@ -58,6 +62,10 @@ def upgrade_lines(block: dict | None, name_of: Callable[[str], str], *, full: bo
             lines.append(before_start_line(n))
         if full:
             lines += [f"  {name_of(r['track'])} ({UPGRADE_HOW.get(r['how'], r['how'])})" for r in coming]
+    if placing:
+        lines.append(place_plan_line(len(placing), any(r["state"] == "waiting" for r in placing)))
+        if full:
+            lines += [f"  {name_of(r['track'])}" for r in placing]
     if full and held:
         lines.append(UPGRADE_HELD)
         lines += [f"  {name_of(r['track'])}: {r['message']}" for r in held]

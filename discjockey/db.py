@@ -213,8 +213,40 @@ SCHEMA_V10_STEP = (
 # and didn't find the file (NULL: found at the last scan that read its folder). A linked row never goes because one scan
 # didn't see its file: it waits, with everything its song has, until its content key shows up in a watched folder or the
 # user says what to do with the song. `held` keeps only "its audio changed and couldn't be judged" (schema 11).
+# The same step lets the AIFF batch tables name the placement for a missing file (D9, `convert.place_parked`): the action
+# `place` and the batch starter `download_again` (the sync's last phase with Auto-upgrade off). A CHECK can't be edited,
+# so both tables are rebuilt with their rows (items first, so the cascade never meets a row).
 SCHEMA_V11_STEP = (
     "ALTER TABLE files ADD COLUMN missing_since TEXT",
+    """CREATE TABLE aiff_batches_new (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL CHECK (kind IN ('upgrade', 'convert', 'mixed')),
+      started_by TEXT NOT NULL CHECK (started_by IN ('user', 'upgrade_all', 'make_aiff', 'cdj_all', 'auto_upgrade',
+                                                      'download_again')),
+      scope TEXT,
+      started TEXT NOT NULL, ended TEXT,
+      state TEXT NOT NULL CHECK (state IN ('running', 'stopped', 'done')),
+      stop_reason TEXT CHECK (stop_reason IN ('stop', 'rekordbox_open', 'busy', 'crash')),
+      backup TEXT,
+      via TEXT NOT NULL DEFAULT 'window' CHECK (via IN ('window', 'terminal')))""",
+    """CREATE TABLE aiff_items_new (
+      batch INTEGER NOT NULL REFERENCES aiff_batches_new (id) ON DELETE CASCADE,
+      seq INTEGER NOT NULL,
+      track TEXT NOT NULL,
+      action TEXT NOT NULL CHECK (action IN ('same_track', 'convert', 'rename', 'place')),
+      state TEXT NOT NULL CHECK (state IN ('planned', 'done', 'skipped', 'failed', 'undone')),
+      reason TEXT, result TEXT,
+      PRIMARY KEY (batch, seq))""",
+    "INSERT INTO aiff_batches_new (id, kind, started_by, scope, started, ended, state, stop_reason, backup, via) "
+    "SELECT id, kind, started_by, scope, started, ended, state, stop_reason, backup, via FROM aiff_batches",
+    "INSERT INTO aiff_items_new (batch, seq, track, action, state, reason, result) "
+    "SELECT batch, seq, track, action, state, reason, result FROM aiff_items",
+    "DROP INDEX aiff_items_track",
+    "DROP TABLE aiff_items",
+    "DROP TABLE aiff_batches",
+    "ALTER TABLE aiff_batches_new RENAME TO aiff_batches",
+    "ALTER TABLE aiff_items_new RENAME TO aiff_items",
+    "CREATE INDEX aiff_items_track ON aiff_items (track)",
 )
 _FACT_COLUMNS = (*FILE_AUDIO_COLUMNS, "facts_failed")  # what a row's old facts say nothing about once the audio changes
 
@@ -1857,8 +1889,8 @@ def group_files(conn: sqlite3.Connection, gid: str) -> list[DupFile]:
 # --- the AIFF batches (plan rekordbox stage B §1.7): Same track / Convert runs over a list of tracks ---
 
 AIFF_KINDS = frozenset({"upgrade", "convert", "mixed"})
-AIFF_STARTED_BY = frozenset({"user", "upgrade_all", "make_aiff", "cdj_all", "auto_upgrade"})
-AIFF_ACTIONS = frozenset({"same_track", "convert", "rename"})
+AIFF_STARTED_BY = frozenset({"user", "upgrade_all", "make_aiff", "cdj_all", "auto_upgrade", "download_again"})
+AIFF_ACTIONS = frozenset({"same_track", "convert", "rename", "place"})
 AIFF_ITEM_STATES = ("planned", "done", "skipped", "failed", "undone")
 AIFF_BATCH_STATES = frozenset({"running", "stopped", "done"})
 AIFF_STOP_REASONS = frozenset({"stop", "rekordbox_open", "busy", "crash"})

@@ -510,10 +510,15 @@ class HubApi:
             settings = load_settings(self._support.settings_file)
         except SettingsError:
             return None
+        if not settings.auto_upgrade:  # the placements for missing files run with it off, but they are no "upgrades on"
+            return None
         planned = auto_upgrade.plan(self._paths, state, {q.song_key for q in prep.plan.questions}, settings,
                                     running=self._svc.rekordbox_running, place=self._svc.rekordbox_place(),
                                     status=self._rekordbox_status(), quick=True)
-        return None if planned is None else {"on": True, "ready": len(planned.run) + len(planned.waiting)}
+        if planned is None:
+            return None
+        coming = [k for k in (*planned.run, *(k for k, _ in planned.waiting)) if k not in planned.place]
+        return {"on": True, "ready": len(coming)}  # the upgrades; the placements are the dry run's rows (E4b2)
 
     def _checked_batches(self, state: dict) -> dict[int, AiffBatchRow]:
         """The AIFF batches the open rekordbox checks belong to, by id: To-do names the checks of a sync's Auto-upgrade
@@ -3247,7 +3252,8 @@ class CliApi(HubApi):
         out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
                      "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
         batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
-                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"], "action": "same_track"}
+                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"],
+                                                         "action": r.get("action", "same_track")}
                                                         for r in rows if r["state"] in ("done", "failed")]}
         words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
         if "batch_id" in (words.get("data") or {}):

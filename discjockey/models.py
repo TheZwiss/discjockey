@@ -400,7 +400,7 @@ class AiffItemRow:
     """An aiff_items row (db.aiff_batch): one track of an AIFF batch."""
     seq: int
     track: str  # the song's key
-    action: str  # "same_track" | "convert" | "rename"
+    action: str  # "same_track" | "convert" | "rename" | "place" (the placement for a missing file)
     state: str  # "planned" | "done" | "skipped" | "failed" | "undone"
     reason: str | None  # a skip reason (rekordbox.eligible.REASONS) or the failure's plain words
     result: object | None  # what the item produced (JSON: a dict, or words), None until it ran
@@ -412,7 +412,8 @@ class AiffBatchRow:
     in a listing (db.aiff_batches)."""
     id: int
     kind: str  # "upgrade" | "convert" | "mixed"
-    started_by: str  # "user" | "upgrade_all" | "make_aiff" | "cdj_all" | "auto_upgrade"
+    started_by: str  # "user" | "upgrade_all" | "make_aiff" | "cdj_all" | "auto_upgrade" | "download_again" (the sync's
+    # last phase with the Auto-upgrade switch off: only placements for songs the user asked to download again)
     scope: str | None
     started: str
     ended: str | None

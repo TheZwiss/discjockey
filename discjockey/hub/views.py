@@ -43,7 +43,8 @@ SIGNAL_DAYS = 14
 SHORT_SOURCE = {"qobuz": "Qobuz", "youtube_music": "YT Music", "soundcloud": "SoundCloud", "youtube": "YouTube",
                 "manual": "bought"}
 SHORT_OWN = "own file"  # SHORT_SOURCE["manual"] for a file the import found
-LOSSLESS_SECTIONS = ("new_lossless", "redownloaded", "bought", "replaced", "swapped", "added_new", "upgraded")
+LOSSLESS_SECTIONS = ("new_lossless", "redownloaded", "bought", "replaced", "swapped", "added_new", "upgraded",
+                     "placed_missing")
 LOSSY_SECTIONS = ("new_not_lossless", "fake")
 PROBLEM_SECTIONS = ("missing", "errors", "conflicts", "ambiguous")
 MOVED_SECTIONS = ("moved", "adopted")
@@ -1751,7 +1752,7 @@ def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> 
     """The words after the day on a batch item: "Upgraded during your sync" (Auto-upgrade), "Made AIFF" (a batch of
     Convert or Rename items: `aiff_batches.kind` `convert` or `mixed`; "Clean name" when every check is a clean name),
     else "Same track"."""
-    if started_by == "auto_upgrade":
+    if started_by in ("auto_upgrade", "download_again"):  # the sync's last phase, the switch on or off
         return AUTO_BATCH_DETAIL
     if kind in ("convert", "mixed"):
         return BATCH_CLEAN_NAME if all(t["check"]["reason"] == "renamed" for t in tracks) else BATCH_MADE_AIFF

@@ -12,6 +12,7 @@ caller's library lock.
 - `view(...)`: the `missing` object of a To-do item; `detail_view(...)` the one of `track()` (the item's fields plus the
   `line` and the `hint`); `item_detail(...)` the item's one line.
 - `preview(...)`: the dry run of both actions (`missing_files_preview`, `missing download|remove --dry-run`).
+- `place_keys(state)`: the songs the sync's last phase puts their parked better version in for (D9, §4.5.4).
 - `download_again(...)` / `remove(...)`: the two actions, one `ItemResult` per song. Neither touches a music file:
   Download again sets `file_gone` and nothing else; Remove (final, no undo) deletes the song's records and its parked
   upgrade's file in `Upgrades ready/`, Discjockey's own download, never anything else.
@@ -24,6 +25,7 @@ from datetime import date, datetime
 
 from . import library, ops
 from .models import file_missing
+from .names import fold
 
 DOWNLOAD_AGAIN = "download_again"
 REMOVE = "remove"
@@ -172,6 +174,22 @@ def detail_view(key: str, e: Mapping, state: Mapping, place: Callable[[str], str
     if v is None:
         return None
     return {**v, "line": _line(key, e, state, place, today), "hint": _hint(key, e, state, v["action"])}
+
+
+def place_keys(state: Mapping) -> list[str]:
+    """The songs the sync's last phase puts their parked better version in for (plan §4.5.4, D9): a missing file row
+    (`file_missing`), Download again asked (`file_gone`), a parked upgrade, not found in several places (`ambiguous`:
+    the placement's save would clear that answer, and a third file would be added; it links again once one copy goes)
+    and not offline (`online` false: its drive isn't connected). Hidden songs are in (the user asked for each), in
+    To-do's order (folder, artist, title). Pure: whether the file is back on disk, rekordbox and the parked file are
+    for the phase to ask (`eligible.place_quick`)."""
+    ambiguous = state.get("ambiguous") or {}
+    found = [(k, e) for k, e in (state.get("tracks") or {}).items()
+             if file_missing(e) and e.get("file_gone") and e.get("upgrade") and k not in ambiguous
+             and e.get("online", True)]
+    found.sort(key=lambda kv: (fold(kv[1].get("folder") or ""), fold(kv[1].get("artist") or ""),
+                               fold(kv[1].get("title") or "")))
+    return [k for k, _ in found]
 
 
 # --- the dry run (plan §4.4) ---

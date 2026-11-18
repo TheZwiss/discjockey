@@ -21,7 +21,7 @@ import signal
 import sys
 import time
 
-from .. import auto_upgrade, library, planner, report as rep, run
+from .. import auto_upgrade, library, missing, planner, report as rep, run
 from ..console import ConsolePrinter, upgrade_lines, waiting_lines
 from ..events import CTRL_C_REPEAT_S, CancelToken
 from ..library import LockHeld, NoLibrary
@@ -166,9 +166,10 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> tuple[int, dict]:
     if prep.needs_qobuz:
         print(run.budget_text(prep))
     # Auto-upgrade's part of the plan: the phase asked in advance what it would do (nothing is written). With the
-    # switch off rekordbox isn't looked at at all.
+    # switch off only the placements for songs the user asked to download again are in it, and with none of them
+    # rekordbox isn't looked at at all.
     preview = None
-    if prep.settings.auto_upgrade:
+    if prep.settings.auto_upgrade or missing.place_keys(prep.state):
         preview = auto_upgrade.run_phase(
             paths, prep.state, {q.song_key for q in prep.plan.questions}, prep.settings, prep.log,
             running=process.running, place=locate(), where=where, dry_run=True)

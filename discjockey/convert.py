@@ -344,6 +344,21 @@ def place_names(paths: Paths, state: dict, track_id: str, e: dict, upgrade: dict
     return names.choose(folder, expected_stem(e["artist"], e["title"]), ".aiff", track_id)
 
 
+# the words of a placement whose parked download was deleted by hand (plan §5.4): the song's mark stays, so the next
+# sync downloads it (it has no parked upgrade any more, D12)
+PARKED_GONE = "Its better version was no longer in Upgrades ready, so it downloads at your next sync."
+
+
+def placed_words(name: str, *, repointed: bool, aligned: bool) -> str:
+    """What a finished placement says (plan §5.4: the batch item, the phase's row and the report line): the new file's
+    name, and whether rekordbox's track plays it with its cues (`repointed`), needs its cues looked at (`not aligned`:
+    the missing file's timeline was unknown, or another edit has its name) or was left alone."""
+    head = f"Its better version is in, at {name}"
+    if not aligned:
+        return f"{head}; check its cues in rekordbox."
+    return f"{head}; rekordbox's track plays it with its cues." if repointed else f"{head}."
+
+
 def place_parked(paths: Paths, state: dict, track_id: str, upgrade: dict, *, session: Session,
                  now: Callable[[], datetime] = datetime.now, batch: tuple[int, int] | None = None) -> Result:
     """Download again for a song whose file is missing and whose better version is parked (issue 43, D9, plan
@@ -638,16 +653,8 @@ def _result(track_id: str, e: dict, op: dict) -> Result:
     rb = op["rekordbox"]
     if op["superseded"] is None:  # the placement for a missing file
         check = op["check"]
-        note = f"the better version took the place of the missing file, at {op['new']}"
-        if check["repointed"]:
-            note += ("; rekordbox's track plays it, cues and grid as they were" if check["aligned"] else
-                     "; rekordbox's track plays it, but Discjockey couldn't tell where its timeline sat for the "
-                     "missing file, so check that the cues sit on the beat")
-        elif check["match"] not in ("exact", "shifted"):
-            note += ("; it isn't the same edit, so rekordbox's old track was left as it is" if check["aligned"] else
-                     "; it isn't the same edit and has the missing file's name, so rekordbox's track at that name "
-                     "plays it now: check that the cues sit on the beat")
-        return Result("swapped", e["folder"], e["artist"], e["title"], track_id, note,
+        note = placed_words(PurePosixPath(op["new"]).name, repointed=check["repointed"], aligned=check["aligned"])
+        return Result("placed_missing", e["folder"], e["artist"], e["title"], track_id, note,
                       status=op["entry"].get("status"), source=op["entry"].get("source"), path=op["new"])
     note = f"new file {op['new']}, lined up with rekordbox; the old one moved to {op['superseded']}"
     extra = rbstep.NO_TRACK_NOTE if rb is None else kept_note(rb.get("kept") or [])
