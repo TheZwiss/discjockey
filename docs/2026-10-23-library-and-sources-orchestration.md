@@ -773,6 +773,17 @@ Results:
     F2 (Sonnet fix-round) 071f5ae8 + 04898b82: **236k** (105 calls): Library parked-missing -> Open in to-do;
     missing.preview button/confirm, all.label; MissingFlow {panel}; found_twice hint once; card_summary always +
     placed_summary; 6005 passed, vitest 1697. Stage so far ~5.59M.
+    STATE 2026-11-19 (before compact): S1 shots agent running (id a523af6022badf0b2, worktree mf-u1, report only,
+    expected 120-170k; it may run Vite/shots with the sandbox off; check ps after). Branch feat/missing-files-u1 head
+    04898b82 (stage branch feat/missing-files still at be31c291: fast-forward to u1 once S1's fixes are in). Next, one
+    at a time: S1 fix round (Sonnet fix-round; Opus only if a finding needs design) -> D1 (docs: spec/README/CLAUDE.md
+    incl. 'switch off moves no file' now false for Download again placements; plan amends from R-E4b: §5.4 steps
+    look/relocate_new + start_note clause + engine-side words, §6.1 sync_preview places/place_notes, §7 departures
+    accepted by R-U1; issues 43/40; scripts/missing_files_rehearsal.py §10.2 made-up data + its run) -> Opus stage
+    review (with the rehearsal output) -> fix rounds -> npm run verify (run_in_background) -> merge into main. No
+    release without the go. Open for the stage review: held batch panel after a partial undo keeps whole-batch
+    wording; CLI `missing list` prints the all.label row. User told ~0.7-1.1M left (total ~6.3-6.7M). Still asked of
+    the user: does rekordbox look normal -> then delete scratchpad rbcopy/ copies.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
