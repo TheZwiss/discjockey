@@ -723,6 +723,19 @@ Results:
     E3b2 (Sonnet) done 5394fbd0 + 1d198328: **212k** (68 calls): missing list/download/remove, track show section,
     fake handlers, CONTRIBUTING; 5863 passed + 1 teardown flake (test_hub_app thread leak, 2nd time -> issue 44).
     Stage so far ~2.64M.
+    R-E3b (Sonnet) **172k**: ready, 5 Minor fixed 1a5da619 (Remove confirm = §5.4 body; empty --all --dry-run
+    keeps the preview shape; fake Remove no longer drops never/favourites; save-before-delete pinned). Remove data
+    safety: no defect. For E4b: auto_upgrade_preview must count the placement. Stage branch -> E3b. E4a split before
+    dispatch (record: D2 384k, D3a 304k): E4a1 the step + rekordbox pointing, E4a2 crash recovery + undo.
+    Stage so far ~2.81M.
+    E4a1 (Sonnet) done a1ea586a + e15cd7b9: **269k** (72 calls): place_parked, place_quick, eligible.place,
+    timeline_offset(codec=), row_change(text=False); recovery already works for a placement (2 tests); 5903 passed.
+    Found: a scan that judges the file 'replaced' keeps the parked upgrade's old alignment -> decided (coordinator):
+    apply_scan's replaced branch drops upgrade.alignment, so the placement treats it as unknown (placed as is, no
+    repoint: cues never land off silently); E4a2 builds it. Stage so far ~3.08M.
+    E4a2 (Sonnet) done 23938d95: **238k** (67 calls): placement undo + recovery at every cut point (35 tests),
+    missing_facts in the op, end_step(missing=), alignment dropped on 'replaced' (side effect: Same track for that
+    song's parked upgrade -> needs_choice); 5939 passed. Stage so far ~3.32M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
