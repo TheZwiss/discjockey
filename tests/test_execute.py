@@ -607,14 +607,16 @@ def test_errored_new_track_not_recorded(env):
     assert "network down" in ex.log.section("errors")[0].note
 
 
-def test_redownload_rejects_previous_fallback_source(env):
+def test_redownload_does_not_reject_the_source_of_the_file_that_went_missing(env):
+    """Issue 43: a missing file says nothing against the source it came from (rejected_sources means "wrong song");
+    a song found only there must be able to come back, however often Download again is tried."""
     paths, state, make = env
     state["tracks"]["t1aaaaaaa"] = entry("Library/A/not_lossless/x.aiff", status="not_lossless",
                                          source="youtube", source_id="y1")
     ex, acq = make(AcquireResult("missing"))
     ex.run([act("acquire", reason="redownload")])
-    assert "youtube:y1" in acq.calls[0][1]
-    assert "youtube:y1" in state["tracks"]["t1aaaaaaa"]["rejected_sources"]
+    assert "youtube:y1" not in acq.calls[0][1]
+    assert "youtube:y1" not in state["tracks"]["t1aaaaaaa"]["rejected_sources"]
 
 
 def test_keyboard_interrupt_keeps_finished_work(env):

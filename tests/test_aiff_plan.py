@@ -671,6 +671,24 @@ def test_files_that_cannot_run_now_are_counted_in_waiting_in_every_scope_and_nev
     assert run(paths, state, lossless()).skipped == ()                    # the all scopes list no skips
 
 
+def test_a_song_whose_file_waits_as_missing_is_a_wait_never_an_item_in_every_scope(tmp_path):
+    """Issue 43 §3: a missing row keeps its path, the live disk check says file_missing; the CDJ group leaves it out."""
+    tracks = songs()
+    tracks["lost"] = own("Library/Mine/z.flac", "Lost", "flac", 44100, 16, missing_since="2026-11-10T09:00:00")
+    tracks["lost_cdj"] = own("Library/Mine/y.opus", "Lost Cdj", "opus", 48000, None, 128, status="not_lossless",
+                             missing_since="2026-11-10T09:00:00")
+    paths, state = library_of(tmp_path, tracks, absent=("lost", "lost_cdj"))
+    for scope, only in ((lossless(), None), (lossless(), "rename"), (picked(*tracks), None), (picked(*tracks), "rename")):
+        plan = run(paths, state, scope, only=only)
+        assert not {"lost", "lost_cdj"} & {i.track for i in plan.items}
+        waits = {w["reason"]: w["n"] for w in plan.waiting}
+        assert waits.get("file_missing", 0) == (2 if scope["kind"] == "tracks" else 1), (scope, only)
+    plan = run(paths, state, {"kind": "cdj"})
+    assert not {"lost", "lost_cdj"} & {i.track for i in plan.items} and plan.skipped == ()
+    assert all(w["reason"] != "file_missing" for w in plan.waiting)
+    assert "lost_cdj" not in cdj.group_members(state)
+
+
 def test_nothing_to_do_is_not_a_wait(lib):
     paths, state = lib
     plan = run(paths, state, picked("clean", "bought", "flac"))

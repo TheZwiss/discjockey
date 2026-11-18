@@ -141,19 +141,18 @@ class Executor:
         e = self._entry(a)
         artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
         rejected = set(e.get("rejected_sources") or []) if e else set()
-        extra: list[str] = []
-        if a.reason == "redownload" and e:
-            if e.get("path"):  # the old file is gone, so its name may be reused (a scan already dropped it otherwise)
-                self.names.release(e["path"])
-            if e.get("source") in FALLBACK_SOURCES and e.get("source_id"):
-                extra.append(f"{e['source']}:{e['source_id']}")
+        if a.reason == "redownload" and e and e.get("path"):
+            # its file isn't there (it waits as missing, issue 43), so its name may be reused: the row moves to the
+            # new file. The source the lost file came from stays as it was: a file that went missing says nothing
+            # against it (a song found nowhere else would never come back otherwise)
+            self.names.release(e["path"])
         workdir = self.paths.tmp / a.track_id
         workdir.mkdir(parents=True, exist_ok=True)
         tracker = Tracker(self.emit, self.token, a.track_id)
         try:
-            res = self.acquirer.acquire(a.track, rejected | set(extra), workdir, False, tracker,
+            res = self.acquirer.acquire(a.track, rejected, workdir, False, tracker,
                                         exact=a.qobuz_id, upload=a.upload)
-            rejected_now = tuple(extra) + tuple(res.rejected)
+            rejected_now = tuple(res.rejected)
             found = None if res.free_downloads is None else tuple(res.free_downloads)
             if res.kind == "queued":
                 if e is not None and rejected_now:  # keep what was learned (e.g. a preview) for next time

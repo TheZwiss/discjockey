@@ -337,6 +337,20 @@ def test_removing_a_folder_drops_its_rows_and_own_songs_and_keeps_playlist_songs
     assert tracks["sp2"]["path"] is None and tracks["sp1"]["path"] == IN_LIBRARY
 
 
+def test_removing_a_folder_deletes_its_missing_rows_too_and_the_user_s_word_decides_the_songs(lib):
+    """Issue 43 §3, D6: a row that waits as missing goes with the folder; a playlist song left with no file is marked
+    for a download, an own song goes. Nothing waits for a folder nobody watches."""
+    folder, (a, b, c), key = removal_setup(lib)
+    lib.scan(ScanResult(missing=[a, b, c]))
+    assert lib.rows("SELECT COUNT(*) FROM files WHERE missing_since IS NOT NULL") == [(3,)]
+    with lib.conn() as conn:
+        assert db.remove_watched_folder(conn, folder, date(2026, 10, 26)) == db.RemovalCounts(3, 1)
+    assert lib.rows("SELECT COUNT(*) FROM files WHERE folder = ?", folder) == [(0,)]
+    assert lib.rows("SELECT key, file_gone FROM songs ORDER BY id") == [
+        ("sp1", None), ("sp2", "2026-10-26"), ("sp3", "2026-10-26")]
+    assert lib.rows("SELECT COUNT(*) FROM songs WHERE key = ?", key) == [(0,)]
+
+
 def link(lib, key, alias="sp9"):
     """What a "Yes, same song" answer leaves: the own song keeps its key, takes the playlist token as an alias and is in
     a playlist."""
