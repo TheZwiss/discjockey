@@ -188,8 +188,6 @@ export function runMissing(s: FakeState, ids: string[], action: MissingAction): 
     if (action === DOWNLOAD_AGAIN) t.fileGone = true;
     else {
       s.tracks.splice(s.tracks.indexOf(t), 1);
-      s.never = s.never.filter((k) => k !== id);
-      s.favourites = s.favourites.filter((k) => k !== id);
     }
   }
   const rows = results.map((r) => ({ will: r.state === 'done', upgrade_waiting: waiting.has(r.track_id) }));

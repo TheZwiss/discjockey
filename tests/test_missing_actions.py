@@ -191,7 +191,7 @@ def test_remove_never_deletes_a_file_that_is_not_discjockeys_parked_download(lib
     assert "left alone" in log(paths)[-1]["message"]
 
 
-def test_remove_drops_the_answers_naming_the_song_and_the_favourite(lib):
+def test_remove_drops_the_answers_naming_the_song(lib):
     api, rec, paths = lib
     st = load_state(paths)
     own = {**song("Own Song", "Own Artist", in_playlists=False), "folder": "Hard_Bounce"}
@@ -207,6 +207,26 @@ def test_remove_drops_the_answers_naming_the_song_and_the_favourite(lib):
     assert f.ok
     with db.connect(paths.db_file, read_only=True) as conn:
         assert db.decisions(conn)["same_song"] == []
+
+
+def test_remove_deletes_the_parked_download_only_after_the_records_are_saved(lib, monkeypatch):
+    """A save that fails leaves the song, its record of the parked file and the file itself; a crash after the save can
+    leave at worst an orphan download, never a record naming a deleted file (plan §4.3)."""
+    api, rec, paths = lib
+    before, kept = entries(paths), tree(paths)
+
+    def refuse(*a, **kw):
+        raise RuntimeError("the save did not commit")
+    monkeypatch.setattr(missing.library, "save_state", refuse)
+    with pytest.raises(RuntimeError):
+        missing.remove(paths, ["t4"], now=lambda: NOW)
+    assert (paths.root / PARKED_OLD).exists() and tree(paths) == kept and entries(paths) == before
+    monkeypatch.undo()
+    seen = []
+    real = missing.library.delete_parked
+    monkeypatch.setattr(missing.library, "delete_parked", lambda p, rel: seen.append(("t4" in entries(paths), rel)) or real(p, rel))
+    assert [r.state for r in missing.remove(paths, ["t4"], now=lambda: NOW)] == ["done"]
+    assert seen == [(False, PARKED_OLD)]                                        # the song's record was gone when the file went
 
 
 def test_remove_still_runs_for_a_song_found_in_several_places(lib):

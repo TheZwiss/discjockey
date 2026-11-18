@@ -2407,7 +2407,7 @@ class HubApi:
                 ctx.failed_result = body
                 raise OpProblem(body["words"], "changed")
             if action == missing.REMOVE:
-                rep.write_not_lossless(self._paths, library.load_state(self._paths))
+                rep.write_not_lossless(self._paths, state)  # the removed songs leave that list
             return body
 
         return {"job_id": self._jobs.start("missing_files", replanned_work(self._store, work, self._svc.now),

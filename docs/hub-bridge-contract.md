@@ -2336,7 +2336,8 @@ reason.
 - **Command line** (`discjockey missing list | download | remove`): `missing list [--hidden]` is `todo` with the filter
   `missing_file`; `missing download` and `missing remove` take songs (a song key, or the path of a missing row's old
   file) or `--all`, which is this group's `all` split by action (the songs the window's "Select all · n" selects; with
-  none left the command answers `ok`, "No song whose file is missing waits for …", and starts no job). `--dry-run` is
+  none left the command answers `ok`, "No song whose file is missing waits for …", and starts no job; its `--dry-run` answers `ok` too, with
+  the preview's own shape: `items` empty, `n` and `skipped` 0). `--dry-run` is
   `missing_files_preview`; `missing remove` needs `--yes`. A run with a skipped song ends `partial` (exit 6), a run in
   which every song was skipped `refused` (exit 7); `data` is the method's answer, its rows `{track_id, action, state,
   reason, words}`.

@@ -137,10 +137,19 @@ def test_download_again_all_acts_on_the_groups_download_again_songs_only(lib, ca
 
 def test_download_again_all_with_nothing_left_is_done_and_starts_no_job(lib, capsys):
     run_json(["missing", "download", "--all"], capsys)
-    for extra in ([], ["--dry-run"]):
-        code, env = run_json(["missing", "download", "--all", *extra], capsys)
-        assert (code, env["outcome"], env["job"]) == (OK, "ok", None), env
-        assert env["message"] == TO_DO_WORDS + " Download again." and env["data"]["results"] == []
+    code, env = run_json(["missing", "download", "--all"], capsys)
+    assert (code, env["outcome"], env["job"]) == (OK, "ok", None), env
+    assert env["message"] == TO_DO_WORDS + " Download again." and env["data"]["results"] == []
+    # its dry run is done too ("ok", as `upgrade apply --all --dry-run` and the aiff commands' are), in the dry run's own shape
+    code, env = run_json(["missing", "download", "--all", "--dry-run"], capsys)
+    assert (code, env["outcome"], env["job"]) == (OK, "ok", None), env
+    assert env["message"] == TO_DO_WORDS + " Download again."
+    real = run_json(["missing", "download", "t1", "--dry-run"], capsys)[1]["data"]
+    assert list(env["data"]) == list(real)  # the keys of a dry run with songs
+    assert (env["data"]["action"], env["data"]["items"], env["data"]["n"], env["data"]["skipped"]) == ("download_again", [], 0, 0)
+    assert env["data"]["words"] == env["message"]
+    code, env = run_json(["missing", "remove", "--all", "--dry-run"], capsys)  # Remove's has songs: nothing is removed yet
+    assert code == OK and env["data"]["n"] == 3
 
 
 def test_download_again_dry_run_says_per_song_what_would_happen_and_changes_nothing(lib, capsys):
@@ -213,6 +222,9 @@ def test_remove_all_acts_on_the_groups_remove_songs_only(lib, capsys):
     assert {"t1", "t2", "t7"} <= set(tracks(lib))
     code, env = run_json(["missing", "remove", "--all", "--yes"], capsys)
     assert (code, env["outcome"], env["job"]) == (OK, "ok", None) and env["message"] == TO_DO_WORDS + " Remove from library."
+    code, env = run_json(["missing", "remove", "--all", "--dry-run"], capsys)  # and its dry run, nothing left
+    assert (code, env["outcome"], env["data"]["n"], env["data"]["items"]) == (OK, "ok", 0, [])
+    assert env["message"] == TO_DO_WORDS + " Remove from library."
 
 
 def test_remove_dry_run_needs_no_yes_and_changes_nothing(lib, capsys):
