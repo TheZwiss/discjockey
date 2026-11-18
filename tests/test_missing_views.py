@@ -209,7 +209,7 @@ def test_track_detail_carries_the_missing_object_with_line_and_hint():
     d = views.track_detail("a", st["tracks"]["a"], [], TODAY, exists=True, place="Techno 2019", records=st, where=place)
     assert d["file_state"] == "file_missing" and d["audio_url"] is None
     assert d["missing"] == missing.detail_view("a", st["tracks"]["a"], st, place, TODAY)
-    assert d["missing"]["line"] == "Not seen since 12 Nov. It was in Techno 2019."
+    assert d["missing"]["line"] == "Missing since 12 Nov. It was in Techno 2019."
     assert d["next_qobuz_check"] is None
     ok = views.track_detail("b", st["tracks"]["b"], [], TODAY, exists=True, place="A", records=st, where=place)
     assert ok["missing"] is None and ok["file_state"] == "here"
@@ -247,7 +247,7 @@ def test_the_hub_answers_the_group_the_details_and_the_library_rows_for_a_missin
     assert g["all"] == {"download_again": 1, "remove": 0, "label": None}              # one song: its own button does it
     assert api.todo("missing_file")["ok"] is True and api.todo("missing_file")["chips"]["missing_file"] == 1
     t = api.track("t1")["track"]
-    assert t["file_state"] == "file_missing" and t["missing"]["line"] == "Not seen since 12 Nov. It was in Hard_Bounce."
+    assert t["file_state"] == "file_missing" and t["missing"]["line"] == "Missing since 12 Nov. It was in Hard_Bounce."
     assert t["missing"]["hint"].endswith("Or download it again at your next sync.")
     rows = api.library("folder", "Library/Hard_Bounce", "", "all", "title")["rows"]
     assert {r["track_id"]: r["file_state"] for r in rows}["t1"] == "file_missing"
@@ -280,11 +280,11 @@ def test_types_ts_names_the_filters_actions_reasons_and_fields_the_views_send():
     fields = lambda body: re.findall(r"(\w+)\??:", body)
     view = missing.view("t", gone(), state(t=gone()), place, TODAY)
     assert fields(ts_type("MissingView")) == list(view)
-    assert fields(ts_type("MissingDetail")) == ["line", "hint"]
+    assert fields(ts_type("MissingDetail")) == ["line", "hint", "hint_library"]
     assert fields(ts_type("MissingAll")) == [*missing.ACTIONS, "label"]
     assert fields(ts_type("MissingConfirm")) == list(missing.confirm_for(missing.REMOVE, 1))
     detail = missing.detail_view("t", gone(), state(t=gone()), place, TODAY)
-    assert list(detail) == [*view, "line", "hint"]
+    assert list(detail) == [*view, "line", "hint", "hint_library"]
 
 
 def test_the_contract_doc_names_every_reason_and_the_group():

@@ -110,7 +110,8 @@ for _key in ITEM_REASONS:
 # The reasons of a missing file's action (issue 43, `missing.why_not`): `refused` for that song. The command line's
 # result rows say them with the action filled in (`missing.reason_words`); here `wrong_action` names no action.
 for _key, _text in missing.REASONS.items():
-    REASONS[_key] = Reason("refused", _text.format(other="the other action"))
+    if _key != "away":  # `away` is the rekordbox rows' key too (its words stay: this module's row is the same outcome)
+        REASONS[_key] = Reason("refused", _text.format(other="the other action"))
 
 # Every bridge ProblemKind (types.ts PROBLEM_KINDS) is one row, and the kind is that row's reason (`KIND_REASON`).
 KIND_OUTCOME = {

@@ -770,7 +770,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         collections: m.names,
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
-        auto_upgrade: autoPreview(s, autoReady(), placeTracks(s).length),
+        auto_upgrade: autoPreview(s, autoReady(), placeTracks(s)),
         empty: p.actions ? null : 'up_to_date' as const });
     },
     async refresh(auto = false) {

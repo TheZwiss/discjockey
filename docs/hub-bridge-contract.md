@@ -2091,7 +2091,7 @@ action.
   track answer (the cached rekordbox state; nothing of rekordbox's library is opened), minus the tracks a recorded
   refusal still holds (`auto_refused`): a refusal that only a read of rekordbox's analysis files could tell counts as
   holding, one of `space` or `needs_choice` is checked. It counts the upgrades that would wait for rekordbox too (rekordbox
-  running does not change `n`); the placements are not in `n`. `p` = the missing songs whose parked better version the phase would put in (Download again was asked, the file is missing; with the switch off too: `on: false`), those that would wait for rekordbox counted; `place_notes` is `{closed, open}`, the sentence for them (`words.place_plan_line`, rekordbox closed / open: "1 missing song gets its better version at the end of the sync." / "... at the end of the sync, once rekordbox is closed."), null when `p` is 0. A placement whose rekordbox library can't be read waits too (`rekordbox_unreadable`, no `auto_waits`) and is counted. null: the switch is off and `p` is 0, settings.json can't be read, or `empty` is `no_preview`.
+  running does not change `n`); the placements are not in `n`. `p` = the missing songs whose parked better version the phase would put in (Download again was asked, the file is missing; with the switch off too: `on: false`), those that would wait for rekordbox counted; `place_notes` is `{closed, open}`, the sentence for them (`words.place_plan_line`, rekordbox closed / open: "2 missing songs get their better version at the end of the sync." / "... at the end of the sync, once rekordbox is closed."; with one song the sentence names it: "Artist – Title gets its better version at the end of the sync."), null when `p` is 0. A placement whose rekordbox library can't be read waits too (`rekordbox_unreadable`, no `auto_waits`) and is counted. null: the switch is off and `p` is 0, settings.json can't be read, or `empty` is `no_preview`.
   The Sync page's before-start Hint ("rekordbox is open: quit it before the sync ends, so the sync can put {n} upgrades in
   place.", "1 upgrade" for one) shows when `ready >= 1` and `rekordbox_status().running`.
 - **`upgrade` block** (`track().upgrade`): `auto_refused` is `{reason, message, at} | null` (was always null; type
@@ -2147,8 +2147,9 @@ action.
   left alone) and its result is in section `placed_missing` ("Better version put in (its file was missing)"). The block's
   `line` counts placements apart, after the upgrades' clauses: "1 missing song got its better version." / "… waits for its
   better version until your next sync." / "… couldn't get its better version yet." The dry run's rows say `would`;
-  `auto_upgrade_preview().start_note` adds "1 missing song gets its better version at the end of the sync[, once rekordbox is
-  closed]." (after the upgrades' line; with the switch off it is the only line). `sync_preview().auto_upgrade` still counts
+  `auto_upgrade_preview().start_note` adds "{n} missing songs get their better version at the end of the sync[, once rekordbox is
+  closed]." (one song is named: "Artist – Title gets its better version at the end of the sync[, once rekordbox is
+  closed]."; after the upgrades' line; with the switch off it is the only line). `sync_preview().auto_upgrade` still counts
   upgrades only (`ready`; null with the switch off): a placement is visible in the dry run's block, not in that count.
 - **The check of a placement** (`rekordbox_check.reason: "placed_missing"`, `check_view.reason`; the batch item's `batch` and
   `started_by` as above): the record holds `match`, `offset_ms`, `aligned` (the new file was rendered lined up with
@@ -2313,7 +2314,7 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   several places: "In 2 places now · keep one and it links again") and `missing: MissingView`: `{since` (ISO day of the
   first scan that missed it), `place` (where it was, the Folder column's words; `""` without a path), `action`
   (`download_again` for a song in a playlist, an own key linked to one included; `remove` for any other: the song
-  decides, not a choice), `why_not` (null, or `not_missing` | `wrong_action` | `found_twice` | `never` | `check_open` |
+  decides, not a choice), `why_not` (null, or `not_missing` | `away` | `wrong_action` | `found_twice` | `never` | `check_open` |
   `asked`, the first that applies), `words` (the reason's sentence, null when `why_not` is null), `will` (what the action
   does for this song: "Downloads again at your next sync", "Gets the better version already waiting for it at your next
   sync; nothing is downloaded" (Download again with a parked upgrade: the parked version goes in), "Removed from your
@@ -2324,19 +2325,26 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   "Select all · {k}", where `k` counts what Select all selects: every item of the group that is not hidden (a song that
   can't act now too; the selection panel says why); null when `k` is under 2 (with one, the row's own button does it).
   The window shows it as it is.
-- **`track()`** gains `missing: MissingDetail | null`: `MissingView` plus `line` ("Not seen since 12 Nov. It was in
-  Techno 2019."; in several places "Found in 2 places: Techno 2019 and Old crates.") and `hint` (what can be done, by
+- **`track()`** gains `missing: MissingDetail | null`: `MissingView` plus `line` ("Missing since 12 Nov. It was in
+  Techno 2019."; in several places "Found in 2 places: Techno 2019 and Old crates."), `hint` (what can be done, by
   action; with `upgrade_waiting` the placement's or Remove's variant; in several places "Delete or move away the copies
-  you don't want; the one left links again."). Null when the song's file isn't marked missing (a file gone since the last
+  you don't want; the one left links again.") and `hint_library` (the same first sentence, for the Library, whose foot
+  has no such buttons and only opens To-do: "... Or open it in To-do to download it again." / with `upgrade_waiting`
+  "... Or open it in To-do to download it again: the better version already waiting for it goes in, and nothing is
+  downloaded." / "... Or open it in To-do to remove it from your library." (Remove's parked-version sentence follows
+  as in `hint`); the several-places hint is the same in both). Null when the song's file isn't marked missing (a file gone since the last
   scan shows `file_state: "file_missing"` from the live check, without `missing`). `next_qobuz_check` is `"next_sync"`
   for a song whose Download again was asked.
 - **`library()`**: a row's `file_state` may be `file_missing` (the stored mark; `LibraryRow.file_state` is `FileState |
   "no_file"`); `summary.to_do` counts a missing song (own ones too). A `not_found` row's `next_try` is `"next_sync"` after
   Download again, and a song with no file row and `file_gone` is `waiting`, not `not_found`.
-- **Reasons**: the six `why_not` keys are `refused` reasons in `hub/outcomes.py` (the command line's result rows use them).
-  Words (`wrong_action` names the action the song gets instead): `not_missing` "Its file is back."; `wrong_action` "This
-  song gets {Download again | Remove from library} instead."; `found_twice` "Its file is in several places now: keep one
-  and it links again."; `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open:
+- **Reasons**: the seven `why_not` keys are `refused` reasons in `hub/outcomes.py` (the command line's result rows use
+  them; `away` keeps the row the rekordbox flows have). Offline wins: a missing song whose drive isn't connected is
+  skipped by both actions (its drive isn't there to tell), checked right after `not_missing`.
+  Words (`wrong_action` names the action the song gets instead): `not_missing` "Its file is back."; `away` "Its drive
+  isn't connected; plug it in to decide."; `wrong_action` "This
+  song gets {Download again | Remove from library} instead."; `found_twice` "Delete or move away the copies you don't
+  want; the one left links again." (the same sentence as the details' hint); `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open:
   finish it first."; `asked` "You asked for it already: it happens at your next sync."
 - **Fake backend**: scenario `missing_files` (`hub-ui/src/lib/bridge/fake/missingFiles.ts`): the plain scenario with eleven
   songs whose file waits as missing (a playlist song, one with a parked better version, one found in two places, one
@@ -2374,7 +2382,9 @@ reason.
   for it, at your next sync."). `button` is the selection panel's button over the `n` that run ("Download again · {n}" /
   "Remove from library · {n}…"; null when `n` is 0) and `confirm` Remove's question for them (`{title, body,
   confirm_label, tone}`: "Remove from your library?" for one, "Remove {n} songs from your library?" for several, body
-  "Their files aren't in your watched folders. …", `confirm_label` "Remove", `tone` "danger"; null for Download again
+  "Their files aren't in your watched folders. …" (for one song, singular: "Its file isn't in your watched folders.
+  Discjockey forgets this song, your answers about it and any better version waiting for it. If the file comes back
+  later, it is added as a new song."), `confirm_label` "Remove", `tone` "danger"; null for Download again
   and for `n` 0). The window sends the ids whose item has `will` and shows these words as they are. Reads only: no lock beyond the hub's read, nothing is stored.
 - **`missing_files(track_ids, action)`** (write job, kind `missing_files`; answers `busy`, `console` and `sync_running`
   as every write method): each song is asked again when the job runs under the library lock, so a song that changed

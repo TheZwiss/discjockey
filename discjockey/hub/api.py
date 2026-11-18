@@ -523,8 +523,11 @@ class HubApi:
         places = sum(1 for k in coming if k in planned.place)
         if not settings.auto_upgrade and places == 0:
             return None
-        notes = {"closed": engine_words.place_plan_line(places, False),
-                 "open": engine_words.place_plan_line(places, True)} if places else None
+        name = None
+        if places == 1:  # the one song is named in the sentence
+            name = engine_words.song_name(state["tracks"].get(next(k for k in coming if k in planned.place)) or {})
+        notes = {"closed": engine_words.place_plan_line(places, False, name),
+                 "open": engine_words.place_plan_line(places, True, name)} if places else None
         return {"on": bool(settings.auto_upgrade), "ready": len(coming) - places, "places": places, "place_notes": notes}
 
     def _checked_batches(self, state: dict) -> dict[int, AiffBatchRow]:

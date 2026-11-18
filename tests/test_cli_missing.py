@@ -268,12 +268,12 @@ def test_golden_the_pages_of_a_download_again_and_a_remove(lib, capsys, tmp_path
 def test_track_show_words_a_missing_song_in_the_engines_lines_not_raw_keys(lib, capsys):
     code, out, err = run(["track", "show", "t2"], capsys)
     assert code == OK
-    assert "\nMissing\n" in out and "Not seen since 12 Nov. It was in Hard_Bounce." in out
+    assert "\nMissing\n" in out and "Missing since 12 Nov. It was in Hard_Bounce." in out
     assert "Gets the better version already waiting for it" in out and "download_again" not in out
     code, out, _ = run(["track", "show", "t7"], capsys)  # a song whose file is there has no such section
     assert code == OK and "\nMissing\n" not in out
     code, out, _ = run(["track", "show", "t2", "--verbose"], capsys)  # `--verbose` adds the raw keys beside the words
-    assert "download_again" in out and "Not seen since 12 Nov." in out
+    assert "download_again" in out and "Missing since 12 Nov." in out
 
 
 def test_a_song_held_back_shows_why_and_is_left_out_of_all(lib, capsys):

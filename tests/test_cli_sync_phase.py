@@ -351,7 +351,7 @@ def test_the_preview_lists_a_placement_and_a_plan_bound_by_id_keeps_its_row(lib,
     assert block is not None and block["dry_run"] is True
     assert [(r["track"], r["state"], r["action"], r["how"]) for r in block["results"]] == [
         (found.tracks[0], "would", "place", "placed")]
-    assert dry["data"]["start_note"] == "1 missing song gets its better version at the end of the sync."
+    assert dry["data"]["start_note"] == "Artist – Song 0 gets its better version at the end of the sync."
     assert dry["data"]["plan_id"].startswith("plan:")
     code, env = run_json([*PHASE, "--plan", dry["data"]["plan_id"]], capsys)
     assert (code, env["outcome"]) == (OK, "ok"), env

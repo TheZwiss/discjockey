@@ -296,7 +296,7 @@ def start_note(block: dict | None) -> str | None:
     upgrade of the set waits for it), `words.auto_plan_line` when it is closed, nothing when no upgrade is coming. The
     count is the one the page's `auto_upgrade.ready` has: the upgrades that would run plus those that would wait, a held
     refusal not among them. The placements for missing files (D9) are another clause (`words.place_plan_line`, with the
-    switch off too), after the upgrades' line."""
+    switch off too), after the upgrades' line; with one song it names it (`name` of its row)."""
     rows = (block or {}).get("results") or []
     coming = [r for r in rows if r["state"] in ("would", "waiting")]
     placing = [r for r in coming if r.get("action") == "place"]
@@ -308,14 +308,14 @@ def start_note(block: dict | None) -> str | None:
     if placing:
         waits = any(r["state"] == "waiting" and r["reason"] in ("rekordbox_open", "rekordbox_unreadable")
                     for r in placing)  # a library that can't be read waits like an open rekordbox
-        lines.append(words.place_plan_line(len(placing), waits))
+        lines.append(words.place_plan_line(len(placing), waits, placing[0].get("name") if len(placing) == 1 else None))
     return " ".join(lines) or None
 
 
 # --- the phase ---
 
 def _name(e: dict) -> str:
-    return f"{e.get('artist') or '?'} – {e.get('title') or '?'}"
+    return words.song_name(e)
 
 
 def _how(e: dict, placed: bool = False) -> str:

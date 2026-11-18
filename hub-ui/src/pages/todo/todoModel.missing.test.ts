@@ -84,7 +84,7 @@ describe('one item (actionsFor)', () => {
     const a = actionsFor(await detail(ids.parked), 'missing_file');
     expect(a.main).toBe('download_again');
     expect(a.missing!.foot).toMatchObject({ label: 'Download again', variant: 'filled', disabled: false });
-    expect(a.missing!.note.title).toContain('Not seen since');
+    expect(a.missing!.note.title).toContain('Missing since');
     expect(a.dropZone).toBe(true);
     expect(a.upgrade).toBeNull();
     expect(a.buy).toBe(false);
@@ -101,7 +101,7 @@ describe('one item (actionsFor)', () => {
   it('a song the action can\'t run for: the button disabled with the engine\'s reason as tip and hint', async () => {
     const { ids, detail } = await scene();
     const a = actionsFor(await detail(ids.twice), 'missing_file');
-    expect(a.missing!.foot).toMatchObject({ disabled: true, tip: 'Its file is in several places now: keep one and it links again.' });
+    expect(a.missing!.foot).toMatchObject({ disabled: true, tip: "Delete or move away the copies you don't want; the one left links again." });
     expect(a.missing!.foot.hint).toBeNull();   // the note above says it: a state is said once
     expect(a.missing!.note.text).toBe("Delete or move away the copies you don't want; the one left links again.");
   });

@@ -293,6 +293,35 @@ def test_the_preview_of_remove_marks_the_parked_version_it_would_delete(lib):
     assert out["confirm"]["body"].startswith("Their files aren't in your watched folders. Discjockey forgets these songs")
 
 
+def test_the_confirm_of_one_song_is_singular_and_means_the_same(lib):
+    api, rec, paths = lib
+    one = api.missing_files_preview(["t4"], "remove")["confirm"]
+    assert one["title"] == "Remove from your library?" and one["body"] == missing.REMOVE_CONFIRM_BODY_ONE == (
+        "Its file isn't in your watched folders. Discjockey forgets this song, your answers about it and any better "
+        "version waiting for it. If the file comes back later, it is added as a new song.")
+    assert api.missing_files_preview(["t4", "t5"], "remove")["confirm"]["body"] == missing.REMOVE_CONFIRM_BODY
+
+
+def test_a_song_on_a_drive_that_is_not_connected_is_skipped_by_both_actions_and_the_preview_says_why(lib):
+    api, rec, paths = lib
+    with db.connect(paths.db_file) as conn:
+        for key in ("t1", "t5"):
+            conn.execute("UPDATE files SET online = 0 WHERE path = ?",
+                         (entries(paths)[key]["path"].removeprefix("Library/"),))
+        conn.commit()
+    away = "Its drive isn't connected; plug it in to decide."
+    for action, key, other in (("download_again", "t1", "t2"), ("remove", "t5", "t4")):
+        out = api.missing_files_preview([key, other], action)
+        by = {i["track_id"]: i for i in out["items"]}
+        assert (by[key]["will"], by[key]["reason"], by[key]["words"]) == (False, "away", away)
+        assert by[other]["will"] is True and out["n"] == 1 and out["skipped"] == 1
+        f = wait_job(api, rec, api.missing_files([key, other], action))
+        skipped = next(r for r in f.result["results"] if r["track_id"] == key)
+        assert (skipped["state"], skipped["reason"], skipped["words"]) == ("skipped", "away", away)
+        assert f.result["skipped"] == [key] and f.result["done"] == [other]
+    assert "t5" in entries(paths) and not entries(paths)["t1"].get("file_gone")      # nothing of the offline songs changed
+
+
 def test_the_preview_sends_the_button_and_the_confirm_for_the_songs_that_run_only(lib):
     api, rec, paths = lib
     one = api.missing_files_preview(["t4", "t1"], "remove")                         # t1 is a playlist song: skipped

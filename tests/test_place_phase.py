@@ -279,7 +279,7 @@ def test_an_unreadable_rekordbox_library_makes_the_placement_wait_instead_of_dro
         assert e["file_gone"] == ASKED and "auto_waits" not in e["upgrade"] and e["path"] == lib.olds[1]
         assert (lib.paths.root / e["upgrade"]["file"]).is_file()
         note = auto_upgrade.start_note(out.to_dict())
-        assert "1 missing song gets its better version at the end of the sync, once rekordbox is closed." in note
+        assert "Artist – Song 1 gets its better version at the end of the sync, once rekordbox is closed." in note
     assert (("upgrade_waits", PLACE_WAITS["rekordbox_unreadable"]) in [(r.section, r.note) for r in log.results])
 
 
@@ -393,15 +393,15 @@ def test_the_dry_run_lists_a_would_row_with_the_action_and_says_it_with_the_swit
         assert rows(out) == expect and out.results[0]["action"] == "place" and out.results[0]["how"] == "placed"
         assert log.results == [] and events == [] and aiff_batches(lib.paths) == []
         note = auto_upgrade.start_note(out.to_dict())
-        clause = "1 missing song gets its better version at the end of the sync."
+        clause = "Artist – Song 1 gets its better version at the end of the sync."
         assert note == (f"{words.auto_plan_line(1)} {clause}" if settings is ON else clause)
     waiting, _, _, _ = phase(lib.paths, lib.place, settings=OFF, dry_run=True, state=state, running=lambda: True)
     assert rows(waiting) == [(lib.tracks[1], "waiting", "rekordbox_open")]
     assert auto_upgrade.start_note(waiting.to_dict()) == (
-        "1 missing song gets its better version at the end of the sync, once rekordbox is closed.")
+        "Artist – Song 1 gets its better version at the end of the sync, once rekordbox is closed.")
     both, _, _, _ = phase(lib.paths, lib.place, settings=ON, dry_run=True, state=state, running=lambda: True)
     assert auto_upgrade.start_note(both.to_dict()) == (
-        f"{words.before_start_line(1)} 1 missing song gets its better version at the end of the sync, once rekordbox "
+        f"{words.before_start_line(1)} Artist – Song 1 gets its better version at the end of the sync, once rekordbox "
         "is closed.")
     assert auto_upgrade.start_note({"results": []}) is None and auto_upgrade.start_note(None) is None
 

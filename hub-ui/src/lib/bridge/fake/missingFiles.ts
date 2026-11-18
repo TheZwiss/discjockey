@@ -18,8 +18,9 @@ export const ACTION_WORDS: Record<MissingAction, string> = { download_again: 'Do
 /** missing.REASONS: `wrong_action` names the action the song gets instead */
 export const REASON_WORDS: Record<MissingReason, string> = {
   not_missing: 'Its file is back.',
+  away: "Its drive isn't connected; plug it in to decide.",
   wrong_action: 'This song gets {other} instead.',
-  found_twice: 'Its file is in several places now: keep one and it links again.',
+  found_twice: "Delete or move away the copies you don't want; the one left links again.",
   never: 'You chose Never download for it.',
   check_open: 'Its rekordbox check is still open: finish it first.',
   asked: 'You asked for it already: it happens at your next sync.',
@@ -37,6 +38,11 @@ export const HINT_PLACE = `${COMES_BACK} Or press Download again: the better ver
   + 'sync, and nothing is downloaded.';
 export const HINT_REMOVE = `${COMES_BACK} Or remove the song from your library.`;
 export const HINT_REMOVE_PARKED = ' Its better version waiting in Upgrade ready goes with it.';
+/** the Library's hints: the same first sentence, the end points at To-do (its foot has no such buttons) */
+export const HINT_DOWNLOAD_LIBRARY = `${COMES_BACK} Or open it in To-do to download it again.`;
+export const HINT_PLACE_LIBRARY = `${COMES_BACK} Or open it in To-do to download it again: the better version already waiting for it `
+  + 'goes in, and nothing is downloaded.';
+export const HINT_REMOVE_LIBRARY = `${COMES_BACK} Or open it in To-do to remove it from your library.`;
 export const HINT_TWICE = "Delete or move away the copies you don't want; the one left links again.";
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -53,6 +59,7 @@ export const missingAction = (t: FakeTrack): MissingAction => (t.in_playlists ? 
 /** missing.why_not: the first reason `action` can't run for the song now, else null */
 export function whyNot(s: FakeState, t: FakeTrack, action: MissingAction): MissingReason | null {
   if (!t.missing) return 'not_missing';
+  if (t.away === 'offline') return 'away';   // its drive isn't there to tell: offline wins, for both actions
   if (action !== missingAction(t)) return 'wrong_action';
   if (action === DOWNLOAD_AGAIN) {
     if (t.missing.found?.length) return 'found_twice';
@@ -100,18 +107,18 @@ function line(s: FakeState, t: FakeTrack): string {
   }
   const since = shortDay(t.missing!.since, s.now);
   const where = wasIn(s, t);
-  return where ? `Not seen since ${since}. It was in ${where}.` : `Not seen since ${since}.`;
+  return where ? `Missing since ${since}. It was in ${where}.` : `Missing since ${since}.`;
 }
-function hint(t: FakeTrack, action: MissingAction): string {
+function hint(t: FakeTrack, action: MissingAction, library = false): string {
   if (t.missing!.found?.length) return HINT_TWICE;
   const waiting = !!t.upgrade;
-  if (action === DOWNLOAD_AGAIN) return waiting ? HINT_PLACE : HINT_DOWNLOAD;
-  return HINT_REMOVE + (waiting ? HINT_REMOVE_PARKED : '');
+  if (action === DOWNLOAD_AGAIN) return library ? (waiting ? HINT_PLACE_LIBRARY : HINT_DOWNLOAD_LIBRARY) : waiting ? HINT_PLACE : HINT_DOWNLOAD;
+  return (library ? HINT_REMOVE_LIBRARY : HINT_REMOVE) + (waiting ? HINT_REMOVE_PARKED : '');
 }
-/** missing.detail_view: `track().missing`, the view plus its `line` and `hint` */
+/** missing.detail_view: `track().missing`, the view plus its `line`, `hint` and `hint_library` */
 export function missingDetail(s: FakeState, t: FakeTrack): MissingDetail | null {
   const v = missingView(s, t);
-  return v ? { ...v, line: line(s, t), hint: hint(t, v.action) } : null;
+  return v ? { ...v, line: line(s, t), hint: hint(t, v.action), hint_library: hint(t, v.action, true) } : null;
 }
 
 /** missing.select_all_label: the head link's words, from two songs */
@@ -158,12 +165,16 @@ function counts(action: MissingAction, rows: { will: boolean; upgrade_waiting: b
 /** missing.REMOVE_CONFIRM_BODY */
 export const REMOVE_CONFIRM_BODY = "Their files aren't in your watched folders. Discjockey forgets these songs, your answers about "
   + 'them and any better version waiting for them. If a file comes back later, it is added as a new song.';
+/** missing.REMOVE_CONFIRM_BODY_ONE: the same, for one song */
+export const REMOVE_CONFIRM_BODY_ONE = "Its file isn't in your watched folders. Discjockey forgets this song, your answers about "
+  + 'it and any better version waiting for it. If the file comes back later, it is added as a new song.';
 /** missing.button_label: the selection panel's button over the `n` songs that run */
 export const buttonLabel = (action: MissingAction, n: number): string | null =>
   (n ? `${ACTION_WORDS[action]} · ${n}${action === REMOVE ? '…' : ''}` : null);
 /** missing.confirm_for: Remove's question for `n` songs (the plural for several) */
 export const confirmFor = (action: MissingAction, n: number): MissingConfirm | null => (action !== REMOVE || !n ? null
-  : { title: n === 1 ? 'Remove from your library?' : `Remove ${n} songs from your library?`, body: REMOVE_CONFIRM_BODY,
+  : { title: n === 1 ? 'Remove from your library?' : `Remove ${n} songs from your library?`,
+    body: n === 1 ? REMOVE_CONFIRM_BODY_ONE : REMOVE_CONFIRM_BODY,
     confirm_label: 'Remove', tone: 'danger' });
 
 /** missing.preview: what `action` would do for `ids`, one item per song in the order asked (a key that is no song is

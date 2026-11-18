@@ -82,7 +82,7 @@ export type CdjWords = { short: string; words: string };
  *  library for any other (the song decides, `missing.action_for`). */
 export type MissingAction = 'download_again' | 'remove';
 /** Why the action can't run for the song now (`missing.why_not`), the first that applies. */
-export type MissingReason = 'not_missing' | 'wrong_action' | 'found_twice' | 'never' | 'check_open' | 'asked';
+export type MissingReason = 'not_missing' | 'away' | 'wrong_action' | 'found_twice' | 'never' | 'check_open' | 'asked';
 /** A `missing_file` item's `missing` (`missing.view`): `since` the ISO day of the first scan that missed the file,
  *  `place` where it was (the Folder column's words; '' without a path), `why_not` null when `action` can run and
  *  `words` its reason's sentence, `will` what the action does for this song ("Downloads again at your next sync" /
@@ -90,9 +90,11 @@ export type MissingReason = 'not_missing' | 'wrong_action' | 'found_twice' | 'ne
  *  library"), `upgrade_waiting` a parked better version waits (Download again puts it in, Remove deletes it). */
 export type MissingView = { since: string; place: string; action: MissingAction; why_not: MissingReason | null;
   words: string | null; will: string; upgrade_waiting: boolean };
-/** `track().missing`: the item's fields plus `line` ("Not seen since 12 Nov. It was in Techno 2019.") and `hint` (what
- *  can be done, by action). Null when the song's file isn't marked missing. */
-export type MissingDetail = MissingView & { line: string; hint: string };
+/** `track().missing`: the item's fields plus `line` ("Missing since 12 Nov. It was in Techno 2019."), `hint` (what can
+ *  be done, by action: the To-do panel's, with its buttons) and `hint_library` (the same for the Library, whose foot only
+ *  opens To-do; the same text when the song was found in several places). Null when the song's file isn't marked
+ *  missing. */
+export type MissingDetail = MissingView & { line: string; hint: string; hint_library: string };
 /** One song of `missing_files_preview` (`missing.preview`): `will` says whether the action runs for it now, `reason` and
  *  `words` why not otherwise (`words` is the action's `will` sentence when it does), `since` the ISO day its file was
  *  first missed (null when it is not missing), `upgrade_waiting` a parked better version waits (Download again puts it

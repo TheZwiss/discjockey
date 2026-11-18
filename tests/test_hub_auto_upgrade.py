@@ -166,8 +166,8 @@ def test_the_preview_counts_a_placement_apart_from_the_upgrades_and_says_it_with
     from test_place_phase import mark_missing
     lib, rb, api, rec = hub(["aiff", "mp3"])
     mark_missing(lib, 1)                                                # Download again was pressed; its better version is parked
-    notes = {"closed": "1 missing song gets its better version at the end of the sync.",
-             "open": "1 missing song gets its better version at the end of the sync, once rekordbox is closed."}
+    notes = {"closed": "Artist – Song 1 gets its better version at the end of the sync.",
+             "open": "Artist – Song 1 gets its better version at the end of the sync, once rekordbox is closed."}
     assert preview(api, lib)["auto_upgrade"] == {"on": True, "ready": 1, "places": 1, "place_notes": notes}  # the aiff is the upgrade
     rb.running = True                                                   # waiting for rekordbox changes neither count
     assert api.sync_preview()["auto_upgrade"] == {"on": True, "ready": 1, "places": 1, "place_notes": notes}

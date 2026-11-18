@@ -32,12 +32,15 @@ REMOVE = "remove"
 ACTIONS = (DOWNLOAD_AGAIN, REMOVE)
 ACTION_WORDS = {DOWNLOAD_AGAIN: "Download again", REMOVE: "Remove from library"}  # the buttons' words, without the dots
 
+HINT_TWICE = "Delete or move away the copies you don't want; the one left links again."
+
 # `why_not`'s reasons, in the order they are tried, with their words (plan §5.4). `wrong_action` names the action the
 # song gets instead (`reason_words`).
 REASONS = {
     "not_missing": "Its file is back.",
+    "away": "Its drive isn't connected; plug it in to decide.",
     "wrong_action": "This song gets {other} instead.",
-    "found_twice": "Its file is in several places now: keep one and it links again.",
+    "found_twice": HINT_TWICE,
     "never": "You chose Never download for it.",
     "check_open": "Its rekordbox check is still open: finish it first.",
     "asked": "You asked for it already: it happens at your next sync.",
@@ -53,14 +56,21 @@ WILL = {
 REMOVE_CONFIRM_BODY = ("Their files aren't in your watched folders. Discjockey forgets these songs, your answers about "
                        "them and any better version waiting for them. If a file comes back later, it is added as a new "
                        "song.")
+REMOVE_CONFIRM_BODY_ONE = ("Its file isn't in your watched folders. Discjockey forgets this song, your answers about "
+                           "it and any better version waiting for it. If the file comes back later, it is added as a "
+                           "new song.")
 
 COMES_BACK = "Put the file back in any watched folder and it links again with everything it had."
 HINT_DOWNLOAD = f"{COMES_BACK} Or download it again at your next sync."
 HINT_PLACE = (f"{COMES_BACK} Or press Download again: the better version already waiting for it goes in at your next "
               "sync, and nothing is downloaded.")
 HINT_REMOVE = f"{COMES_BACK} Or remove the song from your library."
+# the Library has no such buttons (its foot offers "Open in To-do"): the same first sentence, the end points at To-do
+HINT_DOWNLOAD_LIBRARY = f"{COMES_BACK} Or open it in To-do to download it again."
+HINT_PLACE_LIBRARY = (f"{COMES_BACK} Or open it in To-do to download it again: the better version already waiting for "
+                      "it goes in, and nothing is downloaded.")
+HINT_REMOVE_LIBRARY = f"{COMES_BACK} Or open it in To-do to remove it from your library."
 HINT_REMOVE_PARKED = " Its better version waiting in Upgrade ready goes with it."
-HINT_TWICE = "Delete or move away the copies you don't want; the one left links again."
 
 
 def other_action(action: str) -> str:
@@ -75,12 +85,15 @@ def action_for(key: str, e: Mapping) -> str:
 
 def why_not(key: str, e: Mapping, state: Mapping, action: str) -> str | None:
     """Why `action` can't run for song `key` now (a `REASONS` key), else None. The first that applies:
-    `not_missing` (its file is back, or it has no file row), `wrong_action` (the other action is this song's),
+    `not_missing` (its file is back, or it has no file row), `away` (its drive isn't connected: offline wins, the drive
+    isn't there to tell; both actions), `wrong_action` (the other action is this song's),
     `found_twice` (in several places; Download again only: Remove may still run for an own song), `never` (Download
     again only), `check_open` (an open rekordbox check; Remove only: its undo store would be left behind), `asked`
     (`file_gone` already set; Download again only)."""
     if not file_missing(e):
         return "not_missing"
+    if not e.get("online", True):
+        return "away"
     if action != action_for(key, e):
         return "wrong_action"
     if action == DOWNLOAD_AGAIN:
@@ -160,25 +173,30 @@ def _line(key: str, e: Mapping, state: Mapping, place: Callable[[str], str] | No
         return f"Found in {len(found)} places: {names}."
     since = _since(e, today)
     where = _was_in(e, place)
-    return f"Not seen since {since}. It was in {where}." if where else f"Not seen since {since}."
+    return f"Missing since {since}. It was in {where}." if where else f"Missing since {since}."
 
 
-def _hint(key: str, e: Mapping, state: Mapping, action: str) -> str:
+def _hint(key: str, e: Mapping, state: Mapping, action: str, *, library: bool = False) -> str:
+    """What can be done, by action: the To-do panel's words (`library` False: its buttons) or the Library's (`library`
+    True: its foot only opens To-do)."""
     if _candidates(key, state):
         return HINT_TWICE
     waiting = bool(e.get("upgrade"))
     if action == DOWNLOAD_AGAIN:
-        return HINT_PLACE if waiting else HINT_DOWNLOAD
-    return HINT_REMOVE + (HINT_REMOVE_PARKED if waiting else "")
+        return (HINT_PLACE_LIBRARY if waiting else HINT_DOWNLOAD_LIBRARY) if library else (
+            HINT_PLACE if waiting else HINT_DOWNLOAD)
+    return (HINT_REMOVE_LIBRARY if library else HINT_REMOVE) + (HINT_REMOVE_PARKED if waiting else "")
 
 
 def detail_view(key: str, e: Mapping, state: Mapping, place: Callable[[str], str] | None, today: date) -> dict | None:
-    """`track()`'s `missing` (plan §5.3): `view`'s fields plus `line` ("Not seen since 12 Nov. It was in Techno 2019.";
-    in several places: "Found in 2 places: Techno 2019 and Old crates.") and `hint` (what can be done, by action)."""
+    """`track()`'s `missing` (plan §5.3): `view`'s fields plus `line` ("Missing since 12 Nov. It was in Techno 2019.";
+    in several places: "Found in 2 places: Techno 2019 and Old crates.") `hint` (what can be done, by action) and `hint_library` (the same for the Library, whose foot has no such buttons: it
+    opens To-do; the ambiguous hint is the same)."""
     v = view(key, e, state, place, today)
     if v is None:
         return None
-    return {**v, "line": _line(key, e, state, place, today), "hint": _hint(key, e, state, v["action"])}
+    return {**v, "line": _line(key, e, state, place, today), "hint": _hint(key, e, state, v["action"]),
+            "hint_library": _hint(key, e, state, v["action"], library=True)}
 
 
 def place_keys(state: Mapping) -> list[str]:
@@ -217,7 +235,7 @@ def confirm_for(action: str, n: int) -> dict | None:
     if action != REMOVE or not n:
         return None
     title = "Remove from your library?" if n == 1 else f"Remove {n} songs from your library?"
-    return {"title": title, "body": REMOVE_CONFIRM_BODY, "confirm_label": "Remove", "tone": "danger"}
+    return {"title": title, "body": REMOVE_CONFIRM_BODY_ONE if n == 1 else REMOVE_CONFIRM_BODY, "confirm_label": "Remove", "tone": "danger"}
 
 
 def select_all_label(k: int) -> str | None:

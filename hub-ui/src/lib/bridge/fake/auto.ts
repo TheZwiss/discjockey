@@ -100,10 +100,12 @@ export function autoDetail(s: FakeState, t: FakeTrack, same: string | null, plai
  *  (waiting ones included, the recorded refusals and the placements left out), `places` the missing songs it would give their
  *  parked better version (with the switch off too), `place_notes` the sentence for them; null while the switch is off and
  *  nothing is to be placed. */
-export function autoPreview(s: FakeState, ready: number, places: number): SyncPreview['auto_upgrade'] {
+export function autoPreview(s: FakeState, ready: number, placing: FakeTrack[]): SyncPreview['auto_upgrade'] {
+  const places = placing.length;
   if (!autoOn(s) && !places) return null;
+  const name = places === 1 ? `${placing[0].artist} \u2013 ${placing[0].title}` : undefined;   // one song is named
   return { on: autoOn(s), ready: autoOn(s) ? ready : 0, places,
-    place_notes: places ? { closed: placePlanLine(places, false), open: placePlanLine(places, true) } : null };
+    place_notes: places ? { closed: placePlanLine(places, false, name), open: placePlanLine(places, true, name) } : null };
 }
 
 /** views.same_track_reason for a fake track: null when Same track can run now (the quick answer: rekordbox's cached state). */
@@ -175,8 +177,8 @@ export const autoUpgradingLine = (n: number): string => `Upgrading ${n} track${n
 /** words.placing_line / words.place_waiting_line / words.place_plan_line */
 export const placingLine = (n: number): string => `Putting in the better version of ${n} missing song${n === 1 ? '' : 's'} at the end of the sync...`;
 export const placeWaitingLine = (n: number): string => `${n} missing song${n === 1 ? ' waits' : 's wait'} for rekordbox to be closed to get ${n === 1 ? 'its' : 'their'} better version.`;
-export const placePlanLine = (n: number, waits = false): string =>
-  `${n === 1 ? '1 missing song gets its better version' : `${n} missing songs get their better version`} at the end of the sync${waits ? ', once rekordbox is closed' : ''}.`;
+export const placePlanLine = (n: number, waits = false, name?: string): string =>
+  `${n === 1 ? `${name ?? '1 missing song'} gets its better version` : `${n} missing songs get their better version`} at the end of the sync${waits ? ', once rekordbox is closed' : ''}.`;
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
 /** report.auto_upgrade_line: the run's one-line account of its phase; null when nothing happened. The placements (rows

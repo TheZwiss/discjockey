@@ -61,6 +61,9 @@ def test_the_action_follows_the_song_not_a_choice():
 @pytest.mark.parametrize("key,entry,action,extra,reason", [
     ("t1", e(), "download_again", {}, "not_missing"),                              # its file is back
     ("t1", e("missing", path=None), "download_again", {}, "not_missing"),          # no file row at all
+    ("t1", gone(online=False), "download_again", {}, "away"),                      # its drive isn't connected
+    ("local:1", own(online=False), "remove", {}, "away"),                          # offline wins for Remove too
+    ("t1", gone(online=False), "remove", {}, "away"),                              # ... before the action is checked
     ("t1", gone(), "remove", {}, "wrong_action"),                                  # a playlist song gets no Remove
     ("local:1", own(), "download_again", {}, "wrong_action"),                      # an own song gets no Download again
     ("t1", gone(), "download_again", {"ambiguous": {"t1": ["a.aiff", "b.aiff"]}}, "found_twice"),
@@ -83,12 +86,14 @@ def test_found_twice_stops_only_download_again_and_check_open_only_remove():
 
 
 def test_every_reason_has_words_and_wrong_action_names_the_other_action():
-    assert set(missing.REASONS) == {"not_missing", "wrong_action", "found_twice", "never", "check_open", "asked"}
+    assert set(missing.REASONS) == {"not_missing", "away", "wrong_action", "found_twice", "never", "check_open",
+                                     "asked"}
     assert missing.reason_words("not_missing", "remove") == "Its file is back."
+    assert missing.reason_words("away", "remove") == "Its drive isn't connected; plug it in to decide."
     assert missing.reason_words("wrong_action", "remove") == "This song gets Download again instead."
     assert missing.reason_words("wrong_action", "download_again") == "This song gets Remove from library instead."
-    assert missing.reason_words("found_twice", "download_again") == (
-        "Its file is in several places now: keep one and it links again.")
+    assert missing.reason_words("found_twice", "download_again") == missing.HINT_TWICE == (
+        "Delete or move away the copies you don't want; the one left links again.")
     assert missing.reason_words("never", "download_again") == "You chose Never download for it."
     assert missing.reason_words("check_open", "remove") == "Its rekordbox check is still open: finish it first."
     assert missing.reason_words("asked", "download_again") == "You asked for it already: it happens at your next sync."
@@ -136,19 +141,28 @@ def test_the_item_line_says_since_when_and_where_it_was():
 
 def test_the_details_line_and_hint_by_action():
     d = missing.detail_view("t1", gone(), state(), place, TODAY)
-    assert d["line"] == "Not seen since 12 Nov. It was in Techno 2019."
+    assert d["line"] == "Missing since 12 Nov. It was in Techno 2019."
     assert d["hint"] == ("Put the file back in any watched folder and it links again with everything it had. "
                          "Or download it again at your next sync.")
+    assert d["hint_library"] == ("Put the file back in any watched folder and it links again with everything it had. "
+                                 "Or open it in To-do to download it again.")
     d = missing.detail_view("t1", gone(upgrade=PARKED), state(), place, TODAY)
     assert d["hint"] == ("Put the file back in any watched folder and it links again with everything it had. "
                          "Or press Download again: the better version already waiting for it goes in at your next "
                          "sync, and nothing is downloaded.")
+    assert d["hint_library"] == ("Put the file back in any watched folder and it links again with everything it had. "
+                                 "Or open it in To-do to download it again: the better version already waiting for it "
+                                 "goes in, and nothing is downloaded.")
     d = missing.detail_view("local:1", own(), state(), place, TODAY)
     assert d["hint"] == ("Put the file back in any watched folder and it links again with everything it had. "
                          "Or remove the song from your library.")
+    assert d["hint_library"] == ("Put the file back in any watched folder and it links again with everything it had. "
+                                 "Or open it in To-do to remove it from your library.")
     d = missing.detail_view("local:1", own(upgrade=PARKED), state(), place, TODAY)
     assert d["hint"].endswith("Or remove the song from your library. Its better version waiting in Upgrade ready "
                               "goes with it.")
+    assert d["hint_library"].endswith("Or open it in To-do to remove it from your library. Its better version waiting "
+                                      "in Upgrade ready goes with it.")
     assert d["action"] == "remove" and d["upgrade_waiting"] is True       # the item's fields are in it too
 
 
@@ -156,7 +170,7 @@ def test_a_song_found_in_two_places_says_where_and_what_to_do():
     twice = state({"ambiguous": {"t1": ["Library/A/x.aiff", "/Volumes/Example/y.aiff"]}})
     d = missing.detail_view("t1", gone(), twice, place, TODAY)
     assert d["line"] == "Found in 2 places: Techno 2019 and Old crates."
-    assert d["hint"] == "Delete or move away the copies you don't want; the one left links again."
+    assert d["hint"] == d["hint_library"] == "Delete or move away the copies you don't want; the one left links again."
     assert d["why_not"] == "found_twice"
     three = state({"ambiguous": {"t1": ["Library/A/x.aiff", "/V/y.aiff", "/V/z.aiff"]}})
     assert missing.detail_view("t1", gone(), three, place, TODAY)["line"] == (

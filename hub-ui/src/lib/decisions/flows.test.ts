@@ -719,11 +719,11 @@ describe('MissingFlow (Download again and Remove from library, issue 43)', () =>
     const { ids } = env();
     const flow = new MissingFlow();
     await flow.downloadAgain([ids.twice]);
-    expect(get(toasts)[0]).toMatchObject({ tone: 'problem', body: 'Its file is in several places now: keep one and it links again.' });
+    expect(get(toasts)[0]).toMatchObject({ tone: 'problem', body: "Delete or move away the copies you don't want; the one left links again." });
     toasts.clear();
     await flow.downloadAgain([ids.twice, ids.never], { panel: true });
     expect(flow.ended).toMatchObject({ action: 'download_again', done: 0 });
-    expect(flow.ended!.skipped.map((r) => r.text)).toEqual(['Its file is in several places now: keep one and it links again.',
+    expect(flow.ended!.skipped.map((r) => r.text)).toEqual(["Delete or move away the copies you don't want; the one left links again.",
       'You chose Never download for it.']);
     expect(titles()).toEqual([]);
   });

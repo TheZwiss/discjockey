@@ -112,12 +112,21 @@ def waiting_line(n: int) -> str:
     return f"{n} upgrade{' waits' if n == 1 else 's wait'} for rekordbox to be closed."
 
 
-def place_plan_line(n: int, waits: bool = False) -> str:
+def place_plan_line(n: int, waits: bool = False, name: str | None = None) -> str:
     """The Sync page's before-start clause for the placements (issue 43, D9, plan §5.4): songs the user asked to download
     again whose file is missing and whose better version is parked get it at the end of the sync, with the Auto-upgrade
-    switch off too. `waits`: rekordbox is open, so they go in once it is closed."""
-    songs = "1 missing song gets its better version" if n == 1 else f"{n} missing songs get their better version"
+    switch off too. `waits`: rekordbox is open, so they go in once it is closed. `name`: the one song's "Artist – Title"
+    when n is 1 (the clause names it; with several it keeps the count)."""
+    if n == 1 and name:
+        songs = f"{name} gets its better version"
+    else:
+        songs = "1 missing song gets its better version" if n == 1 else f"{n} missing songs get their better version"
     return f"{songs} at the end of the sync{', once rekordbox is closed' if waits else ''}."
+
+
+def song_name(e: dict) -> str:
+    """A song's "Artist – Title" (the house dash) for a line that names it."""
+    return f"{e.get('artist') or '?'} – {e.get('title') or '?'}"
 
 
 def placing_line(n: int) -> str:

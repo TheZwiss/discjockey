@@ -421,10 +421,12 @@ describe('fake sync: the placements for missing songs', () => {
     const m = make('missing_files');
     const set = missingSet(m.f._ctx.s)!;
     expect(set.askedParked).toBeTruthy();
+    const song = m.f._ctx.s.tracks.find((t: { track_id: string }) => t.track_id === set.askedParked)!;
+    const name = `${song.artist} \u2013 ${song.title}`;   // one song: the sentence names it
     const ready = readyTracks(m.f._ctx.s).length;
     expect((await preview(m.f)).auto_upgrade).toEqual({ on: true, ready, places: 1,
-      place_notes: { closed: '1 missing song gets its better version at the end of the sync.',
-        open: '1 missing song gets its better version at the end of the sync, once rekordbox is closed.' } });
+      place_notes: { closed: `${name} gets its better version at the end of the sync.`,
+        open: `${name} gets its better version at the end of the sync, once rekordbox is closed.` } });
   });
 
   it('with the switch off and nothing to place there is no phase', async () => {
@@ -448,6 +450,8 @@ describe('fake sync: the placements for missing songs', () => {
       .toBe("1 upgrade waits for rekordbox to be closed. 1 missing song waits for its better version until your next sync. "
         + "1 missing song couldn't get its better version yet.");
     expect(placePlanLine(1)).toBe('1 missing song gets its better version at the end of the sync.');
+    expect(placePlanLine(1, false, 'Ana \u2013 Song')).toBe('Ana \u2013 Song gets its better version at the end of the sync.');
+    expect(placePlanLine(2, false, 'Ana \u2013 Song')).toBe('2 missing songs get their better version at the end of the sync.');
     expect(placePlanLine(2, true)).toBe('2 missing songs get their better version at the end of the sync, once rekordbox is closed.');
     expect(placedWords('A.aiff', false, true)).toBe('Its better version is in, at A.aiff.');
     expect(placedWords('A.aiff', true, false)).toBe('Its better version is in, at A.aiff; check its cues in rekordbox.');
