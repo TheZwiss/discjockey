@@ -45,7 +45,7 @@ from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
 from ..events import BatchProgress, Cancelled, CancelToken, Result
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatchRow, BatchResult, BatchRow, Candidate,
                       PlaylistLine,
-                      PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
+                      PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, file_missing, token)
 from ..names import fold, search_fold
 from ..words import SCAN_OLDER, preview_words, rekordbox_words
 from ..ops import OpProblem, snapshot
@@ -708,13 +708,17 @@ class HubApi:
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
         cdj_plan = self._cdj_plan(state, away, decided) if members and filt in (None, "all", "cdj") else None
+        # where a missing file was (the Missing files group's words); the sidebar's count needs none
+        where = None
+        if not count_only and any(file_missing(e) for e in state["tracks"].values()):
+            where = views.sites(state, pf.load(self._paths.playlists_file).rows, self._records_and_folders()[1]).place
         cdj_all = views.cdj_counts(cdj_plan.to_dict()) if cdj_plan else (0, 0)
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
                           questions, groups, files, self._audio, counted, away, rb, present,
                           views.stopped_batch(rows, kinds=("upgrade",)), self._auto_upgrade_on(),
                           {i: r.started_by for i, r in checked.items()}, cdj_all,
                           views.stopped_batch(rows, scope="todo:"), {i: r.kind for i, r in checked.items()},
-                          cdj_plan.waits if cdj_plan else None, decided, self._paths.root)
+                          cdj_plan.waits if cdj_plan else None, decided, self._paths.root, where)
 
     def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str]) -> plans.AiffPlan:
         """The `cdj` scope's plan for To-do, remembered on the records' generation (every write of songs, files or
@@ -1045,11 +1049,12 @@ class HubApi:
         with self._move_log() as conn:
             folders = db.watched_folders(conn) if conn is not None else []
         lines = pf.load(self._paths.playlists_file).rows
-        where = views.sites(state, lines, folders).place(e["path"]) if e.get("path") else None
+        place_of = views.sites(state, lines, folders).place
+        where = place_of(e["path"]) if e.get("path") else None
         rb = self._rekordbox_status()
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
                                     self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where,
-                                    rb, self._auto_upgrade_on())
+                                    rb, self._auto_upgrade_on(), state, place_of)
         # what Convert and Rename would do for this file (null: no file, a download, a better version waiting)
         detail["aiff"] = plans.file_answer(self._paths, state, track_id, rb=rb, tags=self._tags) if exists else None
         self._remember(state, [track_id])

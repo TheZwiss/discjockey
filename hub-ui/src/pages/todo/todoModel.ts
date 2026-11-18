@@ -3,7 +3,7 @@
 import type { SegOption } from '$lib/components/segmentedModel';
 import type {
   FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter,
-  TodoGroupKey, TodoItem, TrackDetail,
+  CountedGroup, TodoGroupKey, TodoItem, TrackDetail,
 } from '$lib/bridge/types';
 import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
 import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
@@ -15,11 +15,11 @@ import { keep as keepSelected, type Selection } from '$lib/components/selectionM
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
  *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
  *  reads in the order the sections do. With every group present, the later ones go under More (FILTER_MAX). */
-export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready',
+export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'missing_file', 'same_song', 'duplicate', 'upgrade_ready',
   'cdj', 'not_found', 'weak', 'good_lossy', 'fake', 'other'];
 /** Short, so the strip holds five and More on one line at 1100 (the section heads carry the full names). */
 const FILTER_LABEL: Record<TodoFilter, string> = {
-  all: 'All', rekordbox_check: 'rekordbox', same_song: 'Same song?', duplicate: 'Duplicates', upgrade_ready: 'Upgrades',
+  all: 'All', rekordbox_check: 'rekordbox', missing_file: 'Missing', same_song: 'Same song?', duplicate: 'Duplicates', upgrade_ready: 'Upgrades',
   // the strip's short form of "Won't play well on CDJs" (plan §3): short as its neighbours, and the acronym is how a DJ says it
   cdj: 'CDJs', not_found: 'Not found', weak: 'Weak', good_lossy: 'Good lossy', fake: 'Fake lossless', other: 'Other',
 };
@@ -160,13 +160,13 @@ export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; t
   return tracks.length ? { keys, tracks } : null;
 }
 /** The Upgrade ready group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
-export function upgradeGroup(t: Todo | null): Todo['groups'][number] | null {
-  return t?.groups.find((g) => g.key === 'upgrade_ready') ?? null;
+export function upgradeGroup(t: Todo | null): CountedGroup | null {
+  return t?.groups.find((g): g is CountedGroup => g.key === 'upgrade_ready') ?? null;
 }
 
 /** The CDJ group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
-export function cdjGroup(t: Todo | null): Todo['groups'][number] | null {
-  return t?.groups.find((g) => g.key === 'cdj') ?? null;
+export function cdjGroup(t: Todo | null): CountedGroup | null {
+  return t?.groups.find((g): g is CountedGroup => g.key === 'cdj') ?? null;
 }
 
 /** "Upgrade all · n": the group's items that Upgrade all can reach. A hidden item is left out (the hub's `upgrade_all`

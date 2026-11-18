@@ -5,7 +5,7 @@ import type {
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import {
   dropDecision,
-  FILTER_ORDER, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowDim, rowOff,
+  FILTER_ORDER, isFilter, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowDim, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
   checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
@@ -24,7 +24,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
     cover_url: null, group, detail: '', free: false, file_state: 'here', ...extra };
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
-  const chips = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
+  const chips = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
   return { chips, check_tracks: 0, hidden_count: 0, show_hidden: false, empty: null, empty_text: null,
     groups: groups.map(([key, ids]) => ({ key, label: key, hint: '', items: ids.map((id) => item(id, key)) })) };
 }
@@ -106,7 +106,7 @@ describe('selection helpers', () => {
 });
 
 describe('filter strip', () => {
-  const chips = { all: 9, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 2, not_found: 3, weak: 0, good_lossy: 4, fake: 0, other: 0 };
+  const chips = { all: 9, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 2, not_found: 3, weak: 0, good_lossy: 4, fake: 0, other: 0 };
   it('come in spec order with zero ones hidden (All always shown)', () => {
     expect(segOptions(chips, 'all').map((o) => o.key)).toEqual(['all', 'upgrade_ready', 'not_found', 'good_lossy']);
     expect(segOptions({ ...chips, all: 0, upgrade_ready: 0, not_found: 0, good_lossy: 0 }, 'all').map((o) => o.key))
@@ -219,7 +219,7 @@ describe('texts', () => {
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();
   });
   it('header line tells the tracks, the questions about the user\'s own files and the checks in rekordbox', () => {
-    const none = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
+    const none = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
       good_lossy: 0, fake: 0, other: 0 };
     const sub = (chips: Partial<typeof none>, check_tracks = 0) => headerSub({ chips: { ...none, ...chips }, check_tracks });
     // not lossless yet: every group of tracks below lossless, summed (Upgrade ready included)
@@ -285,8 +285,10 @@ const flatOf = (...items: TodoItem[]) => items;
 
 describe('the import groups on the strip and in navigation', () => {
   it('come right after rekordbox, in the order the sections do', () => {
-    expect(FILTER_ORDER.slice(0, 5)).toEqual(['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready']);
-    const chips = { all: 12, rekordbox_check: 1, same_song: 2, duplicate: 3, cdj: 0, upgrade_ready: 1, not_found: 4, weak: 1,
+    expect(FILTER_ORDER.slice(0, 6)).toEqual(['all', 'rekordbox_check', 'missing_file', 'same_song', 'duplicate',
+      'upgrade_ready']);
+    expect(isFilter('missing_file')).toBe(true);
+    const chips = { all: 12, rekordbox_check: 1, missing_file: 0, same_song: 2, duplicate: 3, cdj: 0, upgrade_ready: 1, not_found: 4, weak: 1,
       good_lossy: 0, fake: 0, other: 0 };
     const o = segOptions(chips, 'all');
     expect(o.map((x) => x.key)).toEqual(['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready',
@@ -1081,9 +1083,9 @@ describe('the CDJ group (issue 33 stage D §6.3)', () => {
     expect([fresh.all, fresh.stopped]).toEqual([{ n: 5, k: 1 }, null]);
   });
   it('the strip says CDJs, the section its whole name, and the page header counts the files', () => {
-    expect(segOptions({ all: 6, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 6, upgrade_ready: 0, not_found: 0, weak: 0,
+    expect(segOptions({ all: 6, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 6, upgrade_ready: 0, not_found: 0, weak: 0,
       good_lossy: 0, fake: 0, other: 0 }, 'all').find((o) => o.key === 'cdj')).toMatchObject({ label: 'CDJs', count: 6 });
-    const none = { all: 0, rekordbox_check: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
+    const none = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
       good_lossy: 0, fake: 0, other: 0 };
     expect(headerSub({ chips: { ...none, cdj: 6 }, check_tracks: 0 })).toEqual(["6 files won't play well on CDJs"]);
     expect(headerSub({ chips: { ...none, cdj: 1, weak: 2 }, check_tracks: 0 })).toEqual(['2 tracks are not lossless yet',

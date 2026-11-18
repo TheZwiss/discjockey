@@ -659,7 +659,7 @@ chips (Lossless, Good lossy, Weak, Fake), of `summary.by_quality` and `summary.l
 files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`. Every
 row also has `file_state` (2026-10-29, fix K): `here`, `offline` or `folder_missing`, read now exactly as `track()`'s
 (below: the live away set of the import folders, a stored `online = 0` stays `offline`), but per watched folder only:
-the list never checks a row's own file, so `file_missing` is `track()`'s alone; or `no_file` (above). A row that isn't
+a row whose file waits as missing (issue 43, "Missing files" below) says `file_missing` from its stored mark, no disk check, after the offline checks (a drive that is away says `offline`); or `no_file` (above). A row that isn't
 `here` doesn't play (Enter, double-click and its cover do nothing). The same
 holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole
 count), and the to-do list holds no such file. The user's
@@ -960,7 +960,7 @@ Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by
 tag); the `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge
 already says the kHz.
 
-`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`).
+`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|missing_file|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`).
 Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". The import adds two
 groups after the first (see "Watched folders and the import" below): `same_song` and `duplicate`, whose items also carry
 a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, in a question and
@@ -2237,3 +2237,49 @@ answer `no_library` without a music folder.
   `upgrade`, `hidden`. On the state: `rekordbox_state`, `rekordbox_running`, `freeBytes` (per drive; default 400 GB),
   `batchSkip` (a run-time skip reason per track), `batchStep`, and `batches` (batches that exist from the start: `kind`,
   `scope`, `state` `stopped`\|`done`, `started_by`, `items [{track, action, state: done\|planned}]`).
+
+## Missing files (issue 43)
+
+A file that one scan doesn't see is never decided: its song waits as missing (`files.missing_since`) with everything it
+has, links back when the file shows up in any watched folder, and To-do lists it. Only the user's word removes an own
+song or downloads a playlist song again. This section is the read side (E3a); the two actions (`missing_files`,
+`missing_files_preview`) and the Auto-upgrade block's placement rows are added with their groups.
+
+- **`todo()`**: `TodoFilter` and `TodoGroupKey` gain `missing_file`; the group is second, after `rekordbox_check` (label
+  "Missing files", hint "not where they were; put a file back and it links again"; `chips.missing_file`). It lists every
+  song whose file waits as missing, an own song or a song no playlist lists any more included, hidden ones as any item
+  (a hidden song only with `show_hidden`, counted in `hidden_count`). It wins over every group but Check in rekordbox
+  (a song with an open check is in both; `chips.all` counts it once): Upgrade ready, Won't play well on CDJs, Not found,
+  Weak, Good lossy, Fake, Other and the CDJ group never hold a missing song, and `upgrade_ready_keys` (Upgrade all,
+  `upgrade list`, Auto-upgrade's set) leaves it out; its parked upgrade stays. A song for which Download again was asked
+  (`file_gone` set) is in no group: the sync downloads it (or puts its parked version in). A song with no file row and
+  `file_gone` (after `folder remove`) is no Not found either; its Library row says `wait: "waiting"`.
+- **A missing item** is a `TodoItem` (`group: "missing_file"`, `free` false, `file_state` `file_missing`, or `offline` /
+  `folder_missing` when its drive or folder is away) plus `detail` ("Missing since 12 Nov · was in Techno 2019"; in
+  several places: "In 2 places now · keep one and it links again") and `missing: MissingView`: `{since` (ISO day of the
+  first scan that missed it), `place` (where it was, the Folder column's words; `""` without a path), `action`
+  (`download_again` for a song in a playlist, an own key linked to one included; `remove` for any other: the song
+  decides, not a choice), `why_not` (null, or `not_missing` | `wrong_action` | `found_twice` | `never` | `check_open` |
+  `asked`, the first that applies), `words` (the reason's sentence, null when `why_not` is null), `will` (what the action
+  does for this song: "Downloads again at your next sync", "Gets the better version already waiting for it at your next
+  sync; nothing is downloaded" (Download again with a parked upgrade: the parked version goes in), "Removed from your
+  library"), `upgrade_waiting` (a parked better version waits: the placement above, or Remove's deleting it)`}`. The
+  window shows these words and decides nothing.
+- **The group carries `all: {download_again: n, remove: m}`**: the items not hidden whose `missing.why_not` is null, by
+  action: what the head link ("Select all · {n}") and the commands' `--all` act on.
+- **`track()`** gains `missing: MissingDetail | null`: `MissingView` plus `line` ("Not seen since 12 Nov. It was in
+  Techno 2019."; in several places "Found in 2 places: Techno 2019 and Old crates.") and `hint` (what can be done, by
+  action; with `upgrade_waiting` the placement's or Remove's variant; in several places "Delete or move away the copies
+  you don't want; the one left links again."). Null when the song's file isn't marked missing (a file gone since the last
+  scan shows `file_state: "file_missing"` from the live check, without `missing`). `next_qobuz_check` is `"next_sync"`
+  for a song whose Download again was asked.
+- **`library()`**: a row's `file_state` may be `file_missing` (the stored mark; `LibraryRow.file_state` is `FileState |
+  "no_file"`); `summary.to_do` counts a missing song (own ones too). A `not_found` row's `next_try` is `"next_sync"` after
+  Download again, and a song with no file row and `file_gone` is `waiting`, not `not_found`.
+- **Reasons**: the six `why_not` keys are `refused` reasons in `hub/outcomes.py` (the command line's result rows use them).
+  Words (`wrong_action` names the action the song gets instead): `not_missing` "Its file is back."; `wrong_action` "This
+  song gets {Download again | Remove from library} instead."; `found_twice` "Its file is in several places now: keep one
+  and it links again."; `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open:
+  finish it first."; `asked` "You asked for it already: it happens at your next sync."
+- **Fake backend**: shapes only for now (`missing` absent on every item, the group absent); scenario `missing_files` comes
+  with the window's work.

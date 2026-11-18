@@ -235,7 +235,7 @@ export const FILE_STATE_TAG: Record<Exclude<FileState, 'here'>, string> = {
 };
 /** A list row's file that is away (Library's table, To-do's list): the state its `AwayTag` says, null for a file that is
  *  here and for a song with no file yet (`no_file`, which says Waiting / NOT FOUND instead). */
-export function rowAway(r: { file_state: Exclude<FileState, 'file_missing'> | 'no_file' }): 'offline' | 'folder_missing' | null {
+export function rowAway(r: { file_state: FileState | 'no_file' }): Exclude<FileState, 'here'> | null {
   return r.file_state === 'here' || r.file_state === 'no_file' ? null : r.file_state;
 }
 /** The track has a file, but it isn't there to play (the panels: no Show in Finder, the player off). */

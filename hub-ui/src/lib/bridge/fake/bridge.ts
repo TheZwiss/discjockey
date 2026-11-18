@@ -3,7 +3,7 @@ import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
   BatchResult, Candidate, ChangePreview, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
-  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
+  AccountCheck, Browser, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, Todo, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
@@ -829,7 +829,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         bought_name: `Library/${t.folder}/${t.artist} - ${t.title}.wav`,
         audio_url: q === 'missing' || t.away ? null : media(t, 'current'),
         upgrade: t.upgrade ? { ...t.upgrade, audio_url: media(t, 'upgrade'), ...rbOf(t) } : null,
-        aiff: fileAnswer(s, t), cutoff_text: cutoffText(t),
+        aiff: fileAnswer(s, t), cutoff_text: cutoffText(t), missing: null,  // the scenario `missing_files` comes with the window
       } });
     },
     // the engine answers bad_args for a filter that is no group; the window sends only TodoFilter keys
@@ -1551,10 +1551,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   function autoReady(): number { return readyTracks(s).length; }
 
   function todoView(filter: TodoFilter, show_hidden: boolean) {
-    const order: TodoGroupKey[] = ['rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready', 'cdj', 'not_found', 'weak',
+    const order: TodoGroupKey[] = ['rekordbox_check', 'missing_file', 'same_song', 'duplicate', 'upgrade_ready', 'cdj', 'not_found', 'weak',
       'good_lossy', 'fake', 'other'];
     const LABELS: Record<TodoGroupKey, [string, string]> = {
       rekordbox_check: ['Check in rekordbox', 'the file changed; rekordbox needs a hand'],
+      missing_file: ['Missing files', 'not where they were; put a file back and it links again'],
       same_song: ['Is this the same song?', 'a file of yours might be a playlist song'],
       duplicate: ['Duplicates', 'the same song more than once'],
       upgrade_ready: ['Upgrade ready', 'a better version is waiting for you'],
@@ -1622,7 +1623,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     chips.all = counted.size;
     const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
       .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k],
-        ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}) }));
+        ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}) })) as Todo['groups'];
     const TODO_EMPTY: Record<string, string | undefined> = { all_lossless: 'Everything is lossless.',
       all_hidden: 'Only hidden tracks are left.', nothing_here: 'Nothing here.' };  // words.TODO_EMPTY
     const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'

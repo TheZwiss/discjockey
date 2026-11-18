@@ -767,7 +767,7 @@ def test_todo_groups_in_order_with_details():
     assert by["c"]["detail"] == "YT Music" and by["k"]["detail"] == "Qobuz"
     assert by["m"]["detail"] == "MOVE BLOCKED · a file is in the way"
     assert "h" not in by and "f" not in by and out["hidden_count"] == 1
-    assert out["chips"] == {"all": 6, "rekordbox_check": 0, "same_song": 0, "duplicate": 0, "upgrade_ready": 1,
+    assert out["chips"] == {"all": 6, "rekordbox_check": 0, "missing_file": 0, "same_song": 0, "duplicate": 0, "upgrade_ready": 1,
                             "cdj": 0, "not_found": 2, "weak": 0, "good_lossy": 1, "fake": 1, "other": 1}
     shown = views.todo(s, "weak", True, {}, TODAY)
     assert [g["key"] for g in shown["groups"]] == ["weak"] and shown["groups"][0]["items"][0]["track_id"] == "h"

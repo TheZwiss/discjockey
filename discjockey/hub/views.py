@@ -16,14 +16,14 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, NamedTuple
 from urllib.parse import quote_plus
 
-from .. import cdj as cdj_rule, playlists_file as pf
+from .. import cdj as cdj_rule, missing as missing_rule, playlists_file as pf
 from ..accounts import (ACCOUNTS, BROWSERS, DEFAULT_LIMITS, MAX_LIMIT, PREMIUM_MIN_KBPS, SERVICES, SERVICE_NAMES,
                         SERVICE_SIGNALS)
 from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold, search_fold
 from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
                       AiffBatchRow, BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
-                      PlaylistRecord, Question, WatchedFolder, is_own, split_token, track_link as key_link)
+                      PlaylistRecord, Question, WatchedFolder, file_missing, is_own, split_token, track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
@@ -578,7 +578,11 @@ def next_due(e: dict) -> str | None:
     """The day Discjockey looks on Qobuz again, without a clock: an ISO date (due on and after it), "next_sync" when
     it never looked yet, None when it never does. A library row carries it as `next_try` (the page words it against
     its own today); `next_check` words it against the API's."""
-    if not e.get("in_playlists") or e.get("upgrade") or e["status"] == "lossless":
+    if not e.get("in_playlists"):
+        return None
+    if e.get("file_gone"):  # Download again: the next sync downloads it (or puts its parked version in)
+        return "next_sync"
+    if e.get("upgrade") or e["status"] == "lossless":
         return None
     day = e.get("last_attempt") if e["status"] == "missing" else e.get("last_upgrade_check")
     if not day:
@@ -906,7 +910,8 @@ def file_state(e: dict, away: Mapping[str, str] | None = None, exists: bool = Tr
     checks them live: an unplugged drive counts before any scan noticed. A row that says it was away at the last scan
     (`online`) stays "offline" while no root says otherwise. `exists`: whether the file is at its path (the api asks
     for the one track it builds the detail for). Entries without the keys (the old records) are there, and a track
-    without a file has nothing to be away."""
+    without a file has nothing to be away. A row whose file waits as missing (`models.file_missing`: the stored mark of
+    the last scan, no disk check) is "file_missing" too, after the offline checks: an away drive can't tell."""
     path = e.get("path")
     if not path:
         return "here"
@@ -915,7 +920,7 @@ def file_state(e: dict, away: Mapping[str, str] | None = None, exists: bool = Tr
         return "offline" if away[max(inside, key=len)] == "unmounted" else "folder_missing"
     if not e.get("online", True):
         return "offline"
-    return "here" if exists else "file_missing"
+    return "file_missing" if file_missing(e) or not exists else "here"
 
 
 def row_file_state(e: dict | None, away: Mapping[str, str] | None = None) -> str:
@@ -931,8 +936,10 @@ def file_online(e: dict, away: Mapping[str, str] | None = None) -> bool:
 
 def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url | None = None,
                  media: Url | None = None, away: Mapping[str, str] | None = None, exists: bool = True,
-                 place: str | None = None, rb: RekordboxStatus | None = None, auto_on: bool = True) -> dict:
-    """`rb`: rekordbox's cached state (HubApi._rekordbox_status; None: taken as readable), for the upgrade block's
+                 place: str | None = None, rb: RekordboxStatus | None = None, auto_on: bool = True,
+                 records: Mapping | None = None, where: Callable[[str], str] | None = None) -> dict:
+    """`records` (the state's records), `where` (Sites.place): the records and the place words for `missing`, the song's waiting file (issue 43,
+    `missing.detail_view`; null when its file isn't marked missing). `rb`: rekordbox's cached state (HubApi._rekordbox_status; None: taken as readable), for the upgrade block's
     Same track answer. `auto_on`: Settings' Auto-upgrade switch (the block's `auto_waits` shows only while it is on). `away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
     "here", there is no `audio_url`: nothing to play. `place`: where the file sits (Sites.place, D11), the same words
     as the Folder column; None for a track without a file."""
@@ -957,7 +964,8 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
             "buy_links": buy_links(e["artist"], e["title"]), "free_downloads": free_downloads(e),
             "bought_name": f"Library/{e['folder']}/{expected_stem(e['artist'], e['title'])}.wav",
             "audio_url": media(track_id, e) if media and e.get("path") and state == "here" else None,
-            "upgrade": upgrade_block(e.get("upgrade"), media, track_id, e, rb, present_of(state), auto_on)}
+            "upgrade": upgrade_block(e.get("upgrade"), media, track_id, e, rb, present_of(state), auto_on),
+            "missing": missing_rule.detail_view(track_id, e, records or {}, where, today)}
 
 
 # --- library ---
@@ -1334,7 +1342,8 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                "by_quality": by, "upgrades_ready": sum(1 for r in have if r["upgrade_ready"]),
                # checked files that aren't lossless: the strip's "Not lossless yet" row
                "not_lossless": by["good_lossy"] + by["weak"] + by["fake"],
-               "to_do": sum(1 for e in entries if e.get("in_playlists") and not e.get("hidden") and _group(e) is not None)}
+               "to_do": sum(1 for e in entries if (e.get("in_playlists") or file_missing(e)) and not e.get("hidden")
+                            and _group(e) is not None)}
     q = search_fold(query or "").strip()  # case and accents ignored, as the command line's `track find`
     if q:
         rows = [r for r in rows if q in search_fold(f"{r['artist']} {r['title']}")]
@@ -1520,6 +1529,7 @@ def sidebar_targets(state: dict, lines: Sequence[pf.Row], watched: Iterable[Watc
 # --- to-do ---
 
 TODO_GROUPS = [("rekordbox_check", "Check in rekordbox", "the file changed; rekordbox needs a hand"),
+               ("missing_file", "Missing files", "not where they were; put a file back and it links again"),
                ("same_song", "Is this the same song?", "a file of yours might be a playlist song"),
                ("duplicate", "Duplicates", "the same song more than once"),
                ("upgrade_ready", "Upgrade ready", "a better version is waiting for you"),
@@ -1536,6 +1546,14 @@ FREE_GROUPS = ("not_found", "weak", "good_lossy", "fake")  # where an artist's f
 
 
 def _group(e: dict) -> str | None:
+    """The To-do group of a song's own state (None: none). A file that waits as missing wins over every other group
+    (nothing else can be done with a song whose file isn't there; issue 43 D13); once Download again is asked
+    (`file_gone`) the song leaves To-do: the sync downloads it (or puts its parked version in). A song with no file
+    row and `file_gone` (after `folder remove`) is no "Not found" either: the sync downloads it."""
+    if file_missing(e):
+        return None if e.get("file_gone") else "missing_file"
+    if e["status"] == "missing" and e.get("file_gone"):
+        return None
     if not sound_checked(e):  # its quality is only the codec's guess: nothing to do about it yet
         return None
     if e.get("upgrade"):
@@ -1545,9 +1563,11 @@ def _group(e: dict) -> str | None:
 
 def todo_listed(k: str, e: dict, held: Collection[str], never: Mapping[str, object]) -> bool:
     """Whether To-do lists the song at all: it is in a playlist (or is the user's own file with a better version
-    waiting), isn't waiting for an answer to "Is this the same song?" (`held`: the plan's questions) and isn't a
-    "never download" song with no file."""
-    if k in held or (not e.get("in_playlists") and not (is_own(k) and e.get("upgrade"))):
+    waiting, or any song whose file waits as missing: issue 43 D8), isn't waiting for an answer to "Is this the same
+    song?" (`held`: the plan's questions) and isn't a "never download" song with no file."""
+    if k in held:
+        return False
+    if not e.get("in_playlists") and not (is_own(k) and e.get("upgrade")) and not file_missing(e):
         return False
     return not (e["status"] == "missing" and k in never)
 
@@ -1826,8 +1846,9 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
          stopped: tuple[int, int] | None = None, auto_on: bool = True,
          started_by: Mapping[int, str] | None = None, cdj_all: tuple[int, int] = (0, 0),
          cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None,
-         cdj_waits: Mapping[str, str] | None = None, decided: Collection[str] = (), root: Path | None = None) -> dict:
-    """Groups in this order: Check in rekordbox, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
+         cdj_waits: Mapping[str, str] | None = None, decided: Collection[str] = (), root: Path | None = None,
+         place: Callable[[str], str] | None = None) -> dict:
+    """Groups in this order: Check in rekordbox, Missing files, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
     CDJs, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
     with a `rekordbox_check`, hidden or not, so a track can be in two groups; chips["all"] counts each track once.
@@ -1876,7 +1897,14 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     counts come from.
 
     `root`: the music folder, for the absolute path of an added file in a check's `person_steps` (a path of an import
-    folder is absolute already; without a root the step says no path)."""
+    folder is absolute already; without a root the step says no path).
+
+    Issue 43 (plan §5.1, §5.2): the group `missing_file` ("Missing files", second) lists every song whose file waits
+    as missing (`models.file_missing`), an own song or one no playlist lists any more included, unless Download again
+    was asked (`file_gone`: it leaves To-do). It wins over every group but Check in rekordbox. An item is a row with
+    `detail` ("Missing since 12 Nov · was in Techno 2019") and `missing` (`missing.view`: action, why not, words, what
+    it will do). `place` (Sites.place) words where the file was. The group carries `all: {download_again, remove}`:
+    the items not hidden whose action can run now, by action (what the head link and `--all` act on)."""
     members = cdj_rule.group_members(state, include_hidden=True, held=decided)
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}
@@ -1948,6 +1976,9 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
                 if group == "upgrade_ready" else None)
         item = {**track_row(k, e, cover), "group": group, "detail": _detail(group, e, today, others.get(k), rb, auto_on, same),
                 "free": group in FREE_GROUPS and bool(free_downloads(e)), "file_state": state_of}
+        if group == "missing_file":
+            item["detail"] = missing_rule.item_detail(k, e, state, place, today)
+            item["missing"] = missing_rule.view(k, e, state, place, today)
         if group == "upgrade_ready":
             item["same_track"] = same
         items[group].append(item)
@@ -1955,7 +1986,10 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     for rows in items.values():
         rows.sort(key=lambda r: ("batch" not in r, fold(r["folder"]), fold(r["artist"]), fold(r["title"])))
     chips = {"all": len(listed), **{g: len(v) for g, v in items.items()}}
-    extra = {"upgrade_ready": _upgrade_all(items["upgrade_ready"], stopped),
+    extra = {"missing_file": {"all": {a: sum(1 for r in items["missing_file"]
+                                             if not r["hidden"] and r["missing"]["action"] == a
+                                             and r["missing"]["why_not"] is None) for a in missing_rule.ACTIONS}},
+             "upgrade_ready": _upgrade_all(items["upgrade_ready"], stopped),
              "cdj": {"all": {"n": cdj_all[0], "k": cdj_all[1]},
                      "stopped": {"batch_id": cdj_stopped[0], "left": cdj_stopped[1]} if cdj_stopped else None}}
     groups = [{"key": g, "label": label, "hint": hint, "items": items[g], **extra.get(g, {})}
