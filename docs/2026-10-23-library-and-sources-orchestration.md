@@ -784,6 +784,13 @@ Results:
     release without the go. Open for the stage review: held batch panel after a partial undo keeps whole-batch
     wording; CLI `missing list` prints the all.label row. User told ~0.7-1.1M left (total ~6.3-6.7M). Still asked of
     the user: does rekordbox look normal -> then delete scratchpad rbcopy/ copies.
+    S1 (Sonnet shots) **179k** (50 calls; expected 120-170k): 10 states x 1100/2560, rules clean; 3 shots.json
+    assertions wrong; ~10 findings. Decided (rules, not asked): Remove skips an offline song (`away`, offline wins);
+    'Missing since' one phrasing; found_twice one sentence; singular confirm; Library gets hint_library pointing at
+    Open in To-do; start note names the song when one; Select all keeps counting what it selects (R-U1 minor 5;
+    plan §7.1 amend in D1); 'Open in To-do' stays a secondary button (as the not-found state), capital T; Missing
+    files rows keep the quality badge (group says missing); placed rows get their own card in the Sync end; head
+    hint + placed line wrap. Fix split: E engine words (brief-43-S1E.md) then UI (shots.json, wiring). Stage ~5.77M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
