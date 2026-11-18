@@ -11,8 +11,8 @@ from pathlib import PurePosixPath
 from .identify import SAME_LENGTH_MS, compare
 from .library import op_paths
 from .matching import normalize, normalize_artist
-from .models import (Action, DuplicateGroup, FetchedPlaylist, Outcome, Placed, Plan, Question, SourceTrack, group_id,
-                     is_own, track_of)
+from .models import (Action, DuplicateGroup, FetchedPlaylist, Outcome, Placed, Plan, Question, SourceTrack,
+                     file_missing, group_id, is_own, track_of)
 from .names import expected_stem, fold
 
 LOSSY = ("not_lossless", "fake_lossless")
@@ -133,7 +133,7 @@ def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
     candidates.sort(key=lambda c: c[0])
 
     on_disk = {fold(f) for f in state.get("files") or []}
-    # a row of another song at the target (a held one has no file on disk now) also takes the name: saving two
+    # a row of another song at the target (a held or missing one has no file on disk now) also takes the name: saving two
     # songs on one file is refused
     held_at = {fold(e["path"]) for e in state["tracks"].values() if e.get("path")}
     ambiguous = state.get("ambiguous") or {}
@@ -141,7 +141,7 @@ def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
     for _, key, e, dst in candidates:
         if not e.get("online", True):
             skips.append("offline")
-        elif e.get("held") or key in ambiguous or fold(e["path"]) not in on_disk:
+        elif e.get("held") or file_missing(e) or key in ambiguous or fold(e["path"]) not in on_disk:
             skips.append("not_found")
         else:
             skips.append("name_taken" if fold(dst) in on_disk | held_at else None)
@@ -280,10 +280,10 @@ class _Own:
 
     def free(self, key: str) -> bool:
         """An own song still on its own: linked to no playlist song (no aliases), in no question or duplicate group,
-        and with its file where the records say (not held, not found in several places)."""
+        and with its file where the records say (not held, not missing, not found in several places)."""
         e = self.tracks.get(key)
         return (e is not None and not e.get("aliases") and key not in self.asked and key not in self.grouped
-                and bool(e.get("path")) and not e.get("held") and key not in self.ambiguous)
+                and bool(e.get("path")) and not e.get("held") and not file_missing(e) and key not in self.ambiguous)
 
     def askable(self, key: str) -> bool:
         """It can be shown in a question or a duplicate group: free, its file indexed and online (§6.4)."""
@@ -501,6 +501,15 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
         # option A (spec §7): the file stays where it is, whatever folder the song belongs to now; only new downloads
         # follow the placement folder, and the tidy-up (stage 2) is where files move
         e["folder"] = w.folder
+        if file_missing(e):  # the file waits (issue 43, D12): the song is satisfied; only the user's doing changes it
+            bought = bought_file([f"Library/{w.folder}"], e)
+            if bought:  # a bought file under the expected name is adopted, as for a song with no file
+                act("adopt_bought", src=bought)
+            elif key in moved_ambiguous:  # in several places: it links again once one copy goes
+                ambiguous.append((key, w.track, w.folder, sorted(moved_ambiguous[key])))
+            elif e.get("file_gone") and not e.get("upgrade"):  # Download again; with a parked upgrade the sync's
+                act("acquire", reason="redownload")  # last phase places that instead (D9)
+            continue
         if not e.get("online", True):  # rule 3: on a drive that isn't there; satisfied, nothing to do or check
             continue
         if e.get("held"):  # missing, but the scan couldn't rule out a move (a folder it couldn't read): as offline
@@ -508,8 +517,7 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
         if key in moved_ambiguous:  # the scan found it in several places (spec §6.3): the user picks one
             ambiguous.append((key, w.track, w.folder, sorted(moved_ambiguous[key])))
             continue
-        if fold(e["path"]) not in on_disk:  # vanished since the scan
-            act("acquire", reason="redownload")
+        if fold(e["path"]) not in on_disk:  # vanished since the scan: the next scan marks it missing; it waits
             continue
         if e.get("file_id") is not None:  # own songs that certainly are this song: a same-song duplicate (D7)
             found = own.candidates(key, e["artist"], e["title"], e.get("duration_ms"), e.get("isrc"))
@@ -545,7 +553,7 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
 
 def _own_check_due(e: dict, on_disk: Mapping[str, str], today: date) -> bool:
     """An own song's upgrade check is due: its lossy file is there and judged, nothing is parked, the week is up."""
-    return (e.get("online", True) and not e.get("held") and bool(e.get("path")) and fold(e["path"]) in on_disk
+    return (e.get("online", True) and not e.get("held") and not file_missing(e) and bool(e.get("path")) and fold(e["path"]) in on_disk
             and e.get("status") in LOSSY and e.get("import_state") == "done" and bool(e.get("duration_ms"))
             and not e.get("upgrade") and (_due(e.get("last_upgrade_check"), today) or "free_downloads" not in e))
 
@@ -633,15 +641,21 @@ def apply_outcome(entry: dict | None, action: Action, outcome: Outcome, now: dat
                    duration_ms=t.duration_ms, added=now.isoformat(timespec="seconds"))
     else:
         new = dict.fromkeys(ENTRY_KEYS) | entry
+    # Download again that finds nothing (issue 43, D8): the missing row stays with its song, parked upgrade included
+    kept = (outcome.kind == "missing" and action.reason == "redownload" and entry is not None and file_missing(entry))
     # a new file (or none) another way makes a parked upgrade stale; the executor deletes its file
-    new.update(folder=action.folder, in_playlists=True, rejected_sources=rejected, upgrade=None, **found)
+    new.update(folder=action.folder, in_playlists=True, rejected_sources=rejected, **found)
+    if not kept:
+        new["upgrade"] = None
     if "file_gone" in new:  # dealt with: a new file, or "not found" waiting for its retry like any other
         new["file_gone"] = None
-    if outcome.kind == "missing":
+    if kept:
+        new["last_attempt"] = today
+    elif outcome.kind == "missing":
         new.update(path=None, status="missing", source=None, source_id=None, source_format=None,
                    source_how=None, cutoff_hz=None, last_attempt=today)
     elif outcome.kind == "placed":
-        new.update(_placed_fields(outcome.placed), last_upgrade_check=today)
+        new.update(_placed_fields(outcome.placed), last_upgrade_check=today, missing_since=None)  # a file is there now
         if action.kind == "acquire":
             new["last_attempt"] = today
     return new

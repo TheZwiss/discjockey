@@ -450,17 +450,18 @@ def test_new_downloads_follow_the_playlist_order():
     assert [(a.track_id, a.folder) for a in p.actions] == [("t2", "B"), ("t1", "A")]
 
 
-def test_deleted_file_is_downloaded_again():
+def test_a_file_that_vanished_since_the_scan_waits_for_the_next_scan_to_mark_it():
+    # issue 43 D12: it is not downloaded again behind the user's back; the next scan marks the row missing
     s = st(t1=entry(path="Library/A/x.aiff"))
     p = plan([pl("A", tr("t1"))], s, [], TODAY)
-    assert kinds(p) == [("acquire", "t1")] and p.actions[0].reason == "redownload"
+    assert kinds(p) == [] and p.never == [] and p.ambiguous == []
 
 
 def test_a_file_of_the_same_name_elsewhere_is_not_picked_up_by_name():
     # finding a moved file is the scanner's job (content key, spec §6.3); the planner never matches by name
     s = st(t1=entry(path="Library/A/x.aiff"))
     p = plan([pl("A", tr("t1"))], s, ["Library/Other/x.aiff"], TODAY)
-    assert kinds(p) == [("acquire", "t1")] and p.actions[0].reason == "redownload"
+    assert kinds(p) == [] and p.state["tracks"]["t1"]["path"] == "Library/A/x.aiff"
 
 
 def test_a_file_gone_is_downloaded_again_at_once():
@@ -487,6 +488,83 @@ def test_a_held_file_gets_nothing_not_even_the_weekly_check(files):
     s = st(t1=entry(status="not_lossless", path="Library/A/x.aiff", held=True, last_upgrade_check=None))
     p = plan([pl("A", tr("t1"))], s, files, TODAY)
     assert kinds(p) == [] and p.never == [] and p.ambiguous == []
+
+
+# --- issue 43: a missing file waits (D4, D9, D12) ---
+
+PARKED = {"file": "Upgrades ready/A/Artist - Title t1.aiff", "source": "qobuz", "source_id": "q1",
+          "source_format": "flac", "found": "2026-10-01", "alignment": {"result": "exact"}}
+
+MISSING = "2026-11-10T09:00:00"
+
+
+def missing_entry(**kw):
+    """A playlist song whose file the last scan did not find: the row and its path are kept, the mark is set."""
+    return entry(status="not_lossless", path="Library/A/not_lossless/x.aiff", missing_since=MISSING,
+                 last_upgrade_check=None, **kw)
+
+
+@pytest.mark.parametrize("files", [["Library/A/not_lossless/x.aiff"], []])
+def test_a_playlist_song_whose_file_is_missing_plans_nothing_and_keeps_its_row(files):
+    """The user's repro: nothing is downloaded, nothing is deleted, not even the weekly upgrade check."""
+    s = st(t1=missing_entry())
+    p = plan([pl("A", tr("t1"))], s, files, TODAY)
+    assert kinds(p) == [] and p.never == [] and p.ambiguous == [] and p.dropped == []
+    e = p.state["tracks"]["t1"]
+    assert (e["path"], e["missing_since"], e["status"]) == ("Library/A/not_lossless/x.aiff", MISSING, "not_lossless")
+
+
+def test_a_missing_song_follows_its_playlist_folder_but_nothing_moves():
+    p = plan([pl("B", tr("t1"))], st(t1=missing_entry()), [], TODAY)
+    assert kinds(p) == [] and p.state["tracks"]["t1"]["folder"] == "B"
+
+
+def test_a_missing_song_marked_download_again_is_downloaded_again():
+    p = plan([pl("A", tr("t1"))], st(t1=missing_entry(file_gone="2026-11-11")), [], TODAY)
+    assert kinds(p) == [("acquire", "t1")] and p.actions[0].reason == "redownload"
+    assert p.state["tracks"]["t1"]["missing_since"] == MISSING  # the row stays until the download replaces it
+
+
+def test_a_marked_song_with_a_parked_upgrade_plans_no_download_and_no_check():
+    """D9: the sync's last phase places the parked version; the planner plans nothing, not even an upgrade check."""
+    s = st(t1=missing_entry(file_gone="2026-11-11", upgrade=PARKED))
+    p = plan([pl("A", tr("t1"))], s, [], TODAY)
+    assert kinds(p) == [] and p.never == [] and p.ambiguous == []
+    assert p.state["tracks"]["t1"]["upgrade"] == PARKED and p.state["tracks"]["t1"]["file_gone"] == "2026-11-11"
+
+
+def test_the_same_song_after_its_parked_upgrade_is_forgotten_is_downloaded_again():
+    s = st(t1=missing_entry(file_gone="2026-11-11", upgrade=PARKED))
+    s["tracks"]["t1"]["upgrade"] = None
+    assert kinds(plan([pl("A", tr("t1"))], s, [], TODAY)) == [("acquire", "t1")]
+
+
+def test_a_parked_upgrade_alone_does_not_mark_a_missing_song_for_download():
+    """Without Download again (`file_gone`) a missing song waits, parked upgrade or not."""
+    s = st(t1=missing_entry(upgrade=PARKED))
+    assert kinds(plan([pl("A", tr("t1"))], s, [], TODAY)) == []
+
+
+@pytest.mark.parametrize("change", [{}, {"file_gone": "2026-11-11"}, {"file_gone": "2026-11-11", "upgrade": PARKED}])
+def test_a_bought_file_under_the_expected_name_is_adopted_for_a_missing_song(change):
+    s = st(t1=missing_entry(**change))
+    p = plan([pl("A", tr("t1"))], s, ["Library/A/Artist - Title t1.wav"], TODAY)
+    assert kinds(p) == [("adopt_bought", "t1")] and p.actions[0].src == "Library/A/Artist - Title t1.wav"
+
+
+@pytest.mark.parametrize("change", [{}, {"file_gone": "2026-11-11"}])
+def test_a_missing_song_found_in_several_places_is_left_alone_even_marked_download_again(change):
+    """D12: it links again once one copy goes; a download or placement would add a third."""
+    s = st(t1=missing_entry(**change))
+    s["ambiguous"] = {"t1": ["Library/B/x.aiff", "Library/C/x.aiff"]}
+    p = plan([pl("A", tr("t1"))], s, ["Library/B/x.aiff", "Library/C/x.aiff"], TODAY)
+    assert kinds(p) == []
+    assert [(key, files) for key, _t, _f, files in p.ambiguous] == [("t1", ["Library/B/x.aiff", "Library/C/x.aiff"])]
+
+
+def test_a_missing_song_in_no_playlist_any_more_is_not_planned_for_either():
+    s = st(t1=missing_entry(file_gone="2026-11-11"))
+    assert kinds(plan([pl("A", tr("t2"))], s, [], TODAY)) == [("acquire", "t2")]
 
 
 def test_a_file_moved_to_one_of_several_places_is_listed_and_nothing_done():
@@ -592,11 +670,11 @@ def test_lossless_never_upgrade_checked():
 @pytest.mark.parametrize("status,present,differs,expected", [
     ("lossless", True, False, ["-"]),
     ("lossless", True, True, ["-"]),
-    ("lossless", False, False, ["acquire"]),
-    ("lossless", False, True, ["acquire"]),
+    ("lossless", False, False, ["-"]),  # vanished since the scan: waits for the next scan (issue 43, D12)
+    ("lossless", False, True, ["-"]),
     ("not_lossless", True, False, ["upgrade"]),
     ("not_lossless", True, True, ["upgrade"]),
-    ("not_lossless", False, True, ["acquire"]),
+    ("not_lossless", False, True, ["-"]),
     ("fake_lossless", True, False, ["upgrade"]),
     ("missing", False, False, ["acquire"]),
     ("missing", False, True, ["acquire"]),
@@ -629,9 +707,6 @@ def test_execution_order_and_playlist_priority():
 
 
 # --- parked upgrades (spec "Upgrades", 2026-10-16) ---
-
-PARKED = {"file": "Upgrades ready/A/Artist - Title t1.aiff", "source": "qobuz", "source_id": "q1",
-          "source_format": "flac", "found": "2026-10-01", "alignment": {"result": "exact"}}
 
 
 def test_no_upgrade_check_while_one_is_parked():
@@ -682,7 +757,7 @@ def test_lossy_tracks_from_before_free_downloads_are_checked_once():
 # --- never download ---
 
 def test_never_download_keeps_new_retry_and_redownload_out_of_the_plan():
-    s = st(m=entry(status="missing", last_attempt="2026-09-01"), g=entry(path="Library/A/gone.aiff"))
+    s = st(m=entry(status="missing", last_attempt="2026-09-01"), g=entry(path="Library/A/gone.aiff", missing_since=MISSING, file_gone="2026-10-18"))
     s["never"] = {k: {"artist": "Artist", "title": "x", "folder": "A", "at": "2026-10-18"} for k in ("n", "m", "g")}
     p = plan([pl("A", tr("n"), tr("m"), tr("g"), tr("ok"))], s, [], TODAY)
     assert kinds(p) == [("acquire", "ok")]
@@ -830,9 +905,12 @@ def test_tidy_rows_skip_reasons_in_order():
         b=tidy_entry("F", "Library/G/b.aiff", 2, held=True),
         c=tidy_entry("F", "Library/G/c.aiff", 3),  # ambiguous
         d=tidy_entry("F", "Library/G/d.aiff", 4),  # not in state["files"]
-        e=tidy_entry("F", "Library/G/e.aiff", 5))  # Library/F/e.aiff is taken
+        e=tidy_entry("F", "Library/G/e.aiff", 5),  # Library/F/e.aiff is taken
+        f=tidy_entry("F", "Library/G/f.aiff", 6, missing_since=MISSING))  # missing: waits, wherever `files` says
+    s["files"].append("Library/G/f.aiff")  # (the snapshot leaves a missing row out; the mark alone must decide)
     assert [(r.track_id, r.skip) for r in tidy_rows(s)] == [
-        ("a", "offline"), ("b", "not_found"), ("c", "not_found"), ("d", "not_found"), ("e", "name_taken")]
+        ("a", "offline"), ("b", "not_found"), ("c", "not_found"), ("d", "not_found"), ("e", "name_taken"),
+        ("f", "not_found")]
 
 
 def test_tidy_rows_a_taken_name_is_matched_in_any_case():
@@ -844,6 +922,12 @@ def test_tidy_rows_a_held_row_of_another_song_at_the_target_takes_the_name():
     # b's file is missing at the last scan (held): not on disk, but its row still has the path
     s = tidy_state(files=["Library/G/a.aiff"], a=tidy_entry("F", "Library/G/a.aiff", 1),
                    b=tidy_entry("X", "Library/F/a.aiff", 2, held=True))
+    assert [(r.track_id, r.skip) for r in tidy_rows(s) if r.track_id == "a"] == [("a", "name_taken")]
+
+
+def test_tidy_rows_a_missing_row_of_another_song_at_the_target_takes_the_name():
+    s = tidy_state(files=["Library/G/a.aiff"], a=tidy_entry("F", "Library/G/a.aiff", 1),
+                   b=tidy_entry("X", "Library/F/a.aiff", 2, missing_since=MISSING))
     assert [(r.track_id, r.skip) for r in tidy_rows(s) if r.track_id == "a"] == [("a", "name_taken")]
 
 
@@ -1054,12 +1138,26 @@ def test_a_missing_playlist_song_takes_over_an_own_songs_file():
     assert "local:1" in s["tracks"]  # input state untouched
 
 
-def test_a_playlist_song_that_takes_over_an_own_songs_file_takes_its_missing_mark_too():
-    """Issue 43: the file waits as missing; the song that takes it over must not look as if it had a file there."""
-    s = own_state(("t1", missing_song()), n1=own_entry(1, missing_since="2026-11-10T09:00:00"))
+def test_a_missing_own_songs_file_is_not_taken_over_by_a_playlist_song():
+    """Issue 43: an own song whose file is missing is not free (rule 2 finds no file to take); the playlist song is
+    planned for on its own, and the own song keeps waiting with its row and mark."""
+    s = own_state(("t1", missing_song(last_attempt="2026-10-01")), n1=own_entry(1, missing_since=MISSING))
     p = plan([pl("A", night())], s, files_of(s), TODAY)
-    assert p.state["tracks"]["t1"]["file_id"] == 101
-    assert p.state["tracks"]["t1"]["missing_since"] == "2026-11-10T09:00:00"
+    assert kinds(p) == [("acquire", "t1")] and p.questions == [] and p.duplicates == []
+    assert p.state["tracks"]["local:1"]["missing_since"] == MISSING and not p.state["tracks"]["t1"].get("file_id")
+
+
+def test_a_missing_own_song_a_playlist_song_plausibly_is_is_not_asked_about():
+    s = own_state(("t1", missing_song(last_attempt="2026-10-01")),
+                  n1=own_entry(1, dur=205000, missing_since=MISSING))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert p.questions == [] and kinds(p) == [("acquire", "t1")]
+
+
+def test_a_missing_own_song_that_certainly_is_a_song_with_a_file_makes_no_duplicate_group():
+    s = own_state(("t1", placed_song()), n1=own_entry(1, dur=201000, missing_since=MISSING))
+    p = plan([pl("A", night())], s, files_of(s), TODAY)
+    assert p.duplicates == [] and kinds(p) == [] and "local:1" in p.state["tracks"]
 
 
 def test_a_merged_song_is_planned_for_like_any_other():
@@ -1132,6 +1230,7 @@ def test_an_own_lossy_file_whose_sound_was_checked_gets_one_upgrade_check():
 
 @pytest.mark.parametrize("change", [
     {"import_state": "identified"}, {"status": "lossless"}, {"online": False}, {"held": True},
+    {"missing_since": MISSING},
     {"duration_ms": None}, {"last_upgrade_check": "2026-10-18"},
     {"upgrade": {"path": "Upgrades ready/x.aiff"}},
 ])
