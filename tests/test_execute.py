@@ -316,6 +316,20 @@ def test_a_redownload_that_errors_keeps_the_row_and_the_mark(env):
     assert len(ex.log.section("errors")) == 1
 
 
+def test_a_redownload_that_places_nothing_keeps_its_name_for_its_waiting_row(env):
+    """The old name is only released for the file that replaces it: a song found nowhere keeps its row at that name,
+    so another new song of the same name in the same run gets a tagged one, never the waiting row's place."""
+    paths, state, make = env
+    old = "Library/A/Artist - Song.aiff"
+    file_id = missing_row(paths, state, old)
+    ex, _ = make(AcquireResult("missing"), ready(sid="q2"))
+    ex.run([act("acquire", reason="redownload"), act("acquire", tid="t2bbbbbbb", reason="new")])
+    assert state["tracks"]["t1aaaaaaa"]["path"] == old and state["tracks"]["t2bbbbbbb"]["path"] != old
+    assert (paths.root / state["tracks"]["t2bbbbbbb"]["path"]).read_bytes() == b"new audio"
+    assert (file_id, "A/Artist - Song.aiff", "2026-11-10T09:00:00") in file_rows(paths)
+    assert len(ex.log.section("errors")) == 0 and len(ex.log.section("new_lossless")) == 1
+
+
 def files_under(paths, *dirs):
     return sorted(p.relative_to(paths.root).as_posix() for d in dirs for p in (paths.root / d).rglob("*") if p.is_file())
 

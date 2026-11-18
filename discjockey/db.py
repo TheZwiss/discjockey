@@ -796,9 +796,11 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         if old is None and new is None:
             continue
         if old is not None and new == (old["folder"], old["path"]) and all(e.get(k) == old[k] for k in QUALITY):
-            # unchanged, unless a step (`part`) wrote this song while its row waits as missing and a file is now at
-            # the row's place: a redownload that came back under the same name with the same fields (issue 43, D7)
-            if not (part and old["missing_since"] is not None and facts(e["path"]) is not None):
+            # unchanged, unless a step (`part`) wrote this song's entry with the mark cleared while the row still
+            # holds it and a file is at the row's place: a redownload that came back under the same name with the
+            # same fields (issue 43, D7). A step whose entry still carries the mark changes nothing about the row
+            if not (part and old["missing_since"] is not None and not e.get("missing_since")
+                    and facts(e["path"]) is not None):
                 continue
         changed.append((song, e, old, new))
     shared = {p: keys for p, keys in owners.items() if len(keys) > 1}

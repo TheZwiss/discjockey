@@ -219,3 +219,23 @@ def test_unfinished_batches_and_the_item_an_undo_marks(conn):
     assert db.aiff_item_of(conn, "sp2", first) == (first, 1)
     assert db.aiff_item_of(conn, "sp1") is None                       # skipped is not done
     assert db.aiff_item_of(conn, "sp2", 99) is None
+
+
+# --- issue 43: a step's save refreshes a missing row only where its entry says the file is back ---
+
+def _missing(conn):
+    conn.execute("UPDATE files SET missing_since = '2026-11-10T09:00:00'")
+    conn.commit()
+    return conn.execute("SELECT id, missing_since, size FROM files").fetchone()
+
+
+def test_a_step_that_writes_a_missing_song_clears_the_mark_only_when_its_entry_does(conn):
+    file_id, _, size = _missing(conn)
+    entry = db.snapshot(conn, conn.library)["tracks"]["sp1"]
+    assert entry["missing_since"]
+    db.end_step(conn, journal(conn), {"sp1": dict(entry)}, library=conn.library,  # the entry still says it waits
+                facts=lambda p: db.FileFacts(99, 5, "other"), now=LATER)
+    assert conn.execute("SELECT id, missing_since, size FROM files").fetchone() == (file_id, "2026-11-10T09:00:00", size)
+    db.end_step(conn, journal(conn), {"sp1": dict(entry, missing_since=None)}, library=conn.library,
+                facts=lambda p: db.FileFacts(99, 5, "other"), now=LATER)  # a placed file: same fields, new audio
+    assert conn.execute("SELECT id, missing_since, size FROM files").fetchone() == (file_id, None, 99)

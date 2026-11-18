@@ -445,7 +445,7 @@ that the per-run cap left for later runs); both 0 before the first read. It also
 `{on: true, ready: n}` with n the upgrades the sync's last phase would put in place now, or null (the switch is off,
 settings.json can't be read, or there is no preview yet) — see "Auto-upgrade" below.
 Group `key`s/labels in order: `acquire:new` Download (new), `acquire:retry` Try again, `acquire:redownload` Download
-again, `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
+again (its file is missing; planned only for a song whose Download again the user asked for, issue 43: a missing file alone plans nothing), `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
 `adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no
 `from_folder` on a row any more (library stage 1): a sync moves no files, and files moved by hand are found by the
 scan (`rescan_library`). `key` is `[kind, track_id, to_dir]` (3 strings; example cut).
