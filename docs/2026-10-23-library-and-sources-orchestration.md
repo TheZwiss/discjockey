@@ -711,6 +711,9 @@ Results:
     E3a1 (Sonnet) done 676be7d8 + 40ffc820: **269k** (94 calls; est. 220-260k): missing.py, views rows, To-do group,
     track_detail, Library rows, contract section, TodoGroup union; 5791 passed + golden updated; static stale ->
     E3a2 ends with the static build. Stage so far ~1.80M.
+    E3a2 (Sonnet) done c491230a + static a2b1109e: **206k** (46 calls): fake scenario missing_files (10 songs),
+    words pinned to missing.py/report.py, planModel 'Download again'; vitest 1621. For U1: format.ts
+    FILE_STATE_TAG.file_missing still 'File not found' (§5.4 wants 'Missing'); strip width. Stage so far ~2.0M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
