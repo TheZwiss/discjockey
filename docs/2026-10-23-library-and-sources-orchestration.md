@@ -791,6 +791,8 @@ Results:
     plan §7.1 amend in D1); 'Open in To-do' stays a secondary button (as the not-found state), capital T; Missing
     files rows keep the quality badge (group says missing); placed rows get their own card in the Sync end; head
     hint + placed line wrap. Fix split: E engine words (brief-43-S1E.md) then UI (shots.json, wiring). Stage ~5.77M.
+    S1 fix E (Sonnet fix-round) 01065874: **147k** (55 calls): `away` reason both actions, 'Missing since', singular
+    confirm, hint_library, start note names the song; 6010 passed. S1 fix U (Sonnet, brief-43-S1U.md) next. Stage ~5.92M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
