@@ -752,6 +752,8 @@ Results:
     placement silently; sync_preview places/place_notes; batch.from_sync for download_again cards; relocate_new step
     path) + 3 Minor + plan amends (§5.4 steps/words, §6.1 -> D1). Important 1 declined: schema 11 unreleased, real
     library measured at 9 (ro), only scratch DBs at 11 -> keep one v11 step (no updater niceties). Stage so far ~4.30M.
+    R-E4b fix (Sonnet fix-round) be31c291: **164k**: 4 Important + 2 Minor fixed (places/place_notes, from_sync,
+    unreadable -> waits, relocate_new path); 5996 passed. Stage branch -> E4b (be31c291). Stage so far ~4.46M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
