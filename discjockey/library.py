@@ -1394,7 +1394,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
 
 SCANNED = "Checked your Library: {parts}."
 SCAN_PARTS = (("moved", "file you moved", "files you moved"), ("new", "new file", "new files"),
-              ("gone", "file gone", "files gone"), ("replaced", "file changed", "files changed"))
+              ("back", "missing file back", "missing files back"), ("missing", "file missing", "files missing"),
+              ("replaced", "file changed", "files changed"))
+MISSING_WAIT = "Missing files wait in To-do."  # added when the scan found a file missing (issue 43)
 NOT_JUDGED = ("{path} was changed outside Discjockey, but Discjockey couldn't check its sound ({reason}). It keeps "
               "the quality it had and is tried again when it changes or the app's tools are updated.")
 
@@ -1405,7 +1407,8 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
                  shown: Collection[str] = ()) -> ScanSummary:
     """Indexes the watched folders (Library/) against library.db and writes what changed (the caller holds the
     lock; the records are opened, and migrated if needed, first): files moved by hand keep their song, new files
-    are indexed, a file gone marks its song's file gone, and a song's file whose audio was replaced outside
+    are indexed, a file that isn't found waits as missing with everything its song has (it links back when a file
+    with its content key shows up in any watched folder; issue 43), and a song's file whose audio was replaced outside
     Discjockey is judged again the way a bought file is (`analyze`, quality.inspect) and counts as the user's own
     file from now on. The new audio is judged before anything is written and recorded together with its quality;
     a file the check fails on keeps its row as it was and is judged again only when its bytes or the tools change
@@ -1415,7 +1418,7 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
     isn't connected (waits_offline: the scan can't see any of them); a step that holds the scan up because one of
     its files is on a drive that isn't connected says so in W17's words (DRIVE_WAITS), unless one of `shown` (the
     messages the caller has just emitted from recover_pending) said it already: only words already shown are left out. One message, only when something
-    changed (copies count as new files). `recover` as open_records: a dry run passes False, and a state.json with
+    changed (copies count as new files; `gone` index rows of nobody's file are counted, not worded). `recover` as open_records: a dry run passes False, and a state.json with
     steps pending is then neither moved into library.db nor scanned."""
     from . import db, scanner
     from .quality import is_lossless_codec, tools_stamp, verdict
@@ -1463,17 +1466,22 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
                 judged[file_id] = (verdict(is_lossless_codec(codec), cutoff), cutoff, codec)
             if failed:  # their rows stay as they are (held), old key included
                 result.replaced = [r for r in result.replaced if r[0] not in failed]
-                result.held = [*result.held, *failed]
+                result.unjudged = [*result.unjudged, *failed]
+            was_missing = {f.id for f in known if f.missing}
             db.apply_scan(conn, result, datetime.now(), judged, stamps)
     except sqlite3.Error as e:
         raise db.unreadable(e) from None
-    summary = ScanSummary(moved=len(result.moved), new=len(result.new), gone=len(result.gone),
-                          replaced=len(result.replaced), copies=len(result.copies), offline=len(result.offline))
-    counts = {"moved": summary.moved, "new": summary.new + summary.copies, "gone": summary.gone,
-              "replaced": summary.replaced}
+    back = set(result.back)
+    summary = ScanSummary(moved=len([i for i, _ in result.moved if i not in back]), new=len(result.new),
+                          gone=len(result.gone), replaced=len(result.replaced), copies=len(result.copies),
+                          offline=len(result.offline), back=len(back),
+                          missing=len([i for i in result.missing if i not in was_missing]))
+    counts = {"moved": summary.moved, "new": summary.new + summary.copies, "back": summary.back,
+              "missing": summary.missing, "replaced": summary.replaced}
     parts = [f"{counts[k]} {one if counts[k] == 1 else many}" for k, one, many in SCAN_PARTS if counts[k]]
     if parts:
-        emit(Message("info", SCANNED.format(parts=", ".join(parts))))
+        message = SCANNED.format(parts=", ".join(parts))
+        emit(Message("info", f"{message} {MISSING_WAIT}" if summary.missing else message))
     return summary
 
 

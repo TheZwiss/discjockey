@@ -1953,8 +1953,8 @@ class HubApi:
             prep = self._store.prep
             if prep is not None and summary != library.ScanSummary():
                 preview_after_run(self._store, prep, self._store.read_at)
-            return {"moved": summary.moved, "new": summary.new, "gone": summary.gone, "changed": summary.replaced,
-                    "copies": summary.copies}
+            return {"moved": summary.moved, "new": summary.new, "gone": summary.gone, "missing": summary.missing,
+                    "back": summary.back, "changed": summary.replaced, "copies": summary.copies}
 
         return {"job_id": self._jobs.start("scan", work).id}
 

@@ -756,6 +756,10 @@ export type CheckedResult = { results: Result[]; checked: string[]; not_checked:
 
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };
+/** What one library scan found (`rescan_library`, `library scan --json`; issue 43): a file the scan doesn't see waits as
+ *  missing, never decided by one scan. `gone`: index rows of nobody's file dropped; `missing`: songs whose file wasn't
+ *  found at this scan; `back`: missing files seen again; `changed`: audio replaced outside Discjockey. */
+export type ScanResult = { moved: number; new: number; gone: number; missing: number; back: number; changed: number; copies: number };
 export type JobResults = {
   import: ImportResult; folders: { name: string; files: number; redownload: number };
   answer: Record<string, never>; supersede: { result: Result; recovered: [string, boolean][] };
@@ -771,7 +775,7 @@ export type JobResults = {
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;
   setup_forget_account: { service: Service };
   never_download: { track_id: string; never: boolean };
-  scan: { moved: number; new: number; gone: number; changed: number; copies: number };
+  scan: ScanResult;
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
   reject_current: OpResult; rekordbox_checked: CheckedResult; upgrade_batch: AiffBatchResult; aiff_batch: AiffBatchResult; batch_resume: AiffBatchResult;
   upgrade_add_new: AiffBatchResult; upgrade_discard: AiffBatchResult; batch_undo: UndoResult; undo_upgrade: UndoResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };

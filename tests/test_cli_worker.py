@@ -437,7 +437,7 @@ def test_a_killed_worker_is_lost_on_the_next_read_and_the_next_write_goes_on(env
     wait_for(lambda: not any(f"caffeinate -i -w {pid}" in ln for ln in ps_lines()))  # caffeinate went with it
     follow = env.start(via_shim=False)  # a real scan: its `recover_pending` runs at the next write as today
     wait_for(follow.ended, timeout=60)
-    assert follow.result()["outcome"] == "ok" and set(follow.result()["data"]) == {"moved", "new", "gone", "changed", "copies"}
+    assert follow.result()["outcome"] == "ok" and set(follow.result()["data"]) == {"moved", "new", "gone", "missing", "back", "changed", "copies"}
 
 
 # --- the handoff: never lost between create and the worker's first breath ---
@@ -555,7 +555,7 @@ def test_library_scan_starts_a_worker_and_the_job_ends_ok(env, capsys):
     wait_for(lambda: reader.result() is not None and not reader.is_alive())
     result = reader.result()
     assert (result["outcome"], result["job"]) == ("ok", first["job"])
-    assert set(result["data"]) == {"moved", "new", "gone", "changed", "copies"}
+    assert set(result["data"]) == {"moved", "new", "gone", "missing", "back", "changed", "copies"}
     state = reader.state()
     assert state["status"] == "done" and state["roots"]["music"] == str(env.paths.root) and state["via"] == "terminal"
     assert state["method"] == "rescan_library" and state["args"] == {} and state["kind"] == "scan"

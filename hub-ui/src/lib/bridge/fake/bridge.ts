@@ -1220,7 +1220,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async rescan_library() {
       // a finished scan that found nothing new (the quiet, usual answer)
       return startJob('scan', null, (finish) => setTimeout(() => {
-        finish(true, { moved: 0, new: 0, gone: 0, changed: 0, copies: 0 });
+        finish(true, { moved: 0, new: 0, gone: 0, missing: 0, back: 0, changed: 0, copies: 0 });
       }, 50 / speed));
     },
     async add_bought_file(track_id: string) {

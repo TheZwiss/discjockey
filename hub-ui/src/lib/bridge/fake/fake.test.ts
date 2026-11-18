@@ -119,6 +119,15 @@ describe('fake backend', () => {
     // the own song is in the watched folder its file sits in
     expect(all.find((x) => x.track_id === 'own-techno-1')!.in).toEqual(['folder:/Volumes/Example Drive/Music']);
   });
+  it('a library scan answers the whole scan result, as the backend does (issue 43)', async () => {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });
+    const start = await f.rescan_library();
+    if (!start.ok) throw new Error();
+    const done = await until(evs, (e) => e.type === 'JobFinished' && e.job_id === start.job_id);
+    if (done.type !== 'JobFinished' || !done.ok) throw new Error();
+    expect(Object.keys(done.result as object).sort()).toEqual(['back', 'changed', 'copies', 'gone', 'missing', 'moved', 'new']);
+  });
   it('"never download" moves a planned download out of the plan and back, like the backend', async () => {
     const evs: HubEvent[] = [];
     const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });

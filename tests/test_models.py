@@ -86,3 +86,16 @@ def test_the_record_label_rides_along_without_joining_the_events():
     t = SourceTrack("1", "T", (), "", None, 0, None, "qobuz", record_label="Example Label")
     assert t.label == "Example Label" and SourceTrack("1", "T", (), "", None, 0, None, "qobuz").label is None
     assert "label" not in dataclasses.asdict(t) and "Example Label" not in repr(t)
+
+
+def test_file_missing_follows_the_stored_mark_and_nothing_else():
+    from discjockey.models import file_missing
+    assert file_missing({"missing_since": "2026-11-12T10:00:00"}) is True
+    assert file_missing({"missing_since": None, "path": None, "held": True, "online": False}) is False
+    assert file_missing({}) is False  # an entry from before the column, or a song without a file
+
+
+def test_a_known_file_is_present_unless_marked_missing():
+    from discjockey.models import KnownFile
+    assert KnownFile(1, 1, "a.mp3", 1, 2, "k", True, False).missing is False
+    assert KnownFile(1, 1, "a.mp3", 1, 2, "k", True, False, True).missing is True

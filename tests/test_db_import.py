@@ -115,9 +115,13 @@ def test_own_song_keys_increase_and_are_never_reused(lib):
     a, b, c = lib.add_files(folder, "A.mp3", "B.mp3", "C.mp3")
     assert lib.own_song(a) == "local:1"
     assert lib.own_song(b) == "local:2"
-    lib.scan(ScanResult(gone=[b]), LATER)  # local:2 goes with its file
-    assert lib.rows("SELECT key FROM songs WHERE key LIKE 'local:%' ORDER BY id") == [("local:1",)]
-    assert lib.own_song(c) == "local:3"
+    other = lib.folder("/Volumes/Other/Music").id
+    (d,) = lib.add_files(other, "D.mp3")
+    assert lib.own_song(d) == "local:3"
+    with lib.conn() as conn:
+        db.remove_watched_folder(conn, other, date(2026, 10, 26))  # local:3 goes with its folder
+    assert lib.rows("SELECT key FROM songs WHERE key LIKE 'local:%' ORDER BY id") == [("local:1",), ("local:2",)]
+    assert lib.own_song(c) == "local:4"
 
 
 def test_an_own_song_links_its_file_with_the_provisional_quality(lib):
@@ -180,6 +184,17 @@ def test_sound_and_unreadable_and_the_counts(lib):
     assert [(r.file_id, r.state) for r in waiting] == [(c, "unreadable"), (d, "new")]
 
 
+def test_a_missing_file_is_not_judged_by_the_import(lib):
+    folder = lib.folder().id
+    a, b = lib.add_files(folder, "A.mp3", "B.mp3")
+    lib.own_song(a)
+    lib.own_song(b)
+    with lib.conn() as conn:
+        assert [r.file_id for r in db.import_unjudged(conn)] == [a, b]
+        lib.scan(ScanResult(missing=[a]))
+        assert [r.file_id for r in db.import_unjudged(conn)] == [b]
+
+
 def test_the_sound_of_a_file_with_no_song_yet_is_refused(lib):
     folder = lib.folder().id
     (a,) = lib.add_files(folder, "A.mp3")
@@ -188,12 +203,12 @@ def test_the_sound_of_a_file_with_no_song_yet_is_refused(lib):
     assert lib.rows("SELECT status, import_state FROM files WHERE id = ?", a) == [(None, "new")]
 
 
-def test_offline_and_held_rows_arent_waiting(lib):
+def test_offline_and_unjudged_rows_arent_waiting(lib):
     folder = lib.folder().id
     other = lib.folder("/Volumes/Other/Music").id
     a, = lib.add_files(folder, "A.mp3")
     b, c = lib.add_files(other, "B.mp3", "C.mp3")
-    lib.scan(ScanResult(offline=[folder], held=[c]))
+    lib.scan(ScanResult(offline=[folder], unjudged=[c]))
     with lib.conn() as conn:
         assert [r.file_id for r in db.import_waiting(conn)] == [b]
         assert db.import_counts(conn)[folder].waiting == 1  # counted, not offered
@@ -361,13 +376,17 @@ def test_superseding_the_only_file_of_a_linked_own_song_keeps_the_song(lib):
     assert lib.rows("SELECT key FROM songs WHERE key = ?", key) == [(key,)]
 
 
-def test_a_scan_that_loses_the_file_of_a_linked_own_song_marks_it_gone(lib):
+def test_a_scan_that_loses_the_file_of_a_linked_own_song_makes_it_wait(lib):
     folder = lib.folder().id
     (a,) = lib.add_files(folder, "A.mp3")
     key = lib.own_song(a)
     link(lib, key)
-    lib.scan(ScanResult(gone=[a]))
-    assert lib.rows("SELECT key, file_gone FROM songs WHERE key = ?", key) == [(key, "2026-10-25")]
+    lib.scan(ScanResult(missing=[a]))
+    assert lib.rows("SELECT key, file_gone FROM songs WHERE key = ?", key) == [(key, None)]
+    assert lib.rows("SELECT path, missing_since FROM files WHERE id = ?", a) == [("A.mp3", "2026-10-25T12:00:00")]
+    e = lib.snap()["tracks"][key]
+    assert (e["path"], e["missing_since"], e.get("file_gone")) == (f"{DRIVE}/A.mp3", "2026-10-25T12:00:00", None)
+    assert e["file_id"] == a and f"{DRIVE}/A.mp3" not in lib.snap()["files"]  # a missing file isn't a file there
 
 
 def test_the_library_folder_is_never_removed(lib):
@@ -408,19 +427,24 @@ def test_three_files_with_one_key_are_one_group_until_decided(lib):
     assert group.file_ids == (*ids, lib.file_id(folder, "D.mp3"))
 
 
-def test_offline_held_and_ambiguous_files_are_left_out(lib):
+def test_offline_unjudged_missing_and_ambiguous_files_are_left_out(lib):
     folder = lib.folder().id
     other = lib.folder("/Volumes/Other/Music").id
     a, b = lib.add_files(folder, "A.mp3", "B.mp3", key="key-one")
     (c,) = lib.add_files(other, "C.mp3", key="key-one")
     lib.add_files(folder, "D.mp3", "E.mp3", key="key-two")
     d, e = lib.file_id(folder, "D.mp3"), lib.file_id(folder, "E.mp3")
-    lib.scan(ScanResult(offline=[other], held=[a], ambiguous=[(d, [f"{DRIVE}/X.mp3"])]))
+    lib.own_song(b)
+    lib.scan(ScanResult(offline=[other], unjudged=[a], ambiguous=[(d, [f"{DRIVE}/X.mp3"])]))
     with lib.conn() as conn:
         assert db.duplicate_groups(conn) == []
-    lib.scan(ScanResult(ambiguous=[(d, [f"{DRIVE}/X.mp3"])]))  # back online, nothing held
+    lib.scan(ScanResult(ambiguous=[(d, [f"{DRIVE}/X.mp3"])]))  # back online, nothing unjudged
     with lib.conn() as conn:
         assert [g.file_ids for g in db.duplicate_groups(conn)] == [(a, b, c)]
+        lib.scan(ScanResult(missing=[b]))  # its file wasn't found: not a file there, so no copy of the others
+        assert [g.file_ids for g in db.duplicate_groups(conn)] == [(a, c)]
+        gid = db.group_id([a, b, c])
+        assert [f.usable for f in db.group_files(conn, gid)] == [True, False, True]
 
 
 def test_group_files_show_each_file_of_a_group(lib):
@@ -441,14 +465,54 @@ def test_group_files_show_each_file_of_a_group(lib):
 
 # --- 1.7 scan and save ---
 
-def test_a_gone_own_song_is_deleted_and_a_gone_playlist_song_downloads_again(lib):
+def test_a_linked_id_in_gone_is_marked_missing_and_nothing_is_deleted(lib):
+    """The scanner never sends one; apply_scan defends the rule anyway: a scan deletes no song, no answer, no row of
+    a song (issue 43)."""
     folder, (a, b, c), key = removal_setup(lib)
     with lib.conn() as conn:
         db.set_decision(conn, "same_song", "sp9", key, "not_same", NOW)
     lib.scan(ScanResult(gone=[a, c]), LATER)
     assert lib.rows("SELECT key, file_gone FROM songs ORDER BY id") == [
-        ("sp1", None), ("sp2", "2026-10-26"), ("sp3", None)]
+        ("sp1", None), ("sp2", None), ("sp3", None), (key, None)]
+    assert lib.rows("SELECT id, missing_since FROM files WHERE id IN (?, ?, ?) ORDER BY id", a, b, c) == [
+        (a, "2026-10-26T09:00:00"), (b, None), (c, "2026-10-26T09:00:00")]
+    assert len(lib.rows("SELECT * FROM decisions")) == 1
+
+
+def test_a_gone_row_of_nobodys_file_is_deleted_with_the_keep_both_answer_naming_it(lib):
+    folder = lib.folder().id
+    a, b = lib.add_files(folder, "A.mp3", "B.mp3", key="key-one")
+    with lib.conn() as conn:
+        db.set_decision(conn, "keep_both", db.group_id([a, b]), "", "keep", NOW)
+    lib.scan(ScanResult(gone=[a]), LATER)
+    assert lib.rows("SELECT id FROM files WHERE folder = ? ORDER BY id", folder) == [(b,)]
     assert lib.rows("SELECT * FROM decisions") == []
+
+
+def test_a_missing_mark_keeps_the_first_scans_date_and_a_back_row_loses_it_and_its_download_again(lib):
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    key = lib.own_song(a)
+    link(lib, key)
+    lib.scan(ScanResult(missing=[a]), NOW)
+    lib.scan(ScanResult(missing=[a]), LATER)  # still missing: the date stays the first scan's
+    assert lib.rows("SELECT missing_since FROM files WHERE id = ?", a) == [("2026-10-25T12:00:00",)]
+    with lib.conn() as conn:  # Download again, asked by the user and not done yet
+        conn.execute("UPDATE songs SET file_gone = '2026-10-26' WHERE key = ?", (key,))
+    lib.scan(ScanResult(back=[a], unchanged=1), LATER)
+    assert lib.rows("SELECT missing_since FROM files WHERE id = ?", a) == [(None,)]
+    assert lib.rows("SELECT file_gone FROM songs WHERE key = ?", key) == [(None,)]
+
+
+def test_a_scan_marks_a_missing_row_missing_even_when_it_was_held(lib):
+    """A v1.2.1 row left held = 1 for a missing file: the first scan of schema 11 sorts it."""
+    folder = lib.folder().id
+    (a,) = lib.add_files(folder, "A.mp3")
+    lib.own_song(a)
+    with lib.conn() as conn:
+        conn.execute("UPDATE files SET held = 1 WHERE id = ?", (a,))
+    lib.scan(ScanResult(missing=[a]), LATER)
+    assert lib.rows("SELECT held, missing_since FROM files WHERE id = ?", a) == [(0, "2026-10-26T09:00:00")]
 
 
 def test_a_merge_through_save_keeps_placed_by_import(lib):
@@ -469,6 +533,27 @@ def test_a_merge_through_save_keeps_placed_by_import(lib):
     assert lib.rows("SELECT s.key, f.placed_by, f.import_state, f.status FROM files f JOIN songs s ON s.id = f.song "
                     "WHERE f.id = ?", a) == [("sp2", "import", "done", "lossless")]
     assert lib.rows("SELECT key FROM songs WHERE key = ?", key) == []
+
+
+def test_a_save_that_places_a_file_at_a_missing_rows_place_clears_the_mark(lib):
+    """A redownload's placed file takes over the song's own row (Download again, issue 43): the file is there."""
+    sp1 = lib.snap()["tracks"]["sp1"]["file_id"]
+    lib.scan(ScanResult(missing=[sp1]))
+    assert lib.rows("SELECT missing_since FROM files WHERE id = ?", sp1) == [("2026-10-25T12:00:00",)]
+    state = lib.snap()
+    assert state["tracks"]["sp1"]["missing_since"] == "2026-10-25T12:00:00" and IN_LIBRARY not in state["files"]
+    state["tracks"]["sp1"]["status"] = "not_lossless"  # same place, another download's quality
+    lib.save(state)
+    assert lib.rows("SELECT missing_since, status FROM files WHERE id = ?", sp1) == [(None, "not_lossless")]
+    assert IN_LIBRARY in lib.snap()["files"]
+    lib.scan(ScanResult(missing=[sp1]), LATER)
+    new = "Library/House/Example Artist - Kept (new).aiff"
+    lib.present.add(new)
+    state = lib.snap()
+    state["tracks"]["sp1"]["path"] = new  # the download is placed under another name: the same row moves
+    lib.save(state)
+    assert lib.rows("SELECT id, path, missing_since FROM files WHERE song IS NOT NULL AND id = ?", sp1) == [
+        (sp1, "House/Example Artist - Kept (new).aiff", None)]
 
 
 def test_a_save_drops_the_answers_naming_what_it_removed(lib):
@@ -753,9 +838,13 @@ def test_files_without_facts_lists_only_own_online_files_with_a_song_and_no_code
         lib.own_song(f)  # D has no song: the import's first pass hasn't read it
     with lib.conn() as conn:
         db.set_file_facts(conn, b, FLAC)
-        lib.scan(ScanResult(held=[c], offline=[other]))
-        assert db.files_without_facts(conn) == [(a, Path(DRIVE) / "A.mp3")]  # b filled, c held, d no song, e offline
+        lib.scan(ScanResult(unjudged=[c], offline=[other]))
+        assert db.files_without_facts(conn) == [(a, Path(DRIVE) / "A.mp3")]  # b filled, c unjudged, d no song, e offline
         assert db.facts_missing(conn) == 1
+        lib.scan(ScanResult(missing=[a], unjudged=[c], offline=[other]))  # its file wasn't found: nothing to read
+        assert db.files_without_facts(conn) == [] and db.facts_missing(conn) == 0
+        lib.scan(ScanResult(back=[a], unchanged=3))  # found again, and the others are released
+        assert [f for f, _ in db.files_without_facts(conn)] == [a, c, e]
         # a download's row (sp1, source qobuz) is never listed
         download = conn.execute("SELECT id FROM files WHERE source = 'qobuz'").fetchone()[0]
         assert download not in [f for f, _ in db.files_without_facts(conn)]

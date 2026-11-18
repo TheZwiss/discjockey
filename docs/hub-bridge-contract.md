@@ -1726,7 +1726,11 @@ their folder changes. `MovesProgress` events run during all three jobs. Example:
 finished.") while a terminal run holds the lock, `busy` ("Discjockey is still busy with the last change. Wait until it
 has finished.") while another write job runs. While a scan runs (the `scan` job, or the scan that `sync_preview` runs
 first) every write method answers `busy` with "Discjockey is checking your Library. Try again in a moment.". `scan` is the job kind for `JobStarted` / `JobFinished`; it has no
-`track_id`.
+`track_id`. Its result is `{moved, new, gone, missing, back, changed, copies}` (issue 43: nothing a song has is decided by
+one scan): `moved` files moved by hand, `new` files with unknown audio, `gone` index rows of nobody's file that were
+dropped, `missing` songs whose file wasn't found at this scan (they wait; To-do lists them), `back` missing files seen
+again (put back or moved, they link to their song again), `changed` files whose audio was replaced, `copies` new files
+with the audio of a file that is still there. `library scan --json` prints the same object.
 
 `use_candidate` / `use_link` are refused (problem `refused`) before any request to Qobuz (no login, no link lookup,
 nothing counted) with the messages of `ops.refusal`: "This is the version you have now." (the candidate is the

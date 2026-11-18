@@ -9,6 +9,8 @@ the USB step where the check has one: `report.usb_step`). The track's name is it
 command."""
 from __future__ import annotations
 
+from datetime import date
+
 from . import convert, rbstep, report
 from .hub.outcomes import person_step
 from .rekordbox.preview import REASON_WORDS
@@ -216,3 +218,14 @@ def preview_words(out: dict) -> dict:
             "timing": {**out["timing"], "result_text": TIMING_WORDS[out["timing"]["result"]]},
             "eligible": {k: v for action, reason in out["eligible"].items() for k, v in (
                 (action, reason), (f"{action}_text", "possible" if reason is None else REASON_WORDS[reason]))}}
+
+
+# English month abbreviations, never the locale's (the words are the engine's, the window and the command line say the
+# same thing)
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def short_day(d: date, today: date) -> str:
+    """A day in few words: "12 Nov" in `today`'s year, "12 Nov 2025" otherwise."""
+    day = f"{d.day} {MONTHS[d.month - 1]}"
+    return day if d.year == today.year else f"{day} {d.year}"

@@ -508,10 +508,11 @@ def test_a_dry_run_stores_no_scan_unless_asked_to(paths):
     prep = run.prepare(paths, dry_run=True)  # the command line's: it plans on the last scan (issue 39 design §7.1)
     assert library.load_state(paths)["tracks"]["t1"]["file_gone"] is None
     assert prep.state["tracks"]["t1"]["path"] == rel
+    assert library.load_state(paths)["tracks"]["t1"]["missing_since"] is None
     prep = run.prepare(paths, dry_run=True, scan=True)  # the window's refresh asks for the scan
-    assert library.load_state(paths)["tracks"]["t1"]["file_gone"] == date.today().isoformat()
-    assert prep.state["tracks"]["t1"]["path"] is None  # the plan works on the files as they are
-    assert "t1" in [a.track.id for a in prep.plan.actions if a.kind == "acquire"]
+    stored = library.load_state(paths)["tracks"]["t1"]
+    assert stored["missing_since"] is not None and stored["file_gone"] is None  # it waits: nothing is decided
+    assert prep.state["tracks"]["t1"]["path"] == rel and prep.state["tracks"]["t1"]["missing_since"] is not None
 
 
 def test_without_the_lock_the_plan_reads_the_last_scan_and_writes_nothing(paths):
