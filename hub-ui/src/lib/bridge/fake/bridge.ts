@@ -24,7 +24,8 @@ import { toneUrl } from './audio';
 import { BROWSER_NAMES, defaultBrowsers } from './browsers';
 import { CRASHED_MESSAGE } from '../../copy';
 import { downloads } from './downloads';
-import { itemDetail, missingAll, missingDetail, missingScenarios, missingView } from './missingFiles';
+import { BAD_MISSING_ACTION, MISSING_ACTIONS, itemDetail, missingAll, missingDetail, missingScenarios, missingView, previewMissing,
+  runMissing } from './missingFiles';
 import {
   NO_BATCH, NOTHING_CHOSEN, hasFile, planRename, planTidy, planUndo, renameOffers, retargets, runBatch, seedTidy,
   tidyPreview, tidyRow, tidyWaiting, trackOfId, undoPreview, validMoves, validSaveFiles, moveBatches, outOfPlace,
@@ -209,7 +210,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         good = false; problem = k; message = m; res = null;
       }
       emit({ type: 'JobFinished', job_id: id, kind, ok: good, problem: good ? null : (problem ?? 'failed'), message,
-        result: good ? (res ?? {}) : (problem === 'stopped' || problem === 'rekordbox_open' || problem === 'busy' || problem === 'refused' ? (res ?? null) : null), service } as HubEvent);
+        result: good ? (res ?? {}) : (problem === 'stopped' || problem === 'rekordbox_open' || problem === 'busy' || problem === 'refused' || problem === 'changed' ? (res ?? null) : null), service } as HubEvent);
       me.running = false;
     };
     setTimeout(() => {
@@ -1108,15 +1109,24 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         [await runBatch(s, emit, run, 250 / speed, 'undo', planUndo(s, b), { undoes: b.id })],
       (batches) => batches[0]));
     },
-    // issue 43: Download again / Remove from library. The real handlers (the scenario's songs, the engine's words) come with the
-    // commands (E3b2); until then the fake answers like a song it cannot act on
+    // issue 43: Download again / Remove from library, as the engine answers them (fake/missingFiles.ts). The engine answers
+    // an unknown action `bad_args`; the window sends only the two words, so the fake refuses it
     async missing_files_preview(track_ids: string[], action: MissingAction) {
-      void track_ids; void action;
-      return fail('refused', 'The fake backend does not run Download again or Remove from library yet.');
+      if (!MISSING_ACTIONS.includes(action)) return fail('refused', BAD_MISSING_ACTION);
+      const ids = listOf(track_ids);
+      if (!ids) return fail('refused', 'No tracks were chosen.');
+      return ok(previewMissing(s, ids, action));
     },
     async missing_files(track_ids: string[], action: MissingAction) {
-      void track_ids; void action;
-      return fail('refused', 'The fake backend does not run Download again or Remove from library yet.');
+      if (!MISSING_ACTIONS.includes(action)) return fail('refused', BAD_MISSING_ACTION);
+      const ids = listOf(track_ids);
+      if (!ids) return fail('refused', 'No tracks were chosen.');
+      return startJob('missing_files', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() => {
+        const result = runMissing(s, ids, action);
+        // every song skipped ends the job `changed` with the same result kept
+        if (!result.done.length) finish(false, result, 'changed', result.words);
+        else finish(true, result);
+      }, 300 / speed));
     },
     async watched_folders() { return ok(watchedFolders(s)); },
     async check_import_folder(path: string) { return ok(checkImportFolder(s, path)); },

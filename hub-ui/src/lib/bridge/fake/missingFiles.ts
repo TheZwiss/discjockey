@@ -6,10 +6,13 @@ import type { FakeState, FakeTrack } from './data';
 import { dateOnly, makeUpgrade } from './data';
 import { placeAt, trackPlace } from './library';
 import { MUSIC_DIR, ownTrack } from './aiffScenes';
-import type { MissingAction, MissingAll, MissingDetail, MissingReason, MissingView, TodoItem } from '../types';
+import type { MissingAction, MissingAll, MissingDetail, MissingItemResult, MissingPreview, MissingReason, MissingResult, MissingView,
+  TodoItem } from '../types';
 
 export const DOWNLOAD_AGAIN: MissingAction = 'download_again';
 export const REMOVE: MissingAction = 'remove';
+export const MISSING_ACTIONS: MissingAction[] = [DOWNLOAD_AGAIN, REMOVE];
+export const BAD_MISSING_ACTION = 'action must be one of download_again, remove.';
 /** The buttons' words, without the dots (missing.ACTION_WORDS) */
 export const ACTION_WORDS: Record<MissingAction, string> = { download_again: 'Download again', remove: 'Remove from library' };
 /** missing.REASONS: `wrong_action` names the action the song gets instead */
@@ -115,6 +118,84 @@ export function missingDetail(s: FakeState, t: FakeTrack): MissingDetail | null 
 export function missingAll(items: TodoItem[]): { all: MissingAll } {
   const n = (a: MissingAction) => items.filter((r) => !r.hidden && r.missing?.action === a && r.missing.why_not === null).length;
   return { all: { download_again: n(DOWNLOAD_AGAIN), remove: n(REMOVE) } };
+}
+
+// ---------- the two actions: the dry run and the job ----------
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** missing.summary: the one line of the dry run, the job's result and the commands. `plain` songs download again, `placed`
+ *  get the parked version, `removed` are taken out, `skipped` don't run; `done`: the run is over (Remove says "Removed"). */
+export function summary(action: MissingAction, plain: number, placed: number, removed: number, skipped: number, done = false): string {
+  const tail = skipped ? `; ${skipped} ${skipped === 1 ? 'is' : 'are'} skipped` : '';
+  if (action === REMOVE) {
+    if (!removed) return `Nothing to remove: ${plural(skipped, 'song is', 'songs are')} skipped.`;
+    return `${done ? 'Removed' : 'Removes'} ${plural(removed, 'song', 'songs')} from your library${tail}.`;
+  }
+  if (!plain && !placed) return `Nothing to do: ${plural(skipped, 'song is', 'songs are')} skipped.`;
+  const it = placed === 1 ? 'it' : 'them';
+  if (plain && placed) {
+    return `${plural(plain, 'song downloads', 'songs download')} again and ${plural(placed, 'gets', 'get')} the better version `
+      + `already waiting for ${it}, at your next sync${tail}.`;
+  }
+  if (placed) {
+    return `${plural(placed, 'song gets', 'songs get')} the better version already waiting for ${it} at your next sync; `
+      + `nothing is downloaded${tail}.`;
+  }
+  return `${plural(plain, 'song downloads', 'songs download')} again at your next sync${tail}.`;
+}
+
+/** missing._counts: (plain, placed, removed, skipped) of rows that carry `will` and `upgrade_waiting` */
+function counts(action: MissingAction, rows: { will: boolean; upgrade_waiting: boolean }[]): [number, number, number, number] {
+  const will = rows.filter((r) => r.will);
+  if (action === REMOVE) return [0, 0, will.length, rows.length - will.length];
+  const placed = will.filter((r) => r.upgrade_waiting).length;
+  return [will.length - placed, placed, 0, rows.length - will.length];
+}
+
+/** missing.preview: what `action` would do for `ids`, one item per song in the order asked (a key that is no song is
+ *  `not_missing`). Reads only. */
+export function previewMissing(s: FakeState, ids: string[], action: MissingAction): MissingPreview {
+  const items = ids.map((id) => {
+    const t = s.tracks.find((x) => x.track_id === id);
+    const reason = t ? whyNot(s, t, action) : 'not_missing';
+    const waiting = !!t?.upgrade;
+    return { track_id: id, artist: t?.artist ?? '', title: t?.title ?? '', place: t ? wasIn(s, t) : '',
+      since: t?.missing ? t.missing.since.slice(0, 10) : null, will: reason === null, reason,
+      words: reason === null ? willWords(action, waiting) : reasonWords(reason, action), upgrade_waiting: waiting };
+  });
+  const n = items.filter((i) => i.will).length;
+  return { action, items, n, skipped: items.length - n, words: summary(action, ...counts(action, items)) };
+}
+
+/**
+ * missing.download_again / missing.remove, as the job runs them: each song is asked again (`whyNot`), a song the action
+ * does not fit is skipped with its reason, never switched to the other action. Download again sets `fileGone` and changes
+ * nothing else (the song leaves To-do; the parked version stays); Remove deletes the song, its answers and its parked
+ * version, and no music file (there is none). The result is the engine's `MissingResult`.
+ */
+export function runMissing(s: FakeState, ids: string[], action: MissingAction): MissingResult {
+  const results: MissingItemResult[] = [];
+  const waiting = new Set<string>();
+  for (const id of ids) {
+    const t = s.tracks.find((x) => x.track_id === id);
+    const reason = t ? whyNot(s, t, action) : 'not_missing';
+    if (!t || reason) {
+      results.push({ track_id: id, action, state: 'skipped', reason, words: reasonWords(reason!, action) });
+      continue;
+    }
+    if (t.upgrade) waiting.add(id);
+    results.push({ track_id: id, action, state: 'done', reason: null, words: willWords(action, !!t.upgrade) });
+    if (action === DOWNLOAD_AGAIN) t.fileGone = true;
+    else {
+      s.tracks.splice(s.tracks.indexOf(t), 1);
+      s.never = s.never.filter((k) => k !== id);
+      s.favourites = s.favourites.filter((k) => k !== id);
+    }
+  }
+  const rows = results.map((r) => ({ will: r.state === 'done', upgrade_waiting: waiting.has(r.track_id) }));
+  return { action, results, done: results.filter((r) => r.state === 'done').map((r) => r.track_id),
+    skipped: results.filter((r) => r.state === 'skipped').map((r) => r.track_id),
+    words: summary(action, ...counts(action, rows), true), recovered: [] };
 }
 
 // ---------- the scenario ----------
