@@ -310,7 +310,8 @@ describe('missing_files_preview', () => {
   });
   it('refuses an unknown action and no songs', async () => {
     const { f, set } = await acting();
-    expect(await f.missing_files_preview([set.plain], 'forget' as never)).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.missing_files_preview([set.plain], 'forget' as never)).toMatchObject({ ok: false, kind: 'bad_args', outcome: 'bad_args',
+      message: 'action must be one of download_again, remove.' });
     expect(await f.missing_files_preview([], 'remove')).toMatchObject({ ok: false, message: 'No tracks were chosen.' });
   });
 });
@@ -379,9 +380,34 @@ describe('missing_files', () => {
 
   it('refuses an unknown action and no songs, and answers busy while a job runs', async () => {
     const { f, set } = await acting();
-    expect(await f.missing_files([set.plain], 'forget' as never)).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.missing_files([set.plain], 'forget' as never)).toMatchObject({ ok: false, kind: 'bad_args', outcome: 'bad_args' });
     expect(await f.missing_files([], 'remove')).toMatchObject({ ok: false, message: 'No tracks were chosen.' });
     expect(await f.missing_files([set.plain], 'download_again')).toMatchObject({ ok: true });
     expect(await f.missing_files([set.own], 'remove')).toMatchObject({ ok: false, kind: 'busy' });
+  });
+});
+
+describe('the Sync plan after Download again (acquire reason redownload)', () => {
+  const redownloads = async (f: Awaited<ReturnType<typeof acting>>['f']) => {
+    const p = val(await f.sync_preview()) as unknown as { groups: { key: string; label: string; actions: { track_id: string; kind: string; reason: string | null }[] }[];
+      counts: { redownloads: number }; never: { track_id: string }[] };
+    return { ids: p.groups.find((g) => g.key === 'acquire:redownload')?.actions.map((a) => a.track_id) ?? [], p };
+  };
+  it('lists the download of a missing playlist song whose Download again was asked and that has no parked version', async () => {
+    const { f, set, run } = await acting();
+    const { ids, p } = await redownloads(f);
+    expect(ids).toEqual([set.asked]);                     // askedParked is placed by the sync's last phase: nothing is downloaded
+    expect(p.counts.redownloads).toBe(1);
+    expect(p.groups.find((g) => g.key === 'acquire:redownload')).toMatchObject({ label: 'Download again',
+      actions: [{ kind: 'acquire', reason: 'redownload' }] });
+    await run([set.plain, set.parked], 'download_again');
+    expect((await redownloads(f)).ids.sort()).toEqual([set.asked, set.plain].sort());   // plain joins; parked (a parked version) does not
+  });
+  it('leaves out a song marked Never download', async () => {
+    const { f, set, s } = await acting();
+    s.never.push(set.asked);
+    const { ids, p } = await redownloads(f);
+    expect(ids).toEqual([]);
+    expect(p.never.map((a) => a.track_id)).toContain(set.asked);
   });
 });

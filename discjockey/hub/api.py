@@ -3373,8 +3373,10 @@ class CliApi(HubApi):
     def auto_upgrade_preview(self) -> dict:
         """`sync run --auto-upgrade-only --dry-run`: what the sync's last phase would do now (`run.auto_upgrade_only` with
         `dry_run`: the records read only, nothing written, no report). `{auto_upgrade, start_note}`: the phase's block
-        (`auto_upgrade.Outcome`, `dry_run: true`; its rows are the plan's items) or null when Settings' switch is off,
-        and the Sync page's before-start line for it (`auto_upgrade.start_note`; null when no upgrade is coming).
+        (`auto_upgrade.Outcome`, `dry_run: true`; its rows are the plan's items, each with its `action`: `same_track` or
+        `place`, a missing song's parked better version) or null when Settings' switch is off and no placement is
+        coming (with the switch off the block holds the placements alone), and the Sync page's before-start line for
+        it (`auto_upgrade.start_note`; null when nothing is coming).
         Settings are read strictly, as a sync reads them: a file it cannot read is `config_invalid`."""
         found = run.auto_upgrade_only(self._paths, load_settings(self._support.settings_file), dry_run=True,
                                       rekordbox=self._rekordbox_services())
@@ -3386,7 +3388,8 @@ class CliApi(HubApi):
         """`sync run --auto-upgrade-only`: the sync's last phase alone (`run.auto_upgrade_only`: no playlists are read,
         the planner never runs) as a write job (kind "auto_upgrade"). The result is `{exit_code, report, auto_upgrade, recovered}`:
         the report's id (`report:<stamp>`: `report show` takes it; null with the switch off) and the phase's block
-        (`auto_upgrade.Outcome`; null when Settings' switch is off, which is read inside the job under the library lock).
+        (`auto_upgrade.Outcome`; null when Settings' switch is off and no placement was coming, which is read inside the job
+        under the library lock; with the switch off the placements run alone, in a batch started by `download_again`).
         rekordbox open: every upgrade of the set waits (`rekordbox_open`), nothing is moved, the job is done. A Stop ends it
         `stopped` once the records are saved. `plan_id` (`--plan`): only the tracks of that plan that still stand run; a
         track whose answer changed waits (`changed`), the ones new since the plan are in `new_since_plan`."""

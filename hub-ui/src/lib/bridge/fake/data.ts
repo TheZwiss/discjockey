@@ -28,8 +28,10 @@ export type FakeAccount = FakeService & { browser: Browser; profile?: string | n
 
 /** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
  *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
-export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed'; since: string; match?: string;
+export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed' | 'placed_missing'; since: string; match?: string;
   offset_ms?: number; moved?: boolean; aligned?: boolean; relocate?: boolean; undo?: Partial<FakeTrack>;
+  /** issue 43: a `placed_missing` check: rekordbox's track of the missing file was pointed at the new file */
+  repointed?: boolean;
   /** stage B: the AIFF batch that left it, whether Reload Tag is still needed, what was written in rekordbox */
   batch?: number; reload_tag?: boolean; rekordbox?: { entries: number; kept: string[] } | null;
   /** as the undo record's `old`: where the old file (added) or the copy of the old audio (swap) is now */
@@ -45,8 +47,8 @@ export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped'
  *  tracks carry their own checks. `id` runs on from 1 in the order given; items `done` are marked done (set the track's
  *  own `rekordbox_check` for the check), `planned` ones are left (the batch is Resumable when `state` is `stopped`). */
 export type SeedBatch = { kind: 'upgrade' | 'convert' | 'mixed'; scope: string; state: 'stopped' | 'done';
-  started_by?: 'user' | 'make_aiff' | 'cdj_all' | 'upgrade_all' | 'auto_upgrade';
-  items: { track: string; action: 'convert' | 'rename' | 'same_track'; state: 'done' | 'planned' }[] };
+  started_by?: 'user' | 'make_aiff' | 'cdj_all' | 'upgrade_all' | 'auto_upgrade' | 'download_again';
+  items: { track: string; action: 'convert' | 'rename' | 'same_track' | 'place'; state: 'done' | 'planned' }[] };
 export type FakeAudio = { codec: string; rate: number | null; bits: number | null; kbps: number | null;
   ext?: string; tagsClean?: boolean };
 
@@ -219,7 +221,7 @@ export type FakeState = {
   /** the sync's Auto-upgrade phase: the fake rekordbox is opened after this many tracks of the batch (the rest wait) */
   autoOpensAfter?: number;
   /** who started a scenario's AIFF batch (batch id -> `aiff_batches.started_by`); unset: the user */
-  batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade'>;
+  batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade' | 'download_again'>;
   /** stage D: the room per drive (a folder on it, as `AiffPlan.space` says it) in bytes; a drive not listed has 400 GB */
   freeBytes?: Record<string, number>;
   /** stage D: AIFF batches that exist before the page does anything, e.g. a stopped Make all (`seedBatches`, convert.ts) */
@@ -397,6 +399,11 @@ export function checkStatus(c: RekordboxCheck | null): string {
   if (c?.reason === 'wrong_song') return 'now the right song: analyse again';
   if (c?.reason === 'converted') return c.rekordbox ? 'an AIFF now: nothing to redo' : 'an AIFF now, not in rekordbox';
   if (c?.reason === 'renamed') return 'clean name now';
+  if (c?.reason === 'placed_missing') {   // a better version put in for a missing file (report.placed_check_text's five cases)
+    if (c.repointed) return c.aligned === false ? 'better version in place: check cues and grid' : 'better version in place: play it once';
+    if (c.match === 'exact' || c.match === 'shifted') return 'better version in place, not in rekordbox';
+    return c.aligned === false ? 'check cues and grid' : 'add as a new track, set the cues';
+  }
   return 'check it in rekordbox';
 }
 /** As views.check_view. */
@@ -409,6 +416,21 @@ export function checkView(c: RekordboxCheck, batchSize = 1): RekordboxCheckView 
 }
 /** As report.NO_RELOCATE: rekordbox's Relocate offers only files of the same type. */
 const NO_RELOCATE = "rekordbox can't relocate a track to a file of another type. Add the new file to rekordbox as a new track and set its cues there; your old track keeps playing the old file in Superseded/.";
+/** As report.PLACED_*: the words of a placement for a missing file. */
+const PLACED_CHECK = 'Its file was missing, so its better version took its place.';
+/** As report.placed_check_text: pointed at the new file (lined up, or its timeline unknown), not pointed with the same
+ *  edit (nothing beyond the first sentence), or another edit (a new file to rekordbox, or the missing file's own name). */
+export function placedCheckText(check: RekordboxCheck): string {
+  if (check.repointed) {
+    return check.aligned === false
+      ? `${PLACED_CHECK} Discjockey couldn't measure where rekordbox's timeline sat for the missing file: check that its cues and grid sit on the beat.`
+      : `${PLACED_CHECK} rekordbox's track plays it with its cues and grid: play it once to check.`;
+  }
+  if (check.match === 'exact' || check.match === 'shifted') return PLACED_CHECK;
+  return check.aligned === false
+    ? `${PLACED_CHECK.slice(0, -1)} under the missing file's name, so rekordbox's track at that name plays it now (a different edit): check that its cues and grid sit on the beat.`
+    : `${PLACED_CHECK.slice(0, -1)}, as a new file to rekordbox (a different edit: your old track's cues don't fit it).`;
+}
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues, exactly
  *  when the new file was rendered lined up (`aligned`). */
 export function checkText(check: RekordboxCheck): string {
@@ -422,6 +444,7 @@ export function checkText(check: RekordboxCheck): string {
       ? 'Your file has its clean name now, and your rekordbox track follows it with its cues, playlists and history.'
       : "Your file has its clean name now. This file isn't in your rekordbox collection, so there was nothing to keep there.";
   }
+  if (check.reason === 'placed_missing') return placedCheckText(check);
   if (check.reason === 'repointed') {
     return check.rekordbox
       ? 'The better audio is in a new AIFF with a clean name, and your rekordbox track plays it with its cues, playlists and history. In rekordbox, analyse it again so the waveform shows the full sound (lock the beatgrid first if you set it by hand).'
@@ -723,7 +746,7 @@ export function runDetail(id: string, started: Date, duration_s: number, exit_co
   const count = (...ss: string[]) => results.filter((r) => ss.includes(r.section)).length;
   return {
     run_id: id, kind: 'sync', started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
-    exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded', 'upgraded'),
+    exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded', 'upgraded', 'placed_missing'),
       lossy: count('new_not_lossless', 'fake'), problems: count(...PROBLEM_SECTIONS), moved: count('moved') },
     stopped_after, sections, needs_you: results.filter((r) => PROBLEM_SECTIONS.includes(r.section) && r.track_id),
     for_rekordbox: { new_files: newFiles.length, folders: [...new Set(newFiles.map((p) => p.slice(0, p.lastIndexOf('/'))))].sort() },

@@ -2674,6 +2674,24 @@ def test_check_status_knows_converted_and_renamed(check, text):
     assert views.check_status(check) == text
 
 
+@pytest.mark.parametrize("check,text", [
+    ({"reason": "placed_missing", "repointed": True, "aligned": True, "match": "shifted"},
+     "better version in place: play it once"),
+    ({"reason": "placed_missing", "repointed": True, "aligned": False, "match": "exact"},
+     "better version in place: check cues and grid"),
+    ({"reason": "placed_missing", "repointed": False, "aligned": True, "match": "exact"},
+     "better version in place, not in rekordbox"),
+    ({"reason": "placed_missing", "repointed": False, "aligned": True, "match": "shifted"},
+     "better version in place, not in rekordbox"),
+    ({"reason": "placed_missing", "repointed": False, "aligned": True, "match": "different"},
+     "add as a new track, set the cues"),
+    ({"reason": "placed_missing", "repointed": False, "aligned": False, "match": "different"},
+     "check cues and grid"),
+])
+def test_check_status_knows_a_placement_for_a_missing_file(check, text):
+    assert views.check_status(check) == text
+
+
 def test_check_view_of_a_convert_says_where_the_old_file_is_and_uses_the_converted_words():
     c = {"reason": "converted", "since": "2026-11-13", "batch": 4, "undo": CONVERT_UNDO,
          "rekordbox": {"entries": ["1", "2"], "kept": ["title"]}}

@@ -336,3 +336,40 @@ def test_golden_the_page_of_the_phase_alone(lib, capsys, tmp_path):
     text = re.sub(r"\d{8}T\d{6}Z(?:-\d+)?", "<backup>", text)
     check_golden("sync_run", text)
     assert "Your turn: " in err and f"Next: {cmd('batch show aiff:1')}" in err
+
+
+# --- placements (issue 43 E4b2): a missing song's parked better version, with the switch off too ---
+
+def test_the_preview_lists_a_placement_and_a_plan_bound_by_id_keeps_its_row(lib, capsys):
+    from test_place_phase import mark_missing
+    found = lib(["aiff", "mp3"])
+    save_settings(found.paths.settings_file, Settings(auto_upgrade=False))
+    mark_missing(found, 0)  # Download again was pressed for it; the second song is an upgrade the switch leaves parked
+    code, dry = run_json([*PHASE, "--dry-run"], capsys)
+    assert code == OK, dry
+    block = dry["data"]["auto_upgrade"]
+    assert block is not None and block["dry_run"] is True
+    assert [(r["track"], r["state"], r["action"], r["how"]) for r in block["results"]] == [
+        (found.tracks[0], "would", "place", "placed")]
+    assert dry["data"]["start_note"] == "1 missing song gets its better version at the end of the sync."
+    assert dry["data"]["plan_id"].startswith("plan:")
+    code, env = run_json([*PHASE, "--plan", dry["data"]["plan_id"]], capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    [row] = env["data"]["auto_upgrade"]["results"]
+    assert (row["track"], row["state"], row["action"], row["how"]) == (found.tracks[0], "done", "place", "placed")
+    assert found.entry(0)["path"].endswith("Artist - Song 0.aiff") and found.entry(1)["path"] == found.olds[1]
+    [batch] = batches_of(found)
+    assert (batch.started_by, batch.state) == ("download_again", "done")
+
+
+def test_a_plan_whose_placement_no_longer_stands_is_changed(lib, capsys):
+    from test_place_phase import mark_missing
+    found = lib(["aiff"])
+    save_settings(found.paths.settings_file, Settings(auto_upgrade=False))
+    mark_missing(found, 0)
+    _, dry = run_json([*PHASE, "--dry-run"], capsys)
+    state = library.load_state(found.paths)
+    state["tracks"][found.tracks[0]]["file_gone"] = None  # the mark is gone (the file came back, or it was undone)
+    library.save_state(found.paths, state)
+    code, env = run_json([*PHASE, "--plan", dry["data"]["plan_id"]], capsys)
+    assert (code, env["outcome"], env["reason"]) == (7, "refused", "changed") and batches_of(found) == []

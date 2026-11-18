@@ -12,7 +12,7 @@ import {
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
-import { AUTO_BATCH_DETAIL, autoDetail, autoPreview, autoBlock, backupId, markRefused, markWaiting, phaseEvents, phaseResults,
+import { AUTO_BATCH_DETAIL, autoDetail, autoOn, autoPreview, autoBlock, backupId, markRefused, markWaiting, phaseEvents, phaseResults,
   planPhase, readyTracks, rekordboxStatus, REKORDBOX_STATE_TEXT, sameTrackReasonOf, stopRows, withPhase, AUTO_REFUSED_WORDS, type PhasePlan } from './auto';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
@@ -153,6 +153,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   };
   const fail = (kind: ProblemKind, message: string, service?: PlaylistService, setting?: SettingKey): Fail =>
     ({ ok: false, kind, message, ...(service ? { service } : {}), ...(setting ? { setting } : {}) });
+  /** The engine's answer for a word only the command line sends (api.py: `kind` and `outcome` `bad_args`, `reason` `usage`);
+   *  `ProblemKind` has no such kind (the window never sends one), so the answer is typed as the `Fail` it is. */
+  const badArgs = (message: string): Fail => ({ ok: false, kind: 'bad_args', message, outcome: 'bad_args', reason: 'usage' } as unknown as Fail);
   const later = <T>(ms: number, value: () => T) => new Promise<T>((r) => setTimeout(() => r(value()), ms / speed));
   const ok = <T extends object>(v: T) => ({ ok: true as const, ...v });
   const syncRunning = () => (job?.running && job.kind === 'sync') || s.console_running;
@@ -263,6 +266,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       null, i % 3 ? i % 5 : null)));
     add('acquire:retry', 'Try again', s.tracks.filter((t) => t.status === 'missing' && t.next_try_days === 1
       && t.in_playlists).map((t) => previewAction('acquire', 'retry', t, false, null, t.cover)));
+    // Download again was asked for a missing playlist song with no parked better version: the sync downloads it (a parked one
+    // is placed by the sync's last phase instead, so it plans none: D12); a Never download song is left out by `add`
+    add('acquire:redownload', 'Download again', s.tracks.filter((t) => t.in_playlists && t.missing && t.fileGone && !t.upgrade)
+      .map((t) => previewAction('acquire', 'redownload', t, false, null, t.cover)));
     add('upgrade', 'Look for a better version (weekly check)', s.tracks.filter((t) => qualityOf(t) === 'weak'
       && !t.upgrade && !t.hidden && t.in_playlists).slice(0, 3).map((t) => previewAction('upgrade', 'weekly', t,
       true, pathOf(t), t.cover)).concat(OWN_CHECK));
@@ -331,7 +338,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   /** `kind` / `scope` as `aiff_batches` has them (Same track: `upgrade`; Convert and Rename: `convert`); `left`: the songs
    *  of a selection the plan left out, listed as skipped in every result of the batch */
   type AiffBatch = { id: number; state: 'running' | 'stopped' | 'done'; stop_reason: AiffBatchResult['stop_reason'];
-    items: AiffItemResult[]; started_by?: 'user' | 'upgrade_all' | 'auto_upgrade' | 'make_aiff' | 'cdj_all';
+    items: AiffItemResult[]; started_by?: 'user' | 'upgrade_all' | 'auto_upgrade' | 'download_again' | 'make_aiff' | 'cdj_all';
     kind: 'upgrade' | 'convert' | 'mixed'; scope: string; left: AiffItemResult[] };
   const aiff: AiffBatch[] = (s.batches ?? []).map((b, i) => ({ id: i + 1, state: b.state, stop_reason: b.state === 'stopped' ? 'stop' as const : null,
     started_by: b.started_by ?? 'user', kind: b.kind, scope: b.scope, left: [],
@@ -374,6 +381,19 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         rekordbox: s.rekordbox_state === 'none' ? null : { entries: 1, kept: [] }, ...(batch ? { batch } : {}),
         undo: before, old_path: oldPath };
     }
+  }
+  /** convert.place_parked, as the fake's song sees it: the parked better version becomes the song's file where a download
+   *  would have put it, the song is no longer missing, and the check says what to look at (`placed_missing`: pointed at the
+   *  new file when it is the same edit and rekordbox holds the track, else a new file or the missing file's own name). */
+  function place(t: FakeTrack, batch: number | null) {
+    const measured = t.upgrade!.alignment;
+    const same = measured.result === 'exact' || measured.result === 'shifted';
+    const before = { status: t.status, cutoff_hz: t.cutoff_hz, source: t.source, codec: t.codec, upgrade: t.upgrade,
+      rekordbox_check: t.rekordbox_check ? { ...t.rekordbox_check, undo: undefined } : null, missing: t.missing, fileGone: false };   // an undo puts the song back in Missing files, Download again to be asked again
+    Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'qobuz', codec: 'flac', upgrade: null, missing: undefined, fileGone: false });
+    t.rekordbox_check = { reason: 'placed_missing', since: dateOnly(new Date()), match: measured.result, offset_ms: measured.offset_ms ?? 0,
+      aligned: true, repointed: same && t.inRekordbox !== false && s.rekordbox_state !== 'none', reload_tag: false,
+      ...(batch ? { batch } : {}), undo: before };
   }
   /** One AIFF batch as a write job. Same track (`upgrade_batch`) is the default; with `plan` it is a Convert / Rename /
    *  Make all batch (`aiff_batch`, stage D): `plan.actions` the items, `plan.scope` the batch's scope, `plan.left` the songs
@@ -611,19 +631,20 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     if (plan.batch !== null) {
       const items: AiffBatch['items'] = plan.order.map((id) => {
         const r = byId.get(id)!;
-        return { track: id, action: 'same_track', state: r.state === 'done' ? 'done' : 'skipped', reason: r.state === 'done' ? null : r.reason,
+        return { track: id, action: r.action ?? 'same_track', state: r.state === 'done' ? 'done' : 'skipped', reason: r.state === 'done' ? null : r.reason,
           message: r.message, path: null, rekordbox: null };
       });
       const atRekordbox = rows.some((r) => r.reason === 'rekordbox_open');
       // batches.end_auto closes the batch `done` whatever cut it short, with no stop reason: To-do never offers Resume
-      aiff.push({ id: plan.batch, state: 'done', stop_reason: null, started_by: 'auto_upgrade', kind: 'upgrade', scope: 'sync', left: [], items });
+      // batches.start: `auto_upgrade` with the switch on, `download_again` with it off (the placements alone then)
+      aiff.push({ id: plan.batch, state: 'done', stop_reason: null, started_by: autoOn(s) ? 'auto_upgrade' : 'download_again', kind: 'upgrade', scope: 'sync', left: [], items });
       if (atRekordbox) s.rekordbox_running = true;   // it was opened mid-phase and is still open
     }
     for (const r of rows) {
       const t = track(r.track);
       if (!t?.upgrade) continue;
       if (r.state === 'done') {
-        apply(t, 'same_track', plan.batch);
+        if (r.action === 'place') place(t, plan.batch); else apply(t, 'same_track', plan.batch);
         const item = aiff.find((b) => b.id === plan.batch)?.items.find((i) => i.track === r.track);
         if (item) item.path = pathOf(t) ?? null;
         continue;
@@ -1109,16 +1130,16 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         [await runBatch(s, emit, run, 250 / speed, 'undo', planUndo(s, b), { undoes: b.id })],
       (batches) => batches[0]));
     },
-    // issue 43: Download again / Remove from library, as the engine answers them (fake/missingFiles.ts). The engine answers
-    // an unknown action `bad_args`; the window sends only the two words, so the fake refuses it
+    // issue 43: Download again / Remove from library, as the engine answers them (fake/missingFiles.ts); an unknown action
+    // is `bad_args` as there (the window sends only the two words)
     async missing_files_preview(track_ids: string[], action: MissingAction) {
-      if (!MISSING_ACTIONS.includes(action)) return fail('refused', BAD_MISSING_ACTION);
+      if (!MISSING_ACTIONS.includes(action)) return badArgs(BAD_MISSING_ACTION);
       const ids = listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
       return ok(previewMissing(s, ids, action));
     },
     async missing_files(track_ids: string[], action: MissingAction) {
-      if (!MISSING_ACTIONS.includes(action)) return fail('refused', BAD_MISSING_ACTION);
+      if (!MISSING_ACTIONS.includes(action)) return badArgs(BAD_MISSING_ACTION);
       const ids = listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
       return startJob('missing_files', ids.length === 1 ? ids[0] : null, (finish) => setTimeout(() => {
@@ -1609,7 +1630,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             // the batch's own kind; a scenario that only sets checks has no record: its checks' reasons say it
             const kind = record?.kind ?? (tracks.some((x) => ['converted', 'renamed'].includes(x.check!.reason)) ? 'convert' : 'upgrade');
             // views._batch_how: "Made AIFF" for a Convert batch, "Clean name" when every check is a clean name
-            const how = started_by === 'auto_upgrade' ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
+            const how = started_by === 'auto_upgrade' || started_by === 'download_again' ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
               : tracks.every((x) => x.check!.reason === 'renamed') ? 'Clean name' : 'Made AIFF';
             items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${how}`,
               batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, kind, tracks } });

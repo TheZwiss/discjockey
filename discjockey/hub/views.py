@@ -757,6 +757,13 @@ def check_status(check: dict | None) -> str:
         return "relocate, Reload Tag, analyse again" if c.get("moved") else "Reload Tag, analyse again"
     if reason == "repointed":
         return "analyse again" if c.get("rekordbox") else "a new AIFF, not in rekordbox"
+    if reason == "placed_missing":  # a better version put in for a missing file (issue 43; report.placed_check_text)
+        if c.get("repointed"):
+            return ("better version in place: play it once" if c.get("aligned", True)
+                    else "better version in place: check cues and grid")
+        if c.get("match") in ("exact", "shifted"):
+            return "better version in place, not in rekordbox"
+        return "add as a new track, set the cues" if c.get("aligned", True) else "check cues and grid"
     if reason == "added_as_new":
         if c.get("match") in ("exact", "shifted") and c.get("relocate"):  # an old AIFF: Relocate takes the new file
             return "relocate, analyse again"

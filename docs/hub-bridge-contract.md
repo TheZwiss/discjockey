@@ -132,7 +132,7 @@ remember=False)` (the command line's) acts on a write's record as it is, with no
   Auto-upgrade phase, a report titled "Discjockey Auto-upgrade run" that holds the `auto_upgrade` block; a report without
   the key is a sync; the window never starts the second),
   `auto_upgrade` (stage C: the run's Auto-upgrade block with its `line`, see "Auto-upgrade" below; null when the switch
-  was off for that run and in runs from before it).
+  was off for that run and nothing was placed for a missing song (issue 43), and in runs from before it).
 - **Result** (report line; in `ActionFinished.result`, run sections, op results): `section, folder, artist, title,
   track_id|null, note, status|null, source|null, cutoff_hz|null, path|null, error_kind` (`network|qobuz|other|not_found|null`),
   `found_status|null` (`upgrade_ready`: the found file's status — a SoundCloud original can be lossless; `status` stays
@@ -1686,7 +1686,7 @@ A job's success can carry words in `JobFinished.message`, empty otherwise: the i
 
 | method (positional args) | job kind | JobFinished.result |
 |---|---|---|
-| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path; with the switch on, the run's last phase is Auto-upgrade: it sends `BatchProgress` events and the report's `.json` carries `auto_upgrade`, see below); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
+| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path; with the switch on, the run's last phase is Auto-upgrade: it sends `BatchProgress` events and the report's `.json` carries `auto_upgrade`, see below; with the switch off the phase still runs for the placements of missing songs (issue 43), alone, see "Auto-upgrade"); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
 | `stop()` → `{"stopped": bool}` (not a job) — Stop safely: current write job (sync, download, Spotify login) | | |
 | `save_playlists(lines, loaded_version, files = null)` — `files` answers the save question when the change retargets files: `null` (nothing to ask) or `{choice: "leave"\|"move", renames: [[old, new]], moves: [[file_id, from_path]]}` (`from_path` as `preview_playlist_change`'s rows send it). `leave` makes the files this save would have moved the user's own placement (a later tidy-up lists them apart); `move` renames the chosen folders on disk (one batch each), then moves the chosen files (one batch). A malformed `files` is `refused` before a job starts | `save_playlists` | `{version, batches}`: `batches` are BatchResults, empty when nothing moved; problem `changed` = "playlists.txt was changed elsewhere…". A Stop after the save ends with problem `stopped` and the same `{version, batches}` as `result` |
 | `tidy_up(moves)` — `moves`: `[[file_id, from_path]]` from `tidy_preview` rows (not empty, else `refused`); each file moves only if it still looks as shown | `tidy` | BatchResult; a Stop ends with problem `stopped` and the batch so far as `result` |
@@ -2055,7 +2055,7 @@ latest is sent). The pause card's source is the latest `SourceChosen` of the cur
 
 - **Problem kind `rekordbox_open`**: a batch or an undo needs rekordbox closed ("rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed."; stopped mid-way: "rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and press Resume."). `JobFinished.result` is the stopped `AiffBatchResult` (or the `UndoResult`) when items ran.
 - **`upgrade` block** (`track().upgrade`): `swap_possible` now means "Same track can run now" (the quick answer: a parked upgrade, the file there, a stored alignment `exact`/`shifted`, and for a file that isn't AIFF a rekordbox library Discjockey can open or none); new `swap_how` (`in_place` for an AIFF, `new_aiff`), `why_not` (an eligibility reason key, null when possible), `rekordbox: {state: ready\|none\|unreadable, running}` (cached, see below), `auto_refused` (stage C, see "Auto-upgrade" below). `upgrade_status` says "cues can stay" whenever Same track is possible.
-- **`check_view`** (`check`): gains `person_steps` (issue 39, the command line's): `[{id, say, then}]`, the steps only the person can do in rekordbox. An added file (New track) is `step:relocate_new`, its `say` the check's text ending with the new file's absolute path; a swap, Same track or Convert is `step:reload_tag` while rekordbox's text is still to be reloaded (`reload_tag` true, or a record without it), and `step:look` ("In rekordbox, have a look at {tracks}.") when Discjockey wrote rekordbox's text itself (`reload_tag` false, which every Same track repoint, Convert and clean-name check stores, whether or not rekordbox has the track, and an AIFF swap stores once its write committed: a Reload Tag would replace names the person changed), its `say` the check's text either way (with the USB step for a repointed or converted file rekordbox has tracks of); a batch result's `person_steps` holds one `reload_tag` step and one `look` step at most, each listing its tracks and ending `check done --batch aiff:N`; `then` is `check done <track_id>` (a step with no command of its own, such as quitting rekordbox, has `then: null`: run the same command again); a clean name and a wrong song have none (`words.person_steps`). The window words its own numbered steps and ignores it. Reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
+- **`check_view`** (`check`): gains `person_steps` (issue 39, the command line's): `[{id, say, then}]`, the steps only the person can do in rekordbox. An added file (New track) is `step:relocate_new`, its `say` the check's text ending with the new file's absolute path; a swap, Same track or Convert is `step:reload_tag` while rekordbox's text is still to be reloaded (`reload_tag` true, or a record without it), and `step:look` ("In rekordbox, have a look at {tracks}.") when Discjockey wrote rekordbox's text itself (`reload_tag` false, which every Same track repoint, Convert and clean-name check stores, whether or not rekordbox has the track, and an AIFF swap stores once its write committed: a Reload Tag would replace names the person changed), its `say` the check's text either way (with the USB step for a repointed or converted file rekordbox has tracks of); a batch result's `person_steps` holds one `reload_tag` step and one `look` step at most, each listing its tracks and ending `check done --batch aiff:N`; `then` is `check done <track_id>` (a step with no command of its own, such as quitting rekordbox, has `then: null`: run the same command again); a clean name and a wrong song have none (`words.person_steps`). The window words its own numbered steps and ignores it. Reasons add `repointed` and `placed_missing` (a better version put in for a missing file, see "Auto-upgrade"); new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
 - **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, aiff_id (`aiff:<id>`, the id the command line takes; the window ignores it), size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
 - **Cached rekordbox state**: `HubApi._rekordbox_status()` keyed on master.db's modified time and size plus whether rekordbox runs; one read open per change. A reader takes `rekordbox.lock` shared and without waiting (`rekordbox.lock.reader_lock`); while a writer of any Discjockey process (a batch's session, a restore, a recovery of analysis files) holds it, master.db is never opened and the answer is the last value (`writing`, see `rekordbox_status()`). The same goes for the plan behind To-do's CDJ group and the `aiff_plan` read: with a writer holding the lock they plan on rekordbox's cached state and no lookup. A write job that holds no rekordbox session does not stop the read. Services `rekordbox_running` and `rekordbox_place` are injected (tests and the fake never touch a real library).
 
@@ -2099,24 +2099,58 @@ action.
   "couldn't line it up", `not_analysed` "not analysed in rekordbox", `cloud` "in Cloud Library Sync", `space` "not
   enough free space", `needs_choice` "couldn't compare it"; a `needs_choice` record is dropped once a measurement says
   "a different edit"), else `upgrade_status`. A `BatchCheckItem`'s `batch` gains `started_by`
-  (`aiff_batches.started_by`: `user`, `upgrade_all`, `auto_upgrade`, …; null when unknown) and, for `auto_upgrade`, the
+  (`aiff_batches.started_by`: `user`, `upgrade_all`, `auto_upgrade`, `download_again`, …; null when unknown) and, for
+  `auto_upgrade` and `download_again` (the same phase with the switch off, which runs the placements alone: issue 43), the
   item's `detail` is "{date} · Upgraded during your sync" (in place of "{date} · Same track"). The page names the card
-  and its foot from `started_by` ("{n} tracks upgraded", "Undo all from this sync").
+  and its foot from `started_by` ("{n} tracks upgraded", "Undo all from this sync"); `download_again` must read as `auto_upgrade`.
 - **`run(run_id)` / `runs()`** (`RunSummary.auto_upgrade`): the report's `.json` key `auto_upgrade` plus `line`
   (`report.auto_upgrade_line`: "Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed." …; null when
   nothing happened), or null. The block: `{batch: int|null, backup: str|null, done, waiting, refused, failed,
   stopped: bool, dry_run: bool, results: [{track, name, state: "done"|"would"|"waiting"|"refused"|"failed", reason,
-  message, how: "in_place"|"new_aiff"|null}]}`; `waiting` counts `rekordbox_open`, `busy` and `not_reached` results and every skip nothing is recorded for
+  message, how: "in_place"|"new_aiff"|"placed"|null, action: "same_track"|"place"}]}` (`action` and `how: "placed"`: issue 43, below; a report from before it has no `action`: read it as `same_track`); `waiting` counts `rekordbox_open`, `busy` and `not_reached` results and every skip nothing is recorded for
   (`changed`, `unclean`, `other_library`, `rekordbox_unreadable`, …: a waiting row then carries that skip's `reason` and
   its specific `message`, and counts for "your next sync"); `refused` (state and count) only the reasons the phase
   records and To-do shows (`timing`, `not_analysed`, `cloud`, `space`, `needs_choice`).
   `sections` carry `upgraded` (done; counted in `counts.lossless` / `lossy` by `status` like `swapped`, and not a new
-  file for rekordbox) and `upgrade_waits` (waiting, refused, not reached; never an error: a failed item is in `errors`).
+  file for rekordbox), `placed_missing` (a done placement, below; counted in `counts.lossless` the same way) and
+  `upgrade_waits` (waiting, refused, not reached; never an error: a failed item is in `errors`).
+- **Placements for missing songs (issue 43 E4b).** The phase also puts in the parked better version of a song whose file
+  is missing and whose Download again the user asked for (`missing.place_keys`; hidden songs included, a song found in
+  two places or on an away drive left out): a row with `action: "place"` and `how: "placed"`, listed before the upgrades
+  in the one batch. A placement counts in the block's `done` / `waiting` / `refused` / `failed` like any row. It runs with
+  the switch off too, because Download again is its go: the phase then holds the placements alone, and the batch's
+  `started_by` is `download_again` (with the switch on: `auto_upgrade`; no Resume is offered for either). **With the
+  switch off the block, `auto_upgrade_preview()`'s `auto_upgrade` and the report's `auto_upgrade` key are present only
+  when a placement is coming or was done, otherwise null** (nothing is read or written then). rekordbox open: the
+  placement waits (`rekordbox_open`) whether or not rekordbox holds the song, the song stays missing with its mark; its
+  waiting rows say "…its better version goes in at your next sync" in place of "…it is upgraded at your next sync". A
+  refusal the phase records (`space`, `cloud`) goes on the parked upgrade as for an upgrade; the song keeps its mark. A done
+  row's `message` is "Its better version is in, at {name}; rekordbox's track plays it with its cues." (`; check its cues in
+  rekordbox.` when the missing file's timeline was unknown or another edit has its name; no clause when rekordbox's track was
+  left alone) and its result is in section `placed_missing` ("Better version put in (its file was missing)"). The block's
+  `line` counts placements apart, after the upgrades' clauses: "1 missing song got its better version." / "… waits for its
+  better version until your next sync." / "… couldn't get its better version yet." The dry run's rows say `would`;
+  `auto_upgrade_preview().start_note` adds "1 missing song gets its better version at the end of the sync[, once rekordbox is
+  closed]." (after the upgrades' line; with the switch off it is the only line). `sync_preview().auto_upgrade` still counts
+  upgrades only (`ready`; null with the switch off): a placement is visible in the dry run's block, not in that count.
+- **The check of a placement** (`rekordbox_check.reason: "placed_missing"`, `check_view.reason`; the batch item's `batch` and
+  `started_by` as above): the record holds `match`, `offset_ms`, `aligned` (the new file was rendered lined up with
+  rekordbox's timeline of the missing file; false when that timeline was unknown, or another edit took the missing file's
+  name) and `repointed` (rekordbox's track of the missing file was pointed at the new file), and `reload_tag` false
+  (rekordbox's text columns are never written). `check_view` sends `match`, `offset_ms`, `aligned` and `text`, not
+  `repointed`: the window reads the case from `text` and the row's `detail`.
+  The row's short line (`views.check_status`) and the card's `text` (`report.placed_check_text`), five cases: repointed and
+  aligned "better version in place: play it once"; repointed, not aligned "better version in place: check cues and grid";
+  not repointed, the same edit "better version in place, not in rekordbox"; not repointed, another edit as a new file "add as a
+  new track, set the cues"; not repointed, another edit under the missing file's name "check cues and grid". Its undo puts
+  the song back in Missing files (Download again is asked again).
 - **Events:** a sync job sends `BatchProgress` during its phase, after a `Message` "Upgrading {n} tracks at the end of
-  the sync…" (`done` of `total` handled; `track_id` / `name` the track in work). The phase starts only when the run
+  the sync…" (and, for placements, "Putting in the better version of {n} missing song(s) at the end of the sync…"; when
+  rekordbox is open, "{n} upgrade(s) wait for rekordbox to be closed." and "{n} missing song(s) wait for rekordbox to be closed
+  to get their better version.") (`done` of `total` handled; `track_id` / `name` the track in work). The phase starts only when the run
   reached its end: never after Stop or a crash. A Stop during the phase ends the batch (the rest are
   `skipped` / `not_reached`, no Resume is offered for it) and the sync's `exit_code` is 130.
-- **Fake scenarios:** `sync:auto-done`, `sync:auto-rekordbox-open`, `sync:auto-running`, `todo:auto-waits`,
+- **Fake scenarios:** `missing_files` (the end of its sync holds a done `place` row, `rekordbox` open makes it wait; with the switch off a batch `download_again`), `sync:auto-done`, `sync:auto-rekordbox-open`, `sync:auto-running`, `todo:auto-waits`,
   `todo:auto-refused`, `todo:auto-batch`, `settings:upgrades-on`, `settings:upgrades-off`, `setup:downloads-auto`; the
   dev toolbar's "rekordbox open" toggle sets `rekordbox_status().running`.
 
@@ -2246,7 +2280,7 @@ answer `no_library` without a music folder.
 A file that one scan doesn't see is never decided: its song waits as missing (`files.missing_since`) with everything it
 has, links back when the file shows up in any watched folder, and To-do lists it. Only the user's word removes an own
 song or downloads a playlist song again. This section is the read side (E3a) and the two actions (`missing_files_preview`,
-`missing_files`, E3b); the Auto-upgrade block's placement rows are added with their group.
+`missing_files`, E3b); the Auto-upgrade block's placement rows (E4b) are in "Auto-upgrade" above.
 
 - **`todo()`**: `TodoFilter` and `TodoGroupKey` gain `missing_file`; the group is second, after `rekordbox_check` (label
   "Missing files", hint "not where they were; put a file back and it links again"; `chips.missing_file`). It lists every
@@ -2284,18 +2318,22 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   song gets {Download again | Remove from library} instead."; `found_twice` "Its file is in several places now: keep one
   and it links again."; `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open:
   finish it first."; `asked` "You asked for it already: it happens at your next sync."
-- **Fake backend**: scenario `missing_files` (`hub-ui/src/lib/bridge/fake/missingFiles.ts`): the plain scenario with ten
+- **Fake backend**: scenario `missing_files` (`hub-ui/src/lib/bridge/fake/missingFiles.ts`): the plain scenario with eleven
   songs whose file waits as missing (a playlist song, one with a parked better version, one found in two places, one
-  marked Never download, a hidden one, one whose Download again was asked, and four own songs: plain, with a parked
+  marked Never download, a hidden one, one whose Download again was asked, one whose Download again was asked and whose
+  better version is parked (the sync's last phase places it: a done `place` row), and four own songs: plain, with a parked
   version, with an open rekordbox check, on a drive that is away). `todo()`, `track()` and `library()` answer from them as
   the engine does (the group, `missing`, `all`, `file_state`, `next_qobuz_check`); the engine's words are pinned against
   `discjockey/missing.py` by `missingFiles.test.ts`. `missing_files_preview` and `missing_files` answer from the same
   state with the engine's rules and words (`previewMissing`, `runMissing`, `summary`; the summary line's sentences are
   pinned against `tests/test_missing_actions.py`): Download again sets `fileGone` (the song leaves To-do, its parked
   version stays), Remove deletes an own song and its parked version, a song the action does not fit is a `skipped` row
-  with its reason, and every song skipped ends the job `changed` with the result kept. An unknown action is `refused` in
-  the fake (the window sends only the two words; the engine says `bad_args`). The fake's Sync plan does not list the
-  download that Download again asks for.
+  with its reason, and every song skipped ends the job `changed` with the result kept. An unknown action is `bad_args` in
+  the fake as in the engine (`outcome` and `kind` `bad_args`, `reason` `usage`; the window sends only the two words). The
+  fake's Sync plan lists the download that Download again asks for (group `acquire:redownload` "Download again", rows
+  `acquire` / `redownload`) for a missing playlist song with no parked version and not marked Never download; a song with a
+  parked version plans none, the sync's last phase places it (the fake's `planPhase`: `place` rows first, `placed_missing`
+  section, the batch's `started_by` by the switch).
 
 ### The two actions (read: `missing_files_preview`; write job: `missing_files`; both in `LIBRARY_METHODS`)
 

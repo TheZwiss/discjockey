@@ -113,8 +113,10 @@ export type BatchCheck = { id: number; size: number; started: string | null;
   /** `aiff:<id>`, the id the command line takes for this batch (the window ignores it) */
   aiff_id?: string;
   /** who started the batch (`aiff_batches.started_by`): `auto_upgrade` is the sync's Auto-upgrade phase (its item says
-   *  "Upgraded during your sync" and its foot "Undo all from this sync"); null when unknown */
-  started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all' | 'auto_upgrade' | (string & {}) | null;
+   *  "Upgraded during your sync" and its foot "Undo all from this sync"); `download_again` is the same phase with the switch
+   *  off (issue 43: it puts in the parked better version of a missing song the user asked to download again; the engine's
+   *  words for its item and foot are the same); null when unknown */
+  started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all' | 'auto_upgrade' | 'download_again' | (string & {}) | null;
   /** the batch's own kind (`aiff_batches.kind`): a Convert batch says "Made AIFF"; null when unknown */
   kind: 'upgrade' | 'convert' | 'mixed' | null;
   tracks: TodoItem[] };
@@ -126,7 +128,7 @@ export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekord
  *  false for a swap and in records from before it), `text` the whole instruction and
  *  `old_path` where the old file (added) or the copy of the old audio (swap) is now (null without an undo record).
  *  The item's `detail` is the row's short line. */
-export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed' | string;
+export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed' | 'placed_missing' | string;
   since: string | null;
   match: string | null; offset_ms: number | null; moved: boolean; aligned: boolean; text: string; old_path: string | null;
   /** an added file: the old file is an AIFF, so rekordbox's Relocate takes the new file; false for any other old file
@@ -253,11 +255,16 @@ export type Budget = { used: number; allowance: number; limit: number; carry_ove
   remaining: number };
 export type RunCounts = { lossless: number; lossy: number; problems: number; moved: number };
 /** One track of the sync's Auto-upgrade phase (auto_upgrade.py). `state` `would` only in a dry run; `reason` a waiting
- *  row's `rekordbox_open` | `busy` | `not_reached`, a refused row's `EligibleReason` key; `how` the way Same track goes. */
+ *  row's `rekordbox_open` | `busy` | `not_reached`, a refused row's `EligibleReason` key; `how` the way Same track goes,
+ *  or `placed` for a placement (issue 43: Download again put the parked better version in for a song whose file is
+ *  missing). `action` is `same_track` or `place`; absent in a report from before issue 43 (read it as `same_track`). */
 export type AutoUpgradeResult = { track: string; name: string; state: 'done' | 'would' | 'waiting' | 'refused' | 'failed';
-  reason: string | null; message: string | null; how: 'in_place' | 'new_aiff' | null };
+  reason: string | null; message: string | null; how: 'in_place' | 'new_aiff' | 'placed' | null;
+  action?: 'same_track' | 'place' };
 /** A run's Auto-upgrade block (the report's `.json` key `auto_upgrade`, contract "Auto-upgrade"): `batch` null when no
- *  batch ran, `waiting` = rekordbox open + busy + not reached. */
+ *  batch ran, `waiting` = rekordbox open + busy + not reached. Placements are rows like the others (`action: 'place'`) and
+ *  count in `done` / `waiting` / `refused`; with the switch off the block is there only when a placement is coming or
+ *  was done (the sync's `auto_upgrade` is null otherwise). */
 export type AutoUpgradeBlock = { batch: number | null; backup: string | null; done: number; waiting: number;
   refused: number; failed: number; stopped: boolean; dry_run: boolean; results: AutoUpgradeResult[] };
 export type RunSummary = {

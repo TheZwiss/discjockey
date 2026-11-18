@@ -216,27 +216,30 @@ function playlistPool(s: FakeState): FakeTrack[] {
 }
 
 /** What the scenario `missing_files` made of which song, by track id. */
-export type MissingSet = Record<'plain' | 'parked' | 'twice' | 'never' | 'hidden' | 'asked' | 'own' | 'ownParked' | 'ownCheck' | 'ownOffline', string>;
+export type MissingSet = Record<'plain' | 'parked' | 'twice' | 'never' | 'hidden' | 'asked' | 'askedParked' | 'own' | 'ownParked' | 'ownCheck' | 'ownOffline', string>;
 const sets = new WeakMap<FakeState, MissingSet>();
 /** The scenario's songs for a state it made (tests and shots); undefined for any other state. */
 export const missingSet = (s: FakeState): MissingSet | undefined => sets.get(s);
 
 /**
- * `missing_files`: the plain scenario plus ten songs whose file waits as missing, one for each state of plan §7.5.
+ * `missing_files`: the plain scenario plus eleven songs whose file waits as missing, one for each state of plan §7.5.
  *   plain      playlist song          Download again; "Downloads again at your next sync"
  *   parked     playlist song          Download again with a parked better version: "Gets the better version already waiting…"
  *   twice      playlist song          found in two places: Download again blocked (`found_twice`)
  *   never      playlist song          "Never download" chosen: Download again blocked (`never`)
  *   hidden     playlist song          hidden: only with Show hidden, left out of the group's `all`
- *   asked      playlist song          Download again was asked (`fileGone`): in no group; Library: next sync
+ *   asked      playlist song          Download again was asked (`fileGone`): in no group; Library: next sync; the Sync plan
+ *                                     lists its download (`acquire:redownload`)
+ *   askedParked playlist song         Download again was asked and a better version is parked: the sync's last phase puts it in
+ *                                     (a `place` row of the Auto-upgrade block; no download is planned)
  *   own        own song               Remove from library
  *   ownParked  own song               Remove with a parked better version (the hint's extra line)
  *   ownCheck   own song               Remove blocked by an open rekordbox check (`check_open`); also in Check in rekordbox
  *   ownOffline own song, drive away   file_state `offline` wins over the missing mark; Remove
  */
 export function missingScenario(s: FakeState): void {
-  const [plain, parked, twice, never, hidden, asked] = playlistPool(s);
-  if (!asked) throw new Error('missing_files: the plain scenario has too few playlist songs');
+  const [plain, parked, twice, never, hidden, asked, askedParked] = playlistPool(s);
+  if (!askedParked) throw new Error('missing_files: the plain scenario has too few playlist songs');
   const mark = (t: FakeTrack, daysAgo: number, found?: string[]) => { t.missing = { since: daysBefore(s, daysAgo), ...(found ? { found } : {}) }; };
   mark(plain, 6);
   park(s, parked); mark(parked, 3);
@@ -244,6 +247,7 @@ export function missingScenario(s: FakeState): void {
   mark(never, 12); s.never.push(never.track_id);
   mark(hidden, 15); hidden.hidden = true;
   mark(asked, 2); asked.fileGone = true;
+  park(s, askedParked); mark(askedParked, 4); askedParked.fileGone = true;
 
   const own = ownTrack(s, 21), ownParked = ownTrack(s, 22), ownCheck = ownTrack(s, 23), ownOffline = ownTrack(s, 24);
   mark(own, 40);
@@ -255,7 +259,7 @@ export function missingScenario(s: FakeState): void {
   mark(ownOffline, 30);
 
   sets.set(s, { plain: plain.track_id, parked: parked.track_id, twice: twice.track_id, never: never.track_id,
-    hidden: hidden.track_id, asked: asked.track_id, own: own.track_id, ownParked: ownParked.track_id,
+    hidden: hidden.track_id, asked: asked.track_id, askedParked: askedParked.track_id, own: own.track_id, ownParked: ownParked.track_id,
     ownCheck: ownCheck.track_id, ownOffline: ownOffline.track_id });
 }
 

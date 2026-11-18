@@ -105,7 +105,7 @@ export function upgradedDetail(note: string, how: AutoUpgradeResult['how'] | und
   // a second line carries no full stop (the other rows' lines have none); the engine's sentence keeps its own
   const extras = NOTE_EXTRAS.map((re) => re.exec(note)?.[0]?.replace(/\.$/, '')).filter((x): x is string => !!x);
   if (extras.length) return extras.join(' · ');
-  return how ? HOW_WORDS[how] : '';
+  return how && how !== 'placed' ? HOW_WORDS[how] : '';   // a placement's words are the engine's (its own section: U1)
 }
 
 /** The Auto-upgrade rows of a run by the block's state per track (a track without a result there waits). */
