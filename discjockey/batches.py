@@ -49,7 +49,7 @@ rekordbox write when its file is in rekordbox's library, whatever its format; op
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -580,6 +580,16 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
     return None
 
 
+def progress_words(actions: Collection[str], done: int, total: int) -> tuple[str, str]:
+    """The phase's words for a `BatchProgress` (the window prints them as they are): (lead, count). Only Same track
+    items: "Upgrading", "{done} of {total} upgraded"; only placements of missing songs: "Putting in better versions",
+    "{done} of {total} put in"; any other mix: "Upgrading", "{done} of {total} done"."""
+    kinds = set(actions)
+    if kinds == {"place"}:
+        return "Putting in better versions", f"{done} of {total} put in"
+    return "Upgrading", f"{done} of {total} {'upgraded' if kinds == {'same_track'} else 'done'}"
+
+
 def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None = None,
         compare: upgrades.Compare = align.compare_files, now: Callable[[], datetime] = datetime.now,
         running: Callable[[], bool] | None = None, place=_DEFAULT, state: dict | None = None,
@@ -600,6 +610,7 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
     planned = [i for i in row.items if i.state == "planned"]
     total = len(row.items)
     handled = total - len(planned)
+    actions = {i.action for i in row.items}
     stop = None
     backup = row.backup
 
@@ -620,7 +631,8 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
                         stop = "rekordbox_open"
                         break
                     emit(BatchProgress(batch_id, handled, total, item.track,
-                                       _name(state["tracks"].get(item.track), item.track)))
+                                       _name(state["tracks"].get(item.track), item.track),
+                                       *progress_words(actions, handled, total)))
                     stop = _item(paths, state, session, batch_id, item, compare, now, log)
                     if stop:
                         break
@@ -651,7 +663,7 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
         raise Stopped(result)
     if stop == "rekordbox_open":
         raise RekordboxOpen(result)
-    emit(BatchProgress(batch_id, total, total, None, None))
+    emit(BatchProgress(batch_id, total, total, None, None, *progress_words(actions, total, total)))
     if not result.done and not result.failed and result.skipped:
         raise Refused(result)
     return result

@@ -129,7 +129,7 @@ class ConsolePrinter:
             self._clear()
         elif isinstance(event, BatchProgress):  # the sync's Auto-upgrade phase: one line per track
             if event.track_id:
-                self._line(f"Upgrading {event.done + 1} of {event.total}: {event.name}")
+                self._line(f"{event.lead or 'Upgrading'} {event.done + 1} of {event.total}: {event.name}")
         elif isinstance(event, Message):
             if event.level == "info":
                 self._line(event.text)

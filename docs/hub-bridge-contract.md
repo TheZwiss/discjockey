@@ -1357,13 +1357,18 @@ Qobuz `days_to_load` is null.
   "upgrades_ready": 1,
   "report_md": "reports/2026-10-19_214700.md",
   "queued": 0,
-  "folder_order": ["Hard_Bounce", "Powertrance"]
+  "folder_order": ["Hard_Bounce", "Powertrance"],
+  "section_labels": {"new_lossless": "New lossless tracks", "placed_missing": "Better version put in (its file was missing)", "...": "..."},
+  "part_labels": {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}
  }
 }
 ```
 Every row with a `track_id` except `queued` carries `cover_url` (the file's own cover, else Spotify's, else null).
 `queued`: how many tracks wait for the next sync (stopped before, left out, over the limit). `folder_order`: the
-playlist folders in playlists.txt order, for grouping the rows.
+playlist folders in playlists.txt order, for grouping the rows. `section_labels`: the report's own title of every section
+(`report.SECTIONS`; the end screen's part of the placements reads `placed_missing`); `part_labels`: the titles of the
+Auto-upgrade parts that hold rows of more than one section (`report.PART_LABELS`: `upgraded`, `waiting`, `refused`). The
+window prints them as they are.
 
 `spectrum(track_id, which="current")` — which: `current|upgrade`. `data`: base64 of `cols*bands` bytes, row by row
 in time, each row low→high frequency (band width `max_hz/bands`); byte v → dB = `floor_db * (1 - v/255)` (0 dB =
@@ -2043,7 +2048,7 @@ the third action).
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 | `MovesProgress` | `batch_id`, `done`, `total` — after each move of a move batch, during `tidy`, `undo_moves` and a moving `save_playlists` (a folder rename counts as one move) |
-| `BatchProgress` | `batch_id`, `done`, `total`, `track_id`, `name` — before each track of an AIFF batch and after the last (`track_id`/`name` null then), during `upgrade_batch`, `batch_resume`, `batch_undo`, a `sync` (its Auto-upgrade phase, stage C: one batch, `batch_id` its real id) and, with `batch_id` 0 (no batch record), `upgrade_add_new` / `upgrade_discard` lists. `done` counts tracks handled, earlier runs of a resumed batch included |
+| `BatchProgress` | `batch_id`, `done`, `total`, `track_id`, `name`, `lead`, `count` — `lead` / `count` the phase's words, printed as they are (`batches.progress_words`): only Same track items "Upgrading" / "{done} of {total} upgraded", only placements of missing songs "Putting in better versions" / "{done} of {total} put in", any other mix "Upgrading" / "{done} of {total} done"; both "" for `upgrade_add_new` / `upgrade_discard` lists and an undo — before each track of an AIFF batch and after the last (`track_id`/`name` null then), during `upgrade_batch`, `batch_resume`, `batch_undo`, a `sync` (its Auto-upgrade phase, stage C: one batch, `batch_id` its real id) and, with `batch_id` 0 (no batch record), `upgrade_add_new` / `upgrade_discard` lists. `done` counts tracks handled, earlier runs of a resumed batch included |
 | `ImportProgress` | `phase` `scan|facts|tags|sound|link`, `done`, `total` (0 of 0 for scan and link), `unreadable` (files this import couldn't read so far) — during an import (importer.run_import), at each phase's start and end and at most every 25 files or 0.5 s between |
 
 Pause card: the pause runs inside the next action after its `ActionStarted` and search, so "next up" is the current
@@ -2103,8 +2108,15 @@ action.
   `auto_upgrade` and `download_again` (the same phase with the switch off, which runs the placements alone: issue 43), the
   item's `detail` is "{date} · Upgraded during your sync" (in place of "{date} · Same track"). The batch also has
   `from_sync: bool` (`views.SYNC_STARTERS`: true for `auto_upgrade` and `download_again`): the page names the card and its
-  foot from it ("{n} tracks upgraded", "Undo all from this sync"), so it keeps no list of starters. Only the item's `detail`
-  is engine text; the foot words are the window's.
+  foot from it ("Undo all from this sync"), so it keeps no list of starters. The engine words the batch, the window prints
+  them as they are: `batch.row_name` ("{n} tracks upgraded"; Convert and mixed batches "{n} tracks"; every check a
+  placement `placed_missing` "{n} better versions put in"; a mix of placements and others "{n} tracks changed"),
+  `batch.row_sub` ("{day} · {how}", the day "today", "yesterday" or "12 Nov"; `how` as the item's `detail` says it, and
+  "Better versions put in during your sync" when every check is a placement), `batch.list_title` ("Upgraded", "Made AIFF",
+  "Clean names", "Better versions put in", "Changed" for a mix) and `batch.card_summary` (the summary of the batch's "In
+  rekordbox" card: "better versions in" when every check is a placement, else null: the window keeps the upgrades' own).
+  The card's steps for a placement are its `check.text`, one step per distinct text. The foot words ("Undo all from this
+  sync") are the window's.
 - **`run(run_id)` / `runs()`** (`RunSummary.auto_upgrade`): the report's `.json` key `auto_upgrade` plus `line`
   (`report.auto_upgrade_line`: "Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed." …; null when
   nothing happened), or null. The block: `{batch: int|null, backup: str|null, done, waiting, refused, failed,

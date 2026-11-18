@@ -1,12 +1,12 @@
 import unicodedata
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import time
 
 import pytest
 
-from discjockey import report
+from discjockey import report, words
 from discjockey.hub import views
 from discjockey.rekordbox.master import Status
 from discjockey.hub.jobs import PreviewStore
@@ -2749,6 +2749,54 @@ def test_a_batch_says_whether_the_syncs_last_phase_made_it_whichever_way_the_swi
     assert views.SYNC_STARTERS == ("auto_upgrade", "download_again")
     again = batch_item(swapped, started_by={8: "download_again"})
     assert again["detail"] == "2026-11-13 · Upgraded during your sync"
+
+
+def test_a_batch_item_carries_the_rows_and_lists_words_so_the_window_prints_them():
+    swapped = batch_item(batch_state("swapped"), batch_kinds={8: "upgrade"})["batch"]
+    assert (swapped["row_name"], swapped["list_title"], swapped["card_summary"]) == ("2 tracks upgraded", "Upgraded", None)
+    assert swapped["row_sub"] == "13 Nov · Same track"
+    conv = batch_item(batch_state("converted", n=3), batch_kinds={8: "convert"})["batch"]
+    assert (conv["row_name"], conv["row_sub"].split(" · ")[1], conv["list_title"]) == ("3 tracks", "Made AIFF", "Made AIFF")
+    names = batch_item(batch_state("renamed"), batch_kinds={8: "convert"})["batch"]
+    assert (names["row_sub"].split(" · ")[1], names["list_title"]) == ("Clean name", "Clean names")
+    assert batch_item(batch_state("converted"), batch_kinds={8: "mixed"})["batch"]["row_name"] == "2 tracks"
+
+
+def test_a_batch_row_says_today_yesterday_or_the_day():
+    for since, want in ((TODAY.isoformat(), "today"), ((TODAY - timedelta(days=1)).isoformat(), "yesterday"),
+                        ("2026-01-02", words.short_day(date(2026, 1, 2), TODAY))):
+        st = state(**{f"t{i}": e(rekordbox_check={"reason": "swapped", "since": since, "batch": 8}, title=f"S{i}")
+                      for i in range(2)})
+        assert batch_item(st)["batch"]["row_sub"] == f"{want} · Same track"
+
+
+def placed_state(reasons):
+    return state(**{f"t{i}": e(rekordbox_check={"reason": r, "since": "2026-11-13", "batch": 8}, title=f"Song {i}")
+                    for i, r in enumerate(reasons)})
+
+
+def test_a_batch_of_placements_says_so_in_every_word_of_its_row_and_card():
+    for by in ("download_again", "auto_upgrade"):
+        b = batch_item(placed_state(["placed_missing"] * 3), batch_kinds={8: "upgrade"}, started_by={8: by})
+        assert b["detail"] == "2026-11-13 · Better versions put in during your sync"
+        assert (b["batch"]["row_name"], b["batch"]["list_title"], b["batch"]["card_summary"]) == (
+            "3 better versions put in", "Better versions put in", "better versions in")
+        assert b["batch"]["row_sub"].endswith(" · Better versions put in during your sync")
+    assert views._batch_row_name(1, "upgrade", 1) == "1 better version put in"
+
+
+def test_a_batch_of_placements_and_upgrades_is_a_batch_of_changes():
+    b = batch_item(placed_state(["placed_missing", "swapped", "swapped"]), batch_kinds={8: "upgrade"},
+                   started_by={8: "auto_upgrade"})
+    assert (b["batch"]["row_name"], b["batch"]["list_title"], b["batch"]["card_summary"]) == ("3 tracks changed", "Changed", None)
+    assert b["detail"] == "2026-11-13 · Upgraded during your sync"
+
+
+def test_run_detail_sends_the_reports_own_titles_of_its_sections_and_parts():
+    d = views.run_detail("x", {"results": []}, state())
+    assert d["section_labels"] == dict(report.SECTIONS) and d["section_labels"]["placed_missing"] == (
+        "Better version put in (its file was missing)")
+    assert d["part_labels"] == {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}
 
 
 def aiff_batch(batch_id, state="stopped", scope=None, kind="convert", planned=2):

@@ -12,7 +12,7 @@ import {
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
-import { AUTO_BATCH_DETAIL, autoDetail, autoOn, autoPreview, autoBlock, backupId, placeTracks, markRefused, markWaiting, phaseEvents, phaseResults,
+import { batchWords, progressWords, autoDetail, autoOn, autoPreview, autoBlock, backupId, placeTracks, markRefused, markWaiting, phaseEvents, phaseResults,
   planPhase, readyTracks, rekordboxStatus, REKORDBOX_STATE_TEXT, sameTrackReasonOf, stopRows, withPhase, AUTO_REFUSED_WORDS, type PhasePlan } from './auto';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
@@ -422,7 +422,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const next = () => {
         const item = left()[0];
         if (!item) {
-          emit({ type: 'BatchProgress', batch_id: b.id, done: total, total, track_id: null, name: null } as HubEvent);
+          emit({ type: 'BatchProgress', batch_id: b.id, done: total, total, track_id: null, name: null,
+            ...progressWords(b.items.map((i) => i.action), total, total) } as HubEvent);
           if (b.items.every((i) => i.state === 'skipped')) { b.state = 'done'; batchStop = null;
             // one track: the item's own words (as the engine's Refused), else the general sentence
             const only = total === 1 ? b.items[0] : null;
@@ -445,7 +446,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           return end(quick && done === 0 ? 'done' : 'stopped', quick && done === 0 ? null : 'rekordbox_open', 'rekordbox_open',
             'rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed.');
         }
-        emit({ type: 'BatchProgress', batch_id: b.id, done, total, track_id: item.track, name: t ? `${t.artist} - ${t.title}` : item.track } as HubEvent);
+        emit({ type: 'BatchProgress', batch_id: b.id, done, total, track_id: item.track, name: t ? `${t.artist} - ${t.title}` : item.track,
+          ...progressWords(b.items.map((i) => i.action), done, total) } as HubEvent);
         setTimeout(() => {
           const late = s.batchSkip?.[item.track];
           if (converting) {
@@ -1339,14 +1341,14 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           }
           if (n >= ids.length) {
             batchStop = null;
-            emit({ type: 'BatchProgress', batch_id: 0, done: ids.length, total: ids.length, track_id: null, name: null } as HubEvent);
+            emit({ type: 'BatchProgress', batch_id: 0, done: ids.length, total: ids.length, track_id: null, name: null, lead: '', count: '' } as HubEvent);
             return finish(true, batchBody(null, 'done', null, results));
           }
           const t = track(ids[n++]);
           if (!t?.upgrade) results.push({ track: ids[n - 1], action: mode, state: 'skipped', reason: 'no_upgrade', message: null,
             path: null, rekordbox: null });
           else {
-            emit({ type: 'BatchProgress', batch_id: 0, done: n - 1, total: ids.length, track_id: t.track_id, name: `${t.artist} - ${t.title}` } as HubEvent);
+            emit({ type: 'BatchProgress', batch_id: 0, done: n - 1, total: ids.length, track_id: t.track_id, name: `${t.artist} - ${t.title}`, lead: '', count: '' } as HubEvent);
             if (mode === 'discard') { t.upgrade = null; results.push(itemOf(t, mode, 'upgrade discarded')); }
             else { apply(t, 'add_new', null); results.push(itemOf(t, mode, 'added as a new file, the old one is in Superseded')); }
           }
@@ -1629,12 +1631,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             const started_by = s.batchStartedBy?.[id] ?? record?.started_by ?? 'user';
             // the batch's own kind; a scenario that only sets checks has no record: its checks' reasons say it
             const kind = record?.kind ?? (tracks.some((x) => ['converted', 'renamed'].includes(x.check!.reason)) ? 'convert' : 'upgrade');
-            // views._batch_how: "Made AIFF" for a Convert batch, "Clean name" when every check is a clean name
             const from_sync = started_by === 'auto_upgrade' || started_by === 'download_again';   // views.SYNC_STARTERS
-            const how = from_sync ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
-              : tracks.every((x) => x.check!.reason === 'renamed') ? 'Clean name' : 'Made AIFF';
-            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${how}`,
-              batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, from_sync, kind, tracks } });
+            const w = batchWords(tracks.map((x) => x.check!.reason), kind, from_sync, started, s.now);
+            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${w.how}`,
+              batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, from_sync, kind, tracks,
+                row_name: w.row_name, row_sub: w.row_sub, list_title: w.list_title, card_summary: w.card_summary } });
             chips.rekordbox_check++;
             counted.add(key);
           }

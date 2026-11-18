@@ -95,9 +95,6 @@ export function endTitle(exit_code: number | null | undefined): string {
  *  next sync (it was not reached, another window was working, the track changed meanwhile). */
 export const WAITS_FOR_REKORDBOX = 'Waits for rekordbox to be closed';
 export const WAITS_FOR_SYNC = 'Waits for your next sync';
-/** The part's title for the placements: the report's own words for the run log's section `placed_missing`
- *  (report.SECTIONS; the run's answer carries no section labels, so a test pins this copy against report.py). */
-export const PLACED_LABEL = 'Better version put in (its file was missing)';
 /** How an upgraded track went, from the block's `how`, when the engine has nothing of its own to add. */
 export const HOW_WORDS = { new_aiff: 'Now an AIFF file; rekordbox follows it', in_place: 'Same AIFF, lossless audio' } as const;
 /** The clauses of a done note that tell something the default doesn't: the edits kept in rekordbox, or no rekordbox track. */
@@ -209,10 +206,10 @@ export function endModel(run: RunDetail, newSincePreview: number | null = null, 
     notes: notes.filter((x): x is EndNote => !!x),
     needs: run.needs_you.filter(isProblem), added: groupByFolder(added, run.folder_order ?? []), other,
     ...rows, auto: [
-      { key: 'upgraded' as const, label: 'Upgraded', rows: rows.upgraded },
-      { key: 'placed' as const, label: PLACED_LABEL, rows: rows.placed },
-      { key: 'waiting' as const, label: 'Still waiting', rows: rows.waiting },
-      { key: 'refused' as const, label: "Couldn't go in", rows: rows.refused },
+      { key: 'upgraded' as const, label: run.part_labels.upgraded, rows: rows.upgraded },
+      { key: 'placed' as const, label: run.section_labels.placed_missing, rows: rows.placed },
+      { key: 'waiting' as const, label: run.part_labels.waiting, rows: rows.waiting },
+      { key: 'refused' as const, label: run.part_labels.refused, rows: rows.refused },
     ].filter((part) => part.rows.length),
     syncRest: stoppedRun && queued > 0,
   };

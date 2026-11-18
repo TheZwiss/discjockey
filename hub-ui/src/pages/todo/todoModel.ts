@@ -3,7 +3,7 @@
 import type { SegOption } from '$lib/components/segmentedModel';
 import type {
   FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter,
-  CountedGroup, MissingGroup, TodoGroupKey, TodoItem, TrackDetail,
+  BatchCheck, CountedGroup, MissingGroup, TodoGroupKey, TodoItem, TrackDetail,
 } from '$lib/bridge/types';
 import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
 import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
@@ -173,7 +173,7 @@ export function multiScope(items: TodoItem[]): (key: string) => string | null {
 }
 /** The checks a batch card or a selection of checks acted on (Done, Undo all, Undo this one): the page keeps them in
  *  its panel until the next pick, whatever shape the list gives them now. `batch`: the panel was that batch's card. */
-export type CheckHold = { ids: string[]; batch: { id: number; started: string | null } | null };
+export type CheckHold = { ids: string[]; batch: Pick<BatchCheck, 'id' | 'started' | 'from_sync' | 'list_title' | 'card_summary'> | null };
 /** The open checks of a hold in `items` (a batch item gives its tracks), in the list's order, with the keys of the
  *  rows that hold them; null when none is left (all done or undone). */
 export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; tracks: TodoItem[] } | null {

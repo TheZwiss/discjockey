@@ -194,12 +194,16 @@ class MovesProgress:
 class BatchProgress:
     """How far an AIFF batch is (batches.run, plan rekordbox stage B §1.11): `done` of `total` items handled (done,
     skipped or failed; earlier runs of a resumed batch count); `track_id` / `name` the item now in work, both None
-    after the last one."""
+    after the last one. `lead` / `count`: the words the window shows for the phase ("Upgrading", "3 of 5 upgraded";
+    "Putting in better versions", "3 of 5 put in"), made by `batches.progress_words` from what the batch's items do;
+    empty where the event isn't the sync's phase (undo, add as new, discard)."""
     batch_id: int
     done: int
     total: int
     track_id: str | None
     name: str | None
+    lead: str = ""
+    count: str = ""
 
 
 ImportPhase = Literal["scan", "facts", "tags", "sound", "link"]

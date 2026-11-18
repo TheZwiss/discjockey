@@ -1,9 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { AutoUpgradeResult, Result, RunDetail, RunSummary } from '$lib/bridge/types';
 import {
-  PLACED_LABEL, endModel, endTitle, groupByFolder, keepDetail, lastSyncStats, lastSyncView, needsDetail, otherDetail, upgradedDetail, type LastSyncDetail,
+  endModel, endTitle, groupByFolder, keepDetail, lastSyncStats, lastSyncView, needsDetail, otherDetail, upgradedDetail, type LastSyncDetail,
 } from './endModel';
 
 const r = (section: string, folder: string, title: string, extra: Partial<Result> = {}): Result => ({ section, folder,
@@ -17,7 +15,9 @@ const run = (results: Result[], extra: Partial<RunDetail> = {}): RunDetail => {
     duration_s: 1440, exit_code: 0, counts: { lossless: 0, lossy: 0, problems: 0, moved: 0 }, stopped_after: null,
     auto_upgrade: null, sections, needs_you: results.filter((x) => ['missing', 'errors'].includes(x.section)),
     for_rekordbox: { new_files: 0, folders: [] }, upgrades_ready: 0, report_md: '', queued: 0,
-    folder_order: ['Hard_Bounce', 'Powertrance', 'Bouncy'], ...extra };
+    folder_order: ['Hard_Bounce', 'Powertrance', 'Bouncy'],
+    section_labels: { placed_missing: 'Better version put in (its file was missing)' },
+    part_labels: { upgraded: 'Upgraded', waiting: 'Still waiting', refused: "Couldn't go in" }, ...extra };
 };
 const RESULTS = [
   r('new_lossless', 'Powertrance', 'p1', { status: 'lossless' }),
@@ -272,8 +272,12 @@ describe('end screen: the missing songs that got their better version (issue 43,
     expect(m.other).toEqual([]);
     expect(endModel(run([PLACED]), null, NOW).placed).toEqual([]);
   });
-  it('the part\'s title is the report\'s own words for the section', () => {
-    const py = readFileSync(fileURLToPath(new URL('../../../../discjockey/report.py', import.meta.url)), 'utf8');
-    expect(py).toContain(`("placed_missing", "${PLACED_LABEL}")`);
+  it("the parts' titles are the engine's words from the run's answer, not the window's", () => {
+    const w = r('upgrade_waits', 'Hard_Bounce', 'p2', { note: 'Waits for rekordbox to be closed.' });
+    const f = r('upgrade_waits', 'Hard_Bounce', 'p3', { note: 'Not enough free space.' });
+    const m = endModel(run([UP, PLACED, w, f], {
+      section_labels: { placed_missing: 'T-placed' }, part_labels: { upgraded: 'T-up', waiting: 'T-wait', refused: 'T-no' },
+      auto_upgrade: block([upRes('g1'), placedRes('p1', 'done'), placedRes('p2', 'waiting', 'rekordbox_open'), placedRes('p3', 'refused', 'space')]) }), null, NOW);
+    expect(m.auto.map((p) => p.label)).toEqual(['T-up', 'T-placed', 'T-wait', 'T-no']);
   });
 });

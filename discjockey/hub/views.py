@@ -27,9 +27,9 @@ from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as 
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
-from ..report import PLAN_LABELS, auto_upgrade_line, check_text, result_folder
+from ..report import PART_LABELS, PLAN_LABELS, SECTIONS, auto_upgrade_line, check_text, result_folder
 from ..settings import Settings
-from ..words import TODO_EMPTY, person_steps
+from ..words import TODO_EMPTY, person_steps, short_day
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
@@ -304,7 +304,9 @@ def run_detail(run_id: str, data: dict, state: dict, cover: Url | None = None,
                folder_order: list[str] | None = None) -> dict:
     """The end screen of a run: totals, what needs the user, what changed for rekordbox, upgrades waiting. With
     `cover`, every row that is shown one by one gets its `cover_url` (not the tracks still waiting); `folder_order`: the
-    playlist folders in playlists.txt order, for the groups."""
+    playlist folders in playlists.txt order, for the groups. `section_labels`: the report's own title of every section
+    (`report.SECTIONS`) and `part_labels` the titles of the Auto-upgrade parts that hold more than one section
+    (`report.PART_LABELS`), so the window prints the engine's words."""
     results = data.get("results") or []
     if cover is not None:
         results = [{**r, "cover_url": cover(r["track_id"], state["tracks"].get(r["track_id"]))}
@@ -319,7 +321,8 @@ def run_detail(run_id: str, data: dict, state: dict, cover: Url | None = None,
             "for_rekordbox": {"new_files": len(new_files), "folders": folders},
             "upgrades_ready": sum(1 for e in state["tracks"].values() if e.get("upgrade") and e.get("in_playlists")),
             "report_md": f"reports/{run_id}.md", "queued": len(sections.get("queued", [])),
-            "folder_order": list(folder_order or [])}
+            "folder_order": list(folder_order or []),
+            "section_labels": dict(SECTIONS), "part_labels": dict(PART_LABELS)}
 
 
 # --- dashboard ---
@@ -1754,12 +1757,21 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
 BATCH_MADE_AIFF = "Made AIFF"  # the sub of the To-do item of a Convert batch's checks (plan stage D §3)
 SYNC_STARTERS = (batches.AUTO, batches.DOWNLOAD_AGAIN)  # `started_by` of a batch the sync's last phase made
 BATCH_CLEAN_NAME = "Clean name"  # a batch that only gave clean names
+BATCH_PLACED = "Better versions put in during your sync"  # the sub of a batch of placements only (issue 43)
+PLACED_CARD_SUMMARY = "better versions in"  # the summary of the "In rekordbox" card of a batch of placements only
+
+
+def _placed(tracks: list[dict]) -> int:
+    """How many checks of a batch are placements of a missing file's better version (`placed_missing`)."""
+    return sum(1 for t in tracks if t["check"]["reason"] == "placed_missing")
 
 
 def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> str:
-    """The words after the day on a batch item: "Upgraded during your sync" (Auto-upgrade), "Made AIFF" (a batch of
-    Convert or Rename items: `aiff_batches.kind` `convert` or `mixed`; "Clean name" when every check is a clean name),
-    else "Same track"."""
+    """The words after the day on a batch item: "Better versions put in during your sync" (a batch of placements
+    only), "Upgraded during your sync" (Auto-upgrade), "Made AIFF" (a batch of Convert or Rename items:
+    `aiff_batches.kind` `convert` or `mixed`; "Clean name" when every check is a clean name), else "Same track"."""
+    if tracks and _placed(tracks) == len(tracks):
+        return BATCH_PLACED
     if started_by in SYNC_STARTERS:  # the sync's last phase, the switch on or off
         return AUTO_BATCH_DETAIL
     if kind in ("convert", "mixed"):
@@ -1767,19 +1779,61 @@ def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> 
     return "Same track"
 
 
-def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None, kind: str | None = None) -> dict:
+def _batch_row_name(n: int, kind: str | None, placed: int) -> str:
+    """The name of a batch's row in the To-do list: "{n} tracks upgraded" (Convert and mixed batches: "{n} tracks"),
+    "{n} better versions put in" when every check is a placement, "{n} tracks changed" for a mix of both."""
+    if placed == n:
+        return f"{n} better {'version' if n == 1 else 'versions'} put in"
+    if placed:
+        return f"{n} tracks changed"
+    return f"{n} tracks" if kind in ("convert", "mixed") else f"{n} tracks upgraded"
+
+
+def _batch_list_title(tracks: list[dict]) -> str:
+    """The title of a batch's list on its card: "Made AIFF" (every check a Convert), "Clean names" (every check a
+    clean name), "Better versions put in" (every check a placement), "Changed" for any mix, else "Upgraded"."""
+    reasons = [t["check"]["reason"] for t in tracks]
+    if reasons and all(r == "converted" for r in reasons):
+        return "Made AIFF"
+    if reasons and all(r == "renamed" for r in reasons):
+        return "Clean names"
+    if reasons and all(r == "placed_missing" for r in reasons):
+        return "Better versions put in"
+    return "Changed" if any(r in ("converted", "renamed", "placed_missing") for r in reasons) else "Upgraded"
+
+
+def _day_words(started: str | None, today: date | None) -> str:
+    """A day in words for a row's sub: "today", "yesterday", else "12 Nov" (`words.short_day`); "" without a day."""
+    if not started:
+        return ""
+    day = date.fromisoformat(started[:10])
+    if today is None:
+        return short_day(day, day)
+    return "today" if day == today else "yesterday" if day == today - timedelta(days=1) else short_day(day, today)
+
+
+def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None, kind: str | None = None,
+                today: date | None = None) -> dict:
     """The To-do item of an AIFF batch's open checks (two or more): it looks like its first track's row (a TrackRow,
     so the list can place it) under the key `batch:<id>`; `batch.tracks` are the checks as single items list them.
     `started_by`: who started the batch (`aiff_batches.started_by`; None when unknown): a batch of the sync's
     Auto-upgrade says "Upgraded during your sync" in place of "Same track". `kind`: the batch's own (`aiff_batches.kind`
-    `upgrade` | `convert` | `mixed`; None when unknown): a Convert batch says "Made AIFF" (`_batch_how`)."""
+    `upgrade` | `convert` | `mixed`; None when unknown): a Convert batch says "Made AIFF" (`_batch_how`).
+    The batch carries the row's and the list's words, so the window prints them as they are: `row_name`, `row_sub`
+    ("{day} · {how}", the day against `today`), `list_title`; `card_summary` is the summary of its "In rekordbox" card
+    when every check is a placement ("better versions in"), else null (the window keeps its own for upgrades)."""
     started = min((t["check"]["since"] for t in tracks if t["check"]["since"]), default=None)
     key = f"batch:{batch_id}"
     how = _batch_how(started_by, kind, tracks)
+    placed = _placed(tracks)
+    day = _day_words(started, today)
     return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
             "detail": f"{started or ''} · {how}".strip(" ·"),
             "batch": {"id": batch_id, "aiff_id": f"aiff:{batch_id}", "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
-                      "from_sync": started_by in SYNC_STARTERS, "tracks": tracks}}
+                      "from_sync": started_by in SYNC_STARTERS, "tracks": tracks,
+                      "row_name": _batch_row_name(len(tracks), kind, placed),
+                      "row_sub": f"{day} · {how}" if day else how, "list_title": _batch_list_title(tracks),
+                      "card_summary": PLACED_CARD_SUMMARY if placed == len(tracks) else None}}
 
 
 def _upgrade_all(rows: list[dict], stopped: tuple[int, int] | None) -> dict:
@@ -1960,7 +2014,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
                                              _absolute(root, state["tracks"][t].get("path"))),
                          "can_undo": can_undo(state["tracks"][t]),
                          "file_state": row_file_state(state["tracks"][t], away)} for t in batched[bid]],
-                        (started_by or {}).get(bid), (batch_kinds or {}).get(bid)))
+                        (started_by or {}).get(bid), (batch_kinds or {}).get(bid), today))
                     listed.add(f"batch:{bid}")
             else:
                 items["rekordbox_check"].append(check_item)

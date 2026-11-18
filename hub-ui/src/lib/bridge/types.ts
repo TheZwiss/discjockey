@@ -122,6 +122,10 @@ export type BatchCheck = { id: number; size: number; started: string | null;
   from_sync: boolean;
   /** the batch's own kind (`aiff_batches.kind`): a Convert batch says "Made AIFF"; null when unknown */
   kind: 'upgrade' | 'convert' | 'mixed' | null;
+  /** the engine's words for the batch (`views._batch_item`), printed as they are: the To-do row's name ("3 tracks
+   *  upgraded", "3 better versions put in", "3 tracks changed") and sub ("today · Same track"), the title of the batch's
+   *  list, and the "In rekordbox" card's summary when every check is a placement ("better versions in"; else null) */
+  row_name: string; row_sub: string; list_title: string; card_summary: string | null;
   tracks: TodoItem[] };
 export type BatchCheckItem = TodoItem & { group: 'rekordbox_check'; key: string; batch: BatchCheck };
 export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekordbox_check' && !!i.batch;
@@ -294,6 +298,10 @@ export type RunDetail = RunSummary & {
   sections: Record<string, Result[]>; needs_you: Result[];
   for_rekordbox: { new_files: number; folders: string[] }; upgrades_ready: number; report_md: string;
   queued: number; folder_order: string[];   // tracks waiting for the next sync; playlist folders in their order
+  /** the report's own title of every section (`report.SECTIONS`; the end part of the placements reads
+   *  `placed_missing`) and the titles of the Auto-upgrade parts that hold rows of more than one section
+   *  (`report.PART_LABELS`): the window prints them as they are */
+  section_labels: Record<string, string>; part_labels: { upgraded: string; waiting: string; refused: string };
 };
 
 export type PlanCounts = { new: number; retries: number; redownloads: number; bought: number; weekly_checks: number };

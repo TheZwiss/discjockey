@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RekordboxCheckView, TodoItem } from '$lib/bridge/types';
 import {
-  CONVERTED_BATCH_LEAD, NOT_IN_REKORDBOX, USB_STEP, batchCheckCard, batchListTitle, checkCard, checkRow, doneLabel, isOwnCheck,
+  CONVERTED_BATCH_LEAD, NOT_IN_REKORDBOX, USB_STEP, batchCheckCard, checkCard, checkRow, doneLabel, isOwnCheck,
   replacedCard, undoAsk, undoLabel, undoTitle,
 } from './decisionModel';
 
@@ -86,12 +86,6 @@ describe('a batch of converts', () => {
     expect(checkRow(check('b', { rekordbox: null }), 'A – b', 'file').notes).toEqual([NOT_IN_REKORDBOX]);
     expect(checkRow(check('c', { reason: 'renamed', rekordbox: null }), 'A – c', 'file').notes).toEqual([NOT_IN_REKORDBOX]);
     expect(r.notes).toEqual([]);
-  });
-  it('its list is titled by what the checks are', () => {
-    const c = (reason: string) => ({ check: view({ reason }) });
-    expect([batchListTitle([c('converted'), c('converted')]), batchListTitle([c('renamed')]), batchListTitle([c('converted'), c('renamed')]),
-      batchListTitle([c('swapped'), c('repointed')]), batchListTitle([c('converted'), c('swapped')])])
-      .toEqual(['Made AIFF', 'Clean names', 'Changed', 'Upgraded', 'Changed']);
   });
 });
 

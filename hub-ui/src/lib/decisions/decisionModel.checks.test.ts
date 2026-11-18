@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AutoRefused, BatchCheckItem, RekordboxCheckView, TodoItem, TrackDetail, Upgrade } from '$lib/bridge/types';
 import {
-  AUTO_BATCH_SUB, AUTO_WAITS_HINT, NOT_IN_REKORDBOX, UNDO_SYNC_LABEL, USB_STEP, autoNotes, isAutoBatch, batchCheckCard, batchRowName, batchRowSub, checkCard, checkRow, checkTracks, checksTitle,
+  AUTO_WAITS_HINT, NOT_IN_REKORDBOX, UNDO_SYNC_LABEL, USB_STEP, autoNotes, isAutoBatch, batchCheckCard, checkCard, checkRow, checkTracks, checksTitle,
   decisionFor, inRekordbox, keptLine, replacedCard, tracksSummary, undoAllLabel, undoFoot, undoManyConfirm, undoManyLabel, undoProblem, undoProblemLine,
   undoneToast,
 } from './decisionModel';
@@ -60,17 +60,7 @@ describe('the single check Same track leaves (repointed)', () => {
 });
 
 describe('the batch card', () => {
-  it('names the row by its size and day', () => {
-    expect(batchRowName(3)).toBe('3 tracks upgraded');
-    expect(batchRowSub('2026-11-08', '2026-11-08')).toBe('today · Same track');
-    expect(batchRowSub('2026-11-01', '2026-11-08')).toMatch(/^1\sNov · Same track$/);
-    expect(batchRowSub(null, '2026-11-08')).toBe('Same track');
-  });
-  it('the sync\'s batch says so in its row, in place of Same track (the user\'s other batches keep their word)', () => {
-    expect(AUTO_BATCH_SUB).toBe('Upgraded during your sync');
-    expect(batchRowSub('2026-11-08', '2026-11-08', true)).toBe('today · Upgraded during your sync');
-    expect(batchRowSub(null, '2026-11-08', true)).toBe('Upgraded during your sync');
-    expect(batchRowSub('2026-11-08', '2026-11-08', false)).toBe('today · Same track');
+  it('the engine says which batches are the sync\'s', () => {
     // the engine says which batches are the sync's (`from_sync`): a Download again batch (switch off) is one, the window keeps no list
     expect([isAutoBatch({ from_sync: true }), isAutoBatch({ from_sync: false }), isAutoBatch({}), isAutoBatch(null)]).toEqual([true, false, false, false]);
   });
@@ -101,6 +91,28 @@ describe('the batch card', () => {
     expect(one.steps[1]).toEqual(USB_STEP);
     expect(batchCheckCard([check('a', { rekordbox: null })], name)).toBeNull();
   });
+  it('a better version put in for a missing file gets the engine\'s words, one step per distinct text, no upgrade steps', () => {
+    const placed = (id: string, text: string) => check(id, { reason: 'placed_missing', text, reload_tag: true, batch: { id: 7, size: 3 } });
+    const A = 'It was put in at its old place; rekordbox found it again.', B = 'It was put in, but rekordbox has no track for it.';
+    const all = batchCheckCard([placed('a', A), placed('b', B), placed('c', A)], name, 'better versions in')!;
+    expect(all.summary).toBe('better versions in');
+    expect(all.steps.map((x) => [words(x), x.list])).toEqual([[A, ['A – a', 'A – c']], [B, ['A – b']]]);
+    expect(all.lead).toBeUndefined();
+    // nothing of an upgrade: no USB step, no Reload Tag, no analyse step
+    expect(JSON.stringify(all.steps)).not.toMatch(/USB|Reload Tag|Analyse/);
+    expect(batchCheckCard([placed('a', A)], name, 'better versions in')!.steps.map(words)).toEqual([A]);
+  });
+  it('a mix keeps the upgrades\' steps and summary from the upgrades alone, the placements\' texts after them', () => {
+    const p = check('p', { reason: 'placed_missing', text: 'Put in.', reload_tag: true });
+    const c = batchCheckCard([check('a'), check('b'), p], name, null)!;
+    expect(c.summary).toBe('same tracks, cues kept');
+    expect(c.steps.map(words)).toEqual([
+      'Analyse them again, so the waveform shows the full sound (lock the beatgrid first if you set it by hand)',
+      'On a USB stick? The stick still plays the old files. Rebuild the stick in rekordbox before your next gig', 'Put in.']);
+    expect(c.steps.at(-1)!.list).toEqual(['A – p']);
+    // without a placement nothing changes
+    expect(batchCheckCard([check('a'), check('b')], name, null)!.steps).toHaveLength(2);
+  });
   it('a row per track: the new file, what was kept, a file rekordbox doesn\'t have, whether it can be undone', () => {
     expect(checkRow(check('a', { rekordbox: { entries: 1, kept: ['title'] } }), 'A – a', 'file'))
       .toEqual({ track_id: 'a', name: 'A – a', sub: 'A - a.aiff', notes: ['Kept your own title in rekordbox'], can_undo: true,
@@ -114,7 +126,8 @@ describe('the batch card', () => {
 
 describe('several checks selected, and their undo', () => {
   const batch: BatchCheckItem = { ...check('batch:7', {}, { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', from_sync: false, kind: 'upgrade', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', from_sync: false, kind: 'upgrade',
+      row_name: '2 tracks upgraded', row_sub: 'today · Same track', list_title: 'Upgraded', card_summary: null, tracks: [check('b1'), check('b2')] } };
   it('a batch stands for its tracks', () => {
     expect(checkTracks([batch, check('c1')]).map((t) => t.track_id)).toEqual(['b1', 'b2', 'c1']);
   });

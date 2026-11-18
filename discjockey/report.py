@@ -44,6 +44,9 @@ SECTIONS = [
     ("recovered", "Finished from an interrupted run"),
     ("errors", "Errors (tried again next run)"),
 ]
+# The titles of the end screen's Auto-upgrade parts that hold rows of more than one section (a placement that waits
+# is "still waiting" like an upgrade that waits): the window shows them as they come.
+PART_LABELS = {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}
 REKORDBOX_CHECK = {
     "wrong_song": "This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they "
                   "belong to the wrong song).",

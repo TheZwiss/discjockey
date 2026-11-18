@@ -864,7 +864,8 @@ describe('multi-select of the rekordbox checks', () => {
   const check = (id: string, extra: Partial<TodoItem> = {}) => item(id, 'rekordbox_check', { can_undo: true, quality: 'lossless',
     quality_label: 'LOSSLESS', ...extra });
   const batch: BatchCheckItem = { ...check('batch:7', { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
-    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', from_sync: false, kind: 'upgrade', tracks: [check('b1'), check('b2')] } };
+    batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', from_sync: false, kind: 'upgrade',
+      row_name: '2 tracks upgraded', row_sub: 'today · Same track', list_title: 'Upgraded', card_summary: null, tracks: [check('b1'), check('b2')] } };
   const list = [batch, check('c1'), check('c2'), check('c3'), item('u1', 'upgrade_ready'), item('w1', 'weak')];
   const order = list.map(itemKey);
   const scopeOf = multiScope(list);
@@ -1095,11 +1096,5 @@ describe('the CDJ group (issue 33 stage D §6.3)', () => {
     expect(actionsFor(detail({ status: 'lossless' }), 'cdj')).toMatchObject({ hide: 'hide', main: null });
     expect(actionsFor(detail({ status: 'lossless', hidden: true }), 'cdj').hide).toBe('unhide');
     expect(actionsFor(detail({ status: 'lossless' }), null).hide).toBeNull();
-  });
-  it('a Convert batch is one row: "{n} tracks" over "{day} · Made AIFF"', async () => {
-    const { batchRowName, batchRowSub } = await import('$lib/decisions/decisionModel');
-    expect([batchRowName(3, 'convert'), batchRowName(3, 'upgrade'), batchRowName(3)]).toEqual(['3 tracks', '3 tracks upgraded', '3 tracks upgraded']);
-    expect([batchRowSub('2026-11-14', '2026-11-14', false, 'convert'), batchRowSub('2026-11-14', '2026-11-14', false, 'convert', true),
-      batchRowSub('2026-11-14', '2026-11-14', false, 'upgrade')]).toEqual(['today · Made AIFF', 'today · Clean name', 'today · Same track']);
   });
 });

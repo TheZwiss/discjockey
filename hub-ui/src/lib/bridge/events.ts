@@ -29,7 +29,9 @@ export type HubEvent =
   | { type: 'ReadingPlaylist'; index: number; total: number; folder: string }
   | { type: 'MovesProgress'; batch_id: number; done: number; total: number }
   /** an AIFF batch (Same track, Upgrade all): `done` of `total` handled; `track_id`/`name` the one in work (null after the last); `batch_id` 0 for a New track / Discard list (no batch record) */
-  | { type: 'BatchProgress'; batch_id: number; done: number; total: number; track_id: string | null; name: string | null }
+  | { type: 'BatchProgress'; batch_id: number; done: number; total: number; track_id: string | null; name: string | null;
+      /** the phase's words (batches.progress_words): "Upgrading" / "3 of 5 upgraded", "Putting in better versions" / "3 of 5 put in"; empty for a list that has no batch record */
+      lead: string; count: string }
   | { type: 'ImportProgress'; phase: 'scan' | 'facts' | 'tags' | 'sound' | 'link'; done: number; total: number; unreadable: number }
   | { type: 'JobStarted'; job_id: string; kind: string; track_id: string | null; batch_kind: 'upgrade' | 'convert' | 'mixed' | null }
   | { type: 'JobFinished'; job_id: string; kind: string; ok: boolean; problem: ProblemKind | null; message: string;
@@ -63,7 +65,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   Message: ['type', 'level', 'text'],
   ReadingPlaylist: ['type', 'index', 'total', 'folder'],
   MovesProgress: ['type', 'batch_id', 'done', 'total'],
-  BatchProgress: ['type', 'batch_id', 'done', 'total', 'track_id', 'name'],
+  BatchProgress: ['type', 'batch_id', 'done', 'total', 'track_id', 'name', 'lead', 'count'],
   ImportProgress: ['type', 'phase', 'done', 'total', 'unreadable'],
   JobStarted: ['type', 'job_id', 'kind', 'track_id', 'batch_kind'],
   JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result', 'service'],

@@ -5,6 +5,7 @@
 // `s.rekordbox_state` / `s.rekordbox_running` (the dev toolbar's "rekordbox open" sets the latter).
 import type { HubEvent } from '../events';
 import type { AutoRefused, AutoUpgradeBlock, AutoUpgradeResult, RekordboxStatus, Result, RunSummary, SyncPreview, Upgrade } from '../types';
+import { shortDay } from './missingFiles';
 import { dateOnly, isoLocal, makeUpgrade, pathOf, qualityOf, result, runDetail, runId, type FakeState, type FakeTrack } from './data';
 
 /** The switch (on unless the state says off). */
@@ -28,6 +29,32 @@ export const AUTO_REFUSED_SHORT: Record<AutoRefused['reason'], string> = {
 export const AUTO_WAITING_DETAIL = 'Waits for rekordbox to be closed';
 /** views.AUTO_BATCH_DETAIL */
 export const AUTO_BATCH_DETAIL = 'Upgraded during your sync';
+/** views.BATCH_PLACED */
+export const BATCH_PLACED = 'Better versions put in during your sync';
+
+/** views._batch_how, _batch_row_name, _batch_list_title, _day_words and the card's summary: the words of a To-do batch
+ *  item, from its checks' reasons, its kind, who started it and the day of its first check. */
+export function batchWords(reasons: string[], kind: 'upgrade' | 'convert' | 'mixed', fromSync: boolean, started: string | null,
+  now: Date): { how: string; row_name: string; row_sub: string; list_title: string; card_summary: string | null } {
+  const n = reasons.length;
+  const placed = reasons.filter((r) => r === 'placed_missing').length;
+  const how = placed === n ? BATCH_PLACED : fromSync ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
+    : reasons.every((r) => r === 'renamed') ? 'Clean name' : 'Made AIFF';
+  const row_name = placed === n ? `${n} better ${n === 1 ? 'version' : 'versions'} put in` : placed ? `${n} tracks changed`
+    : kind === 'upgrade' ? `${n} tracks upgraded` : `${n} tracks`;
+  const list_title = reasons.every((r) => r === 'converted') ? 'Made AIFF' : reasons.every((r) => r === 'renamed') ? 'Clean names'
+    : placed === n ? 'Better versions put in'
+      : reasons.some((r) => ['converted', 'renamed', 'placed_missing'].includes(r)) ? 'Changed' : 'Upgraded';
+  const today = dateOnly(now), yesterday = dateOnly(new Date(now.getTime() - 86400000));
+  const day = !started ? '' : started.slice(0, 10) === today ? 'today' : started.slice(0, 10) === yesterday ? 'yesterday' : shortDay(started, now);
+  return { how, row_name, row_sub: day ? `${day} · ${how}` : how, list_title, card_summary: placed === n ? 'better versions in' : null };
+}
+/** batches.progress_words: the phase's words for a BatchProgress, from the actions of the batch's items. */
+export function progressWords(actions: string[], done: number, total: number): { lead: string; count: string } {
+  const kinds = new Set(actions);
+  if (kinds.size === 1 && kinds.has('place')) return { lead: 'Putting in better versions', count: `${done} of ${total} put in` };
+  return { lead: 'Upgrading', count: `${done} of ${total} ${kinds.size === 1 && kinds.has('same_track') ? 'upgraded' : 'done'}` };
+}
 /** The engine's words for a refusal, recorded on the parked upgrade by the sync: design §8 (convert.REFUSED), and
  *  upgrades.COULD_NOT_COMPARE for `needs_choice` (the two files could not be compared at all). */
 export const AUTO_REFUSED_WORDS: Record<AutoRefused['reason'], string> = {
@@ -209,15 +236,16 @@ export function phaseEvents(plan: PhasePlan): HubEvent[] {
   }
   const n = plan.order.length;
   const places = plan.rows.filter(isPlace).length;
+  const words = (done: number) => progressWords(plan.rows.map((r) => r.action ?? 'same_track'), done, n);
   const stopsAt = plan.rows.findIndex((r) => r.reason === 'rekordbox_open');
   const reached = stopsAt < 0 ? n : stopsAt;
   const out: HubEvent[] = [];
   if (n - places) out.push(message(autoUpgradingLine(n - places)));
   if (places) out.push(message(placingLine(places)));
   for (let i = 0; i < reached; i++) {
-    out.push({ type: 'BatchProgress', batch_id: plan.batch, done: i, total: n, track_id: plan.rows[i].track, name: plan.rows[i].name });
+    out.push({ type: 'BatchProgress', batch_id: plan.batch, done: i, total: n, track_id: plan.rows[i].track, name: plan.rows[i].name, ...words(i) });
   }
-  if (reached === n) out.push({ type: 'BatchProgress', batch_id: plan.batch, done: n, total: n, track_id: null, name: null });
+  if (reached === n) out.push({ type: 'BatchProgress', batch_id: plan.batch, done: n, total: n, track_id: null, name: null, ...words(n) });
   return out;
 }
 /** The recorded stream with the phase before its (last) RunFinished; `at` is the 0-based index of the phase's first event. */

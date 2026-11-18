@@ -37,7 +37,7 @@
     AiffBatchPanel, BatchCheckCards, ChecksFlow, MissingFlow, MissingSelection, UpgradeSelection, aiffBatch, selectAllLabel,
     upgradeBatch,
   } from '$lib/decisions';
-  import { batchRowName, batchRowSub, checkTracks, convertAllLabel, localDay, resumeLabel, upgradeAllLabel, upgradeAllShown } from '$lib/decisions/decisionModel';
+  import { checkTracks, convertAllLabel, resumeLabel, upgradeAllLabel, upgradeAllShown } from '$lib/decisions/decisionModel';
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
   import {
@@ -441,10 +441,10 @@
 {#snippet row(i: TodoItem)}
   {@const key = itemKey(i)}
   {@const batch = isBatch(i) ? i.batch : null}
-  <!-- a batch's row: the first track's cover, "{n} tracks upgraded" over "{day} · Same track" (the sync's: "· Upgraded during your sync") -->
+  <!-- a batch's row: the first track's cover, the engine's `row_name` over its `row_sub` -->
   {#snippet lead()}<Cover url={i.cover_url} seed={batch?.tracks[0]?.track_id ?? i.track_id} size={28} />{/snippet}
-  {#snippet name()}{batch ? batchRowName(batch.size, batch.kind) : artistTitle(i.artist, i.title)}{/snippet}
-  {#snippet sub()}{batch ? batchRowSub(batch.started, localDay(new Date()), batch.from_sync, batch.kind, batch.tracks.every((t) => t.check?.reason === 'renamed')) : rowSub(i)}{/snippet}
+  {#snippet name()}{batch ? batch.row_name : artistTitle(i.artist, i.title)}{/snippet}
+  {#snippet sub()}{batch ? batch.row_sub : rowSub(i)}{/snippet}
   {#snippet trailing()}
     {@const b = rowBadge(i)}
     {@const away = batch ? null : rowAway(i)}

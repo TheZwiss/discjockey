@@ -16,12 +16,12 @@
   // The foot is BatchCheckFoot: Done for all of them, Undo all n (every track can go) / Undo n and how many can't. An
   // undo that left tracks as they were says why in their rows, one line under the buttons.
   import { untrack } from 'svelte';
-  import type { TodoItem } from '$lib/bridge/types';
+  import type { BatchCheck, TodoItem } from '$lib/bridge/types';
   import { Cover, ListRow, MiddleText, NumberedSteps, Surface, WriteButton } from '$lib/components';
   import { Panel } from '$lib/frames';
   import BatchCheckFoot from './BatchCheckFoot.svelte';
   import {
-    batchCheckCard, batchListTitle, checkRow, checksTitle, focusAfterRowGone, isAutoBatch, localDay, sinceText, tracksSummary, type CheckRow,
+    batchCheckCard, checkRow, checksTitle, focusAfterRowGone, isAutoBatch, localDay, sinceText, tracksSummary, type CheckRow,
   } from './decisionModel';
   import { refocus } from './focus';
   import type { ChecksFlow } from './flows.svelte';
@@ -33,12 +33,12 @@
      *  title counts items as the list, tab and chips do, the summary the tracks */
     selected?: number;
     /** the batch these tracks are (one batch item selected), null for several checks selected */
-    batch?: { id: number; started: string | null; from_sync?: boolean } | null;
+    batch?: Pick<BatchCheck, 'id' | 'started' | 'list_title' | 'card_summary'> & { from_sync?: boolean } | null;
     nameOf: (i: TodoItem) => string;
     flow: ChecksFlow;
   } = $props();
 
-  const card = $derived(batch ? batchCheckCard(tracks, nameOf) : null);
+  const card = $derived(batch ? batchCheckCard(tracks, nameOf, batch.card_summary) : null);
   const rows = $derived(tracks.map((t) => checkRow(t, nameOf(t), batch ? 'file' : 'detail')));
   const day = $derived(batch ? sinceText(batch.started, localDay(new Date())) : '');
   const refused = $derived(flow.problem?.rows ?? {});
@@ -105,7 +105,7 @@
 
 {#snippet list(grow: boolean)}
   <!-- the row grid: cover · name over its lines · the undo slot, kept on every row so the names end at one x -->
-  <Surface kind="list" label={batch ? batchListTitle(tracks) : checksTitle(selected)} summary={batch ? String(tracks.length) : tracksSummary(tracks.length)}
+  <Surface kind="list" label={batch ? batch.list_title : checksTitle(selected)} summary={batch ? String(tracks.length) : tracksSummary(tracks.length)}
     hint={batch && day ? (day === 'today' ? 'today' : `on ${day}`) : undefined}
     style="--row-cols: 28px minmax(0, 1fr) var(--h-ctl-sm)" grow={grow ? { rows: rows.length, tall: true } : undefined}
     data-test={batch ? 'batch-tracks' : 'check-selection-rows'}>

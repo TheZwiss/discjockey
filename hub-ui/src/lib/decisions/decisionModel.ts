@@ -584,28 +584,28 @@ export function endNote(e: BatchEnd): { tone: 'info' | 'warn'; text: string } | 
 export function checkTracks(items: TodoItem[]): TodoItem[] {
   return items.flatMap((i) => (isBatch(i) ? i.batch.tracks : [i]));
 }
-/** A batch item's row in the to-do list: "{n} tracks upgraded" over "{day} · Same track" (§3). */
-export const batchRowName = (n: number, kind: BatchCheck['kind'] = null): string =>
-  (kind === 'convert' || kind === 'mixed' ? `${n} tracks` : `${n} tracks upgraded`);
-/** What a batch's row says it was: "Same track", or for the sync's Auto-upgrade "Upgraded during your sync" (plan §3). */
-export const AUTO_BATCH_SUB = 'Upgraded during your sync';
 /** The sync's last phase made the batch (the engine says so: `batch.from_sync`, whichever way the switch was set). */
 export const isAutoBatch = (batch: { from_sync?: boolean } | null | undefined): boolean => !!batch?.from_sync;
-export function batchRowSub(started: string | null, today: string, fromSync = false,
-  kind: BatchCheck['kind'] = null, renamed = false): string {
-  const day = sinceText(started, today);
-  // a Convert batch says what it made ("Clean name" when every check is a clean name, the engine's own word)
-  const how = fromSync ? AUTO_BATCH_SUB : kind === 'convert' || kind === 'mixed' ? (renamed ? 'Clean name' : 'Made AIFF') : 'Same track';
-  return day ? `${day} · ${how}` : how;
-}
 /** A batch of Converts' lead, in `report.CONVERTED_CHECK`'s voice for several files (the single check's `text` says it
  *  for one): what became of the files, then that the sound is the same. */
 export const CONVERTED_BATCH_LEAD = 'Your files are now AIFFs with clean names and tags, and your rekordbox tracks play them '
   + 'with their cues, playlists and history. The sound is the same.';
 /** The "In rekordbox" card of a batch: the steps for the tracks rekordbox has (Reload Tag only for the tracks whose
  *  text Discjockey couldn't write, by name; design §8's words for several tracks), null when rekordbox has none of
- *  them (each row then says so). */
-export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string): CheckCard | null {
+ *  them (each row then says so). A better version put in for a missing file (`placed_missing`) gets none of those
+ *  steps: one step per distinct `check.text` (the engine's words), listing the tracks it is about, and, when every
+ *  check is a placement, the engine's `placedSummary` (`batch.card_summary`). */
+export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string, placedSummary: string | null = null): CheckCard | null {
+  const placed = tracks.filter((t) => t.check?.reason === 'placed_missing');
+  const rest = tracks.filter((t) => t.check?.reason !== 'placed_missing');
+  const placedSteps: CheckStep[] = [...new Set(placed.map((t) => t.check?.text ?? ''))].filter(Boolean).map((text) => ({
+    parts: [{ text }], list: placed.filter((t) => t.check?.text === text).map(nameOf) }));
+  const own = restCard(rest, nameOf);
+  if (!own) return placedSteps.length ? { summary: placedSummary ?? '', steps: placedSteps, hint: null } : null;
+  return placedSteps.length ? { ...own, steps: [...own.steps, ...placedSteps] } : own;
+}
+/** The card of the checks that are no placement: the steps above, from the tracks rekordbox has. */
+function restCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string): CheckCard | null {
   const rb = tracks.filter((t) => inRekordbox(t.check));
   // a clean name leaves nothing to do in rekordbox; a Convert only the USB stick (the sound is the same, the text is
   // written): the steps below are for the upgrades among them
@@ -636,13 +636,6 @@ export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => stri
     { text: 'Rebuild the stick', strong: true }, { text: ' in rekordbox before your next gig' }] } : USB_STEP);
   return { summary: many ? 'same tracks, cues kept' : 'same track, cues kept', steps, hint: null,
     ...(lead ? { lead: tracks.length === 1 ? tracks[0].check?.text ?? lead : lead } : {}) };
-}
-/** The batch list's title ("Upgraded", "Made AIFF" for Converts, "Clean names" when all are clean names, "Changed" for a mix). */
-export function batchListTitle(tracks: Pick<TodoItem, 'check'>[]): string {
-  const r = tracks.map((t) => t.check?.reason);
-  if (r.length && r.every((x) => x === 'converted')) return 'Made AIFF';
-  if (r.length && r.every((x) => x === 'renamed')) return 'Clean names';
-  return r.some((x) => x === 'converted' || x === 'renamed') ? 'Changed' : 'Upgraded';
 }
 /** One track's row on a batch card or in several selected checks: its new file's name (batch) or what is left to do
  *  in rekordbox (several checks: the to-do row's own line), and the notes design §8 gives a track's result. */

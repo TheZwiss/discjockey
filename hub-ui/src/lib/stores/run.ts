@@ -36,8 +36,8 @@ export type RunState = {
   messages: { level: 'info' | 'warning'; text: string; at: number }[];  // last 20, debug dropped
   started_at: number | null;
   /** the sync's Auto-upgrade batch as it goes: `done` of `total` tracks handled, `name` the track in work ("Artist - Title";
-   *  null between the last track and the end); null until the first BatchProgress of a sync job */
-  upgrade: { batch_id: number; done: number; total: number; name: string | null } | null;
+   *  null between the last track and the end), `lead` / `count` the engine's words for the phase ("Upgrading", "2 of 5 upgraded"); null until the first BatchProgress of a sync job */
+  upgrade: { batch_id: number; done: number; total: number; name: string | null; lead: string; count: string } | null;
 };
 
 export const EMPTY_RUN: RunState = Object.freeze({
@@ -107,7 +107,7 @@ export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
     case 'BatchProgress':   // only a sync sends it as part of a download job: its Auto-upgrade phase
       if (s.job_kind !== 'sync') return s;
       return { ...s, phase: s.phase === 'stopping' ? 'stopping' : 'upgrading', waiting: null,
-        upgrade: { batch_id: e.batch_id, done: e.done, total: e.total, name: e.name } };
+        upgrade: { batch_id: e.batch_id, done: e.done, total: e.total, name: e.name, lead: e.lead, count: e.count } };
     case 'Message':
       if (e.level === 'debug') return s;
       return { ...s, messages: [...s.messages, { level: e.level, text: e.text, at: now }].slice(-MAX_MESSAGES) };

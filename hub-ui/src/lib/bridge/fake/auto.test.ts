@@ -1,6 +1,9 @@
 // Auto-upgrade in the fake backend: the same answers as the engine (tests/test_hub_auto_upgrade.py).
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
+import { PART_LABELS, SECTION_LABELS } from './data';
 import type { HubEvent } from '../events';
 import { AUTO_REFUSED_SHORT as FAKE_SHORT, autoLine, placedWords, placePlanLine, planPhase, phaseEvents, readyTracks } from './auto';
 import { missingSet } from './missingFiles';
@@ -387,7 +390,12 @@ describe('fake sync: the placements for missing songs', () => {
     const checks = (await todo(m.f, 'rekordbox_check')).groups.find((g) => g.key === 'rekordbox_check')!.items;
     const card = checks.find((i): i is TodoItem => isBatch(i))!;
     expect(card.batch).toMatchObject({ size: 2, started_by: 'download_again', kind: 'upgrade' });
-    expect(card.detail).toMatch(/ · Upgraded during your sync$/);
+    expect(card.detail).toMatch(/ · Better versions put in during your sync$/);
+    expect(card.batch).toMatchObject({ row_name: '2 better versions put in', list_title: 'Better versions put in',
+      card_summary: 'better versions in' });
+    expect(card.batch!.row_sub).toMatch(/^today · Better versions put in during your sync$/);
+    const words = m.evs.filter((e): e is Ev<'BatchProgress'> => e.type === 'BatchProgress').map((e) => [e.lead, e.count]);
+    expect(words.at(-1)).toEqual(['Putting in better versions', '2 of 2 put in']);
   });
 
   it('rekordbox open: the placement waits with its own words and the song stays missing', async () => {
@@ -443,5 +451,13 @@ describe('fake sync: the placements for missing songs', () => {
     expect(placePlanLine(2, true)).toBe('2 missing songs get their better version at the end of the sync, once rekordbox is closed.');
     expect(placedWords('A.aiff', false, true)).toBe('Its better version is in, at A.aiff.');
     expect(placedWords('A.aiff', true, false)).toBe('Its better version is in, at A.aiff; check its cues in rekordbox.');
+  });
+});
+
+describe('the fake\'s labels and words are the engine\'s', () => {
+  const py = readFileSync(fileURLToPath(new URL('../../../../../discjockey/report.py', import.meta.url)), 'utf8');
+  it('section_labels and part_labels of a run (report.SECTIONS, report.PART_LABELS)', () => {
+    for (const [key, label] of Object.entries(SECTION_LABELS)) expect(py).toContain(`("${key}", "${label}")`);
+    for (const [key, label] of Object.entries(PART_LABELS)) expect(py).toContain(`"${key}": ${JSON.stringify(label)}`);
   });
 });

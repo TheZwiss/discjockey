@@ -152,6 +152,8 @@ def test_the_switch_on_runs_the_placements_first_in_the_same_batch(tmp_path, mon
         ("placed_missing", lib.tracks[1]), ("upgraded", lib.tracks[0]), ("upgraded", lib.tracks[2])]
     assert [x.text for x in events if isinstance(x, Message)] == [
         "Upgrading 2 tracks at the end of the sync...", words.placing_line(1)]
+    assert {(e.lead, e.count) for e in events if isinstance(e, BatchProgress)} == {
+        ("Upgrading", f"{n} of 3 done") for n in range(4)}
     assert report.auto_upgrade_line(out.to_dict()) == "Upgraded 2 tracks; your cues stayed. 1 missing song got its better version."
 
 
@@ -160,8 +162,10 @@ def test_with_the_switch_off_only_the_placements_run_and_the_upgrades_stay_parke
     mark_missing(lib, 1)
     kept = {i: (lib.entry(i)["path"], lib.entry(i)["upgrade"]) for i in (0, 2)}
     music = {k: v for k, v in lib.music().items() if k.startswith(("Library/A/Artist - Song 0", "Library/A/Old 2"))}
-    out, _, _, _ = phase(lib.paths, lib.place, settings=OFF)
+    out, _, _, events = phase(lib.paths, lib.place, settings=OFF)
     assert rows(out) == [(lib.tracks[1], "done", None)]
+    assert [(e.lead, e.count) for e in events if isinstance(e, BatchProgress)] == [
+        ("Putting in better versions", "0 of 1 put in"), ("Putting in better versions", "1 of 1 put in")]
     (batch,) = aiff_batches(lib.paths)
     assert (batch.started_by, [i.action for i in batch.items]) == ("download_again", ["place"])
     assert {i: (lib.entry(i)["path"], lib.entry(i)["upgrade"]) for i in (0, 2)} == kept

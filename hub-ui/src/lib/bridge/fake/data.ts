@@ -738,6 +738,12 @@ export function result(section: string, t: { folder: string; artist: string; tit
 const NEW_FILE_SECTIONS = ['new_lossless', 'new_not_lossless', 'fake', 'swapped', 'added_new', 'bought', 'replaced',
   'moved', 'redownloaded'];
 const PROBLEM_SECTIONS = ['missing', 'errors', 'conflicts', 'ambiguous'];
+/** report.SECTIONS (the titles the window reads) and report.PART_LABELS: fake/auto.test.ts pins them against report.py */
+export const SECTION_LABELS: Record<string, string> = {
+  upgraded: 'Upgraded (your cues stayed)', upgrade_waits: 'Upgrades still waiting',
+  placed_missing: 'Better version put in (its file was missing)',
+};
+export const PART_LABELS: RunDetail['part_labels'] = { upgraded: 'Upgraded', waiting: 'Still waiting', refused: "Couldn't go in" };
 export function runDetail(id: string, started: Date, duration_s: number, exit_code: number, results: Result[],
   stopped_after: number | null, upgrades_ready: number, auto_upgrade: RunDetail['auto_upgrade'] = null): RunDetail {
   const sections: Record<string, Result[]> = {};
@@ -751,6 +757,7 @@ export function runDetail(id: string, started: Date, duration_s: number, exit_co
     stopped_after, sections, needs_you: results.filter((r) => PROBLEM_SECTIONS.includes(r.section) && r.track_id),
     for_rekordbox: { new_files: newFiles.length, folders: [...new Set(newFiles.map((p) => p.slice(0, p.lastIndexOf('/'))))].sort() },
     upgrades_ready, report_md: `reports/${id}.md`, queued: count('queued'), folder_order: [], auto_upgrade,
+    section_labels: SECTION_LABELS, part_labels: PART_LABELS,
   };
 }
 export function sampleRuns(now: Date, tracks: FakeTrack[], n = 3): FakeRun[] {

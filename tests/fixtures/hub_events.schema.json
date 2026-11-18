@@ -430,6 +430,12 @@
             "string",
             "null"
           ]
+        },
+        "lead": {
+          "type": "string"
+        },
+        "count": {
+          "type": "string"
         }
       },
       "required": [
@@ -438,7 +444,9 @@
         "done",
         "total",
         "track_id",
-        "name"
+        "name",
+        "lead",
+        "count"
       ],
       "additionalProperties": false
     },
