@@ -6,7 +6,9 @@
   // (issue 33 stage C: one list in up to three parts, split by each track's state in the run's block: "Upgraded" with
   // how each went, "Still waiting" with a short sub ("Waits for rekordbox to be closed" / "Waits for your next sync")
   // and Review →, and "Couldn't go in" with To-do's short reason as the sub, the full sentence as the row's tooltip and
-  // Fix →; an empty part is left out, a run whose switch was off has none) and Other
+  // Fix →; an empty part is left out, a run whose switch was off has none; issue 43 adds "Better version put in (its file
+  // was missing)" after Upgraded, a missing song whose parked better version went in, with the engine's sentence as its
+  // sub and the quality it has now as its badge, also in a run whose switch was off) and Other
   // changes, all list Surfaces of ListRows. Every list keeps the action's slot, so the badges share one right edge. The foot holds Done, the one
   // filled button, or Sync the rest → with Done beside it.
   // A failed sync JobFinished shows its ProblemCard (a problem-tone card) in the same frame; Back to the plan in the
@@ -160,14 +162,14 @@
       <!-- the first part names the list; the others are sections among its rows. No quality badge on the waiting and
            refused rows: they are not files of this sync, the reason is their second line -->
       <Surface kind="list" label={m.auto[0].label} summary={String(m.auto[0].rows.length)}
-        data-test="sync-auto-upgrade-list" style={COLS}>
+        summaryTest={`sync-auto-${m.auto[0].key}`} data-test="sync-auto-upgrade-list" style={COLS}>
         {#each m.auto as part, k (part.key)}
           {#if k > 0}
             <ListSection label={part.label} summary={String(part.rows.length)} test={`sync-auto-${part.key}`} />
           {/if}
           {#each part.rows as x, i (x.r.track_id ?? i)}
             {@render row(x.r, x.sub, part.key === 'waiting' ? 'review-row' : part.key === 'refused' ? 'fix' : null, false,
-              part.key === 'upgraded', x.tip)}
+              part.key === 'upgraded' || part.key === 'placed', x.tip)}
           {/each}
         {/each}
       </Surface>

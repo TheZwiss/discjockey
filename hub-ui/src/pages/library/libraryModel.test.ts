@@ -122,6 +122,16 @@ describe('the panel', () => {
     expect(footAction(weak, { kind: 'upgrade' }, filled)).toBe('upgrade');
     expect(footAction(weak, null, null)).toBe('todo');
   });
+  it('foot of a song whose file waits as missing: Open in to-do to its Missing files item, whatever else it is', () => {
+    const missing = { line: 'Not seen since 12 Nov.', hint: 'Put the file back.' } as TrackDetail['missing'];
+    expect(footAction(t({ missing }), null)).toBe('missing');                                     // lossless
+    expect(footAction(t({ status: 'not_lossless', missing }), null)).toBe('missing');             // would be Open in to-do
+    expect(footAction(t({ in_playlists: false, missing }), null, { variant: 'filled', cdj: false })).toBe('missing');
+    // a decision the to-do list holds for it (its rekordbox check) still wins
+    expect(footAction(t({ missing }), { kind: 'check', item: { ...row('x'), group: 'rekordbox_check', detail: '', free: false,
+      file_state: 'here' } })).toBe('check');
+    expect(footAction(t({ missing: null }), null)).toBeNull();
+  });
   it('file name without the folders', () => {
     expect(fileName('Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff')).toBe('Armin Hermann - Get Naughty.aiff');
     expect(fileName('x.aiff')).toBe('x.aiff');

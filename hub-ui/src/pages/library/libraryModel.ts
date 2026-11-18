@@ -460,11 +460,14 @@ export function alsoHint(folder: string, neverRead = false): string {
  *  AIFF, Give it its clean name: `aiff`, its look and whether the CDJs refuse the file) and Open in to-do for any other
  *  to-do (a weak file is bought and dropped there); nothing for a lossless track (or one the to-do list doesn't show).
  *  A file the CDJs refuse is To-do's CDJ item, so the AIFF button stands in for Open in to-do; any other file keeps
- *  both, the filled one first (`aiff_todo`: Convert above Open in to-do; `todo_aiff`: the outlined Convert under it). */
-export type FootKind = NonNullable<Decision>['kind'] | 'todo' | 'aiff' | 'aiff_todo' | 'todo_aiff';
-export function footAction(t: Pick<TrackDetail, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>,
+ *  both, the filled one first (`aiff_todo`: Convert above Open in to-do; `todo_aiff`: the outlined Convert under it).
+ *  A song whose file waits as missing (`missing` set, issue 43) has `missing`: Open in to-do to its Missing files item
+ *  (`missingTodoHref`), where Download again or Remove is decided; the Library offers no action of its own for it. */
+export type FootKind = NonNullable<Decision>['kind'] | 'todo' | 'aiff' | 'aiff_todo' | 'todo_aiff' | 'missing';
+export function footAction(t: Pick<TrackDetail, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'> & Partial<Pick<TrackDetail, 'missing'>>,
   decision: Decision, aiff: { variant: 'filled' | 'outline'; cdj: boolean } | null = null): FootKind | null {
   if (decision) return decision.kind;
+  if (t.missing) return 'missing';
   const todo = inTodo(t);
   if (!aiff) return todo ? 'todo' : null;
   if (!todo || aiff.cdj) return 'aiff';
