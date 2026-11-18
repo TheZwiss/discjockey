@@ -680,6 +680,10 @@ Results:
     Groups E1 > E2 > E3a > E3b > U1 > S1 > D1, reviews after each + Opus stage review; plan total 2.3-2.9M. Stage
     branch feat/missing-files, group worktrees .claude/worktrees/mf-<group> on feat/missing-files-<group>.
     Open product point for the user: D9 (Download again lets a waiting upgrade go when its download lands).
+    D9 DECIDED (user 2026-11-18, "of course do your recommendation"): a missing playlist song with a parked
+    upgrade: "Download again" places the parked version instead of downloading (no Qobuz download, never a worse
+    copy); only a song without one downloads. The E2 brief carries it and amends plan D9 (+ E3b's part). E1 cut by
+    the weekly usage limit before committing (21 files changed in mf-e1, at the tests); resumed 2026-11-18.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):

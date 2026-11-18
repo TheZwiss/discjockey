@@ -23,6 +23,8 @@ everything; nothing deleted, nothing downloaded again, as an offline folder's ro
 again anywhere in the watched folders is linked back as Moved; To-do lists the missing songs with their last place.
 "Remove from library" (one, a selection, all) removes an own song only on the user's word; a playlist song waits in
 To-do with "Download again" instead of the sync downloading it by itself. Fix before phase 2 of issue 39.
+A playlist song with a better version already waiting in `Upgrades ready/` gets that version placed by "Download
+again" instead of a new download (user, 2026-11-18).
 
 ## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
 
