@@ -36,6 +36,11 @@ kept its name and became an AIFF.
 Nothing is held for the undo, which hands nothing back to Upgrades ready/.
 A Convert's recovery and undo words say "conversion" where Same track's say "replace" or "upgrade" (`_say`, plan
 stage D §3).
+`place_parked(paths, state, track_id, upgrade, session=…)` (issue 43, D9, plan §4.5.2) is the same op for a song whose
+file is missing and whose better version is parked: the same steps with no old file (`superseded` None: step 6 and the
+Superseded/ name are skipped, `old_sha256` None), the alignment the parking stored instead of a measurement, rekordbox's
+`d` from the stored codec (`timeline_offset(codec=…)`, the file is never opened), no rekordbox text column written, and
+the check `placed_missing` whose undo record holds the row's first `missing_since`.
 No rekordbox track (or no rekordbox at all): steps 3 and 5 are skipped. Every file move goes through `move_path`
 (another drive: a staged copy recorded in the op's `crossing`).
 
