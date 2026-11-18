@@ -692,6 +692,10 @@ Results:
     every §9.2 E1 item has a test; svelte-check clean. Stage branch fast-forwarded to da7086be. Worktree mf-e2 made
     (main merged in). D9 amendment (Opus, est. 120-180k) running before E2: how the parked version goes in for a
     missing song. Stage so far 713k.
+    D9 amendment (Opus) done 7972fb3e: **233k** (58 calls; est. 120-180k). Design §4.5: Download again with a parked
+    upgrade = convert.place_parked in the sync's last AIFF batch (also with Auto-upgrade off; rekordbox open -> waits),
+    on Same track's machinery, stored measurement, no Superseded move, undo -> missing again. New groups E4a (step,
+    200-250k) + E4b (phase, 150-200k); stage est. 3.0-3.9M (was 2.3-2.9M). Plan 825 lines. Stage so far 946k.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
