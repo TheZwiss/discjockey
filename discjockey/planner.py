@@ -655,7 +655,9 @@ def apply_outcome(entry: dict | None, action: Action, outcome: Outcome, now: dat
         new.update(path=None, status="missing", source=None, source_id=None, source_format=None,
                    source_how=None, cutoff_hz=None, last_attempt=today)
     elif outcome.kind == "placed":
-        new.update(_placed_fields(outcome.placed), last_upgrade_check=today, missing_since=None)  # a file is there now
+        new.update(_placed_fields(outcome.placed), last_upgrade_check=today)
+        if new.get("missing_since"):  # a file is there now (the row is cleared by the save; this keeps the snapshot true)
+            new["missing_since"] = None
         if action.kind == "acquire":
             new["last_attempt"] = today
     return new
