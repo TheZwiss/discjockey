@@ -793,6 +793,9 @@ Results:
     hint + placed line wrap. Fix split: E engine words (brief-43-S1E.md) then UI (shots.json, wiring). Stage ~5.77M.
     S1 fix E (Sonnet fix-round) 01065874: **147k** (55 calls): `away` reason both actions, 'Missing since', singular
     confirm, hint_library, start note names the song; 6010 passed. S1 fix U (Sonnet, brief-43-S1U.md) next. Stage ~5.92M.
+    S1 fix U running (agent aec71f3d6acdd65ef, ~137k at its rules run, then build + pytest + commit) when the usage
+    limit hit (2026-11-19). On resume: check its report/commits on feat/missing-files-u1 (resume it via SendMessage if
+    cut), log its size, ps, then D1 per the STATE block above.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
