@@ -11,6 +11,7 @@ import {
   keepTableSelection, selectAllRows, tableScope, missingNote, missingTodoHref,
 } from './libraryModel';
 import { click, escape, move, single, NONE, type Selection } from '$lib/components/selectionModel';
+import { decisionFor } from '$lib/decisions/decisionModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
 const row = (id: string, extra: Partial<TrackRow> = {}): TrackRow => ({
@@ -131,6 +132,11 @@ describe('the panel', () => {
     expect(footAction(t({ missing }), { kind: 'check', item: { ...row('x'), group: 'rekordbox_check', detail: '', free: false,
       file_state: 'here' } })).toBe('check');
     expect(footAction(t({ missing: null }), null)).toBeNull();
+    // a parked better version is no decision for it (its file is gone: Download again in To-do puts it in): the foot says Open in to-do
+    const parked = t({ status: 'not_lossless', upgrade: up(true), missing });
+    expect(decisionFor([], parked)).toBeNull();
+    expect(footAction(parked, decisionFor([], parked))).toBe('missing');
+    expect(footAction({ ...parked, missing: null }, decisionFor([], { ...parked, missing: null }))).toBe('upgrade');
   });
   it('file name without the folders', () => {
     expect(fileName('Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff')).toBe('Armin Hermann - Get Naughty.aiff');

@@ -276,6 +276,7 @@ def test_the_preview_says_per_song_what_would_happen(lib):
     assert (by["t7"]["reason"], by["t7"]["since"]) == ("not_missing", None)
     assert out["words"] == ("1 song downloads again and 1 gets the better version already waiting for it, at your next "
                             "sync; 2 are skipped.")
+    assert (out["button"], out["confirm"]) == ("Download again · 2", None)         # nothing is lost: nothing is asked
     gen = load_state(paths)["generation"]
     assert load_state(paths)["generation"] == gen and not any(e.get("file_gone") for e in entries(paths).values())
 
@@ -286,6 +287,25 @@ def test_the_preview_of_remove_marks_the_parked_version_it_would_delete(lib):
     assert (out["n"], out["skipped"]) == (2, 1) and out["words"] == "Removes 2 songs from your library; 1 is skipped."
     assert [(i["track_id"], i["upgrade_waiting"]) for i in out["items"]] == [("t4", True), ("t5", False), ("t1", False)]
     assert out["items"][0]["words"] == "Removed from your library"
+    assert out["button"] == "Remove from library · 2…"
+    assert out["confirm"] == {"title": "Remove 2 songs from your library?", "body": missing.REMOVE_CONFIRM_BODY,
+                              "confirm_label": "Remove", "tone": "danger"}
+    assert out["confirm"]["body"].startswith("Their files aren't in your watched folders. Discjockey forgets these songs")
+
+
+def test_the_preview_sends_the_button_and_the_confirm_for_the_songs_that_run_only(lib):
+    api, rec, paths = lib
+    one = api.missing_files_preview(["t4", "t1"], "remove")                         # t1 is a playlist song: skipped
+    assert (one["n"], one["button"], one["confirm"]["title"]) == (1, "Remove from library · 1…", "Remove from your library?")
+    none = api.missing_files_preview(["t1"], "remove")
+    assert (none["n"], none["button"], none["confirm"]) == (0, None, None)
+    assert none["words"] == "Nothing to remove: 1 song is skipped."
+    assert api.missing_files_preview(["t4"], "download_again")["button"] is None
+
+
+def test_the_command_lines_question_is_the_windows_body():
+    from discjockey.hub import catalog
+    assert catalog.CONFIRM["missing remove"].endswith(missing.REMOVE_CONFIRM_BODY)
 
 
 def test_the_preview_refuses_an_unknown_action_and_an_empty_list(lib):

@@ -99,9 +99,15 @@ export type MissingDetail = MissingView & { line: string; hint: string };
  *  in, Remove deletes it). */
 export type MissingPreviewItem = { track_id: string; artist: string; title: string; place: string; since: string | null;
   will: boolean; reason: MissingReason | null; words: string; upgrade_waiting: boolean };
+/** Remove's question as the engine words it (`missing.confirm_for`): the plural for several songs; `confirm_label`
+ *  "Remove", `tone` "danger". */
+export type MissingConfirm = { title: string; body: string; confirm_label: string; tone: 'danger' };
 /** `missing_files_preview`: what Download again or Remove would do for these songs. `n` counts what will run, `skipped`
- *  the rest, `words` is the one line ("2 songs download again at your next sync; 1 is skipped."). */
-export type MissingPreview = { action: MissingAction; items: MissingPreviewItem[]; n: number; skipped: number; words: string };
+ *  the rest, `words` is the one line ("2 songs download again at your next sync; 1 is skipped."), `button` the selection
+ *  panel's button over the `n` ("Download again · 2" / "Remove from library · 2…"; null when none runs) and `confirm`
+ *  Remove's question for them (null for Download again and for none). */
+export type MissingPreview = { action: MissingAction; items: MissingPreviewItem[]; n: number; skipped: number; words: string;
+  button: string | null; confirm: MissingConfirm | null };
 /** One song of a finished `missing_files` job: `done`, or `skipped` with its reason's key and sentence. */
 export type MissingItemResult = { track_id: string; action: MissingAction; state: 'done' | 'skipped'; reason: MissingReason | null;
   words: string | null };
@@ -124,8 +130,10 @@ export type BatchCheck = { id: number; size: number; started: string | null;
   kind: 'upgrade' | 'convert' | 'mixed' | null;
   /** the engine's words for the batch (`views._batch_item`), printed as they are: the To-do row's name ("3 tracks
    *  upgraded", "3 better versions put in", "3 tracks changed") and sub ("today · Same track"), the title of the batch's
-   *  list, and the "In rekordbox" card's summary when every check is a placement ("better versions in"; else null) */
-  row_name: string; row_sub: string; list_title: string; card_summary: string | null;
+   *  list, and the "In rekordbox" card's summary (`card_summary`: "same track(s), cues kept" for the upgrades with steps to do,
+   *  "better versions in" with only placements; null when the card has no steps) and `placed_summary` ("better versions
+   *  in" when the batch holds a placement, else null: a panel held after an undo that left only placements) */
+  row_name: string; row_sub: string; list_title: string; card_summary: string | null; placed_summary: string | null;
   tracks: TodoItem[] };
 export type BatchCheckItem = TodoItem & { group: 'rekordbox_check'; key: string; batch: BatchCheck };
 export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekordbox_check' && !!i.batch;
@@ -543,8 +551,10 @@ export type TrackDetail = TrackRow & {
 export type TrackAiff = { action: 'convert' | 'rename' | null; why_not: string | null; kind: string | null;
   from: string | null; to: string | null; name_now: string; new_name: string | null; bytes: number; lossy: boolean;
   cdj: CdjWords | null };
-/** The `missing_file` group's `all`: the items not hidden whose action can run now, by action. */
-export type MissingAll = { download_again: number; remove: number };
+/** The `missing_file` group's `all`: `download_again` and `remove` count the items not hidden whose action can run now, by
+ *  action (what `--all` acts on); `label` is the head link's words, "Select all · {k}" over the group's items that are
+ *  not hidden (what Select all selects), null under two. */
+export type MissingAll = { download_again: number; remove: number; label: string | null };
 type TodoGroupHead = { label: string; hint: string; items: TodoItem[];
   /** the newest stopped batch with items left (`upgrade_ready`, `cdj`) */
   stopped?: { batch_id: number; left: number } | null };

@@ -2,9 +2,10 @@
 // a song whose file waits as missing gets Download again (a playlist song) or Remove from library (any other), from its
 // Details foot and from the selection panel (several songs). Pure. The window shows the engine's words (`missing.will`,
 // `missing.words`, the job's `words`) and its counts and decides nothing: which action a song has is the engine's
-// `missing.action`, and whether it can run now is `missing.why_not`; counting the selection by those two is formatting
-// (as UpgradeSelection counts `same_track`).
-import type { MissingAction, MissingItemResult, MissingResult, TodoItem, TrackDetail } from '$lib/bridge/types';
+// `missing.action`, and whether it can run now is `missing.why_not`. The selection panel's button words, counts and the
+// Remove question come from the engine's `missing_files_preview` (`button`, `confirm`, items' `will`), the head link's
+// words from the group's `all.label`.
+import type { MissingAction, MissingConfirm, MissingItemResult, MissingPreview, MissingResult, TodoItem, TrackDetail } from '$lib/bridge/types';
 import { plural } from '$lib/format';
 
 /** The buttons' words for one song (§5.4): Remove asks first, so its label has the dots. */
@@ -14,24 +15,6 @@ export const missingLabel = (action: MissingAction): string => (action === 'remo
 
 /** The selection panel's head: "{k} songs selected". */
 export const missingSelectedTitle = (k: number): string => `${plural(k, 'song', 'songs')} selected`;
-/** The selection panel's buttons (§5.4): "Download again · {n}" and "Remove from library · {m}…". */
-export const downloadAgainManyLabel = (n: number): string => `${DOWNLOAD_AGAIN_LABEL} · ${n}`;
-export const removeManyLabel = (m: number): string => `Remove from library · ${m}…`;
-/** The head link of the group: "Select all · {n}", shown from two (with one, the row's own button does it). */
-export const selectAllLabel = (n: number): string => `Select all · ${n}`;
-export const selectAllShown = (n: number): boolean => n >= 2;
-
-/** Remove's question (§5.4); several songs ask in the plural. */
-export function removeConfirm(m: number) {
-  return { title: m === 1 ? 'Remove from your library?' : `Remove ${m} songs from your library?`,
-    body: "Their files aren't in your watched folders. Discjockey forgets these songs, your answers about them and any "
-      + 'better version waiting for them. If a file comes back later, it is added as a new song.',
-    confirmLabel: 'Remove', tone: 'danger' as const };
-}
-
-/** The `missing` of an item the action can run for now, by the engine's words: its `action` is set and `why_not` null. */
-const canRun = (i: Pick<TodoItem, 'missing'>, action: MissingAction): boolean =>
-  i.missing?.action === action && i.missing.why_not === null;
 
 /** One row of the selection panel: the engine's `will` words, or the `why_not` words dimmed (the song is skipped). */
 export type MissingRowWords = { text: string; dim: boolean };
@@ -41,32 +24,34 @@ export function missingRowWords(i: Pick<TodoItem, 'missing'>): MissingRowWords {
   return m.why_not ? { text: m.words ?? '', dim: true } : { text: m.will, dim: false };
 }
 
-/** The selection panel's two buttons: the count of the selected songs each runs for now (by the engine's `action` with
- *  `why_not` null), the label with it, and the track ids it sends. A kind with no song runnable shows no button; the
- *  Download again button is the filled one, so with only Remove selected the Remove button stays the danger one. */
-export type MissingButtons = {
-  n: number; m: number;
-  download: { label: string; ids: string[] } | null;
-  remove: { label: string; ids: string[] } | null;
-};
-export function missingButtons(items: Pick<TodoItem, 'track_id' | 'missing'>[]): MissingButtons {
-  const download = items.filter((i) => canRun(i, 'download_again')).map((i) => i.track_id);
-  const remove = items.filter((i) => canRun(i, 'remove')).map((i) => i.track_id);
-  return { n: download.length, m: remove.length,
-    download: download.length ? { label: downloadAgainManyLabel(download.length), ids: download } : null,
-    remove: remove.length ? { label: removeManyLabel(remove.length), ids: remove } : null };
+/** The selection panel's two buttons, from the engine's previews (`missing_files_preview` once per action over the
+ *  selection): its `button` words ("Download again · {n}" / "Remove from library · {n}…"; null when no song runs) and the
+ *  track ids the press sends, the items whose `will` is true. The Download again button is the filled one, so with only
+ *  Remove selected the Remove button stays the danger one. `none` is the engine's one line for a selection nothing can run
+ *  for (the Download again preview's `words`, "Nothing to do: 3 songs are skipped."), shown when both buttons are null. */
+export type MissingButton = { label: string; ids: string[]; confirm: MissingConfirm | null };
+export type MissingButtons = { download: MissingButton | null; remove: MissingButton | null; none: string | null };
+export function missingButtons(previews: { download_again: MissingPreview | null; remove: MissingPreview | null } | null): MissingButtons {
+  const one = (p: MissingPreview | null): MissingButton | null => (p?.button
+    ? { label: p.button, ids: p.items.filter((i) => i.will).map((i) => i.track_id), confirm: p.confirm } : null);
+  const download = one(previews?.download_again ?? null);
+  const remove = one(previews?.remove ?? null);
+  return { download, remove, none: download || remove ? null : previews?.download_again?.words ?? null };
 }
 
 /** One row of the foot of a single song's details: the button, its variant, and when it can't run the engine's reason
- *  as its tip and as the Hint under it (the Upgrade ready reasons' pattern). */
+ *  as its tip and as the Hint under it (the Upgrade ready reasons' pattern). A state is said once: the Hint is left out
+ *  when the note above already says it (the same words, or a song found in several places: the note's line names them
+ *  and its hint says what to do); the tip stays. */
 export type MissingFoot = { action: MissingAction; label: string; variant: 'filled' | 'danger'; disabled: boolean;
   tip: string | null; hint: string | null };
 export function missingFoot(track: Pick<TrackDetail, 'missing'>): MissingFoot | null {
   const m = track.missing;
   if (!m) return null;
   const why = m.why_not ? (m.words ?? '') || null : null;
+  const said = why !== null && (why === m.line || why === m.hint || m.why_not === 'found_twice');
   return { action: m.action, label: missingLabel(m.action), variant: m.action === 'remove' ? 'danger' : 'filled',
-    disabled: m.why_not !== null, tip: why, hint: why };
+    disabled: m.why_not !== null, tip: why, hint: said ? null : why };
 }
 
 /** The details' note for a missing file: the engine's `line` as its title and `hint` as its text. */

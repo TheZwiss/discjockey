@@ -6,7 +6,7 @@ import type { FakeState, FakeTrack } from './data';
 import { dateOnly, makeUpgrade } from './data';
 import { placeAt, trackPlace } from './library';
 import { MUSIC_DIR, ownTrack } from './aiffScenes';
-import type { MissingAction, MissingAll, MissingDetail, MissingItemResult, MissingPreview, MissingReason, MissingResult, MissingView,
+import type { MissingAction, MissingAll, MissingConfirm, MissingDetail, MissingItemResult, MissingPreview, MissingReason, MissingResult, MissingView,
   TodoItem } from '../types';
 
 export const DOWNLOAD_AGAIN: MissingAction = 'download_again';
@@ -114,10 +114,13 @@ export function missingDetail(s: FakeState, t: FakeTrack): MissingDetail | null 
   return v ? { ...v, line: line(s, t), hint: hint(t, v.action) } : null;
 }
 
-/** The group's `all`: the items not hidden whose action can run now, by action (what the head link and `--all` act on) */
+/** missing.select_all_label: the head link's words, from two songs */
+const selectAllLabel = (k: number): string | null => (k >= 2 ? `Select all · ${k}` : null);
+/** The group's `all`: the items not hidden whose action can run now, by action (what `--all` acts on), and the head link's
+ *  `label` over every item not hidden (what Select all selects: a song that can't act too) */
 export function missingAll(items: TodoItem[]): { all: MissingAll } {
   const n = (a: MissingAction) => items.filter((r) => !r.hidden && r.missing?.action === a && r.missing.why_not === null).length;
-  return { all: { download_again: n(DOWNLOAD_AGAIN), remove: n(REMOVE) } };
+  return { all: { download_again: n(DOWNLOAD_AGAIN), remove: n(REMOVE), label: selectAllLabel(items.filter((r) => !r.hidden).length) } };
 }
 
 // ---------- the two actions: the dry run and the job ----------
@@ -152,6 +155,17 @@ function counts(action: MissingAction, rows: { will: boolean; upgrade_waiting: b
   return [will.length - placed, placed, 0, rows.length - will.length];
 }
 
+/** missing.REMOVE_CONFIRM_BODY */
+export const REMOVE_CONFIRM_BODY = "Their files aren't in your watched folders. Discjockey forgets these songs, your answers about "
+  + 'them and any better version waiting for them. If a file comes back later, it is added as a new song.';
+/** missing.button_label: the selection panel's button over the `n` songs that run */
+export const buttonLabel = (action: MissingAction, n: number): string | null =>
+  (n ? `${ACTION_WORDS[action]} · ${n}${action === REMOVE ? '…' : ''}` : null);
+/** missing.confirm_for: Remove's question for `n` songs (the plural for several) */
+export const confirmFor = (action: MissingAction, n: number): MissingConfirm | null => (action !== REMOVE || !n ? null
+  : { title: n === 1 ? 'Remove from your library?' : `Remove ${n} songs from your library?`, body: REMOVE_CONFIRM_BODY,
+    confirm_label: 'Remove', tone: 'danger' });
+
 /** missing.preview: what `action` would do for `ids`, one item per song in the order asked (a key that is no song is
  *  `not_missing`). Reads only. */
 export function previewMissing(s: FakeState, ids: string[], action: MissingAction): MissingPreview {
@@ -164,7 +178,8 @@ export function previewMissing(s: FakeState, ids: string[], action: MissingActio
       words: reason === null ? willWords(action, waiting) : reasonWords(reason, action), upgrade_waiting: waiting };
   });
   const n = items.filter((i) => i.will).length;
-  return { action, items, n, skipped: items.length - n, words: summary(action, ...counts(action, items)) };
+  return { action, items, n, skipped: items.length - n, words: summary(action, ...counts(action, items)),
+    button: buttonLabel(action, n), confirm: confirmFor(action, n) };
 }
 
 /**

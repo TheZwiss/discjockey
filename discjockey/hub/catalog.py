@@ -25,6 +25,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal
 
+from .. import missing as missing_rule
 from . import select
 
 Kind = Literal["R", "RJ", "J", "J-control", "B", "W", "dropped"]
@@ -84,9 +85,7 @@ CONFIRM: dict[str, str] = {
     "track undo": "Undo the last step of these tracks? Your old files go back where they were.",
     "batch undo": "Undo every step this batch did? Your old files go back where they were.",
     "folder remove": "Stop watching this folder? Discjockey forgets its files; the files stay where they are.",
-    "missing remove": "Remove these songs from your library? Their files aren't in your watched folders. Discjockey forgets "
-                      "these songs, your answers about them and any better version waiting for them. If a file comes back "
-                      "later, it is added as a new song.",
+    "missing remove": f"Remove these songs from your library? {missing_rule.REMOVE_CONFIRM_BODY}",
     "rekordbox restore": "Put rekordbox's whole library back as this backup holds it? Every change made in rekordbox "
                          "since is dropped. Your library as it is now is saved first.",
 }

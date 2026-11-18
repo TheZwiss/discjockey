@@ -8,7 +8,7 @@ import type {
 import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
 import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
 import { canSwap, defaultWay, fileName } from '$lib/decisions/decisionModel';
-import { missingFoot, missingNote, selectAllShown, type MissingFoot, type MissingNote } from '$lib/decisions/missingModel';
+import { missingFoot, missingNote, type MissingFoot, type MissingNote } from '$lib/decisions/missingModel';
 import { heldRow, putAt } from '$lib/decisions/hold';
 import { fitPath } from '$lib/components/watchedFoldersModel';
 import { keep as keepSelected, type Selection } from '$lib/components/selectionModel';
@@ -136,16 +136,11 @@ export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready', 'rekordbox_check',
 export function multiMissing(selected: TodoItem[]): boolean {
   return selected.length > 1 && selected.every((i) => i.group === 'missing_file');
 }
-/** The Missing files group of an answer (its `all` drives the head's link), null when it has none. */
+/** The Missing files group of an answer (its `all.label` is the head's link: the engine's words, null under two songs),
+ *  null when it has none. */
 export function missingGroup(t: Todo | null): MissingGroup | null {
   return t?.groups.find((g): g is MissingGroup => g.key === 'missing_file') ?? null;
 }
-/** "Select all · n": the engine's count of the group's songs whose action can run now (`all`, by action). */
-export function missingAllCount(group: MissingGroup | null): number {
-  return group?.all ? group.all.download_again + group.all.remove : 0;
-}
-/** The head link shows from two songs that can act. */
-export const missingAllShown = (group: MissingGroup | null): boolean => selectAllShown(missingAllCount(group));
 /** What "Select all" selects: the group's items that are not hidden (also with Show hidden on), in list order. A song
  *  that can't act now is selected too: the panel lists it dimmed with the reason's words and the buttons skip it. */
 export function missingAllKeys(group: { items: TodoItem[] } | null): string[] {
@@ -173,7 +168,7 @@ export function multiScope(items: TodoItem[]): (key: string) => string | null {
 }
 /** The checks a batch card or a selection of checks acted on (Done, Undo all, Undo this one): the page keeps them in
  *  its panel until the next pick, whatever shape the list gives them now. `batch`: the panel was that batch's card. */
-export type CheckHold = { ids: string[]; batch: Pick<BatchCheck, 'id' | 'started' | 'from_sync' | 'list_title' | 'card_summary'> | null };
+export type CheckHold = { ids: string[]; batch: Pick<BatchCheck, 'id' | 'started' | 'from_sync' | 'list_title' | 'card_summary' | 'placed_summary'> | null };
 /** The open checks of a hold in `items` (a batch item gives its tracks), in the list's order, with the keys of the
  *  rows that hold them; null when none is left (all done or undone). */
 export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; tracks: TodoItem[] } | null {

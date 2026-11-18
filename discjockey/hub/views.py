@@ -1759,11 +1759,30 @@ SYNC_STARTERS = (batches.AUTO, batches.DOWNLOAD_AGAIN)  # `started_by` of a batc
 BATCH_CLEAN_NAME = "Clean name"  # a batch that only gave clean names
 BATCH_PLACED = "Better versions put in during your sync"  # the sub of a batch of placements only (issue 43)
 PLACED_CARD_SUMMARY = "better versions in"  # the summary of the "In rekordbox" card of a batch of placements only
+CARD_SUMMARY_ONE = "same track, cues kept"  # the summary of the card's steps for upgrades: one track in rekordbox ...
+CARD_SUMMARY_MANY = "same tracks, cues kept"  # ... or several
 
 
 def _placed(tracks: list[dict]) -> int:
     """How many checks of a batch are placements of a missing file's better version (`placed_missing`)."""
     return sum(1 for t in tracks if t["check"]["reason"] == "placed_missing")
+
+
+def _in_rekordbox(check: dict) -> bool:
+    """Whether rekordbox has the check's track: what was written there (`check.rekordbox.entries`), else a swap's
+    track (the window's `inRekordbox`)."""
+    rb = check.get("rekordbox")
+    return rb["entries"] > 0 if rb else check["reason"] == "swapped"
+
+
+def _card_summary(tracks: list[dict]) -> str | None:
+    """The summary of a batch's "In rekordbox" card: for the checks that are no placement, "same track, cues kept" /
+    "same tracks, cues kept" by how many have steps to do there (in rekordbox, no clean name); a Convert or a clean
+    name has none. Without those, "better versions in" when placements are there; None when the card has no steps."""
+    steps = [t for t in tracks if t["check"]["reason"] not in ("placed_missing", "renamed") and _in_rekordbox(t["check"])]
+    if steps:
+        return CARD_SUMMARY_MANY if len(steps) > 1 else CARD_SUMMARY_ONE
+    return PLACED_CARD_SUMMARY if _placed(tracks) else None
 
 
 def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> str:
@@ -1821,7 +1840,8 @@ def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None
     `upgrade` | `convert` | `mixed`; None when unknown): a Convert batch says "Made AIFF" (`_batch_how`).
     The batch carries the row's and the list's words, so the window prints them as they are: `row_name`, `row_sub`
     ("{day} · {how}", the day against `today`), `list_title`; `card_summary` is the summary of its "In rekordbox" card
-    when every check is a placement ("better versions in"), else null (the window keeps its own for upgrades)."""
+    (`_card_summary`; null when it has no steps) and `placed_summary` ("better versions in") the one of the placements
+    among its checks, null with none: a panel held after an undo may show the placements alone."""
     started = min((t["check"]["since"] for t in tracks if t["check"]["since"]), default=None)
     key = f"batch:{batch_id}"
     how = _batch_how(started_by, kind, tracks)
@@ -1833,7 +1853,7 @@ def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None
                       "from_sync": started_by in SYNC_STARTERS, "tracks": tracks,
                       "row_name": _batch_row_name(len(tracks), kind, placed),
                       "row_sub": f"{day} · {how}" if day else how, "list_title": _batch_list_title(tracks),
-                      "card_summary": PLACED_CARD_SUMMARY if placed == len(tracks) else None}}
+                      "card_summary": _card_summary(tracks), "placed_summary": PLACED_CARD_SUMMARY if placed else None}}
 
 
 def _upgrade_all(rows: list[dict], stopped: tuple[int, int] | None) -> dict:
@@ -2051,9 +2071,10 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     for rows in items.values():
         rows.sort(key=lambda r: ("batch" not in r, fold(r["folder"]), fold(r["artist"]), fold(r["title"])))
     chips = {"all": len(listed), **{g: len(v) for g, v in items.items()}}
-    extra = {"missing_file": {"all": {a: sum(1 for r in items["missing_file"]
-                                             if not r["hidden"] and r["missing"]["action"] == a
-                                             and r["missing"]["why_not"] is None) for a in missing_rule.ACTIONS}},
+    shown = [r for r in items["missing_file"] if not r["hidden"]]  # what the head link selects (a song that can't act too)
+    extra = {"missing_file": {"all": {**{a: sum(1 for r in shown if r["missing"]["action"] == a
+                                                and r["missing"]["why_not"] is None) for a in missing_rule.ACTIONS},
+                                      "label": missing_rule.select_all_label(len(shown))}},
              "upgrade_ready": _upgrade_all(items["upgrade_ready"], stopped),
              "cdj": {"all": {"n": cdj_all[0], "k": cdj_all[1]},
                      "stopped": {"batch_id": cdj_stopped[0], "left": cdj_stopped[1]} if cdj_stopped else None}}

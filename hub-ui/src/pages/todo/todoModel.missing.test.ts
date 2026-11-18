@@ -3,10 +3,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Todo, TodoItem, TrackDetail } from '$lib/bridge/types';
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
-import { missingSet } from '$lib/bridge/fake/missingFiles';
+import { missingAll, missingSet } from '$lib/bridge/fake/missingFiles';
 import { rowAway } from '$lib/format';
 import {
-  MULTI_GROUPS, actionsFor, headerSub, itemKey, missingAllCount, missingAllKeys, missingAllShown, missingGroup, multiMissing, multiScope,
+  MULTI_GROUPS, actionsFor, headerSub, itemKey, missingAllKeys, missingGroup, multiMissing, multiScope,
   rowDim, rowSub, selectFromTrack, segOptions,
 } from './todoModel';
 
@@ -39,23 +39,25 @@ describe('the group in the list', () => {
     expect(rowSub(i)).toContain('Missing since');
     expect(rowSub({ ...i, folder: '' })).toBe(i.detail);
   });
-  it('the head link: the engine\'s count of songs that can act, from two; it selects the items not hidden', async () => {
+  it('the head link is the engine\'s words over the songs shown; Select all selects exactly those (the hidden one is left out)', async () => {
     const { todo, shown, ids } = await scene();
     const g = missingGroup(todo)!;
-    expect(missingAllCount(g)).toBe(g.all!.download_again + g.all!.remove);
-    expect(missingAllCount(g)).toBeGreaterThanOrEqual(2);
-    expect(missingAllShown(g)).toBe(true);
+    expect(g.all!.label).toBe(`Select all · ${g.items.filter((i) => !i.hidden).length}`);
+    expect(g.all!.label).toMatch(/^Select all · \d+$/);
     // the hidden song is in the shown answer only; the head's keys leave it out either way
     const gs = missingGroup(shown)!;
     expect(gs.items.some((i) => i.track_id === ids.hidden)).toBe(true);
     expect(missingAllKeys(gs)).toEqual(gs.items.filter((i) => i.track_id !== ids.hidden).map(itemKey));
+    expect(gs.all!.label).toBe(g.all!.label);
     expect(missingAllKeys(null)).toEqual([]);
   });
-  it('no `all`, no group, or one song that can act: no head link', () => {
-    expect(missingAllCount(null)).toBe(0);
-    expect(missingAllShown(null)).toBe(false);
-    expect(missingAllShown({ key: 'missing_file', label: '', hint: '', items: [], all: { download_again: 1, remove: 0 } })).toBe(false);
-    expect(missingAllCount({ key: 'missing_file', label: '', hint: '', items: [] })).toBe(0);
+  it('one song shown, or no group: the engine sends no label, so the page shows no head link', async () => {
+    const { todo } = await scene();
+    const items = missingGroup(todo)!.items;
+    expect(missingGroup(null)).toBeNull();
+    expect(missingAll(items.slice(0, 1)).all.label).toBeNull();
+    expect(missingAll(items.slice(0, 2)).all.label).toBe('Select all · 2');
+    expect(missingAll([]).all.label).toBeNull();
   });
   it('multiMissing: two or more items, all of the group', async () => {
     const { item, ids } = await scene();
@@ -100,7 +102,7 @@ describe('one item (actionsFor)', () => {
     const { ids, detail } = await scene();
     const a = actionsFor(await detail(ids.twice), 'missing_file');
     expect(a.missing!.foot).toMatchObject({ disabled: true, tip: 'Its file is in several places now: keep one and it links again.' });
-    expect(a.missing!.foot.hint).toBe(a.missing!.foot.tip);
+    expect(a.missing!.foot.hint).toBeNull();   // the note above says it: a state is said once
     expect(a.missing!.note.text).toBe("Delete or move away the copies you don't want; the one left links again.");
   });
   it('a hidden song offers Unhide', async () => {

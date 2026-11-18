@@ -59,7 +59,7 @@ describe('the single check of a clean name (renamed)', () => {
 describe('a batch of converts', () => {
   it('has the USB step once, for the tracks rekordbox has: nothing else, nothing at all for clean names or files it hasn\'t', () => {
     const three = [check('a'), check('b'), check('c')];
-    const c = batchCheckCard(three, name)!;
+    const c = batchCheckCard(three, name, { card: 'same tracks, cues kept', placed: null })!;
     expect(c.summary).toBe('same tracks, cues kept');
     expect(c.steps.map(words)).toEqual(['On a USB stick? The stick still plays the old files. Rebuild the stick in rekordbox before your next gig']);
     expect(batchCheckCard([check('a')], name)!.steps.map(words)).toEqual([words(USB_STEP)]);

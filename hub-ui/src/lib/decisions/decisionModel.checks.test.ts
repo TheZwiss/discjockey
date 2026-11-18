@@ -16,6 +16,9 @@ const check = (id: string, c: Partial<RekordboxCheckView> = {}, extra: Partial<T
   quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false,
   hidden: false, upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null,
   group: 'rekordbox_check', detail: 'analyse again', free: false, file_state: 'here', can_undo: true, check: view(c), ...extra });
+// the engine's words for a card's summary (`batch.card_summary`, `batch.placed_summary`): the window prints them as they are
+const SAME = { card: 'same tracks, cues kept', placed: null }, ONE = { card: 'same track, cues kept', placed: null };
+const PLACED = { card: 'better versions in', placed: 'better versions in' };
 const name = (i: TodoItem) => `A – ${i.title}`;
 const words = (s: { parts: { text: string }[]; note?: string }) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : '');
 
@@ -65,8 +68,9 @@ describe('the batch card', () => {
     expect([isAutoBatch({ from_sync: true }), isAutoBatch({ from_sync: false }), isAutoBatch({}), isAutoBatch(null)]).toEqual([true, false, false, false]);
   });
   it('steps for all: analyse them again, the USB stick; no Reload Tag when every text was written', () => {
-    const c = batchCheckCard([check('a'), check('b')], name)!;
+    const c = batchCheckCard([check('a'), check('b')], name, SAME)!;
     expect(c.summary).toBe('same tracks, cues kept');
+    expect(batchCheckCard([check('a'), check('b')], name)!.summary).toBe('');   // no words from the engine: none made up
     expect(c.steps.map(words)).toEqual([
       'Analyse them again, so the waveform shows the full sound (lock the beatgrid first if you set it by hand)',
       'On a USB stick? The stick still plays the old files. Rebuild the stick in rekordbox before your next gig']);
@@ -85,7 +89,7 @@ describe('the batch card', () => {
       + "don't select all: it replaces every name you changed in rekordbox");
   });
   it('only the tracks rekordbox has get steps: one of them says "it", none is no card', () => {
-    const one = batchCheckCard([check('a'), check('b', { rekordbox: { entries: 0, kept: [] } })], name)!;
+    const one = batchCheckCard([check('a'), check('b', { rekordbox: { entries: 0, kept: [] } })], name, ONE)!;
     expect(one.summary).toBe('same track, cues kept');
     expect(words(one.steps[0])).toMatch(/^Analyse it again/);
     expect(one.steps[1]).toEqual(USB_STEP);
@@ -94,24 +98,27 @@ describe('the batch card', () => {
   it('a better version put in for a missing file gets the engine\'s words, one step per distinct text, no upgrade steps', () => {
     const placed = (id: string, text: string) => check(id, { reason: 'placed_missing', text, reload_tag: true, batch: { id: 7, size: 3 } });
     const A = 'It was put in at its old place; rekordbox found it again.', B = 'It was put in, but rekordbox has no track for it.';
-    const all = batchCheckCard([placed('a', A), placed('b', B), placed('c', A)], name, 'better versions in')!;
+    const all = batchCheckCard([placed('a', A), placed('b', B), placed('c', A)], name, PLACED)!;
     expect(all.summary).toBe('better versions in');
     expect(all.steps.map((x) => [words(x), x.list])).toEqual([[A, ['A – a', 'A – c']], [B, ['A – b']]]);
     expect(all.lead).toBeUndefined();
     // nothing of an upgrade: no USB step, no Reload Tag, no analyse step
     expect(JSON.stringify(all.steps)).not.toMatch(/USB|Reload Tag|Analyse/);
-    expect(batchCheckCard([placed('a', A)], name, 'better versions in')!.steps.map(words)).toEqual([A]);
+    expect(batchCheckCard([placed('a', A)], name, PLACED)!.steps.map(words)).toEqual([A]);
   });
   it('a mix keeps the upgrades\' steps and summary from the upgrades alone, the placements\' texts after them', () => {
     const p = check('p', { reason: 'placed_missing', text: 'Put in.', reload_tag: true });
-    const c = batchCheckCard([check('a'), check('b'), p], name, null)!;
+    const c = batchCheckCard([check('a'), check('b'), p], name, { card: 'same tracks, cues kept', placed: 'better versions in' })!;
     expect(c.summary).toBe('same tracks, cues kept');
     expect(c.steps.map(words)).toEqual([
       'Analyse them again, so the waveform shows the full sound (lock the beatgrid first if you set it by hand)',
       'On a USB stick? The stick still plays the old files. Rebuild the stick in rekordbox before your next gig', 'Put in.']);
     expect(c.steps.at(-1)!.list).toEqual(['A – p']);
     // without a placement nothing changes
-    expect(batchCheckCard([check('a'), check('b')], name, null)!.steps).toHaveLength(2);
+    expect(batchCheckCard([check('a'), check('b')], name, SAME)!.steps).toHaveLength(2);
+    // a panel held after an undo that left only placements shows the placements' words, not the upgrades'
+    const only = batchCheckCard([p], name, { card: 'same tracks, cues kept', placed: 'better versions in' })!;
+    expect(only.summary).toBe('better versions in');
   });
   it('a row per track: the new file, what was kept, a file rekordbox doesn\'t have, whether it can be undone', () => {
     expect(checkRow(check('a', { rekordbox: { entries: 1, kept: ['title'] } }), 'A – a', 'file'))
@@ -127,7 +134,7 @@ describe('the batch card', () => {
 describe('several checks selected, and their undo', () => {
   const batch: BatchCheckItem = { ...check('batch:7', {}, { key: 'batch:7' }), group: 'rekordbox_check', key: 'batch:7',
     batch: { id: 7, size: 2, started: '2026-11-08', started_by: 'user', from_sync: false, kind: 'upgrade',
-      row_name: '2 tracks upgraded', row_sub: 'today · Same track', list_title: 'Upgraded', card_summary: null, tracks: [check('b1'), check('b2')] } };
+      row_name: '2 tracks upgraded', row_sub: 'today · Same track', list_title: 'Upgraded', card_summary: 'same tracks, cues kept', placed_summary: null, tracks: [check('b1'), check('b2')] } };
   it('a batch stands for its tracks', () => {
     expect(checkTracks([batch, check('c1')]).map((t) => t.track_id)).toEqual(['b1', 'b2', 'c1']);
   });

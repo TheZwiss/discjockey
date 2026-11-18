@@ -94,7 +94,7 @@ def test_missing_list_is_the_to_do_group_with_each_songs_action_and_words(lib, c
     code, env = run_json(["missing", "list"], capsys)
     assert code == OK and env["command"] == "missing list" and [g["key"] for g in env["data"]["groups"]] == ["missing_file"]
     g = group(env)
-    assert g["all"] == {"download_again": 2, "remove": 3}
+    assert g["all"] == {"download_again": 2, "remove": 3, "label": "Select all · 5"}
     by = {i["track_id"]: i["missing"] for i in g["items"]}
     assert sorted(by) == ["t1", "t2", "t4", "t5", "t6"]
     assert (by["t1"]["action"], by["t1"]["will"]) == ("download_again", "Downloads again at your next sync")

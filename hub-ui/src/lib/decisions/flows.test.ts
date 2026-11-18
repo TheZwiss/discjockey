@@ -652,27 +652,67 @@ describe('MissingFlow (Download again and Remove from library, issue 43)', () =>
     let asked = '';
     const stop = confirmRequest.subscribe((p) => { if (p) { asked = `${p.title}|${p.confirmLabel}|${p.tone}`; queueMicrotask(() => { stop(); answerConfirm(true); }); } });
     await flow.remove([ids.own]);
-    expect(asked).toBe('Remove from your library?|Remove|danger');
+    expect(asked).toBe('Remove from your library?|Remove|danger');   // the engine's words, asked for at the press
     expect(call).toHaveBeenCalledWith([ids.own], 'remove');
     expect(onact).toHaveBeenCalledTimes(1);
     expect(s.tracks.some((t: any) => t.track_id === ids.own)).toBe(false);
     expect(titles()).toEqual(['Removed 1 song from your library.']);
   });
 
-  it('several songs: the plural question, and the end keeps the words and the songs the job skipped with their words', async () => {
+  it('the panel reads the engine\'s previews once per action, the newest read wins, and the press asks with the engine\'s question', async () => {
     const { ids, s } = env();
     const flow = new MissingFlow({ name: (id) => `name ${id}` });
+    const preview = vi.spyOn(api, 'missing_files_preview');
+    const call = vi.spyOn(api, 'missing_files');
+    await flow.read([ids.own, ids.ownParked, ids.ownCheck]);
+    expect(preview.mock.calls.map((c) => c[1]).sort()).toEqual(['download_again', 'remove']);
+    expect(flow.previews).toMatchObject({ phase: 'ready', ids: [ids.own, ids.ownParked, ids.ownCheck] });
+    const rm = flow.previews!.remove!;
+    expect([rm.button, rm.confirm?.title]).toEqual(['Remove from library · 2…', 'Remove 2 songs from your library?']);
+    // an older read that answers last is dropped
+    const slow = flow.read([ids.own]);
+    await flow.read([ids.ownParked, ids.own]);
+    await slow;
+    expect(flow.previews!.ids).toEqual([ids.ownParked, ids.own]);
+    // the press: the engine's question (the panel hands over the one it read), the songs that will run
+    await flow.read([ids.own, ids.ownParked, ids.ownCheck]);
+    const ok = flow.previews!.remove!;
     let asked = '';
-    const stop = confirmRequest.subscribe((p) => { if (p) { asked = p.title; queueMicrotask(() => { stop(); answerConfirm(true); }); } });
-    // ownCheck's rekordbox check is open: the engine skips it, the other two are removed
-    await flow.remove([ids.own, ids.ownParked, ids.ownCheck]);
-    expect(asked).toBe('Remove 3 songs from your library?');
-    expect(flow.ended).toEqual({ action: 'remove', words: 'Removed 2 songs from your library; 1 is skipped.', done: 2,
-      skipped: [{ track_id: ids.ownCheck, name: `name ${ids.ownCheck}`, text: 'Its rekordbox check is still open: finish it first.' }] });
-    expect(titles()).toEqual([]);   // the panel says it, no toast
+    const stop = confirmRequest.subscribe((p) => { if (p) { asked = `${p.title}|${p.confirmLabel}|${p.tone}`; queueMicrotask(() => { stop(); answerConfirm(true); }); } });
+    preview.mockClear();
+    await flow.remove(ok.items.filter((i) => i.will).map((i) => i.track_id), { panel: true, confirm: ok.confirm });
+    expect(asked).toBe('Remove 2 songs from your library?|Remove|danger');
+    expect(preview).not.toHaveBeenCalled();                // it asked nothing more: the question came with the panel
+    expect(call).toHaveBeenCalledWith([ids.own, ids.ownParked], 'remove');
+    expect(flow.ended).toMatchObject({ action: 'remove', words: 'Removed 2 songs from your library.', done: 2, skipped: [] });
     expect(s.tracks.some((t: any) => t.track_id === ids.ownCheck)).toBe(true);
+    expect(titles()).toEqual([]);   // the panel says it, no toast
     flow.clear();
     expect(flow.ended).toBeNull();
+  });
+
+  it('where it was pressed decides where the words go: the panel keeps them, a single press says them as a toast', async () => {
+    const { ids } = env();
+    const flow = new MissingFlow({ name: (id) => `name ${id}` });
+    // one song, pressed in the panel (a selection narrowed to one by ×): the end stays in the panel
+    await flow.downloadAgain([ids.plain], { panel: true });
+    expect(flow.ended).toMatchObject({ action: 'download_again', words: '1 song downloads again at your next sync.', done: 1 });
+    expect(titles()).toEqual([]);
+    flow.clear();
+    // several songs, pressed from the details' button: a toast, no panel phase
+    await flow.downloadAgain([ids.parked, ids.plain]);
+    expect(flow.ended).toBeNull();
+    expect(get(toasts).length).toBe(1);
+  });
+
+  it('a skipped song of a panel press is named with the engine\'s reason', async () => {
+    const { ids, s } = env();
+    const flow = new MissingFlow({ name: (id) => `name ${id}` });
+    yes();
+    await flow.remove([ids.own, ids.ownCheck], { panel: true, confirm: { title: 'Remove 2 songs from your library?', body: 'x', confirm_label: 'Remove', tone: 'danger' } });
+    expect(flow.ended).toEqual({ action: 'remove', words: 'Removed 1 song from your library; 1 is skipped.', done: 1,
+      skipped: [{ track_id: ids.ownCheck, name: `name ${ids.ownCheck}`, text: 'Its rekordbox check is still open: finish it first.' }] });
+    expect(s.tracks.some((t: any) => t.track_id === ids.ownCheck)).toBe(true);
   });
 
   it('every song skipped: one song says its reason in a toast, several keep the end with the results', async () => {
@@ -681,7 +721,7 @@ describe('MissingFlow (Download again and Remove from library, issue 43)', () =>
     await flow.downloadAgain([ids.twice]);
     expect(get(toasts)[0]).toMatchObject({ tone: 'problem', body: 'Its file is in several places now: keep one and it links again.' });
     toasts.clear();
-    await flow.downloadAgain([ids.twice, ids.never]);
+    await flow.downloadAgain([ids.twice, ids.never], { panel: true });
     expect(flow.ended).toMatchObject({ action: 'download_again', done: 0 });
     expect(flow.ended!.skipped.map((r) => r.text)).toEqual(['Its file is in several places now: keep one and it links again.',
       'You chose Never download for it.']);
@@ -691,10 +731,10 @@ describe('MissingFlow (Download again and Remove from library, issue 43)', () =>
   it('a new press puts the old end away; a refusal before the start is a toast and no end', async () => {
     const { ids, f } = env();
     const flow = new MissingFlow();
-    await flow.downloadAgain([ids.plain, ids.parked]);
+    await flow.downloadAgain([ids.plain, ids.parked], { panel: true });
     expect(flow.ended).not.toBeNull();
     vi.spyOn(f, 'missing_files').mockResolvedValue({ ok: false, kind: 'busy', message: 'Another job is running.' } as any);
-    await flow.downloadAgain([ids.twice, ids.never]);
+    await flow.downloadAgain([ids.twice, ids.never], { panel: true });
     expect(flow.ended).toBeNull();
     expect(get(toasts).at(-1)).toMatchObject({ tone: 'problem', body: 'Another job is running.' });
   });

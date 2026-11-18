@@ -127,12 +127,13 @@ def test_the_group_counts_what_the_head_link_acts_on_by_action():
     st["tracks"]["d"]["rekordbox_check"] = {"reason": "swapped", "since": "2026-11-10"}
     g = group(views.todo(st, "all", False, {}, TODAY, place=place))
     # a, b, x: Download again can run; c: Remove can run; d: check open; n: never; t: found twice; h: hidden
-    assert g["all"] == {"download_again": 3, "remove": 1}
+    # the head link selects every song shown (one that can't act too: the panel says why), counted by the engine
+    assert g["all"] == {"download_again": 3, "remove": 1, "label": "Select all · 7"}
     reasons = {i["track_id"]: i["missing"]["why_not"] for i in g["items"]}
     assert reasons == {"a": None, "b": None, "c": None, "d": "check_open", "n": "never", "t": "found_twice",
                        "x": None}  # (h is hidden: left out of the list too)
     shown = group(views.todo(st, "all", True, {}, TODAY, place=place))
-    assert shown["all"] == {"download_again": 3, "remove": 1}                       # hidden songs are never counted
+    assert shown["all"] == {"download_again": 3, "remove": 1, "label": "Select all · 7"}  # hidden songs are never counted
     assert {"h"} == {i["track_id"] for i in shown["items"]} - set(reasons)
 
 
@@ -243,7 +244,7 @@ def test_the_hub_answers_the_group_the_details_and_the_library_rows_for_a_missin
     assert item["track_id"] == "t1" and item["file_state"] == "file_missing"
     assert item["detail"] == "Missing since 12 Nov · was in Hard_Bounce"            # Sites.place: the playlist's folder
     assert item["missing"]["action"] == "download_again" and item["missing"]["why_not"] is None
-    assert g["all"] == {"download_again": 1, "remove": 0}
+    assert g["all"] == {"download_again": 1, "remove": 0, "label": None}              # one song: its own button does it
     assert api.todo("missing_file")["ok"] is True and api.todo("missing_file")["chips"]["missing_file"] == 1
     t = api.track("t1")["track"]
     assert t["file_state"] == "file_missing" and t["missing"]["line"] == "Not seen since 12 Nov. It was in Hard_Bounce."
@@ -280,7 +281,8 @@ def test_types_ts_names_the_filters_actions_reasons_and_fields_the_views_send():
     view = missing.view("t", gone(), state(t=gone()), place, TODAY)
     assert fields(ts_type("MissingView")) == list(view)
     assert fields(ts_type("MissingDetail")) == ["line", "hint"]
-    assert fields(ts_type("MissingAll")) == list(missing.ACTIONS)
+    assert fields(ts_type("MissingAll")) == [*missing.ACTIONS, "label"]
+    assert fields(ts_type("MissingConfirm")) == list(missing.confirm_for(missing.REMOVE, 1))
     detail = missing.detail_view("t", gone(), state(t=gone()), place, TODAY)
     assert list(detail) == [*view, "line", "hint"]
 

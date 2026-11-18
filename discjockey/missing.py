@@ -49,6 +49,11 @@ WILL = {
     "remove": "Removed from your library",
 }
 
+# Remove's question (plan §5.4): the preview's `confirm`, and (as one line) the command line's.
+REMOVE_CONFIRM_BODY = ("Their files aren't in your watched folders. Discjockey forgets these songs, your answers about "
+                       "them and any better version waiting for them. If a file comes back later, it is added as a new "
+                       "song.")
+
 COMES_BACK = "Put the file back in any watched folder and it links again with everything it had."
 HINT_DOWNLOAD = f"{COMES_BACK} Or download it again at your next sync."
 HINT_PLACE = (f"{COMES_BACK} Or press Download again: the better version already waiting for it goes in at your next "
@@ -198,6 +203,28 @@ def _plural(n: int, one: str, many: str) -> str:
     return f"{n} {one if n == 1 else many}"
 
 
+def button_label(action: str, n: int) -> str | None:
+    """The selection panel's button for `action` over `n` songs that run (plan §5.4): "Download again · {n}" or
+    "Remove from library · {n}…" (the dots: it asks first); None when none runs."""
+    if not n:
+        return None
+    return f"{ACTION_WORDS[action]} · {n}" + ("…" if action == REMOVE else "")
+
+
+def confirm_for(action: str, n: int) -> dict | None:
+    """Remove's question for `n` songs (plan §5.4; the plural for several): `{title, body, confirm_label, tone}`. None
+    for Download again (nothing is lost, so it asks nothing) and for no song."""
+    if action != REMOVE or not n:
+        return None
+    title = "Remove from your library?" if n == 1 else f"Remove {n} songs from your library?"
+    return {"title": title, "body": REMOVE_CONFIRM_BODY, "confirm_label": "Remove", "tone": "danger"}
+
+
+def select_all_label(k: int) -> str | None:
+    """The group head's link (plan §5.4): "Select all · {k}", from two songs (with one, the row's own button does it)."""
+    return f"Select all · {k}" if k >= 2 else None
+
+
 def summary(action: str, plain: int, placed: int, removed: int, skipped: int, *, done: bool = False) -> str:
     """The one line the dry run, the job's result and the commands print. `plain`: songs that download again,
     `placed`: songs that get the parked better version instead (D9), `removed`: songs Remove takes out (all three count
@@ -237,12 +264,13 @@ def _checked(key: str, state: Mapping, action: str) -> tuple[Mapping, str | None
 
 def preview(state: Mapping, keys: Sequence[str], action: str, place: Callable[[str], str] | None,
             today: date) -> dict:
-    """What `action` would do for `keys`, answered before it runs (plan §4.4): `{action, items, n, skipped, words}`.
-    One item per song, `{track_id, artist, title, place, since, will, reason, words, upgrade_waiting}`: `will` says
+    """What `action` would do for `keys`, answered before it runs (plan §4.4): `{action, items, n, skipped, words, button,
+    confirm}`. One item per song, `{track_id, artist, title, place, since, will, reason, words, upgrade_waiting}`: `will` says
     whether the action runs for it now, `reason` (a `REASONS` key) and `words` why not otherwise, and `words` is
     `will_words` when it does; `upgrade_waiting` marks a song whose parked version Download again puts in instead of a
-    download (D9) or Remove deletes (D10). `n` counts what will run, `skipped` the rest, `words` is the one line. Reads
-    only. An unknown `action` is ValueError (the hub checks it first)."""
+    download (D9) or Remove deletes (D10). `n` counts what will run, `skipped` the rest, `words` is the one line, `button` the selection panel's
+    button over the `n` (None when none runs) and `confirm` Remove's question for them (None for Download again and
+    for none). Reads only. An unknown `action` is ValueError (the hub checks it first)."""
     if action not in ACTIONS:
         raise ValueError(f"action must be one of {', '.join(ACTIONS)}")
     items = []
@@ -256,7 +284,8 @@ def preview(state: Mapping, keys: Sequence[str], action: str, place: Callable[[s
                       "upgrade_waiting": waiting})
     n = sum(1 for i in items if i["will"])
     return {"action": action, "items": items, "n": n, "skipped": len(items) - n,
-            "words": summary(action, *_counts(action, items))}
+            "words": summary(action, *_counts(action, items)), "button": button_label(action, n),
+            "confirm": confirm_for(action, n)}
 
 
 # --- the writes (plan §4.2, §4.3) ---

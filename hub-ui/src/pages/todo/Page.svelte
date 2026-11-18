@@ -34,8 +34,7 @@
     selectAll, selectOne, type Selection,
   } from '$lib/components';
   import {
-    AiffBatchPanel, BatchCheckCards, ChecksFlow, MissingFlow, MissingSelection, UpgradeSelection, aiffBatch, selectAllLabel,
-    upgradeBatch,
+    AiffBatchPanel, BatchCheckCards, ChecksFlow, MissingFlow, MissingSelection, UpgradeSelection, aiffBatch, upgradeBatch,
   } from '$lib/decisions';
   import { checkTracks, convertAllLabel, resumeLabel, upgradeAllLabel, upgradeAllShown } from '$lib/decisions/decisionModel';
   import { getPref, setPref } from '$lib/prefs';
@@ -47,8 +46,8 @@
   import { artistTitle, rowAway } from '$lib/format';
   import {
     FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
-    batchListStep, cdjAllKeys, cdjGroup, checksPanelShows, coalesce, heldChecks, keepPinned, missingAllCount, missingAllKeys,
-    missingAllShown, missingGroup, multiCdj, multiChecks, multiMissing, multiScope, openCount, queueRows, rowBadge, rowDim, rowSub,
+    batchListStep, cdjAllKeys, cdjGroup, checksPanelShows, coalesce, heldChecks, keepPinned, missingAllKeys,
+    missingGroup, multiCdj, multiChecks, multiMissing, multiScope, openCount, queueRows, rowBadge, rowDim, rowSub,
     selectAfterHide, selectFromTrack, upgradeAllKeys, upgradeGroup, wholeCdjGroup, wholeUpgradeGroup,
     withHeldItem, MULTI_GROUPS,
     type CheckHold, type TodoHold,
@@ -485,8 +484,8 @@
 
 {#snippet missingAction()}
   <!-- no Resume: each press is one job, nothing waits half done; "Select all · 1" would only be the row's own button -->
-  {#if missingAllShown(missingG)}
-    <Button variant="link" size="sm" onclick={selectAllMissing} data-test="todo-select-all">{selectAllLabel(missingAllCount(missingG))}</Button>
+  {#if missingG?.all?.label}
+    <Button variant="link" size="sm" onclick={selectAllMissing} data-test="todo-select-all">{missingG.all.label}</Button>
   {/if}
 {/snippet}
 

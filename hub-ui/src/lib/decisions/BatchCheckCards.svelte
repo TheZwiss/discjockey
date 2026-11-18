@@ -33,12 +33,12 @@
      *  title counts items as the list, tab and chips do, the summary the tracks */
     selected?: number;
     /** the batch these tracks are (one batch item selected), null for several checks selected */
-    batch?: Pick<BatchCheck, 'id' | 'started' | 'list_title' | 'card_summary'> & { from_sync?: boolean } | null;
+    batch?: Pick<BatchCheck, 'id' | 'started' | 'list_title' | 'card_summary' | 'placed_summary'> & { from_sync?: boolean } | null;
     nameOf: (i: TodoItem) => string;
     flow: ChecksFlow;
   } = $props();
 
-  const card = $derived(batch ? batchCheckCard(tracks, nameOf, batch.card_summary) : null);
+  const card = $derived(batch ? batchCheckCard(tracks, nameOf, { card: batch.card_summary, placed: batch.placed_summary }) : null);
   const rows = $derived(tracks.map((t) => checkRow(t, nameOf(t), batch ? 'file' : 'detail')));
   const day = $derived(batch ? sinceText(batch.started, localDay(new Date())) : '');
   const refused = $derived(flow.problem?.rows ?? {});

@@ -2114,7 +2114,10 @@ action.
   `batch.row_sub` ("{day} · {how}", the day "today", "yesterday" or "12 Nov"; `how` as the item's `detail` says it, and
   "Better versions put in during your sync" when every check is a placement), `batch.list_title` ("Upgraded", "Made AIFF",
   "Clean names", "Better versions put in", "Changed" for a mix) and `batch.card_summary` (the summary of the batch's "In
-  rekordbox" card: "better versions in" when every check is a placement, else null: the window keeps the upgrades' own).
+  rekordbox" card, every batch has one: "same track, cues kept" / "same tracks, cues kept" by how many of its checks that
+  are no placement have steps to do in rekordbox (a track rekordbox has, no clean name); else "better versions in" when
+  placements are there; null when the card has no steps) and `batch.placed_summary` ("better versions in" when the batch
+  holds a placement, else null: a panel held after an undo that left only placements shows it).
   The card's steps for a placement are its `check.text`, one step per distinct text. The foot words ("Undo all from this
   sync") are the window's.
 - **`run(run_id)` / `runs()`** (`RunSummary.auto_upgrade`): the report's `.json` key `auto_upgrade` plus `line`
@@ -2316,8 +2319,11 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   sync; nothing is downloaded" (Download again with a parked upgrade: the parked version goes in), "Removed from your
   library"), `upgrade_waiting` (a parked better version waits: the placement above, or Remove's deleting it)`}`. The
   window shows these words and decides nothing.
-- **The group carries `all: {download_again: n, remove: m}`**: the items not hidden whose `missing.why_not` is null, by
-  action: what the head link ("Select all · {n}") and the commands' `--all` act on.
+- **The group carries `all: {download_again: n, remove: m, label}`**: `n` and `m` count the items not hidden whose
+  `missing.why_not` is null, by action: what the commands' `--all` act on. `label` is the head link's words,
+  "Select all · {k}", where `k` counts what Select all selects: every item of the group that is not hidden (a song that
+  can't act now too; the selection panel says why); null when `k` is under 2 (with one, the row's own button does it).
+  The window shows it as it is.
 - **`track()`** gains `missing: MissingDetail | null`: `MissingView` plus `line` ("Not seen since 12 Nov. It was in
   Techno 2019."; in several places "Found in 2 places: Techno 2019 and Old crates.") and `hint` (what can be done, by
   action; with `upgrade_waiting` the placement's or Remove's variant; in several places "Delete or move away the copies
@@ -2358,14 +2364,18 @@ download_again, remove."). A song the action does not fit is not switched to the
 reason.
 
 - **`missing_files_preview(track_ids, action)`** (read, the dry run of both commands): `MissingPreview` `{action, items,
-  n, skipped, words}`. One item per song, in the order asked: `{track_id, artist, title, place` (where its file was),
+  n, skipped, words, button, confirm}`. One item per song, in the order asked: `{track_id, artist, title, place` (where its file was),
   `since` (ISO day of the first scan that missed it; null when it is not missing), `will` (the action runs for it now),
   `reason` (a `why_not` key, null when `will`), `words` (the action's `will` sentence when `will`, else the reason's
   sentence), `upgrade_waiting}` (a parked better version waits: Download again puts it in instead of a download, Remove
   deletes it). A key that is no song is an item with `reason: "not_missing"`. `n` counts what will run, `skipped` the
   rest, `words` is the one line ("2 songs download again at your next sync; 1 is skipped." / "Removes 1 song from your
   library." / with parked versions among them: "1 song downloads again and 1 gets the better version already waiting
-  for it, at your next sync."). Reads only: no lock beyond the hub's read, nothing is stored.
+  for it, at your next sync."). `button` is the selection panel's button over the `n` that run ("Download again · {n}" /
+  "Remove from library · {n}…"; null when `n` is 0) and `confirm` Remove's question for them (`{title, body,
+  confirm_label, tone}`: "Remove from your library?" for one, "Remove {n} songs from your library?" for several, body
+  "Their files aren't in your watched folders. …", `confirm_label` "Remove", `tone` "danger"; null for Download again
+  and for `n` 0). The window sends the ids whose item has `will` and shows these words as they are. Reads only: no lock beyond the hub's read, nothing is stored.
 - **`missing_files(track_ids, action)`** (write job, kind `missing_files`; answers `busy`, `console` and `sync_running`
   as every write method): each song is asked again when the job runs under the library lock, so a song that changed
   since the click (its file came back, the other action became its own, Never download, an open rekordbox check, Download

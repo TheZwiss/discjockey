@@ -32,10 +32,21 @@ export const AUTO_BATCH_DETAIL = 'Upgraded during your sync';
 /** views.BATCH_PLACED */
 export const BATCH_PLACED = 'Better versions put in during your sync';
 
-/** views._batch_how, _batch_row_name, _batch_list_title, _day_words and the card's summary: the words of a To-do batch
- *  item, from its checks' reasons, its kind, who started it and the day of its first check. */
-export function batchWords(reasons: string[], kind: 'upgrade' | 'convert' | 'mixed', fromSync: boolean, started: string | null,
-  now: Date): { how: string; row_name: string; row_sub: string; list_title: string; card_summary: string | null } {
+/** views._card_summary: the summary of a batch's "In rekordbox" card, from its checks (reason, rekordbox's entries; null
+ *  entries: nothing was written there, so a swap's track is the one rekordbox has). */
+const CARD_ONE = 'same track, cues kept', CARD_MANY = 'same tracks, cues kept', PLACED_SUMMARY = 'better versions in';
+export function cardSummary(checks: { reason: string; rekordbox: { entries: number } | null }[]): string | null {
+  const steps = checks.filter((c) => c.reason !== 'placed_missing' && c.reason !== 'renamed'
+    && (c.rekordbox ? c.rekordbox.entries > 0 : c.reason === 'swapped'));
+  if (steps.length) return steps.length > 1 ? CARD_MANY : CARD_ONE;
+  return checks.some((c) => c.reason === 'placed_missing') ? PLACED_SUMMARY : null;
+}
+/** views._batch_how, _batch_row_name, _batch_list_title, _day_words and the card's summaries: the words of a To-do batch
+ *  item, from its checks, its kind, who started it and the day of its first check. */
+export function batchWords(checks: { reason: string; rekordbox: { entries: number } | null }[], kind: 'upgrade' | 'convert' | 'mixed',
+  fromSync: boolean, started: string | null, now: Date): { how: string; row_name: string; row_sub: string; list_title: string;
+  card_summary: string | null; placed_summary: string | null } {
+  const reasons = checks.map((c) => c.reason);
   const n = reasons.length;
   const placed = reasons.filter((r) => r === 'placed_missing').length;
   const how = placed === n ? BATCH_PLACED : fromSync ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
@@ -47,7 +58,8 @@ export function batchWords(reasons: string[], kind: 'upgrade' | 'convert' | 'mix
       : reasons.some((r) => ['converted', 'renamed', 'placed_missing'].includes(r)) ? 'Changed' : 'Upgraded';
   const today = dateOnly(now), yesterday = dateOnly(new Date(now.getTime() - 86400000));
   const day = !started ? '' : started.slice(0, 10) === today ? 'today' : started.slice(0, 10) === yesterday ? 'yesterday' : shortDay(started, now);
-  return { how, row_name, row_sub: day ? `${day} · ${how}` : how, list_title, card_summary: placed === n ? 'better versions in' : null };
+  return { how, row_name, row_sub: day ? `${day} · ${how}` : how, list_title, card_summary: cardSummary(checks),
+    placed_summary: placed ? PLACED_SUMMARY : null };
 }
 /** batches.progress_words: the phase's words for a BatchProgress, from the actions of the batch's items. */
 export function progressWords(actions: string[], done: number, total: number): { lead: string; count: string } {

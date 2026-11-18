@@ -1632,10 +1632,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             // the batch's own kind; a scenario that only sets checks has no record: its checks' reasons say it
             const kind = record?.kind ?? (tracks.some((x) => ['converted', 'renamed'].includes(x.check!.reason)) ? 'convert' : 'upgrade');
             const from_sync = started_by === 'auto_upgrade' || started_by === 'download_again';   // views.SYNC_STARTERS
-            const w = batchWords(tracks.map((x) => x.check!.reason), kind, from_sync, started, s.now);
+            const w = batchWords(tracks.map((x) => x.check!), kind, from_sync, started, s.now);
             items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${w.how}`,
               batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, from_sync, kind, tracks,
-                row_name: w.row_name, row_sub: w.row_sub, list_title: w.list_title, card_summary: w.card_summary } });
+                row_name: w.row_name, row_sub: w.row_sub, list_title: w.list_title, card_summary: w.card_summary,
+                placed_summary: w.placed_summary } });
             chips.rekordbox_check++;
             counted.add(key);
           }

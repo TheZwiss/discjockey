@@ -1,12 +1,12 @@
 // The Missing files words and counts (issue 43, plan §5.4 and §7.4) against the fake bridge's scenario `missing_files`,
 // which answers as the engine does: the window shows the engine's words and counts what it is told.
 import { describe, expect, it } from 'vitest';
-import type { MissingResult, Todo, TodoItem, TrackDetail } from '../bridge/types';
+import type { MissingPreview, MissingResult, Todo, TodoItem, TrackDetail } from '../bridge/types';
 import { createFakeBridge } from '../bridge/fake/bridge';
 import { missingSet, REASON_WORDS } from '../bridge/fake/missingFiles';
 import {
-  DOWNLOAD_AGAIN_LABEL, REMOVE_LABEL, downloadAgainManyLabel, missingButtons, missingEnd, missingFoot, missingLabel, missingNote,
-  missingRowWords, missingSelectedTitle, removeConfirm, removeManyLabel, selectAllLabel, selectAllShown,
+  DOWNLOAD_AGAIN_LABEL, REMOVE_LABEL, missingButtons, missingEnd, missingFoot, missingLabel, missingNote, missingRowWords,
+  missingSelectedTitle,
 } from './missingModel';
 
 async function scene() {
@@ -19,25 +19,13 @@ async function scene() {
   return { f, ids, items, by, detail };
 }
 
-describe('the labels and the confirm (§5.4)', () => {
-  it('the buttons of one song and of a selection', () => {
+describe('the labels (§5.4)', () => {
+  it('the buttons of one song, and the selection\'s head (the selection\'s buttons and the confirm are the engine\'s)', () => {
     expect(DOWNLOAD_AGAIN_LABEL).toBe('Download again');
     expect(REMOVE_LABEL).toBe('Remove from library…');
     expect(missingLabel('download_again')).toBe('Download again');
     expect(missingLabel('remove')).toBe('Remove from library…');
-    expect(downloadAgainManyLabel(3)).toBe('Download again · 3');
-    expect(removeManyLabel(2)).toBe('Remove from library · 2…');
     expect(missingSelectedTitle(2)).toBe('2 songs selected');
-    expect(selectAllLabel(4)).toBe('Select all · 4');
-  });
-  it('Select all shows from two songs that can act', () => {
-    expect([0, 1, 2, 5].map(selectAllShown)).toEqual([false, false, true, true]);
-  });
-  it('Remove asks in the singular and the plural, danger', () => {
-    expect(removeConfirm(1)).toMatchObject({ title: 'Remove from your library?', confirmLabel: 'Remove', tone: 'danger',
-      body: "Their files aren't in your watched folders. Discjockey forgets these songs, your answers about them and any better "
-        + 'version waiting for them. If a file comes back later, it is added as a new song.' });
-    expect(removeConfirm(3).title).toBe('Remove 3 songs from your library?');
   });
 });
 
@@ -54,9 +42,17 @@ describe('one song: the foot and the note', () => {
   });
   it('a song the action can not run for: disabled, the engine reason as tip and hint', async () => {
     const { ids, detail } = await scene();
-    expect(missingFoot(await detail(ids.twice))).toMatchObject({ action: 'download_again', disabled: true,
-      tip: REASON_WORDS.found_twice, hint: REASON_WORDS.found_twice });
-    expect(missingFoot(await detail(ids.ownCheck))).toMatchObject({ action: 'remove', disabled: true, tip: REASON_WORDS.check_open });
+    expect(missingFoot(await detail(ids.ownCheck))).toMatchObject({ action: 'remove', disabled: true, tip: REASON_WORDS.check_open,
+      hint: REASON_WORDS.check_open });
+  });
+  it('a state is said once: a song found in several places has its words in the note, the foot keeps only the tip', async () => {
+    const { ids, detail } = await scene();
+    const twice = await detail(ids.twice);
+    expect(missingFoot(twice)).toMatchObject({ action: 'download_again', disabled: true, tip: REASON_WORDS.found_twice, hint: null });
+    expect(missingNote(twice)!.title).toMatch(/^Found in 2 places/);
+    // the same words as the note's: said once as well
+    const same = { missing: { ...twice.missing!, why_not: 'asked' as const, words: twice.missing!.hint } };
+    expect(missingFoot(same)).toMatchObject({ tip: twice.missing!.hint, hint: null });
   });
   it('the note is the engine\'s line and hint, nothing built here; none for a song that is not missing', async () => {
     const { ids, detail } = await scene();
@@ -77,20 +73,27 @@ describe('several songs: the rows, the counts and the buttons', () => {
     expect(missingRowWords(by(ids.twice))).toEqual({ text: REASON_WORDS.found_twice, dim: true });
     expect(missingRowWords({ missing: undefined })).toEqual({ text: '', dim: true });
   });
-  it('counts by the engine\'s action with no reason; the songs that can\'t run are in neither', async () => {
-    const { ids, by } = await scene();
-    const b = missingButtons([by(ids.plain), by(ids.parked), by(ids.twice), by(ids.own), by(ids.ownCheck)]);
-    expect(b.n).toBe(2);
-    expect(b.m).toBe(1);
-    expect(b.download).toEqual({ label: 'Download again · 2', ids: [ids.plain, ids.parked] });
-    expect(b.remove).toEqual({ label: 'Remove from library · 1…', ids: [ids.own] });
+  // the previews as the flow reads them: the engine's `missing_files_preview` once per action over the selection
+  const previews = async (f: any, ids: string[]) => ({
+    download_again: ((await f.missing_files_preview(ids, 'download_again')) as MissingPreview),
+    remove: ((await f.missing_files_preview(ids, 'remove')) as MissingPreview) });
+  it('the buttons are the engine\'s words, the ids those it says will run; the songs that can\'t run are in neither', async () => {
+    const { f, ids } = await scene();
+    const b = missingButtons(await previews(f, [ids.plain, ids.parked, ids.twice, ids.own, ids.ownCheck]));
+    expect(b.download).toMatchObject({ label: 'Download again · 2', ids: [ids.plain, ids.parked], confirm: null });
+    expect(b.remove).toMatchObject({ label: 'Remove from library · 1…', ids: [ids.own] });
+    expect(b.remove!.confirm).toMatchObject({ title: 'Remove from your library?', confirm_label: 'Remove', tone: 'danger' });
+    expect(b.none).toBeNull();
   });
-  it('one kind selected: only its button', async () => {
-    const { ids, by } = await scene();
-    expect(missingButtons([by(ids.plain), by(ids.parked)]).remove).toBeNull();
-    expect(missingButtons([by(ids.own), by(ids.ownParked)]).download).toBeNull();
-    expect(missingButtons([by(ids.twice), by(ids.ownCheck)])).toMatchObject({ n: 0, m: 0, download: null, remove: null });
-    expect(missingButtons([])).toMatchObject({ n: 0, m: 0 });
+  it('one kind selected: only its button; none can run: the engine\'s line', async () => {
+    const { f, ids } = await scene();
+    expect(missingButtons(await previews(f, [ids.plain, ids.parked])).remove).toBeNull();
+    const own = missingButtons(await previews(f, [ids.own, ids.ownParked]));
+    expect(own.download).toBeNull();
+    expect(own.remove!.confirm!.title).toBe('Remove 2 songs from your library?');
+    const none = missingButtons(await previews(f, [ids.twice, ids.ownCheck]));
+    expect(none).toMatchObject({ download: null, remove: null, none: 'Nothing to do: 2 songs are skipped.' });
+    expect(missingButtons(null)).toEqual({ download: null, remove: null, none: null });
   });
 });
 

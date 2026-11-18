@@ -3,9 +3,10 @@
   // selected (or "Select all" picked the group). Modelled on UpgradeSelection, in two phases:
   // - decide: the selected songs as rows (fill: the one list of unknown length, scrolling in place), each with the
   //   engine's words for what its action does, or why it can't run now (dimmed: the press skips it), × to leave one out;
-  //   the foot has one button per action that can run for any of them (missingButtons: the engine's `action` with
-  //   `why_not` null, counted): "Download again · n" (the panel's one filled button) and "Remove from library · m…"
-  //   (danger; it confirms first). No song can run: no button, a Hint says the rows tell why. One job per press.
+  //   the foot has one button per action the engine says can run for any of them (the flow reads `missing_files_preview`
+  //   once per action over the selection: its `button` words and the songs whose `will` is true): "Download again · n"
+  //   (the panel's one filled button) and "Remove from library · m…" (danger; it confirms first, with the engine's
+  //   `confirm`). No song can run: no button, the engine's own line says so. One job per press.
   // - ended (until Done or the next pick): the job's own words as the head, and the songs it skipped with the engine's
   //   reason each (StatusMark warn, as UpgradeSelection's "not upgraded" rows); Done is the filled button. There is no
   //   batch, so no Resume and no Stop.
@@ -38,7 +39,15 @@
   // while a job runs the rows stay as they were pressed: the list may fetch again under it as the songs leave the group
   let pressed = $state<TodoItem[] | null>(null);
   const rows = $derived(flow.busy && pressed ? pressed : items);
-  const buttons = $derived(missingButtons(rows));
+  const buttons = $derived(missingButtons(flow.previews));
+  // the engine is asked again when the selection changes (not while a job runs or its end shows: the songs leave the group)
+  const asked = $derived(items.map((i) => i.track_id).join('\n'));
+  $effect(() => {
+    const now = asked;
+    untrack(() => { if (!flow.busy && !flow.ended && now) void flow.read(now.split('\n')); });
+  });
+  // a press waits for the answer about the selection as it is now
+  const reading = $derived(!flow.previews || flow.previews.phase === 'loading');
   const ended = $derived(flow.ended);
   const blocked = $derived($writeBlockedReason);
 
@@ -47,8 +56,8 @@
     await run();
     pressed = null;
   }
-  function download() { const b = buttons.download; if (b) void press(() => flow.downloadAgain(b.ids)); }
-  function remove() { const b = buttons.remove; if (b) void press(() => flow.remove(b.ids)); }
+  function download() { const b = buttons.download; if (b) void press(() => flow.downloadAgain(b.ids, { panel: true })); }
+  function remove() { const b = buttons.remove; if (b) void press(() => flow.remove(b.ids, { panel: true, confirm: b.confirm })); }
 
   // Focus follows the foot: the pressed button is gone at the end, so Done takes it (only when focus was lost).
   let root = $state<HTMLElement>();
@@ -114,17 +123,19 @@
     <Button variant="filled" wide onclick={ondone} data-test="missing-done">Done</Button>
   {:else}
     {#if buttons.download}
-      <WriteButton variant="filled" wide busy={flow.busy === 'download_again'} disabled={flow.busy === 'remove'}
+      <WriteButton variant="filled" wide busy={flow.busy === 'download_again'} disabled={flow.busy === 'remove' || reading}
         onclick={download} data-test="missing-download">{buttons.download.label}</WriteButton>
     {/if}
     {#if buttons.remove}
-      <WriteButton variant="danger" wide busy={flow.busy === 'remove'} disabled={flow.busy === 'download_again'}
+      <WriteButton variant="danger" wide busy={flow.busy === 'remove'} disabled={flow.busy === 'download_again' || reading}
         onclick={remove} data-test="missing-remove">{buttons.remove.label}</WriteButton>
     {/if}
     {#if blocked}
       <div class="centered"><Hint text={blocked} /></div>
-    {:else if !buttons.download && !buttons.remove}
-      <div class="centered"><Hint text="None of these can run now: each row says why." wrap data-test="missing-none" /></div>
+    {:else if flow.previews?.phase === 'error' && !buttons.download && !buttons.remove}
+      <div class="centered"><Hint text={flow.previews?.message ?? ''} wrap data-test="missing-none" /></div>
+    {:else if buttons.none}
+      <div class="centered"><Hint text={buttons.none} wrap data-test="missing-none" /></div>
     {/if}
   {/if}
 {/snippet}

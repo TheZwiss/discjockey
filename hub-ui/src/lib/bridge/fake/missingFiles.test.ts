@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createFakeBridge } from './bridge';
 import {
-  ACTION_WORDS, COMES_BACK, HINT_DOWNLOAD, HINT_PLACE, HINT_REMOVE, HINT_REMOVE_PARKED, HINT_TWICE, REASON_WORDS, WILL,
+  ACTION_WORDS, COMES_BACK, REMOVE_CONFIRM_BODY, HINT_DOWNLOAD, HINT_PLACE, HINT_REMOVE, HINT_REMOVE_PARKED, HINT_TWICE, REASON_WORDS, WILL,
   missingSet, shortDay, summary, whyNot,
 } from './missingFiles';
 import type { HubEvent } from '../events';
@@ -40,6 +40,14 @@ describe('the fake speaks the engine\'s words (missing.py)', () => {
     expect(WILL).toEqual(table('WILL'));
     const m = /^ACTION_WORDS = \{(.*?)\}/m.exec(py)!;
     expect(Object.values(ACTION_WORDS)).toEqual(strings(m[1]));
+  });
+  it('the selection panel\'s button, Remove\'s question and the head link', () => {
+    expect(REMOVE_CONFIRM_BODY).toBe(constant('REMOVE_CONFIRM_BODY'));
+    expect(py).toContain('f"{ACTION_WORDS[action]} · {n}" + ("…" if action == REMOVE else "")');
+    expect(py).toContain('"Remove from your library?" if n == 1 else f"Remove {n} songs from your library?"');
+    expect(py).toContain('f"Select all · {k}" if k >= 2 else None');
+    expect(keysOf('preview').slice(-2)).toEqual(['button', 'confirm']);
+    expect(py).toContain('"confirm_label": "Remove", "tone": "danger"');
   });
   it('the hints', () => {
     const comes = constant('COMES_BACK');
@@ -157,9 +165,11 @@ describe('the scenario missing_files', () => {
     const all = (await group(true))!;
     expect(all.items.map((i) => i.track_id)).toContain(set.hidden);
     const runnable = (a: string) => all.items.filter((i) => !i.hidden && i.missing!.action === a && i.missing!.why_not === null).length;
-    expect((all as { all: unknown }).all).toEqual({ download_again: runnable('download_again'), remove: runnable('remove') });
-    // plain + parked can download again; own + ownParked + ownOffline can be removed (twice, never and the check are blocked)
-    expect((all as { all: unknown }).all).toEqual({ download_again: 2, remove: 3 });
+    const label = `Select all · ${all.items.filter((i) => !i.hidden).length}`;
+    expect((all as { all: unknown }).all).toEqual({ download_again: runnable('download_again'), remove: runnable('remove'), label });
+    // plain + parked can download again; own + ownParked + ownOffline can be removed (twice, never and the check are blocked);
+    // the link selects every song shown, the blocked ones too
+    expect((all as { all: unknown }).all).toEqual({ download_again: 2, remove: 3, label });
   });
 
   it('a song whose Download again was asked leaves To-do; its details say next sync and the Library row still lists it', async () => {
@@ -297,6 +307,7 @@ describe('missing_files_preview', () => {
     expect(p.items[3].words).toBe('This song gets Remove from library instead.');
     expect([p.n, p.skipped]).toEqual([2, 2]);
     expect(p.words).toBe('1 song downloads again and 1 gets the better version already waiting for it, at your next sync; 2 are skipped.');
+    expect([p.button, p.confirm]).toEqual(['Download again · 2', null]);
   });
   it('marks the parked version Remove would delete, and changes nothing', async () => {
     const { preview, set, s, todoIds } = await acting();
@@ -305,6 +316,12 @@ describe('missing_files_preview', () => {
     expect(p.items.map((i) => i.upgrade_waiting)).toEqual([false, true, false]);
     expect(p.items[2]).toMatchObject({ will: false, reason: 'check_open' });
     expect(p.words).toBe('Removes 2 songs from your library; 1 is skipped.');
+    expect(p.button).toBe('Remove from library · 2…');
+    expect(p.confirm).toEqual({ title: 'Remove 2 songs from your library?', body: REMOVE_CONFIRM_BODY, confirm_label: 'Remove', tone: 'danger' });
+    const one = await preview([set.own, set.ownCheck], 'remove');
+    expect([one.button, one.confirm?.title]).toEqual(['Remove from library · 1…', 'Remove from your library?']);
+    const none = await preview([set.ownCheck], 'remove');
+    expect([none.n, none.button, none.confirm]).toEqual([0, null, null]);
     expect(await todoIds()).toEqual(before);
     expect(s.tracks.some((t: { track_id: string }) => t.track_id === set.own)).toBe(true);
   });

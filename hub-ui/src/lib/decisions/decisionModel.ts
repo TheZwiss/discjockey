@@ -363,10 +363,10 @@ export function groupIdOf(ids: number[]): string {
  *  duplicates, then the upgrade): the check a replace (or a wrong song) left, a duplicate group one of its files is
  *  in, the upgrade parked for it; null when it waits for none of them. The check and the group come from the to-do
  *  list (the track's details don't carry them); the upgrade from the details, so a track the to-do list doesn't show
- *  (in no playlist) can still be upgraded. */
+ *  (in no playlist) can still be upgraded, unless its file waits as missing (`missing` set: nothing to swap). */
 export type Decision = { kind: 'check'; item: TodoItem } | { kind: 'duplicate'; item: DuplicateItem }
   | { kind: 'upgrade' } | null;
-export function decisionFor(items: TodoItem[], track: Pick<TrackDetail, 'track_id' | 'path' | 'upgrade'>): Decision {
+export function decisionFor(items: TodoItem[], track: Pick<TrackDetail, 'track_id' | 'path' | 'upgrade'> & Partial<Pick<TrackDetail, 'missing'>>): Decision {
   for (const i of items) {
     // a track a batch upgraded is decided on its own here (its single check card): the batch is one item in To-do
     const own = isBatch(i) ? i.batch.tracks.find((t) => t.track_id === track.track_id) : i;
@@ -375,7 +375,9 @@ export function decisionFor(items: TodoItem[], track: Pick<TrackDetail, 'track_i
       return { kind: 'duplicate', item: i };
     }
   }
-  return track.upgrade ? { kind: 'upgrade' } : null;
+  // a song whose file waits as missing has no file to swap: its parked version goes in with Download again (To-do), so the
+  // Library offers no upgrade for it (footAction says `missing`)
+  return track.upgrade && !track.missing ? { kind: 'upgrade' } : null;
 }
 
 // ---------- several upgrades selected (plan stage B §6.2) ----------
@@ -593,16 +595,19 @@ export const CONVERTED_BATCH_LEAD = 'Your files are now AIFFs with clean names a
 /** The "In rekordbox" card of a batch: the steps for the tracks rekordbox has (Reload Tag only for the tracks whose
  *  text Discjockey couldn't write, by name; design §8's words for several tracks), null when rekordbox has none of
  *  them (each row then says so). A better version put in for a missing file (`placed_missing`) gets none of those
- *  steps: one step per distinct `check.text` (the engine's words), listing the tracks it is about, and, when every
- *  check is a placement, the engine's `placedSummary` (`batch.card_summary`). */
-export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string, placedSummary: string | null = null): CheckCard | null {
+ *  steps: one step per distinct `check.text` (the engine's words), listing the tracks it is about. The card's summary is
+ *  the engine's (`batch.card_summary`, for the batch as it stood), and `placed_summary` for a panel held after an undo
+ *  that left only placements: it shows the words of the tracks it holds. */
+export function batchCheckCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string,
+  summaries: { card: string | null; placed: string | null } = { card: null, placed: null }): CheckCard | null {
   const placed = tracks.filter((t) => t.check?.reason === 'placed_missing');
   const rest = tracks.filter((t) => t.check?.reason !== 'placed_missing');
   const placedSteps: CheckStep[] = [...new Set(placed.map((t) => t.check?.text ?? ''))].filter(Boolean).map((text) => ({
     parts: [{ text }], list: placed.filter((t) => t.check?.text === text).map(nameOf) }));
   const own = restCard(rest, nameOf);
-  if (!own) return placedSteps.length ? { summary: placedSummary ?? '', steps: placedSteps, hint: null } : null;
-  return placedSteps.length ? { ...own, steps: [...own.steps, ...placedSteps] } : own;
+  if (!own) return placedSteps.length ? { summary: summaries.placed ?? summaries.card ?? '', steps: placedSteps, hint: null } : null;
+  const card = { ...own, summary: summaries.card ?? '' };
+  return placedSteps.length ? { ...card, steps: [...own.steps, ...placedSteps] } : card;
 }
 /** The card of the checks that are no placement: the steps above, from the tracks rekordbox has. */
 function restCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string): CheckCard | null {
@@ -634,7 +639,7 @@ function restCard(tracks: TodoItem[], nameOf: (i: TodoItem) => string): CheckCar
   const lead = ups.length ? undefined : CONVERTED_BATCH_LEAD;
   steps.push(many ? { parts: [{ text: 'On a USB stick? The stick still plays the old files. ' },
     { text: 'Rebuild the stick', strong: true }, { text: ' in rekordbox before your next gig' }] } : USB_STEP);
-  return { summary: many ? 'same tracks, cues kept' : 'same track, cues kept', steps, hint: null,
+  return { summary: '', steps, hint: null,
     ...(lead ? { lead: tracks.length === 1 ? tracks[0].check?.text ?? lead : lead } : {}) };
 }
 /** One track's row on a batch card or in several selected checks: its new file's name (batch) or what is left to do

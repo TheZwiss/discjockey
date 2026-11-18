@@ -2753,7 +2753,9 @@ def test_a_batch_says_whether_the_syncs_last_phase_made_it_whichever_way_the_swi
 
 def test_a_batch_item_carries_the_rows_and_lists_words_so_the_window_prints_them():
     swapped = batch_item(batch_state("swapped"), batch_kinds={8: "upgrade"})["batch"]
-    assert (swapped["row_name"], swapped["list_title"], swapped["card_summary"]) == ("2 tracks upgraded", "Upgraded", None)
+    assert (swapped["row_name"], swapped["list_title"], swapped["card_summary"]) == (
+        "2 tracks upgraded", "Upgraded", "same tracks, cues kept")
+    assert swapped["placed_summary"] is None
     assert swapped["row_sub"] == "13 Nov · Same track"
     conv = batch_item(batch_state("converted", n=3), batch_kinds={8: "convert"})["batch"]
     assert (conv["row_name"], conv["row_sub"].split(" · ")[1], conv["list_title"]) == ("3 tracks", "Made AIFF", "Made AIFF")
@@ -2788,8 +2790,28 @@ def test_a_batch_of_placements_says_so_in_every_word_of_its_row_and_card():
 def test_a_batch_of_placements_and_upgrades_is_a_batch_of_changes():
     b = batch_item(placed_state(["placed_missing", "swapped", "swapped"]), batch_kinds={8: "upgrade"},
                    started_by={8: "auto_upgrade"})
-    assert (b["batch"]["row_name"], b["batch"]["list_title"], b["batch"]["card_summary"]) == ("3 tracks changed", "Changed", None)
+    assert (b["batch"]["row_name"], b["batch"]["list_title"], b["batch"]["card_summary"]) == (
+        "3 tracks changed", "Changed", "same tracks, cues kept")
     assert b["detail"] == "2026-11-13 · Upgraded during your sync"
+
+
+def test_a_batch_sends_its_cards_summary_for_every_shape_of_batch():
+    summary = lambda reasons, **kw: {k: batch_item(placed_state(reasons), **kw)["batch"][k]  # noqa: E731
+                                     for k in ("card_summary", "placed_summary")}
+    assert summary(["swapped", "swapped"]) == {"card_summary": "same tracks, cues kept", "placed_summary": None}
+    assert summary(["swapped", "converted"])["card_summary"] == "same track, cues kept"  # a Convert rekordbox has no track for has no step
+    assert summary(["converted", "converted"]) == {"card_summary": None, "placed_summary": None}
+    assert summary(["renamed", "renamed"])["card_summary"] is None
+    assert summary(["placed_missing"] * 2) == {"card_summary": "better versions in", "placed_summary": "better versions in"}
+    # a mix: the card says the upgrades' words, the placements' stay at hand for a panel held after an undo
+    assert summary(["placed_missing", "swapped", "swapped"]) == {"card_summary": "same tracks, cues kept",
+                                                                "placed_summary": "better versions in"}
+    assert summary(["placed_missing", "converted"])["card_summary"] == "better versions in"
+    # a swapped check rekordbox had no entry for has no step either
+    lone = state(**{"a": e(rekordbox_check={"reason": "swapped", "since": "2026-11-13", "batch": 8,
+                                            "rekordbox": {"entries": [], "kept": []}}, title="A"),
+                    "b": e(rekordbox_check={"reason": "swapped", "since": "2026-11-13", "batch": 8}, title="B")})
+    assert batch_item(lone)["batch"]["card_summary"] == "same track, cues kept"
 
 
 def test_run_detail_sends_the_reports_own_titles_of_its_sections_and_parts():
