@@ -736,6 +736,10 @@ Results:
     E4a2 (Sonnet) done 23938d95: **238k** (67 calls): placement undo + recovery at every cut point (35 tests),
     missing_facts in the op, end_step(missing=), alignment dropped on 'replaced' (side effect: Same track for that
     song's parked upgrade -> needs_choice); 5939 passed. Stage so far ~3.32M.
+    R-E4a (Sonnet) **203k**: not ready -> ready after 8b4a6df9: 3 Important (stale alignment kept + marked instead of
+    dropped, so Same track stays for present songs; same-path cut point told apart by FileSize; same-name other-edit
+    check aligned:false) + 1 Minor (no-op PPTH splice). Plan §10 E4b row gained SECTIONS/check_text/person_steps.
+    Stage branch -> E4a. Stage so far ~3.52M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
