@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
+from .. import missing
 from ..problem import Problem
 from ..rekordbox.eligible import REASONS as ITEM_REASONS
 from ..rekordbox.preview import REASON_WORDS as ITEM_REASON_WORDS
@@ -105,6 +106,11 @@ for _key in ITEM_REASONS:
     if _key not in REASONS:
         _words = ITEM_REASON_WORDS[_key]
         REASONS[_key] = Reason("refused", _words[0].upper() + _words[1:] + ".")
+
+# The reasons of a missing file's action (issue 43, `missing.why_not`): `refused` for that song. The command line's
+# result rows say them with the action filled in (`missing.reason_words`); here `wrong_action` names no action.
+for _key, _text in missing.REASONS.items():
+    REASONS[_key] = Reason("refused", _text.format(other="the other action"))
 
 # Every bridge ProblemKind (types.ts PROBLEM_KINDS) is one row, and the kind is that row's reason (`KIND_REASON`).
 KIND_OUTCOME = {
