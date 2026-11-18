@@ -718,6 +718,8 @@ Results:
     sentences pinned, contract words). For E3b: CLI result rows use missing.reason_words, not outcomes'
     wrong_action. Stage branch fast-forwarded to E3a. E3b split: E3b1 actions + preview + hub methods + contract,
     E3b2 commands + CLI render + fake handlers. Stage so far ~2.18M.
+    E3b1 (Sonnet) done bd4f88c5 + a832361a + static a86a78f8: **246k** (74 calls): download_again, remove, preview,
+    hub methods + shapes, 32 tests; 5831 passed; catalogue ceiling 81->83 until E3b2 builds the rows. Stage ~2.43M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
