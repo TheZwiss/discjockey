@@ -125,7 +125,8 @@ def view(key: str, e: Mapping, state: Mapping, place: Callable[[str], str] | Non
     """The `missing` object of an item (plan §5.2), None when the song's file isn't missing: `since` (the ISO day of the
     first scan that missed it), `place` (where it was, the Folder column's words), `action`, `why_not` and its
     `words`, `will` (what the action does for this song) and `upgrade_waiting` (a parked better version: Download
-    again puts it in instead of a download, Remove deletes it). `today` is for the day words of the other views."""
+    again puts it in instead of a download, Remove deletes it). `today` is unused here (`since` is the ISO day, the
+    line words it); it keeps plan §4.1's signature, the one `item_detail` and `detail_view` share."""
     if not file_missing(e):
         return None
     action = action_for(key, e)

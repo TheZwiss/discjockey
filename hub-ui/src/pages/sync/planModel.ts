@@ -194,7 +194,7 @@ export const isWeeklyKind = (k: string): boolean => (WEEKLY_KINDS as string[]).i
  *  the downloads (the blue family), the weekly checks (the teal family), then bought files, which download nothing. */
 export const KIND_SHARE: { key: KindKey; label: string; tip: string; colour: string }[] = [
   { key: 'new', label: 'New downloads', tip: 'Songs in your playlists with no file yet', colour: 'var(--kind-new)' },
-  { key: 'redownload', label: DOWNLOAD_AGAIN, tip: `Songs you asked to download again, ${DOWNLOAD_AGAIN_WHY}: downloaded at this sync`,
+  { key: 'redownload', label: DOWNLOAD_AGAIN, tip: 'Songs you asked to download again because their file is missing: downloaded at this sync',
     colour: 'var(--kind-gone)' },
   { key: 'retry', label: 'Missing songs', tip: 'Not found last time: looked for again once a week', colour: 'var(--kind-retry)' },
   { key: 'weekly', label: 'Lossy files', tip: 'Files that aren’t lossless: checked once a week for a lossless copy',

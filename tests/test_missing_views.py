@@ -3,6 +3,9 @@ Library rows' `file_state`, and the `views` rows of plan §3 (`_group`, `todo_li
 `file_state`, `next_due`)."""
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from hub_helpers import LOSSLESS, fake_spotify, make_api, make_root, write_state
 from test_missing_rules import PARKED, SINCE, TODAY, e, gone, own, place, state
@@ -255,3 +258,37 @@ def test_the_sidebars_to_do_count_includes_a_missing_song(hub):
     assert api.todo()["chips"]["all"] >= 1
     counted = api._todo(api._state(), "all", False, count_only=True)
     assert counted["chips"]["missing_file"] == 1 and counted["chips"]["all"] == api.todo()["chips"]["all"]
+
+
+# --- the contract: the window's types name what the views send ---
+
+TYPES_TS = Path(__file__).resolve().parents[1] / "hub-ui" / "src" / "lib" / "bridge" / "types.ts"
+CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "hub-bridge-contract.md"
+
+
+def ts_type(name):
+    """The body of `export type <name> = ...;` in types.ts, up to its terminating semicolon."""
+    return re.search(rf"export type {name} =(.*?);\n(?=\n|/\*\*|export |type |//)", TYPES_TS.read_text(encoding="utf-8"), re.S).group(1)
+
+
+def test_types_ts_names_the_filters_actions_reasons_and_fields_the_views_send():
+    quoted = lambda body: re.findall(r"'([a-z_]+)'", body)
+    assert set(views.TODO_GROUP_KEYS) <= set(quoted(ts_type("TodoFilter")))
+    assert quoted(ts_type("MissingAction")) == list(missing.ACTIONS)
+    assert quoted(ts_type("MissingReason")) == list(missing.REASONS)
+    fields = lambda body: re.findall(r"(\w+)\??:", body)
+    view = missing.view("t", gone(), state(t=gone()), place, TODAY)
+    assert fields(ts_type("MissingView")) == list(view)
+    assert fields(ts_type("MissingDetail")) == ["line", "hint"]
+    assert fields(ts_type("MissingAll")) == list(missing.ACTIONS)
+    detail = missing.detail_view("t", gone(), state(t=gone()), place, TODAY)
+    assert list(detail) == [*view, "line", "hint"]
+
+
+def test_the_contract_doc_names_every_reason_and_the_group():
+    text = " ".join(CONTRACT.read_text(encoding="utf-8").split())  # the doc wraps its lines
+    assert "## Missing files (issue 43)" in text and "missing_file" in text
+    for reason, words in missing.REASONS.items():
+        assert f"`{reason}`" in text
+        if "{other}" not in words:
+            assert words in text

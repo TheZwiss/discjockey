@@ -662,7 +662,7 @@ row also has `file_state` (2026-10-29, fix K): `here`, `offline` or `folder_miss
 a row whose file waits as missing (issue 43, "Missing files" below) says `file_missing` from its stored mark, no disk check, after the offline checks (a drive that is away says `offline`); or `no_file` (above). A row that isn't
 `here` doesn't play (Enter, double-click and its cover do nothing). The same
 holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole
-count), and the to-do list holds no such file. The user's
+count), and the to-do list holds no such file (but the Missing files group: its items say `file_missing`). The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
 tracks, Not in a playlist and the folder views, never under a playlist folder. Rows (and `also`) carry four more
 fields: `wait` (`waiting`, `not_found` or `null`), `next_try` (a `not_found` row only, else `null`: the day the sync looks
@@ -946,12 +946,14 @@ or Add as new file moves it into the entry and an undo puts the old one back. `s
 yet"; a lossy codec: "Your own file (MP3) · lossy, sound not checked yet").
 `track()` also carries `file_state` (2026-10-29, replaces the boolean `online`): `here`, `offline` (the file's drive is
 not connected), `folder_missing` (its watched folder is not found: moved, renamed or deleted while the drive is there)
-or `file_missing` (the folder is there, the file's path is not: it went since the last scan). Away is read now, not
+or `file_missing` (the folder is there, the file's path is not: it went since the last scan, or its row waits as
+missing: the stored mark of issue 43). Away is read now, not
 from the last scan: an import folder is away when the scanner's rule says so (`scanner.away_reason`: `unmounted` when
 its `/Volumes/<drive>` is not mounted, else `missing` when the path is not a folder; checked live once per request, like
 `watched_folders()`'s states), so an unplugged drive counts before any scan has seen it; the innermost watched folder
 holding the file decides. A file row that says `online = 0` and lies in no away folder stays `offline`. `file_missing`
-is checked for this one track (`Path.exists()`), in the api. A track without a file is `here`. For every state but
+is checked for this one track (`Path.exists()`) in the api, and also holds for a row marked missing (after the offline
+checks). A track without a file is `here`. For every state but
 `here` `audio_url` is null too: the panel says the words where the picture would be ("Offline: connect the drive" ·
 "Folder not found" · "This file isn't there any more."), keeps the player off, requests no spectrum and offers no Show in
 Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by the folder rule only (and carry no
@@ -963,8 +965,8 @@ already says the kHz.
 `todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|missing_file|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`).
 Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". The import adds two
 groups after the first (see "Watched folders and the import" below): `same_song` and `duplicate`, whose items also carry
-a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, in a question and
-in a duplicate group (their quality is for the Library to show). First group
+a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, `missing_file`
+(issue 43), in a question and in a duplicate group (their quality is for the Library to show). First group
 `rekordbox_check` (label "Check in rekordbox", hint "the file changed; rekordbox needs a hand"): every track with a
 `rekordbox_check`, also hidden tracks and tracks no longer in a playlist; `detail` is what to do in rekordbox ("This
 track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong

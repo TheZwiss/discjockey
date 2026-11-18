@@ -55,6 +55,12 @@ describe('the fake speaks the engine\'s words (missing.py)', () => {
     expect(keysOf('view')).toEqual(view);
     expect(keysOf('detail_view')).toEqual(['line', 'hint']);
   });
+  it('the sentences of the item and the details line', () => {
+    // the fake writes them in missingFiles.ts (itemDetail, line); each template is still in missing.py
+    for (const t of ['f"In {len(found)} places now · keep one and it links again"', 'f"Missing since {since} · was in {where}"',
+      'f"Missing since {since}"', 'f"Not seen since {since}. It was in {where}."', 'f"Not seen since {since}."',
+      'f"Found in {len(found)} places: {names}."']) expect(py).toContain(t);
+  });
   it('the day words', () => {
     expect(words).toContain('day = f"{d.day} {MONTHS[d.month - 1]}"');
     expect(shortDay('2026-11-12', new Date(2026, 10, 18))).toBe('12 Nov');

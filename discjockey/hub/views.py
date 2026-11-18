@@ -938,10 +938,12 @@ def track_detail(track_id: str, e: dict, fetched: list, today: date, cover: Url 
                  media: Url | None = None, away: Mapping[str, str] | None = None, exists: bool = True,
                  place: str | None = None, rb: RekordboxStatus | None = None, auto_on: bool = True,
                  records: Mapping | None = None, where: Callable[[str], str] | None = None) -> dict:
-    """`records` (the state's records), `where` (Sites.place): the records and the place words for `missing`, the song's waiting file (issue 43,
-    `missing.detail_view`; null when its file isn't marked missing). `rb`: rekordbox's cached state (HubApi._rekordbox_status; None: taken as readable), for the upgrade block's
-    Same track answer. `auto_on`: Settings' Auto-upgrade switch (the block's `auto_waits` shows only while it is on). `away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
-    "here", there is no `audio_url`: nothing to play. `place`: where the file sits (Sites.place, D11), the same words
+    """`rb`: rekordbox's cached state (HubApi._rekordbox_status; None: taken as readable), for the upgrade block's
+    Same track answer. `auto_on`: Settings' Auto-upgrade switch (the block's `auto_waits` shows only while it is on).
+    `away`, `exists`: see file_state (HubApi._away_roots; whether the file is at its path). Whatever the state but
+    "here", there is no `audio_url`: nothing to play. `records` (the state), `where` (Sites.place): the song's waiting
+    file as `missing` (issue 43, `missing.detail_view`; null when its file isn't marked missing). `place`: where the
+    file sits (Sites.place, D11), the same words
     as the Folder column; None for a track without a file."""
     folders = in_playlists(track_id, e, fetched)
     state = file_state(e, away, exists)
