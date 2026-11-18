@@ -684,6 +684,10 @@ Results:
     upgrade: "Download again" places the parked version instead of downloading (no Qobuz download, never a worse
     copy); only a song without one downloads. The E2 brief carries it and amends plan D9 (+ E3b's part). E1 cut by
     the weekly usage limit before committing (21 files changed in mf-e1, at the tests); resumed 2026-11-18.
+    E1 (Sonnet) done 21b9b7b9 on feat/missing-files-e1: **292k** (505 calls over two sessions; est. 200-260k).
+    Full pytest 5696 passed, 1 failed: test_hub_api_convert CDJ-group test (deleted file now waits as missing and
+    stays in the CDJ group) -> E2's cdj.group_members fix, add it to plan §9.1. §9.2 E1 coverage not checked item by
+    item -> R-E1. Stage so far: plan 291k + E1 292k = 583k.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
