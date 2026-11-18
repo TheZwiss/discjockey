@@ -748,6 +748,10 @@ Results:
     E4b2 (Sonnet) done 2462a7bd: **227k** (73 calls; expected 130-180k): contract/types/fake for placements, check_status
     words, fake redownload plan + bad_args; hub-level preview/plan-id tests (no engine fix). Open: sync_preview
     auto_upgrade counts no placements (null with switch off) -> R-E4b fix round. Stage so far ~4.06M.
+    R-E4b (Sonnet) **239k**: not ready: 5 Important (schema CHECK widen only from v10; unreadable rekordbox drops a
+    placement silently; sync_preview places/place_notes; batch.from_sync for download_again cards; relocate_new step
+    path) + 3 Minor + plan amends (§5.4 steps/words, §6.1 -> D1). Important 1 declined: schema 11 unreleased, real
+    library measured at 9 (ro), only scratch DBs at 11 -> keep one v11 step (no updater niceties). Stage so far ~4.30M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
