@@ -171,9 +171,10 @@ class Executor:
                 section = "redownloaded" if a.reason == "redownload" else NEW_SECTION[r.status]
                 return self._placed_result(a, section, r.comment)
             if res.kind == "missing":
-                self._set_entry(a.track_id, apply_outcome(e, a, Outcome("missing", rejected=rejected_now,
-                                                                        free_downloads=found), self.now()))
-                self._drop_stale_upgrade(e)
+                entry = apply_outcome(e, a, Outcome("missing", rejected=rejected_now, free_downloads=found), self.now())
+                self._set_entry(a.track_id, entry)
+                if not entry.get("upgrade"):  # (a redownload of a missing row keeps its parked upgrade, D8)
+                    self._drop_stale_upgrade(e)
                 return self._result(a, "missing", f"{buy_links(artist, title)} · a bought copy goes to "
                                                   f"Library/{a.folder}/{expected_stem(artist, title)}.wav",
                                     status="missing", error_kind="not_found")
