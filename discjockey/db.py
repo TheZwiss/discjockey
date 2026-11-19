@@ -1035,8 +1035,9 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
     recorded without its new quality. Offline folders' rows are marked
     offline and keep everything else; an online folder's rows are online again and the folder's last_scan is now
     (only rows that change are written: an unchanged scan writes one row per folder). Retagged and replaced
-    rows get the file's size, mtime and key; a moved row takes its new place (placed by the user), and an unlinked
-    row already there gives way to it; ambiguous rows keep their candidates; new files and copies become unlinked
+    rows get the file's size, mtime and key; a moved row takes its new place (placed by the user; a file the import
+    found stays 'import', it is the user's own file wherever they put it), and an unlinked row already there gives way to it;
+    ambiguous rows keep their candidates; new files and copies become unlinked
     rows (found there by a scan: placed by 'import'; in an import folder with import_state `new`, stage 4).
     A replaced file's song has its parked upgrade's `alignment` marked stale (measured against the old audio:
     `_stale_alignment`). Nothing a song has is deleted (issue 43): a `missing` or `ambiguous` row (its file isn't
@@ -1081,7 +1082,10 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
             # an earlier scan's candidate at the target (an unlinked row) gives way to the file that moved there
             n += conn.execute("DELETE FROM files WHERE folder = ? AND path = ? AND id != ? AND song IS NULL",
                               (seen.folder, seen.rel, file_id)).rowcount
-            n += conn.execute(f"UPDATE files SET folder = ?, path = ?, placed_by = 'user', online = 1, {facts} "
+            # a file the user moved by hand is the user's placement (tidy-up leaves it), but a file the import found
+            # is their own file wherever they put it: it keeps 'import' (own-ness reads it)
+            n += conn.execute("UPDATE files SET folder = ?, path = ?, online = 1, "
+                              f"placed_by = CASE placed_by WHEN 'import' THEN 'import' ELSE 'user' END, {facts} "
                               "WHERE id = ?", (seen.folder, seen.rel, seen.size, seen.mtime_ns, seen.content_key,
                                                stamp, file_id)).rowcount
         for file_id, candidates in result.ambiguous:

@@ -8,6 +8,7 @@ import pytest
 
 from audio_helpers import music, write_aiff
 from discjockey import content_key, db, library, quality
+from discjockey.hub import views
 from discjockey.library import Paths, empty_state, load_state, save_state, scan_library
 from discjockey.models import OwnFacts, ScanResult, SeenFile
 
@@ -475,8 +476,24 @@ def test_the_file_put_back_under_another_name_in_another_watched_folder_links_to
     assert messages == ["Checked your Library: 1 missing file back."]
     e = load_state(mine)["tracks"][key]
     assert e["file_id"] == file_id and e["upgrade"] == UPGRADE and e["missing_since"] is None
-    assert e["path"].endswith("/more/Renamed.aiff") and e["placed_by"] == "user"
+    assert e["path"].endswith("/more/Renamed.aiff") and e["placed_by"] == "import"  # still the user's own file
+    assert views.is_own_file(e)
     assert unlinked(mine) == ([], [])
+
+
+def test_an_own_file_renamed_in_its_watched_folder_stays_your_own_file(mine):
+    x = things(mine)
+    key, file_id = x["key"], x["file_id"]
+    shutil.move(x["crate"] / "Own - Song.aiff", x["crate"] / "Renamed.aiff")
+    summary, _ = scan(mine)
+    assert (summary.moved, summary.missing) == (1, 0)
+    e = load_state(mine)["tracks"][key]
+    assert e["file_id"] == file_id and e["path"].endswith("/crate/Renamed.aiff")
+    assert e["placed_by"] == "import" and views.is_own_file(e)
+    assert file_row(mine, file_id)[4] == "import"
+    shutil.move(x["crate"] / "Renamed.aiff", x["more"] / "Again.aiff")  # and moved on to another watched folder
+    scan(mine)
+    assert file_row(mine, file_id)[4] == "import" and views.is_own_file(load_state(mine)["tracks"][key])
 
 
 def test_a_song_missing_for_three_scans_keeps_the_first_scans_date_and_is_counted_once(mine, monkeypatch):
