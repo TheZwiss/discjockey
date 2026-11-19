@@ -335,9 +335,9 @@
     {startLabel(chosen.length, totals.downloads, totals.uses)}</WriteButton>
   {#if note?.kind === 'console'}<Hint text={note.text} data-test="sync-console" />
   {:else if note?.kind === 'nothing-today'}<Hint text={note.text} data-test="sync-nothing-today" />
-  {:else if note?.kind === 'auto-plan'}<Hint text={note.text} data-test="sync-auto-plan" />
-    {#if note.place}<Hint text={note.place} wrap data-test="sync-place" />{/if}
-  {:else if note?.kind === 'place'}<Hint text={note.text} wrap data-test="sync-place" />
+  {:else if note?.kind === 'auto-plan'}<Hint text={note.text} wrap balance={false} data-test="sync-auto-plan" />
+    {#if note.place}<Hint text={note.place} wrap balance={false} data-test="sync-place" />{/if}
+  {:else if note?.kind === 'place'}<Hint text={note.text} wrap balance={false} data-test="sync-place" />
   {:else if note?.kind === 'rekordbox-open' || note?.kind === 'place-open'}<span class="slot" aria-hidden="true"></span>
   {/if}
   {#if startProblem}<ProblemCard kind={startProblem.kind} message={startProblem.message} sync compact alert />{/if}

@@ -7,7 +7,7 @@ import { missingAll, missingSet } from '$lib/bridge/fake/missingFiles';
 import { rowAway } from '$lib/format';
 import {
   MULTI_GROUPS, actionsFor, headerSub, itemKey, missingAllKeys, missingGroup, multiMissing, multiScope,
-  rowDim, rowSub, selectFromTrack, segOptions,
+  rowAwayTag, rowDim, rowSub, selectFromTrack, segOptions,
 } from './todoModel';
 
 async function scene() {
@@ -29,10 +29,12 @@ describe('the group in the list', () => {
     const scope = multiScope([item(ids.plain), item(ids.own)]);
     expect(scope(itemKey(item(ids.plain)))).toBe('missing_file');
   });
-  it('a row says its file is missing in the quality slot, an offline drive wins, and its sub line is folder · detail', async () => {
+  it('a row keeps its quality badge (the group says Missing), an offline drive shows its tag, and its sub line is folder · detail', async () => {
     const { item, ids } = await scene();
     expect(rowAway(item(ids.plain))).toBe('file_missing');
-    expect(rowAway(item(ids.ownOffline))).toBe('offline');
+    expect(rowAwayTag(item(ids.plain))).toBeNull();                      // in Missing files the badge is the quality
+    expect(rowAwayTag(item(ids.ownOffline))).toBe('offline');
+    expect(rowAwayTag({ ...item(ids.plain), group: 'upgrade_ready' })).toBe('file_missing');   // elsewhere the tag stays
     expect(rowDim(item(ids.plain))).toBe(true);   // as every file that is away: dimmed, the tag says why it can't play
     const i = item(ids.plain);
     expect(rowSub(i)).toBe([i.folder, i.detail].filter(Boolean).join(' · '));
@@ -91,6 +93,14 @@ describe('one item (actionsFor)', () => {
     expect(a.hide).toBe('hide');
     expect(a.listen).toBe(true);   // as every file that is away: the player stays, switched off
   });
+  it('a lossless playlist song: no drop zone (the engine refuses a bought file for a song that is lossless already)', async () => {
+    const { ids, detail } = await scene();
+    const d = await detail(ids.plain);
+    expect(d.status).toBe('lossless');
+    const a = actionsFor(d, 'missing_file');
+    expect(a.main).toBe('download_again');
+    expect(a.dropZone).toBe(false);
+  });
   it('an own song: Remove from library…, no drop zone', async () => {
     const { ids, detail } = await scene();
     const a = actionsFor(await detail(ids.ownParked), 'missing_file');
@@ -101,7 +111,7 @@ describe('one item (actionsFor)', () => {
   it('a song the action can\'t run for: the button disabled with the engine\'s reason as tip and hint', async () => {
     const { ids, detail } = await scene();
     const a = actionsFor(await detail(ids.twice), 'missing_file');
-    expect(a.missing!.foot).toMatchObject({ disabled: true, tip: "Delete or move away the copies you don't want; the one left links again." });
+    expect(a.missing!.foot).toMatchObject({ disabled: true, tip: null });
     expect(a.missing!.foot.hint).toBeNull();   // the note above says it: a state is said once
     expect(a.missing!.note.text).toBe("Delete or move away the copies you don't want; the one left links again.");
   });

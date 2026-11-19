@@ -65,7 +65,7 @@
   // nothing to show in Finder; the AIFF card isn't offered either
   const away = $derived(t ? fileAwayWords(t) : null);
   // a missing file: the note says it, so only a drive or folder that is away keeps its picture
-  const note = $derived(t ? missingNote(t) : null);
+  const note = $derived(t ? missingNote(t, 'library') : null);
   const noteAway = $derived(note && t?.file_state !== 'file_missing' ? away : null);
   // the AIFF card (Convert, Give it its clean name): only without a decision, for a file there
   const aiff = $derived(t && aiffShown(t.aiff, decision, !!away) ? t.aiff : null);
@@ -168,7 +168,7 @@
     </div>
   {/if}
 {/snippet}
-{#snippet noFileFoot()}<Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>{/snippet}
+{#snippet noFileFoot()}<Button wide onclick={ontodo} data-test="details-todo">Open in To-do</Button>{/snippet}
 
 {#snippet foot()}
   {#if action === 'upgrade' && t?.upgrade}
@@ -181,15 +181,15 @@
     <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
   {:else if action === 'aiff_todo' && t && aiff}
     <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
-    <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
+    <Button wide onclick={ontodo} data-test="details-todo">Open in To-do</Button>
   {:else if action === 'todo_aiff' && t && aiff}
-    <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
+    <Button wide onclick={ontodo} data-test="details-todo">Open in To-do</Button>
     <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
   {:else if action === 'todo'}
-    <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
+    <Button wide onclick={ontodo} data-test="details-todo">Open in To-do</Button>
   {:else if action === 'missing' && t}
     <!-- to the song's item in Missing files, picked: its Download again or Remove is decided there -->
-    <Button wide href={`#${missingTodoHref(t.track_id)}`} data-test="missing-open-todo">Open in to-do</Button>
+    <Button wide href={`#${missingTodoHref(t.track_id)}`} data-test="missing-open-todo">Open in To-do</Button>
   {/if}
 {/snippet}
 

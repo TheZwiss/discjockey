@@ -33,6 +33,7 @@
     AiffCard, AiffFlow, AiffFoot, CheckCards, CheckFoot, MissingFlow, UpgradeCards, UpgradeFlow, UpgradeFoot,
   } from '$lib/decisions';
   import { aiffShown } from '$lib/decisions/aiffModel';
+  import { PUT_BACK_TITLE } from '$lib/decisions/missingModel';
   import { fileName } from '$lib/decisions/decisionModel';
   import { Panel } from '$lib/frames';
   import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText, upgradeWays } from './todoModel';
@@ -231,7 +232,7 @@
     {/if}
 
     {#if act.buy || act.dropZone}
-      <Surface kind="card" label="Get a lossless file" data-test="get-better">
+      <Surface kind="card" label={gone ? PUT_BACK_TITLE : 'Get a lossless file'} data-test="get-better">
         {#if act.buy && track.free_downloads.length}
           <div class="frees" data-test="free-downloads">
             {#each track.free_downloads as f (f.url)}

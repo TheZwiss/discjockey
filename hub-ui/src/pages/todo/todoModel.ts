@@ -345,6 +345,14 @@ export function queueRows(items: TodoItem[]): TodoItem[] {
   return items.filter((i) => !i.pair).flatMap((i) => (isBatch(i) ? i.batch.tracks : [i]));
 }
 
+/** The away tag a row shows in the badge slot: its file's state (`rowAway`), except in Missing files, whose head already
+ *  says the file is missing: those rows keep their quality badge (LOSSLESS / lossy); an offline drive or a folder not
+ *  found is still said by its tag. */
+export function rowAwayTag(i: TodoItem): ReturnType<typeof rowAway> {
+  const a = rowAway(i);
+  return i.group === 'missing_file' && a === 'file_missing' ? null : a;
+}
+
 /** The badge a row shows: a question shows the quality of the user's file it asks about (the playlist song waits
  *  for the answer and has no file); every other row its track's. */
 export function rowBadge(i: TodoItem): { quality: Quality | 'muted'; label: string } {
@@ -440,14 +448,15 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
   // a lossless version is ready: the upgrade decision is the way to it, so no "Get a lossless file" (buy, drop) under it
   const getBetter = improvable && !(up && up.what === 'lossless version');
   // a song whose file waits as missing (issue 43): its action is the foot; no parked-upgrade decision (the file isn't
-  // there to swap), no buy links; the bought file's drop zone stays for Download again (add_bought_file with the
-  // current file missing is pinned: tests/test_ops.py, nothing goes to Superseded)
+  // there to swap), no buy links; the bought file's drop zone stays for a Download again song the engine takes a file
+  // for (add_bought_file with the current file missing is pinned: tests/test_ops.py, nothing goes to Superseded; it
+  // refuses a song that is lossless already, so a lossless song has no drop zone: its file is put back by hand)
   const gone = group === 'missing_file' && !!track.missing;
   if (gone) {
     const foot = missingFoot(track)!;
     return {
       listen: !!track.audio_url || fileAway(track), versions: 'wrong_song', noneOfThese: true, buy: false,
-      dropZone: foot.action === 'download_again', hide: track.hidden ? 'unhide' : 'hide', upgrade: null,
+      dropZone: foot.action === 'download_again' && improvable, hide: track.hidden ? 'unhide' : 'hide', upgrade: null,
       showInFinder: false, rekordboxDone: false, main: foot.action, missing: { foot, note: missingNote(track)! },
     };
   }

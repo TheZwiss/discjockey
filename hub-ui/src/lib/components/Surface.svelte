@@ -44,7 +44,7 @@
   export type Bulk = { all?: string; allOff: boolean; noneOff: boolean; onall: (on: boolean) => void; test?: string };
 
   type Props = Omit<HTMLAttributes<HTMLElement>, 'children'> & {
-    kind?: 'card' | 'list' | 'table'; label?: string; summary?: string; hint?: string; fitLabel?: string;
+    kind?: 'card' | 'list' | 'table'; label?: string; summary?: string; hint?: string; wrapHint?: boolean; fitLabel?: string;
     tone?: 'default' | 'good' | 'warn' | 'problem'; header?: Snippet; children: Snippet; padded?: boolean;
     /** the group's own action at the head's end, before `header` (a `Button variant="link" size="sm"`: To-do's
      *  "Upgrade all · 12" / "Resume · 3 left"), as ListSection's `action` */
@@ -53,7 +53,7 @@
     grow?: { rows: number; tall?: boolean }; columns?: Snippet; scroller?: HTMLElement | null;
     fade?: boolean;
   };
-  let { kind = 'card', label, summary, hint, fitLabel, tone = 'default', header, action, children, padded, foldable = false, open = $bindable(true),
+  let { kind = 'card', label, summary, hint, wrapHint = false, fitLabel, tone = 'default', header, action, children, padded, foldable = false, open = $bindable(true),
     sticky = false, summaryTest, bulk, grow, columns, scroller = $bindable(null), fade = false, class: className, ...rest }: Props = $props();
   // a card is padded, a list or table runs edge to edge unless asked otherwise
   const pad = $derived(padded ?? kind === 'card');
@@ -75,7 +75,7 @@
       use:fitHeadLabel={fitLabel}><span></span><span></span></span>
     {:else if label}<span class="title" id="{uid}-label">{label}</span>{/if}
     {#if summary}<span class="summary" data-test={summaryTest}>{summary}</span>{/if}
-    {#if hint}<span class="hint">{hint}</span>{/if}
+    {#if hint}<span class="hint" class:wrap={wrapHint}>{hint}</span>{/if}
     {#if header || action || bulk}
       <div class="extra">
         {@render action?.()}
@@ -150,6 +150,9 @@
   /* a group's one-line hint, as ListSection's (name · count · hint): the same two spans, the same colours */
   .hint { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     color: var(--text-label); font-size: var(--fs-small); }
+  /* `wrapHint`: engine words, never cut: they wrap, the head growing by a line */
+  .hint.wrap { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.35; }
+  .head:has(> .hint.wrap) { padding-block: 6px; }
   .summary { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     color: var(--text-muted); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
   .extra { flex: none; margin-left: auto; display: flex; align-items: center; gap: var(--s-2); }

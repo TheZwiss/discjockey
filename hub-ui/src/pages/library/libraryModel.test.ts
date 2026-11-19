@@ -752,8 +752,8 @@ describe('a missing file\'s details (issue 43)', () => {
   it('"Open in To-do" goes to the Missing files group with the song picked; the note is the engine\'s line and hint', () => {
     expect(missingTodoHref('t7')).toBe('/todo?filter=missing_file&track=t7');
     expect(missingTodoHref('a b/c')).toBe('/todo?filter=missing_file&track=a%20b%2Fc');
-    expect(missingNote({ missing: { line: 'Missing since 12 Nov. It was in Techno 2019.', hint: 'Put the file back.' } as any }))
-      .toEqual({ title: 'Missing since 12 Nov. It was in Techno 2019.', text: 'Put the file back.' });
+    expect(missingNote({ missing: { line: 'Missing since 12 Nov. It was in Techno 2019.', hint: 'Put the file back.', hint_library: 'Open it in To-do.' } as any }, 'library'))
+      .toEqual({ title: 'Missing since 12 Nov. It was in Techno 2019.', text: 'Open it in To-do.' });
     expect(missingNote({ missing: null })).toBeNull();
   });
 });

@@ -45,10 +45,10 @@ describe('one song: the foot and the note', () => {
     expect(missingFoot(await detail(ids.ownCheck))).toMatchObject({ action: 'remove', disabled: true, tip: REASON_WORDS.check_open,
       hint: REASON_WORDS.check_open });
   });
-  it('a state is said once: a song found in several places has its words in the note, the foot keeps only the tip', async () => {
+  it('a state is said once: a song found in several places has its words in the note, the foot keeps neither tip nor hint', async () => {
     const { ids, detail } = await scene();
     const twice = await detail(ids.twice);
-    expect(missingFoot(twice)).toMatchObject({ action: 'download_again', disabled: true, tip: REASON_WORDS.found_twice, hint: null });
+    expect(missingFoot(twice)).toMatchObject({ action: 'download_again', disabled: true, tip: null, hint: null });
     expect(missingNote(twice)!.title).toMatch(/^Found in 2 places/);
     // the same words as the note's: said once as well
     const same = { missing: { ...twice.missing!, why_not: 'asked' as const, words: twice.missing!.hint } };
@@ -59,6 +59,8 @@ describe('one song: the foot and the note', () => {
     const d = await detail(ids.parked);
     expect(missingNote(d)).toEqual({ title: d.missing!.line, text: d.missing!.hint });
     expect(missingNote(d)!.text).toContain('nothing is downloaded');
+    // the Library's note carries the library hint (its foot only goes to To-do)
+    expect(missingNote(d, 'library')).toEqual({ title: d.missing!.line, text: d.missing!.hint_library });
     expect(missingNote({ missing: null })).toBeNull();
     expect(missingFoot({ missing: null })).toBeNull();
   });

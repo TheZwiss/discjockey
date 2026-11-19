@@ -43,11 +43,11 @@
     AwayTag, Badge, Button, Cover, EmptyState, ListRow, ListSection, PageHeader, ProblemCard, Segmented, Skeleton, Surface,
   } from '$lib/components';
   import { ListPanelFrame, Panel } from '$lib/frames';
-  import { artistTitle, rowAway } from '$lib/format';
+  import { artistTitle } from '$lib/format';
   import {
     FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
     batchListStep, cdjAllKeys, cdjGroup, checksPanelShows, coalesce, heldChecks, keepPinned, missingAllKeys,
-    missingGroup, multiCdj, multiChecks, multiMissing, multiScope, openCount, queueRows, rowBadge, rowDim, rowSub,
+    missingGroup, multiCdj, multiChecks, multiMissing, multiScope, openCount, queueRows, rowAwayTag, rowBadge, rowDim, rowSub,
     selectAfterHide, selectFromTrack, upgradeAllKeys, upgradeGroup, wholeCdjGroup, wholeUpgradeGroup,
     withHeldItem, MULTI_GROUPS,
     type CheckHold, type TodoHold,
@@ -446,7 +446,7 @@
   {#snippet sub()}{batch ? batch.row_sub : rowSub(i)}{/snippet}
   {#snippet trailing()}
     {@const b = rowBadge(i)}
-    {@const away = batch ? null : rowAway(i)}
+    {@const away = batch ? null : rowAwayTag(i)}
     {#if away}<AwayTag state={away} test="todo-away" />{:else}<Badge tone={b.quality} text={b.label} />{/if}
     <span class="act">{#if i.hidden}<Badge tone="muted" text="HIDDEN" />{:else if i.upgrade_ready}<Badge tone="lossless"
       text="UPGRADE" />{:else if i.free}<span title="The artist gives it away for free"><Badge tone="accent"
@@ -506,12 +506,12 @@
         {#if data.hidden_count || showHidden}<div class="again">{@render hiddenToggle()}</div>{/if}
       </Surface>
     {:else}
-      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(openCount(only.items, extraKey)) : undefined} hint={only?.hint} summaryTest="todo-count"
+      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(openCount(only.items, extraKey)) : undefined} hint={only?.hint} wrapHint summaryTest="todo-count"
         header={data.hidden_count || showHidden ? hiddenToggle : undefined} style={COLS}
         action={only ? headAction(only.key) : undefined}
         grow={{ rows: rowCount, tall: true }} data-test="todo-list">
         {#each data.groups as g (g.key)}
-          {#if sections}<ListSection label={g.label} summary={String(openCount(g.items, extraKey))} hint={g.hint}
+          {#if sections}<ListSection label={g.label} summary={String(openCount(g.items, extraKey))} hint={g.hint} wrap
             action={headAction(g.key)} test="todo-section" />{/if}
           {#each g.items as i (itemKey(i))}{@render row(i)}{/each}
         {/each}
