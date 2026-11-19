@@ -303,7 +303,8 @@ class ScanResult:
       stays in `missing`;
     - an unlinked row whose path is gone is `gone` (an index row of nobody's file: deleted);
     - rows of an offline folder are kept (`offline`); a migrated row without a key is matched by its file name once.
-    A row whose file is in `retagged`, `replaced` or `moved` is no longer ambiguous. A `moved` target can be a file
+    A row whose file is in `retagged`, `replaced` or `moved` is no longer ambiguous, nor is one in `unambiguous` (its
+    candidates are all gone: it waits as plain missing). A `moved` target can be a file
     the index already has as an unlinked row (an earlier scan's ambiguous candidate): that row gives way to the moved
     one. `retagged` also carries an ambiguous row whose file is back at its own path.
     """
@@ -318,6 +319,8 @@ class ScanResult:
     gone: list[int] = field(default_factory=list)  # file ids of unlinked rows whose file is gone (deleted)
     missing: list[int] = field(default_factory=list)  # linked rows that wait (those missing before included; an
     # ambiguous row is in `ambiguous`)
+    unambiguous: list[int] = field(default_factory=list)  # rows that were ambiguous and whose candidates are all
+    # gone: they wait as plain missing (they are in `missing` too); apply_scan clears their candidates
     back: list[int] = field(default_factory=list)  # rows that were missing and are seen again (present, retagged,
     # replaced or moved)
     unjudged: list[int] = field(default_factory=list)  # file ids at their path whose audio changed and whose sound

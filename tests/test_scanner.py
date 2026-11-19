@@ -576,3 +576,12 @@ def test_a_known_row_whose_entry_cannot_be_opened_is_kept_not_gone(lib, monkeypa
     monkeypatch.setattr(os, "lstat", lstat)
     r = run([lib], [row])
     assert r.gone == [] and r.moved == [] and [rel for _, rel, _ in r.unreadable] == ["A - One.aiff"]
+
+
+def test_an_ambiguous_row_whose_candidates_are_all_gone_waits_as_plain_missing(lib):
+    """Issue 43, FA (F2): both copies were deleted; the row keeps waiting, its old candidates are cleared."""
+    row = KnownFile(1, lib.id, "A - One.aiff", 3, 4, "k:one", True, True, True)
+    r = run([lib], [row])
+    assert r.missing == [1] and r.unambiguous == [1] and r.ambiguous == []
+    plain = KnownFile(2, lib.id, "B - Two.aiff", 3, 4, "k:two", True, False, True)
+    assert run([lib], [plain]).unambiguous == []  # only a row that was ambiguous is listed

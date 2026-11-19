@@ -524,6 +524,26 @@ def test_two_copies_make_the_missing_file_ambiguous_and_one_deleted_links_it_bac
     assert load_state(mine)["tracks"][key]["upgrade"] == UPGRADE
 
 
+def test_an_ambiguous_row_whose_copies_are_all_deleted_waits_as_plain_missing(mine):
+    """Issue 43, FA (F2): its old candidates must not stay (To-do would ask about places that hold nothing)."""
+    x = things(mine)
+    key, file_id = x["key"], x["file_id"]
+    shutil.move(x["crate"] / "Own - Song.aiff", x["away"] / "Own - Song.aiff")
+    scan(mine)
+    since = file_row(mine, file_id)[5]
+    shutil.copy(x["away"] / "Own - Song.aiff", x["crate"] / "Copy 1.aiff")
+    shutil.copy(x["away"] / "Own - Song.aiff", x["more"] / "Copy 2.aiff")
+    scan(mine)
+    assert file_row(mine, file_id)[6] is not None and key in load_state(mine)["ambiguous"]
+    (x["crate"] / "Copy 1.aiff").unlink()
+    (x["more"] / "Copy 2.aiff").unlink()
+    scan(mine)
+    row = file_row(mine, file_id)
+    assert row[5] == since and row[6] is None  # still missing, its first date kept, no candidates
+    assert key not in load_state(mine)["ambiguous"]
+    assert load_state(mine)["tracks"][key]["missing_since"] == since
+
+
 def test_an_unlinked_row_whose_file_goes_is_deleted_with_the_keep_both_answer_naming_it(mine):
     x = things(mine)
     shutil.copy(x["crate"] / "Own - Song.aiff", x["more"] / "Second.aiff")

@@ -525,6 +525,12 @@ def test_a_missing_song_marked_download_again_is_downloaded_again():
     assert p.state["tracks"]["t1"]["missing_since"] == MISSING  # the row stays until the download replaces it
 
 
+def test_a_missing_song_marked_download_again_whose_drive_is_away_plans_nothing():
+    """Issue 43, FA (F4): offline wins; nobody can tell whether the file is back on that drive."""
+    s = st(t1=missing_entry(file_gone="2026-11-11", online=False))
+    assert kinds(plan([pl("A", tr("t1"))], s, [], TODAY)) == []
+
+
 def test_a_marked_song_with_a_parked_upgrade_plans_no_download_and_no_check():
     """D9: the sync's last phase places the parked version; the planner plans nothing, not even an upgrade check."""
     s = st(t1=missing_entry(file_gone="2026-11-11", upgrade=PARKED))

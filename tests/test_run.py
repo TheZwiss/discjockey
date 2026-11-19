@@ -1400,3 +1400,15 @@ def test_a_dry_run_with_extra_plans_with_it_but_saves_nothing(paths):
     assert room(prep) == room(base) + 20  # but its plan counts the extra
     run.prepare(paths, extra=20)  # a real run still saves it
     assert paths.settings_file.read_bytes() != before
+
+
+def test_fill_kbps_does_not_look_up_a_missing_or_offline_file():
+    """Nothing to learn about a file that isn't there; the write would also reach its row (issue 43, FA)."""
+    state = {"tracks": {
+        "a": _lossy("a"), "m": _lossy("m", missing_since="2026-11-01T09:00:00"),
+        "o": _lossy("o", online=False),
+    }}
+    fb = KbpsFallback({"a": 131})
+    assert run.fill_kbps(state, fb, lambda e: None) == 1
+    assert fb.asked == ["a"]
+    assert not state["tracks"]["m"].get("source_kbps") and not state["tracks"]["o"].get("source_kbps")

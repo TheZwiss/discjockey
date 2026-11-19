@@ -2406,12 +2406,16 @@ class HubApi:
         its Auto-upgrade line, at once). Each song is asked again when the job runs: one that changed since the click
         is `skipped` with its reason. The result is `{action, results, done, skipped, words}`; every song skipped ends the
         job `changed` with the same result kept. Remove is final (no undo) and deletes no music file: only the song's
-        records and its parked download in Upgrades ready/. Nothing is removed without this call."""
+        records and its parked download in Upgrades ready/. Nothing is removed without this call. Remove scans the
+        watched folders first (inside the job), so a file put back since the last scan links again and its song is
+        `skipped` as not missing."""
         action = self._missing_action(action)
         ids = self._track_list(track_ids)
         run_action = missing.download_again if action == missing.DOWNLOAD_AGAIN else missing.remove
 
         def work(ctx) -> dict:
+            if action == missing.REMOVE:  # final: look at the folders first, so a file put back since the last scan
+                library.scan_library(self._paths, ctx.emit)  # links again before anything is forgotten (FA)
             state, recovered = self._begin()
             results = run_action(self._paths, ids, now=self._svc.now, state=state)
             done = [r.track_id for r in results if r.state == "done"]

@@ -502,6 +502,8 @@ def plan(fetched: list[FetchedPlaylist], state: dict, files: list[str], today: d
         # follow the placement folder, and the tidy-up (stage 2) is where files move
         e["folder"] = w.folder
         if file_missing(e):  # the file waits (issue 43, D12): the song is satisfied; only the user's doing changes it
+            if not e.get("online", True):  # its drive is away: nobody can tell if the file is back (offline wins)
+                continue
             bought = bought_file([f"Library/{w.folder}"], e)
             if bought:  # a bought file under the expected name is adopted, as for a song with no file
                 act("adopt_bought", src=bought)

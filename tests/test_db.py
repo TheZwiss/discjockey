@@ -1390,3 +1390,38 @@ def test_a_reader_refuses_a_version_10_database(tmp_path, library, monkeypatch):
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == db.OLDER
+
+
+# --- issue 43, FA: a quality save of a song whose file is not there (missing or away) writes the quality only ---
+
+_ROW = ("SELECT id, content_key, missing_since, file_codec, online, source_kbps FROM files "
+        "WHERE path = 'House/A - One.mp3'")
+
+
+def test_a_quality_change_of_a_missing_song_keeps_its_key_and_mark(tmp_path, library):
+    """run.fill_kbps sets source_kbps on any lossy download with a path, a missing one included."""
+    path = fresh(tmp_path, library, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    with db.connect(path) as conn:
+        conn.execute("UPDATE files SET missing_since = '2026-11-01T09:00:00', source_kbps = NULL, "
+                     "file_codec = 'mp3' WHERE path = 'House/A - One.mp3'")
+        before = conn.execute(_ROW).fetchone()
+        assert before[1] and before[2]
+        snap = db.snapshot(conn, library)
+        assert snap["tracks"]["sp1"]["missing_since"]
+        snap["tracks"]["sp1"]["source_kbps"] = 128  # what fill_kbps does
+        db.save(conn, snap, library=library, facts=no_facts, now=NOW)
+        after = conn.execute(_ROW).fetchone()
+    assert after == (*before[:5], 128)
+
+
+def test_a_quality_change_of_an_offline_song_keeps_its_key(tmp_path, library):
+    path = fresh(tmp_path, library, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    with db.connect(path) as conn:
+        conn.execute("UPDATE files SET online = 0, source_kbps = NULL WHERE path = 'House/A - One.mp3'")
+        before = conn.execute(_ROW).fetchone()
+        assert before[1] and before[4] == 0
+        snap = db.snapshot(conn, library)
+        snap["tracks"]["sp1"]["source_kbps"] = 128
+        db.save(conn, snap, library=library, facts=no_facts, now=NOW)
+        after = conn.execute(_ROW).fetchone()
+    assert after == (*before[:5], 128)

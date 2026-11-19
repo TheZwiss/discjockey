@@ -326,6 +326,8 @@ def _reconcile(result: ScanResult, s: _Sorting, snapshot_path: Callable[[int, st
             result.ambiguous.append((row.id, sorted(snapshot_path(c.folder, c.rel) for c in candidates)))
         elif row.linked:
             result.missing.append(row.id)  # nothing has its key: it waits, with everything its song has
+            if row.ambiguous:
+                result.unambiguous.append(row.id)  # its candidates are all gone too (issue 43, FA)
         else:
             result.gone.append(row.id)  # an index row of nobody's file
 

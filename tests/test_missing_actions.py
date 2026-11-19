@@ -183,6 +183,27 @@ def test_remove_deletes_the_song_its_row_and_its_parked_download_and_no_other_fi
     assert {("t4", "removed from library"), ("t5", "removed from library")} <= logged
 
 
+def test_remove_scans_first_so_a_file_put_back_since_the_last_scan_is_not_forgotten(lib):
+    """Issue 43, FA (F6): the mark is only as new as the last scan; the file of t5 came back under another name."""
+    api, rec, paths = lib
+    st = load_state(paths)
+    st["tracks"]["t5"]["upgrade"] = parked(PARKED_OLD)
+    write_state(paths, st)
+    write(paths, "Library/Hard_Bounce/Plain Artist - Restored.aiff", b"audio t5")  # not scanned yet
+    assert entries(paths)["t5"]["missing_since"] == SINCE
+    with db.connect(paths.db_file) as conn:
+        db.set_decision(conn, "same_song", "t1", "t5", "not_same", NOW)
+        conn.commit()
+    f = wait_job(api, rec, api.missing_files(["t4", "t5"], "remove"))
+    assert f.ok and f.result["done"] == ["t4"] and f.result["skipped"] == ["t5"]
+    assert [r["reason"] for r in f.result["results"] if r["track_id"] == "t5"] == ["not_missing"]
+    kept = entries(paths)["t5"]
+    assert kept["path"] == "Library/Hard_Bounce/Plain Artist - Restored.aiff" and not kept.get("missing_since")
+    assert kept["upgrade"] == parked(PARKED_OLD) and "t4" not in entries(paths)
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.decisions(conn)["same_song"] == [["t1", "t5", "not_same"]]
+
+
 def test_remove_never_deletes_a_file_that_is_not_discjockeys_parked_download(lib):
     api, rec, paths = lib
     f = wait_job(api, rec, api.missing_files(["t6"], "remove"))
@@ -302,8 +323,10 @@ def test_the_confirm_of_one_song_is_singular_and_means_the_same(lib):
     assert api.missing_files_preview(["t4", "t5"], "remove")["confirm"]["body"] == missing.REMOVE_CONFIRM_BODY
 
 
-def test_a_song_on_a_drive_that_is_not_connected_is_skipped_by_both_actions_and_the_preview_says_why(lib):
+def test_a_song_on_a_drive_that_is_not_connected_is_skipped_by_both_actions_and_the_preview_says_why(lib, monkeypatch):
     api, rec, paths = lib
+    # Remove scans first (FA); the rows are set offline by hand here, which a real scan of a reachable folder would undo
+    monkeypatch.setattr("discjockey.library.scan_library", lambda *a, **k: None)
     with db.connect(paths.db_file) as conn:
         for key in ("t1", "t5"):
             conn.execute("UPDATE files SET online = 0 WHERE path = ?",

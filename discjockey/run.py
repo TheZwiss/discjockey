@@ -30,7 +30,7 @@ from .execute import Executor
 from .hub import views
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
-from .models import Action, FetchedPlaylist, Plan, PlaylistLine, split_token
+from .models import Action, FetchedPlaylist, Plan, PlaylistLine, file_missing, split_token
 from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .rekordbox import process
@@ -429,8 +429,10 @@ def open_qobuz(prep: Prepared) -> QobuzSource | None:
 
 def fill_kbps(state: dict, fallback: FallbackSource, emit: Emit = no_emit) -> int:
     """Lossy files downloaded before Discjockey kept their bitrate get it from the stream they were made from (read
-    only, nothing is downloaded). A failed lookup stays empty and is tried again next sync. Returns how many got one."""
+    only, nothing is downloaded). A failed lookup stays empty and is tried again next sync. A file that isn't there
+    (missing, or its drive away) is left alone: nothing to learn about it. Returns how many got one."""
     todo = [e for e in state["tracks"].values() if e.get("status") == "not_lossless" and e.get("path")
+            and not file_missing(e) and e.get("online", True)
             and not e.get("source_kbps") and stream_url(e.get("source") or "", e.get("source_id"))]
     if not todo:
         return 0

@@ -854,6 +854,13 @@ def _save_files(conn: sqlite3.Connection, tracks: dict, ids: dict[str, int], rem
         # a song's file stays the user's when the app replaces or renames it (stage 2's tidy-up leaves those alone);
         # a song that had no file gets one the app placed
         placed = "app" if old is None else old["placed_by"]
+        if old is not None and new == (old["folder"], old["path"]) and seen[2] is None:
+            # a quality change of a song whose file isn't there (missing, or its drive away): only the quality
+            # columns; the row keeps its key, facts, `online`, `held` and `missing_since` (issue 43, FA)
+            n += conn.execute("UPDATE files SET " + ", ".join(f"{k} = ?" for k in QUALITY) + " WHERE id = ?",
+                              (*(e.get(k) for k in QUALITY), old["id"])).rowcount
+            released.pop(old["id"], None)
+            continue
         row = by_place.get(new)
         if part and row is not None and row["song"] is not None and row["song"] not in mine:
             raise _shared(folders.path(*new), _song_name(conn, row["song"]), e)
@@ -1098,6 +1105,9 @@ def apply_scan(conn: sqlite3.Connection, result: ScanResult, now: datetime,
                               (file_id,)).rowcount
             n += conn.execute("UPDATE songs SET file_gone = NULL WHERE file_gone IS NOT NULL "
                               "AND id = (SELECT song FROM files WHERE id = ?)", (file_id,)).rowcount
+        for file_id in result.unambiguous:  # every copy it was found in is gone: it waits as plain missing
+            n += conn.execute("UPDATE files SET ambiguous = NULL WHERE id = ? AND ambiguous IS NOT NULL",
+                              (file_id,)).rowcount
         waiting = set(result.missing) | {i for i, _ in result.ambiguous}
         deleted = []
         for file_id in result.gone:

@@ -153,7 +153,7 @@ gets D6's.
 | New file whose key a present row has | `copies` | the same |
 
 `ScanResult` fields after the change: `offline`, `unchanged`, `retagged`, `replaced`, `moved`, `ambiguous`, `new`,
-`copies`, `gone` (unlinked row ids), `missing` (linked row ids that wait, those missing before included), `back` (row
+`copies`, `unambiguous` (amended at FA: linked rows that were ambiguous and whose candidates are all gone; they are in `missing` too and `apply_scan` clears their `ambiguous` column), `gone` (unlinked row ids), `missing` (linked row ids that wait, those missing before included), `back` (row
 ids that were missing and are seen again: present at their path, retagged, replaced or moved), `unjudged` (was `held`;
 `scan_library` only), `unreadable`, `unopenable`. The docstring states the rules of the table.
 
@@ -196,7 +196,7 @@ Each row: where, the rule, the reason. "Left alone" means as an offline file tod
 
 | Consumer | Rule for a song whose file row is missing |
 |---|---|
-| `planner.plan` rule 2/3 (`planner.py` ~l.495–515) | Before the `online` check: `if file_missing(e)`: a bought file under the expected name in `Library/<folder>` → `adopt_bought`; elif the key is in `state["ambiguous"]` → nothing; elif `file_gone` and no `upgrade` → `acquire` reason `redownload`; else nothing (satisfied; with `file_gone` and a parked upgrade the sync's last phase places it, D9). D12 |
+| `planner.plan` rule 2/3 (`planner.py` ~l.495–515) | Before the `online` check: `if file_missing(e)`: a bought file under the expected name in `Library/<folder>` → `adopt_bought`; elif the key is in `state["ambiguous"]` → nothing; elif `file_gone` and no `upgrade` → `acquire` reason `redownload`; else nothing (satisfied; with `file_gone` and a parked upgrade the sync's last phase places it, D9; amended at FA: a row whose drive is away plans nothing at all, offline wins, checked first). D12 |
 | `planner.plan` "vanished since the scan" (`fold(e["path"]) not in on_disk`) | `continue` (wait; the next scan marks it), no `redownload`. D12 |
 | `planner._Own.free` / `askable` | not free (no question, no duplicate group, no merge into a playlist song) |
 | `planner._own_check_due` | not due (no upgrade check while missing) |
@@ -274,6 +274,7 @@ song's `upgrade["file"]` (after, so a crash leaves at worst an orphan file in `U
 pointing at a deleted file). Log `"removed from library"` per song. Check first: that removing an entry whose row
 `facts()` can't find takes `_save_files`' delete branch (it does today for `removed` songs: `released.update(...)`),
 and that Favourites drop a key no song has (`views` leaves a gone key out today: `test_favourites_resolve_...`).
+Remove scans first (amended at FA): a file put back since the last scan links again before anything is forgotten; the hub's `missing_files` job runs `library.scan_library` before it reads the records (a song that linked back is skipped `not_missing`).
 
 ### 4.4 The dry run (E3b)
 
