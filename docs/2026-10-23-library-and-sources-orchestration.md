@@ -796,6 +796,10 @@ Results:
     S1 fix U running (agent aec71f3d6acdd65ef, ~137k at its rules run, then build + pytest + commit) when the usage
     limit hit (2026-11-19). On resume: check its report/commits on feat/missing-files-u1 (resume it via SendMessage if
     cut), log its size, ps, then D1 per the STATE block above.
+    S1 fix U (Sonnet fix-round): **~150k** (73 calls; cut by the limit, a dropped connection, then stopped by the user
+    during its pytest; uncommitted). Coordinator finished it: rebuild, svelte-check 0, vitest 1698, committed 5f9df829,
+    full pytest 6008 passed + 2 failed = issue 45 (ffmpeg build tests fail on main too since macOS 27.2: ld vs SDK).
+    npm run rules not re-run after the last edits: npm run verify before the merge covers it. Stage ~6.07M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):

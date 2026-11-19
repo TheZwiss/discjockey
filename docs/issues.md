@@ -3,6 +3,15 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 45. ffmpeg build tests fail after the macOS 27.2 update: the linker can't read the new SDK (2026-11-19)
+
+`tests/test_packaging_fetch.py::test_the_real_build_script_delivers_into_a_relative_cache` and
+`::test_the_build_script_itself_takes_relative_paths` fail on main and on every branch since the machine moved to
+Darwin 27.2 (Command Line Tools 27.2.0): `packaging/build_ffmpeg.sh` stops at link time with "ld: tapi error:
+malformed file … MacOSX27.2.sdk/usr/lib/libSystem.B.tbd:4:20: error: unknown architecture". No code changed; the
+toolchain and the SDK disagree. It blocks building a release's ffmpeg locally. Fix: reinstall/update the Command
+Line Tools (or Xcode) so ld matches the SDK, then re-run the two tests; if they still fail, pin the SDK in the script.
+
 ## 44. test_hub_app teardown flake: a hub job thread outlives its test under a loaded parallel run (2026-11-18)
 
 Seen twice in full parallel pytest runs on feat/missing-files (issue 43), never alone or on rerun:
