@@ -62,6 +62,7 @@ describe('several upgrades selected', () => {
     expect(sameTrackWhy(null)).toBe('Same track');
     expect(sameTrackWhy('needs_choice')).toBe('needs your choice');
     expect(sameTrackWhy('away')).toBe('drive not connected');
+    expect(sameTrackWhy('file_missing')).toBe('its file is missing');   // "missing" is what the state is called everywhere else
     expect(sameTrackWhy('something_new')).toBe("can't be upgraded right now");
   });
   it('names the buttons by the result and the count', () => {

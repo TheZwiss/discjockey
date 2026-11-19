@@ -19,7 +19,7 @@
   import { focusAfterDrop } from './decisionModel';
   import { refocus } from './focus';
   import type { MissingFlow } from './flows.svelte';
-  import { missingButtons, missingRowWords, missingSelectedTitle } from './missingModel';
+  import { currentPreviews, missingButtons, missingRowWords, missingSelectedTitle } from './missingModel';
 
   let { items, flow, nameOf, coverOf, ondrop, ondone }: {
     /** the selected songs, in list order */
@@ -39,15 +39,17 @@
   // while a job runs the rows stay as they were pressed: the list may fetch again under it as the songs leave the group
   let pressed = $state<TodoItem[] | null>(null);
   const rows = $derived(flow.busy && pressed ? pressed : items);
-  const buttons = $derived(missingButtons(flow.previews));
   // the engine is asked again when the selection changes (not while a job runs or its end shows: the songs leave the group)
   const asked = $derived(items.map((i) => i.track_id).join('\n'));
+  // the answer counts only for the songs selected now: after the selection changed its buttons would act on others
+  const current = $derived(currentPreviews(flow.previews, items.map((i) => i.track_id)));
+  const buttons = $derived(missingButtons(current, items.flatMap((i) => (i.missing ? [i.missing.action] : []))));
   $effect(() => {
     const now = asked;
     untrack(() => { if (!flow.busy && !flow.ended && now) void flow.read(now.split('\n')); });
   });
   // a press waits for the answer about the selection as it is now
-  const reading = $derived(!flow.previews || flow.previews.phase === 'loading');
+  const reading = $derived(!current || current.phase === 'loading');
   const ended = $derived(flow.ended);
   const blocked = $derived($writeBlockedReason);
 

@@ -45,7 +45,7 @@
   import { ListPanelFrame, Panel } from '$lib/frames';
   import { artistTitle } from '$lib/format';
   import {
-    FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
+    FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, heldBatch, holdApplies, itemKey, keepSelection,
     batchListStep, cdjAllKeys, cdjGroup, checksPanelShows, coalesce, heldChecks, keepPinned, missingAllKeys,
     missingGroup, multiCdj, multiChecks, multiMissing, multiScope, openCount, queueRows, rowAwayTag, rowBadge, rowDim, rowSub,
     selectAfterHide, selectFromTrack, upgradeAllKeys, upgradeGroup, wholeCdjGroup, wholeUpgradeGroup,
@@ -90,11 +90,11 @@
   // left with one track is a single check now, and the reason a track wasn't undone belongs beside it
   let checkHold = $state<CheckHold | null>(null);
   const held = $derived(checkHold ? heldChecks(items, checkHold) : null);
-  const panelChecks = $derived(held ? { tracks: held.tracks, batch: checkHold?.batch ?? null }
+  const panelChecks = $derived(held ? { tracks: held.tracks, batch: heldBatch(items, checkHold) }
     : multiCheck ? { tracks: checkTracks(selItems), batch: null }
     : checkBatch ? { tracks: checkBatch.batch.tracks, batch: checkBatch.batch } : null);
   const checksFlow = new ChecksFlow({ onact: () => {
-    if (panelChecks) checkHold = { ids: panelChecks.tracks.map((t) => t.track_id), batch: panelChecks.batch };
+    if (panelChecks) checkHold = { ids: panelChecks.tracks.map((t) => t.track_id), batch: panelChecks.batch ? { id: panelChecks.batch.id } : null };
   } });
   const upGroup = $derived(upgradeGroup(data));
   const wholeGroup = $derived(multiUp && wholeUpgradeGroup(upGroup, selItems));
@@ -490,7 +490,7 @@
 {/snippet}
 
 {#snippet main()}
-  <PageHeader title="To-do" sub={data ? headerSub(data) : undefined} readStatus />
+  <PageHeader title="To-do" sub={data?.sub} readStatus />
 
   {#if error}
     <ProblemCard kind={error.kind} message={error.message} onretry={load} compact={!!data} />

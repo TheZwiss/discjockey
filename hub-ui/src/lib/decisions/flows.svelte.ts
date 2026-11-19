@@ -284,7 +284,8 @@ export class MissingFlow {
     if (!this.#reads.isLatest(ticket)) return;
     if (d.ok && r.ok) { this.previews = { ids, download_again: d, remove: r, phase: 'ready', message: '' }; return; }
     const bad = d.ok ? r : d;
-    this.previews = { ids, download_again: keep?.download_again ?? null, remove: keep?.remove ?? null, phase: 'error',
+    // no stale buttons: the engine's message shows in the Hint instead
+    this.previews = { ids, download_again: null, remove: null, phase: 'error',
       message: (!bad.ok && bad.message) || problemCopy(!bad.ok ? bad.kind : 'crashed').title };
   }
   /** `panel`: pressed in the selection panel (the end stays there), else the words are a toast. */

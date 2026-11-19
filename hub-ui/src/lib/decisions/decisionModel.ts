@@ -383,7 +383,7 @@ export function decisionFor(items: TodoItem[], track: Pick<TrackDetail, 'track_i
 // ---------- several upgrades selected (plan stage B §6.2) ----------
 /** Why Same track can't run for a row of the selection (TodoItem `same_track`), in a few words for its sub-line. */
 const SAME_TRACK_WHY: Record<string, string> = {
-  needs_choice: 'needs your choice', no_upgrade: 'no new version waiting', file_missing: 'file not found',
+  needs_choice: 'needs your choice', no_upgrade: 'no new version waiting', file_missing: 'its file is missing',
   away: 'drive not connected', rekordbox_unreadable: "rekordbox's library can't be opened",
   timing: 'analyse it again in rekordbox', not_analysed: 'not analysed in rekordbox yet',
   cloud: "in rekordbox's Cloud Library Sync", rekordbox_open: 'rekordbox is open',

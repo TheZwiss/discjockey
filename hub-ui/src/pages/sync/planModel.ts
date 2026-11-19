@@ -196,7 +196,7 @@ export const KIND_SHARE: { key: KindKey; label: string; tip: string; colour: str
   { key: 'new', label: 'New downloads', tip: 'Songs in your playlists with no file yet', colour: 'var(--kind-new)' },
   { key: 'redownload', label: DOWNLOAD_AGAIN, tip: 'Songs you asked to download again because their file is missing: downloaded at this sync',
     colour: 'var(--kind-gone)' },
-  { key: 'retry', label: 'Missing songs', tip: 'Not found last time: looked for again once a week', colour: 'var(--kind-retry)' },
+  { key: 'retry', label: 'Not found last time', tip: 'Not found last time: looked for again once a week', colour: 'var(--kind-retry)' },
   { key: 'weekly', label: 'Lossy files', tip: 'Files that aren’t lossless: checked once a week for a lossless copy',
     colour: 'var(--kind-weekly)' },
   { key: 'bought', label: 'Bought files', tip: 'Files you bought, put in their playlists: nothing to download',

@@ -5,7 +5,7 @@ import type {
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import {
   dropDecision,
-  FILTER_ORDER, isFilter, actionsFor, segOptions, filterFrom, flatten, headerSub, itemKey, keepSelection, moveSelection, rowDim, rowOff,
+  FILTER_ORDER, isFilter, actionsFor, segOptions, filterFrom, flatten, itemKey, keepSelection, moveSelection, rowDim, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
   checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
@@ -217,30 +217,6 @@ describe('texts', () => {
       .toEqual({ value: '16.0', label: 'where the highs end · a lossy file inside the FLAC' });
     expect(cutoffStat({ status: 'lossless', cutoff_hz: null })).toBeNull();
     expect(cutoffStat({ status: 'missing', cutoff_hz: null })).toBeNull();
-  });
-  it('header line tells the tracks, the questions about the user\'s own files and the checks in rekordbox', () => {
-    const none = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
-      good_lossy: 0, fake: 0, other: 0 };
-    const sub = (chips: Partial<typeof none>, check_tracks = 0) => headerSub({ chips: { ...none, ...chips }, check_tracks });
-    // not lossless yet: every group of tracks below lossless, summed (Upgrade ready included)
-    expect(sub({ weak: 4, good_lossy: 6, fake: 3, not_found: 3, upgrade_ready: 2, other: 1 })).toEqual(['19 tracks are not lossless yet']);
-    expect(sub({ fake: 1 })).toEqual(['1 track is not lossless yet']);
-    // the questions' part
-    expect(sub({ weak: 16, same_song: 1, duplicate: 1 })).toEqual(['16 tracks are not lossless yet', '2 questions about your files']);
-    expect(sub({ weak: 1, same_song: 1 })).toEqual(['1 track is not lossless yet', '1 question about your files']);
-    expect(sub({ same_song: 2, duplicate: 1 })).toEqual(['3 questions about your files']);
-    // checks only: a batch of 4 and one single check are 5 tracks, not 2 items (chips.rekordbox_check) and never "lossy"
-    expect(sub({ all: 2, rekordbox_check: 2 }, 5)).toEqual(['5 tracks to check in rekordbox']);
-    expect(sub({ all: 1, rekordbox_check: 1 }, 1)).toEqual(['1 track to check in rekordbox']);
-    // a track that is a check and also Weak is one lossy track and one check; chips.all counts it once and is not used
-    expect(sub({ all: 1, rekordbox_check: 1, weak: 1 }, 1)).toEqual(['1 track is not lossless yet', '1 track to check in rekordbox']);
-    // all three, in order of importance
-    expect(sub({ all: 20, rekordbox_check: 2, weak: 14, upgrade_ready: 2, same_song: 1, duplicate: 1 }, 5))
-      .toEqual(['16 tracks are not lossless yet', '2 questions about your files', '5 tracks to check in rekordbox']);
-    expect(sub({ weak: 3 }, 4)).toEqual(['3 tracks are not lossless yet', '4 tracks to check in rekordbox']);
-    expect(sub({ duplicate: 1 }, 1)).toEqual(['1 question about your files', '1 track to check in rekordbox']);
-    // nothing left
-    expect(sub({})).toEqual(['Nothing to do']);
   });
 });
 
@@ -858,7 +834,7 @@ describe('the U1 states in fake mode', () => {
 // ---------- the rekordbox checks: a batch's row and several checks selected (stage B §6.4), the U2 states (§6.5) ----------
 import { isBatch, type BatchCheckItem, type UndoResult } from '$lib/bridge/types';
 import { escape, selectAll } from '$lib/components/selectionModel';
-import { heldChecks, multiChecks, queueRows as queueOf, rowBadge as badgeOf, rowDim as dimOf, selectFromTrack as fromTrack } from './todoModel';
+import { heldBatch, heldChecks, multiChecks, queueRows as queueOf, rowBadge as badgeOf, rowDim as dimOf, selectFromTrack as fromTrack } from './todoModel';
 
 describe('multi-select of the rekordbox checks', () => {
   const check = (id: string, extra: Partial<TodoItem> = {}) => item(id, 'rekordbox_check', { can_undo: true, quality: 'lossless',
@@ -916,6 +892,19 @@ describe('multi-select of the rekordbox checks', () => {
     const after = [check('b2'), check('c2')];
     expect(heldChecks(after, h)).toEqual({ keys: keys('b2'), tracks: [after[0]] });
     expect(heldChecks([check('c2')], h)).toBeNull();
+  });
+  it('the held batch is read from the list again: its words follow the undo, one check left is a single check', () => {
+    const h = { ids: ['b1', 'b2'], batch: { id: 7 } };
+    expect(heldBatch(list, h)).toBe(batch.batch);
+    // one undone: the engine words the batch again
+    const less: BatchCheckItem = { ...batch, batch: { ...batch.batch, size: 2, card_summary: 'cues kept', list_title: 'Changed', tracks: [check('b1'), check('b2')] } };
+    expect(heldBatch([less, check('c1')], h)?.card_summary).toBe('cues kept');
+    expect(heldBatch([less], h)?.list_title).toBe('Changed');
+    // a second undo: one check left, the item is a plain check now: no batch words
+    expect(heldBatch([check('b2'), check('c2')], h)).toBeNull();
+    // a hold that was no batch, or no hold
+    expect(heldBatch(list, { ids: ['c1', 'c2'], batch: null })).toBeNull();
+    expect(heldBatch(list, null)).toBeNull();
   });
   it('a batch row: its tracks play in the queue, ?track= of one of them selects it, never dimmed, its quality', () => {
     expect(queueOf(list).map((i) => i.track_id).slice(0, 3)).toEqual(['b1', 'b2', 'c1']);
@@ -1083,14 +1072,9 @@ describe('the CDJ group (issue 33 stage D §6.3)', () => {
     const fresh = cdjGroup((await createFakeBridge('todo:cdj', { speed: 1000 }).todo('cdj', true)) as unknown as Todo)!;
     expect([fresh.all, fresh.stopped]).toEqual([{ n: 5, k: 1 }, null]);
   });
-  it('the strip says CDJs, the section its whole name, and the page header counts the files', () => {
+  it('the strip says CDJs, the section its whole name', () => {
     expect(segOptions({ all: 6, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 6, upgrade_ready: 0, not_found: 0, weak: 0,
       good_lossy: 0, fake: 0, other: 0 }, 'all').find((o) => o.key === 'cdj')).toMatchObject({ label: 'CDJs', count: 6 });
-    const none = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
-      good_lossy: 0, fake: 0, other: 0 };
-    expect(headerSub({ chips: { ...none, cdj: 6 }, check_tracks: 0 })).toEqual(["6 files won't play well on CDJs"]);
-    expect(headerSub({ chips: { ...none, cdj: 1, weak: 2 }, check_tracks: 0 })).toEqual(['2 tracks are not lossless yet',
-      "1 file won't play well on CDJs"]);
   });
   it('a CDJ item can be hidden (a lossless file the user wants no to-do for)', () => {
     expect(actionsFor(detail({ status: 'lossless' }), 'cdj')).toMatchObject({ hide: 'hide', main: null });

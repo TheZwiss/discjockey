@@ -44,38 +44,6 @@ export function filterFrom(query: string | null, saved: string): TodoFilter {
   return isFilter(query) ? query : isFilter(saved) ? saved : 'all';
 }
 
-/** The page's second line, as `PageHeader` parts in order of importance (issue 30): one line beside the title at every
- *  width, so the header keeps its height between the filters (as one string it wrapped under the title at 1100). The
- *  first part never drops; the others drop whole where they don't fit (the strip's counts say them too) and stay in the
- *  tooltip. Every number counts tracks, as its words say (F5):
- *  - "not lossless yet" is the groups of tracks whose file is below lossless: Upgrade ready (the engine parks an
- *    upgrade only for a lossy file, so its current file is not lossless yet), Not found, Weak, Good lossy, Fake lossless
- *    and Other. It is the sum of those chips, not `chips.all` minus the rest: `chips.all` counts a track once however
- *    many groups it is in, so a track with a check that is also Weak would be taken off twice.
- *  - the questions (Same song, Duplicates) are about the user's own files, often lossless ones.
- *  - the checks are tracks just upgraded and lossless: `check_tracks`, because `chips.rekordbox_check` counts items
- *    and a batch of checks is one item there.
- *  - the CDJ group's files (`chips.cdj`) are named after the checks: they can be lossless, so they are no part of "not
- *    lossless yet".
- *  - the songs whose file went missing (`chips.missing_file`, issue 43) are named last.
- *  Nothing left in any of them: "Nothing to do". */
-export function headerSub(t: { chips: Record<TodoFilter, number>; check_tracks: number }): string[] {
-  const { chips } = t;
-  const questions = chips.same_song + chips.duplicate;
-  const tracks = chips.upgrade_ready + chips.not_found + chips.weak + chips.good_lossy + chips.fake + chips.other;
-  const checks = t.check_tracks;
-  const cdj = chips.cdj ?? 0;
-  const gone = chips.missing_file ?? 0;
-  const parts = [
-    tracks ? (tracks === 1 ? '1 track is not lossless yet' : `${tracks} tracks are not lossless yet`) : null,
-    questions ? `${questions} ${questions === 1 ? 'question' : 'questions'} about your files` : null,
-    checks ? `${checks} ${checks === 1 ? 'track' : 'tracks'} to check in rekordbox` : null,
-    cdj ? `${cdj} ${cdj === 1 ? 'file' : 'files'} won't play well on CDJs` : null,
-    gone ? `${gone} ${gone === 1 ? 'song is' : 'songs are'} missing ${gone === 1 ? 'its' : 'their'} file` : null,
-  ].filter((p): p is string => p !== null);
-  return parts.length ? parts : ['Nothing to do'];
-}
-
 // ---------- navigation ----------
 /** A track can be in two groups, so an item is "group/track_id". The import's items are named by what they are
  *  about: a question by its playlist song and the file of the user's own (one song can be asked about more than one
@@ -167,8 +135,18 @@ export function multiScope(items: TodoItem[]): (key: string) => string | null {
   };
 }
 /** The checks a batch card or a selection of checks acted on (Done, Undo all, Undo this one): the page keeps them in
- *  its panel until the next pick, whatever shape the list gives them now. `batch`: the panel was that batch's card. */
-export type CheckHold = { ids: string[]; batch: Pick<BatchCheck, 'id' | 'started' | 'from_sync' | 'list_title' | 'card_summary' | 'placed_summary'> | null };
+ *  its panel until the next pick, whatever shape the list gives them now. `batch`: the panel was that batch's card (its
+ *  id only: its words are read from the list again, `heldBatch`). */
+export type CheckHold = { ids: string[]; batch: { id: number } | null };
+/** The held batch as the list says it now: its words (`card_summary`, `list_title`, `placed_summary`) change as checks
+ *  are undone, so they are never kept from the first read. Null when the hold was no batch, or one check is left (the
+ *  engine's item is a plain check now: the panel then shows its single mode). */
+export function heldBatch(items: TodoItem[], h: CheckHold | null): BatchCheck | null {
+  if (!h?.batch) return null;
+  const id = h.batch.id;
+  const found = items.find((i) => isBatch(i) && i.batch.id === id);
+  return found && isBatch(found) ? found.batch : null;
+}
 /** The open checks of a hold in `items` (a batch item gives its tracks), in the list's order, with the keys of the
  *  rows that hold them; null when none is left (all done or undone). */
 export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; tracks: TodoItem[] } | null {
@@ -329,14 +307,16 @@ export function selectAfterHide(items: TodoItem[], key: string): string | null {
 /** Whether a row is dimmed ("not in your playlists", for the older kinds). A same-song question and a duplicate
  *  group are never dimmed: they are about the user's own files, which no playlist holds. Neither are the files of the
  *  `cdj` and `rekordbox_check` groups: they are asked about because of the file or rekordbox's library, whichever
- *  playlists hold the track. */
-export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists && i.group !== 'cdj' && i.group !== 'rekordbox_check';
+ *  playlists hold the track. Nor are the rows of Missing files, whose head already says why they are there (an own song
+ *  is in no playlist by nature). */
+export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists && i.group !== 'cdj' && i.group !== 'rekordbox_check'
+  && i.group !== 'missing_file';
 /** A CDJ row whose Convert can't run now (its `aiff` says why: its panel does): dimmed like a row that is away. */
 export const rowWaits = (i: TodoItem): boolean => i.group === 'cdj' && !!i.aiff;
 /** The row's lead is dimmed: a track no playlist holds (`rowOff`), a file that is away (`rowAway`: offline, its
- *  folder not found), as in Library's table, or a CDJ file that waits (`rowWaits`). The trailing column tells the
+ *  folder not found: what its tag says, `rowAwayTag`; the missing file of Missing files is no tag), or a CDJ file that waits (`rowWaits`). The trailing column tells the
  *  first two apart: the quality badge, or the `AwayTag` in its place, which says why the file can't play. */
-export const rowDim = (i: TodoItem): boolean => !isBatch(i) && (rowOff(i) || rowAway(i) !== null || rowWaits(i));
+export const rowDim = (i: TodoItem): boolean => !isBatch(i) && (rowOff(i) || rowAwayTag(i) !== null || rowWaits(i));
 
 /** The rows ▶ in a track's details plays through as the to-do queue. The import's items are left out: a question's
  *  song has no file yet and a duplicate group is several files, so neither is a track the queue could ask for. */

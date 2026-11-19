@@ -7,7 +7,7 @@
   // how each went, "Still waiting" with a short sub ("Waits for rekordbox to be closed" / "Waits for your next sync")
   // and Review →, and "Couldn't go in" with To-do's short reason as the sub, the full sentence as the row's tooltip and
   // Fix →; an empty part is left out, a run whose switch was off has none; issue 43 adds a card of its own after that list,
-  // headed by the engine's section label ("Better version put in (its file was missing)") with its own count: a missing
+  // headed by the engine's section label ("Better versions put in (their files were missing)") with its own count: a missing
   // song whose parked better version went in, with the engine's sentence as its sub (wrapping, never cut) and the
   // quality it has now as its badge, also in a run whose switch was off) and Other
   // changes, all list Surfaces of ListRows. Every list keeps the action's slot, so the badges share one right edge. The foot holds Done, the one

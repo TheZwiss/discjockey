@@ -80,7 +80,7 @@ describe("the weekly checks' switches (issues 35, 36)", () => {
   const plan = [act('upgrade', 'a', 'X'), act('upgrade', 'b', 'Y')];
   it('are both always there, also with no rows of their kind or switched off', () => {
     expect(weeklyItems(plan, { off: [], kinds: ['weekly'] })).toEqual([
-      { key: 'retry', label: 'Missing songs', count: 0, on: true },
+      { key: 'retry', label: 'Not found last time', count: 0, on: true },
       { key: 'weekly', label: 'Lossy files', count: 2, on: false }]);
     expect(weeklyItems([], { off: [], kinds: [] }).map((i) => i.key)).toEqual(['retry', 'weekly']);
   });

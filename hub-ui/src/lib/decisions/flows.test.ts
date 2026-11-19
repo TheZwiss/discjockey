@@ -728,6 +728,17 @@ describe('MissingFlow (Download again and Remove from library, issue 43)', () =>
     expect(titles()).toEqual([]);
   });
 
+  it('a failed second read leaves no buttons from the first selection (a press never acts on songs that are not selected)', async () => {
+    const { ids, f } = env();
+    const flow = new MissingFlow();
+    await flow.read([ids.plain, ids.parked]);
+    expect(flow.previews).toMatchObject({ phase: 'ready', ids: [ids.plain, ids.parked] });
+    expect(flow.previews!.download_again).not.toBeNull();
+    vi.spyOn(f, 'missing_files_preview').mockResolvedValue({ ok: false, kind: 'crashed', message: 'It broke.' } as any);
+    await flow.read([ids.plain]);
+    expect(flow.previews).toMatchObject({ phase: 'error', ids: [ids.plain], download_again: null, remove: null, message: 'It broke.' });
+  });
+
   it('a new press puts the old end away; a refusal before the start is a toast and no end', async () => {
     const { ids, f } = env();
     const flow = new MissingFlow();

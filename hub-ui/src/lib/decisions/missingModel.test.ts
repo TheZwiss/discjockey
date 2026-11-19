@@ -5,8 +5,7 @@ import type { MissingPreview, MissingResult, Todo, TodoItem, TrackDetail } from 
 import { createFakeBridge } from '../bridge/fake/bridge';
 import { missingSet, REASON_WORDS } from '../bridge/fake/missingFiles';
 import {
-  DOWNLOAD_AGAIN_LABEL, REMOVE_LABEL, missingButtons, missingEnd, missingFoot, missingLabel, missingNote, missingRowWords,
-  missingSelectedTitle,
+  currentPreviews, missingButtons, missingEnd, missingFoot, missingNote, missingRowWords, missingSelectedTitle,
 } from './missingModel';
 
 async function scene() {
@@ -20,11 +19,7 @@ async function scene() {
 }
 
 describe('the labels (§5.4)', () => {
-  it('the buttons of one song, and the selection\'s head (the selection\'s buttons and the confirm are the engine\'s)', () => {
-    expect(DOWNLOAD_AGAIN_LABEL).toBe('Download again');
-    expect(REMOVE_LABEL).toBe('Remove from library…');
-    expect(missingLabel('download_again')).toBe('Download again');
-    expect(missingLabel('remove')).toBe('Remove from library…');
+  it('the selection\'s head (the buttons\' words and the confirm are the engine\'s)', () => {
     expect(missingSelectedTitle(2)).toBe('2 songs selected');
   });
 });
@@ -50,9 +45,15 @@ describe('one song: the foot and the note', () => {
     const twice = await detail(ids.twice);
     expect(missingFoot(twice)).toMatchObject({ action: 'download_again', disabled: true, tip: null, hint: null });
     expect(missingNote(twice)!.title).toMatch(/^Found in 2 places/);
-    // the same words as the note's: said once as well
-    const same = { missing: { ...twice.missing!, why_not: 'asked' as const, words: twice.missing!.hint } };
-    expect(missingFoot(same)).toMatchObject({ tip: twice.missing!.hint, hint: null });
+  });
+  it('the foot takes the engine\'s label, tone and foot_note as they come (the window decides none of them)', async () => {
+    const { ids, detail } = await scene();
+    const d = await detail(ids.own);
+    const m = d.missing!;
+    expect(missingFoot({ missing: { ...m, label: 'L!', tone: 'filled', why_not: 'check_open', foot_note: 'N!' } }))
+      .toEqual({ action: m.action, label: 'L!', variant: 'filled', disabled: true, tip: 'N!', hint: 'N!' });
+    expect(missingFoot({ missing: { ...m, label: 'L!', tone: 'danger', why_not: 'found_twice', words: 'said above', foot_note: null } }))
+      .toEqual({ action: m.action, label: 'L!', variant: 'danger', disabled: true, tip: null, hint: null });
   });
   it('the note is the engine\'s line and hint, nothing built here; none for a song that is not missing', async () => {
     const { ids, detail } = await scene();
@@ -96,6 +97,25 @@ describe('several songs: the rows, the counts and the buttons', () => {
     const none = missingButtons(await previews(f, [ids.twice, ids.ownCheck]));
     expect(none).toMatchObject({ download: null, remove: null, none: 'Nothing to do: 2 songs are skipped.' });
     expect(missingButtons(null)).toEqual({ download: null, remove: null, none: null });
+  });
+  it('the line for "nothing can run" is the one of the action the selected songs have', async () => {
+    const { f, ids, by } = await scene();
+    const p = await previews(f, [ids.ownCheck, ids.own].slice(0, 1).concat(ids.ownCheck));
+    const two = { download_again: p.download_again, remove: p.remove };
+    expect(p.remove.words).not.toBe(p.download_again.words);
+    const acts = (...i: string[]) => i.map((x) => by(x).missing!.action);
+    expect(missingButtons(two, acts(ids.ownCheck)).none).toBe(p.remove.words);
+    expect(missingButtons(two, acts(ids.twice)).none).toBe(p.download_again.words);
+    expect(missingButtons(two, acts(ids.twice, ids.ownCheck)).none).toBe(p.download_again.words);
+    expect(missingButtons(two, []).none).toBe(p.download_again.words);
+  });
+  it('the answer is current only for the songs selected now; a stale one is dropped so no button acts on other songs', async () => {
+    const { f, ids } = await scene();
+    const p = { ids: [ids.plain, ids.parked], ...(await previews(f, [ids.plain, ids.parked])), phase: 'ready' as const, message: '' };
+    expect(currentPreviews(p, [ids.plain, ids.parked])).toBe(p);
+    expect(currentPreviews(p, [ids.plain])).toBeNull();
+    expect(currentPreviews(p, [ids.parked, ids.plain])).toBeNull();
+    expect(currentPreviews(null, [ids.plain])).toBeNull();
   });
 });
 

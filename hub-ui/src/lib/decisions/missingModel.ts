@@ -6,12 +6,8 @@
 // Remove question come from the engine's `missing_files_preview` (`button`, `confirm`, items' `will`), the head link's
 // words from the group's `all.label`.
 import type { MissingAction, MissingConfirm, MissingItemResult, MissingPreview, MissingResult, TodoItem, TrackDetail } from '$lib/bridge/types';
+import type { MissingPreviews } from './flows.svelte';
 import { plural } from '$lib/format';
-
-/** The buttons' words for one song (§5.4): Remove asks first, so its label has the dots. */
-export const DOWNLOAD_AGAIN_LABEL = 'Download again';
-export const REMOVE_LABEL = 'Remove from library…';
-export const missingLabel = (action: MissingAction): string => (action === 'remove' ? REMOVE_LABEL : DOWNLOAD_AGAIN_LABEL);
 
 /** The title of the drop zone's card on a missing song: the dropped file is put in as the song's file. */
 export const PUT_BACK_TITLE = 'Put its file back';
@@ -31,31 +27,37 @@ export function missingRowWords(i: Pick<TodoItem, 'missing'>): MissingRowWords {
  *  selection): its `button` words ("Download again · {n}" / "Remove from library · {n}…"; null when no song runs) and the
  *  track ids the press sends, the items whose `will` is true. The Download again button is the filled one, so with only
  *  Remove selected the Remove button stays the danger one. `none` is the engine's one line for a selection nothing can run
- *  for (the Download again preview's `words`, "Nothing to do: 3 songs are skipped."), shown when both buttons are null. */
+ *  for, shown when both buttons are null: the line of the action the selected songs have (`actions`, their
+ *  `missing.action`): Remove's ("Nothing to remove: 2 songs are skipped.") when every one has Remove, else Download
+ *  again's ("Nothing to do: 3 songs are skipped."). */
 export type MissingButton = { label: string; ids: string[]; confirm: MissingConfirm | null };
 export type MissingButtons = { download: MissingButton | null; remove: MissingButton | null; none: string | null };
-export function missingButtons(previews: { download_again: MissingPreview | null; remove: MissingPreview | null } | null): MissingButtons {
+export function missingButtons(previews: { download_again: MissingPreview | null; remove: MissingPreview | null } | null,
+  actions: MissingAction[] = []): MissingButtons {
   const one = (p: MissingPreview | null): MissingButton | null => (p?.button
     ? { label: p.button, ids: p.items.filter((i) => i.will).map((i) => i.track_id), confirm: p.confirm } : null);
   const download = one(previews?.download_again ?? null);
   const remove = one(previews?.remove ?? null);
-  return { download, remove, none: download || remove ? null : previews?.download_again?.words ?? null };
+  const removeOnly = actions.length > 0 && actions.every((a) => a === 'remove');
+  const none = (removeOnly ? previews?.remove?.words : previews?.download_again?.words) ?? null;
+  return { download, remove, none: download || remove ? null : none };
 }
 
-/** One row of the foot of a single song's details: the button, its variant, and when it can't run the engine's reason
- *  as its tip and as the Hint under it (the Upgrade ready reasons' pattern). A state is said once: the Hint is left out
- *  when the note above already says it (the same words, or a song found in several places: the note's line names them
- *  and its hint says what to do); the tip stays, except for that song found in several places, whose words are the
- *  note's hint and stay only there. */
+/** The previews only while they answer for exactly these songs, in this order: after the selection changed (a failed or
+ *  pending read) the old answer's buttons would act on songs that are no longer selected, so it is dropped. */
+export function currentPreviews(previews: MissingPreviews | null, ids: string[]): MissingPreviews | null {
+  return previews && previews.ids.length === ids.length && previews.ids.every((id, i) => id === ids[i]) ? previews : null;
+}
+
+/** One row of the foot of a single song's details: the engine's button words and tone (`label`, `tone`), and when it
+ *  can't run the engine's `foot_note` as its tip and as the Hint under it (the Upgrade ready reasons' pattern; null
+ *  when the note above already says the reason). */
 export type MissingFoot = { action: MissingAction; label: string; variant: 'filled' | 'danger'; disabled: boolean;
   tip: string | null; hint: string | null };
 export function missingFoot(track: Pick<TrackDetail, 'missing'>): MissingFoot | null {
   const m = track.missing;
   if (!m) return null;
-  const why = m.why_not ? (m.words ?? '') || null : null;
-  const said = why !== null && (why === m.line || why === m.hint || m.why_not === 'found_twice');
-  return { action: m.action, label: missingLabel(m.action), variant: m.action === 'remove' ? 'danger' : 'filled',
-    disabled: m.why_not !== null, tip: m.why_not === 'found_twice' ? null : why, hint: said ? null : why };
+  return { action: m.action, label: m.label, variant: m.tone, disabled: m.why_not !== null, tip: m.foot_note, hint: m.foot_note };
 }
 
 /** The details' note for a missing file: the engine's `line` as its title and, as its text, `hint` (To-do, where the

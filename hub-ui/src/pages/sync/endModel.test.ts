@@ -16,7 +16,7 @@ const run = (results: Result[], extra: Partial<RunDetail> = {}): RunDetail => {
     auto_upgrade: null, sections, needs_you: results.filter((x) => ['missing', 'errors'].includes(x.section)),
     for_rekordbox: { new_files: 0, folders: [] }, upgrades_ready: 0, report_md: '', queued: 0,
     folder_order: ['Hard_Bounce', 'Powertrance', 'Bouncy'],
-    section_labels: { placed_missing: 'Better version put in (its file was missing)' },
+    section_labels: { placed_missing: 'Better versions put in (their files were missing)' },
     part_labels: { upgraded: 'Upgraded', waiting: 'Still waiting', refused: "Couldn't go in" }, ...extra };
 };
 const RESULTS = [
@@ -249,7 +249,7 @@ describe('end screen: the missing songs that got their better version (issue 43,
     expect(m.placed).toEqual([{ r: PLACED, sub: DONE_NOTE, tip: DONE_NOTE }]);
     expect(m.upgraded.map((x) => x.r.title)).toEqual(['g1']);
     expect(m.auto.map((p) => `${p.key}:${p.rows.length}`)).toEqual(['upgraded:1', 'placed:1']);
-    expect(m.auto[1].label).toBe('Better version put in (its file was missing)');
+    expect(m.auto[1].label).toBe('Better versions put in (their files were missing)');
     expect(m.notes[0].text).toContain('1 missing song got its better version.');   // the engine's line counts it apart
   });
   it('with the switch off the phase holds placements alone: the block is present, only the placed part shows', () => {

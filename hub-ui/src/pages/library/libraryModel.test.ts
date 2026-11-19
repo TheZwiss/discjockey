@@ -124,7 +124,7 @@ describe('the panel', () => {
     expect(footAction(weak, null, null)).toBe('todo');
   });
   it('foot of a song whose file waits as missing: Open in to-do to its Missing files item, whatever else it is', () => {
-    const missing = { line: 'Missing since 12 Nov.', hint: 'Put the file back.' } as TrackDetail['missing'];
+    const missing = { line: 'Missing since 12 Nov.', hint: 'Put the file back.', in_missing_files: true } as TrackDetail['missing'];
     expect(footAction(t({ missing }), null)).toBe('missing');                                     // lossless
     expect(footAction(t({ status: 'not_lossless', missing }), null)).toBe('missing');             // would be Open in to-do
     expect(footAction(t({ in_playlists: false, missing }), null, { variant: 'filled', cdj: false })).toBe('missing');
@@ -132,6 +132,10 @@ describe('the panel', () => {
     expect(footAction(t({ missing }), { kind: 'check', item: { ...row('x'), group: 'rekordbox_check', detail: '', free: false,
       file_state: 'here' } })).toBe('check');
     expect(footAction(t({ missing: null }), null)).toBeNull();
+    // a song already asked for (Download again) is in no group: no button that would find nothing, the usual foot instead
+    const asked = { ...missing!, in_missing_files: false };
+    expect(footAction(t({ missing: asked }), null)).toBeNull();
+    expect(footAction(t({ status: 'not_lossless', missing: asked }), null)).toBe('todo');
     // a parked better version is no decision for it (its file is gone: Download again in To-do puts it in): the foot says Open in to-do
     const parked = t({ status: 'not_lossless', upgrade: up(true), missing });
     expect(decisionFor([], parked)).toBeNull();
@@ -452,6 +456,10 @@ describe('a playlist view (D6, D9): its rows, its queue and its count', () => {
     expect(rowInTodo(waiting('w', 'not_found'))).toBe(true);
     expect(rowInTodo({ ...waiting('w', 'not_found'), hidden: true })).toBe(false);  // To-do doesn't show a hidden one
     expect(rowInTodo(lr('a', { status: 'not_lossless' }))).toBe(true);
+    // the engine says whether the Missing files group lists the song: a lossless playlist song and an own song count
+    expect(rowInTodo({ ...here(row('m'), 'here'), in_missing_files: true })).toBe(true);
+    expect(rowInTodo({ ...here(row('m', { in_playlists: false }), 'here'), in_missing_files: true })).toBe(true);
+    expect(rowInTodo({ ...here(row('m'), 'here'), in_missing_files: false })).toBe(false);
     expect(rowTitleTip({ ...waiting('w'), in_playlists: false }, 'A - w')).toBe('A - w');
   });
   it('the table lists the songs, then the folder\'s other files under their head; an empty line only beside them', () => {

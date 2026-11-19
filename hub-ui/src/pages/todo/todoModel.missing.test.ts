@@ -6,7 +6,7 @@ import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import { missingAll, missingSet } from '$lib/bridge/fake/missingFiles';
 import { rowAway } from '$lib/format';
 import {
-  MULTI_GROUPS, actionsFor, headerSub, itemKey, missingAllKeys, missingGroup, multiMissing, multiScope,
+  MULTI_GROUPS, actionsFor, itemKey, missingAllKeys, missingGroup, multiMissing, multiScope,
   rowAwayTag, rowDim, rowSub, selectFromTrack, segOptions,
 } from './todoModel';
 
@@ -35,7 +35,11 @@ describe('the group in the list', () => {
     expect(rowAwayTag(item(ids.plain))).toBeNull();                      // in Missing files the badge is the quality
     expect(rowAwayTag(item(ids.ownOffline))).toBe('offline');
     expect(rowAwayTag({ ...item(ids.plain), group: 'upgrade_ready' })).toBe('file_missing');   // elsewhere the tag stays
-    expect(rowDim(item(ids.plain))).toBe(true);   // as every file that is away: dimmed, the tag says why it can't play
+    // only a row that differs is dimmed: the group's head says the file is missing, so a plain song and an own song
+    // (in no playlist) stay plain; an offline drive keeps its tag and is dimmed
+    expect(rowDim(item(ids.plain))).toBe(false);
+    expect(rowDim(item(ids.own))).toBe(false);
+    expect(rowDim(item(ids.ownOffline))).toBe(true);
     const i = item(ids.plain);
     expect(rowSub(i)).toBe([i.folder, i.detail].filter(Boolean).join(' · '));
     expect(rowSub(i)).toContain('Missing since');
@@ -72,10 +76,8 @@ describe('the group in the list', () => {
     const items = shown.groups.flatMap((g) => g.items);
     expect(selectFromTrack(items, ids.twice)).toBe(`missing_file/${ids.twice}`);
   });
-  it('the page header counts the songs whose file is missing, and with only those it does not say "Nothing to do"', () => {
+  it('the strip counts the songs whose file is missing', () => {
     const none = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
-    expect(headerSub({ chips: { ...none, missing_file: 1 }, check_tracks: 0 })).toEqual(['1 song is missing its file']);
-    expect(headerSub({ chips: { ...none, missing_file: 3, weak: 2 }, check_tracks: 0 })).toEqual(['2 tracks are not lossless yet', '3 songs are missing their file']);
     expect(segOptions({ ...none, missing_file: 2 }, 'all').find((o) => o.key === 'missing_file')).toMatchObject({ label: 'Missing', count: 2 });
   });
 });
