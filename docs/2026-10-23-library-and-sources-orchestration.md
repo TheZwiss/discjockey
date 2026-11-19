@@ -824,6 +824,8 @@ Results:
     a b d (scratchpad/review-43-R1.md). F5 decided by the rules (no past user answer; Remove of a song whose file
     is in two places = loss): found_twice for both actions. Fix rounds: FA (F1 F2 F4 F6) -> FB (F3 F5 a b d) ->
     R2 window review (carries F7 F8 c) -> window fix round. Stage running total ~6.64M.
+    FA (Sonnet fix-round): **102k** (41 calls; est. ~170k) -> 1c38ec72; F1 F2 F4 F6 fixed with tests; pytest 6017.
+    Stage running total ~6.74M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
