@@ -49,6 +49,9 @@ REASONS = {
     "asked": "You asked for it already: it happens at your next sync.",
 }
 
+# the `why_not` reasons whose words the To-do note's `hint` says already: `view`'s `foot_note` leaves them out
+SAID_BY_HINT = ("found_twice", "away")
+
 WILL = {
     "download": "Downloads again at your next sync",
     "place": "Gets the better version already waiting for it at your next sync; nothing is downloaded",
@@ -93,6 +96,13 @@ def place_refused(e: Mapping) -> str | None:
     record = (e.get("upgrade") or {}).get("auto_refused")
     message = record.get("message") if isinstance(record, Mapping) else None
     return message if isinstance(message, str) and message else None
+
+
+def in_group(e: Mapping) -> bool:
+    """Whether To-do's Missing files group lists a song whose file is marked missing (the one rule `views._group` and the
+    Library's `in_missing_files` share): not once Download again is asked (`file_gone`: the sync downloads it or puts its
+    parked version in), unless the sync's phase refused that placement and the refusal holds (`place_refused`)."""
+    return not e.get("file_gone") or place_refused(e) is not None
 
 
 def why_not(key: str, e: Mapping, state: Mapping, action: str) -> str | None:
@@ -167,20 +177,30 @@ def item_detail(key: str, e: Mapping, state: Mapping, place: Callable[[str], str
     return f"Missing since {since} · was in {where}" if where else f"Missing since {since}"
 
 
+def action_label(action: str) -> str:
+    """The one-song button's words (and the head of `button_label`): Remove asks first, so its label has the dots."""
+    return ACTION_WORDS[action] + ("…" if action == REMOVE else "")
+
+
 def view(key: str, e: Mapping, state: Mapping, place: Callable[[str], str] | None, today: date) -> dict | None:
     """The `missing` object of an item (plan §5.2), None when the song's file isn't missing: `since` (the ISO day of the
-    first scan that missed it), `place` (where it was, the Folder column's words), `action`, `why_not` and its
-    `words`, `will` (what the action does for this song) and `upgrade_waiting` (a parked better version: Download
-    again puts it in instead of a download, Remove deletes it). `today` is unused here (`since` is the ISO day, the
-    line words it); it keeps plan §4.1's signature, the one `item_detail` and `detail_view` share."""
+    first scan that missed it), `place` (where it was, the Folder column's words), `action`, `label` and `tone` (the
+    single-song button: "Download again" filled / "Remove from library…" danger), `why_not` and its `words`, `foot_note`
+    (the words under a disabled button: `words`, unless the note above says them already, which `hint` does for
+    `found_twice` and `away`; amended at FC), `will` (what the action does for this song), `upgrade_waiting` (a parked
+    better version: Download again puts it in instead of a download, Remove deletes it) and `in_missing_files` (To-do
+    lists the song: `in_group`). `today` is unused here (`since` is the ISO day, the line words it); it keeps plan
+    §4.1's signature, the one `item_detail` and `detail_view` share."""
     if not file_missing(e):
         return None
     action = action_for(key, e)
     reason = why_not(key, e, state, action)
     waiting = bool(e.get("upgrade"))
-    return {"since": e["missing_since"][:10], "place": _was_in(e, place), "action": action, "why_not": reason,
-            "words": reason_words(reason, action, e) if reason else None, "will": will_words(action, waiting),
-            "upgrade_waiting": waiting}
+    words = reason_words(reason, action, e) if reason else None
+    return {"since": e["missing_since"][:10], "place": _was_in(e, place), "action": action,
+            "label": action_label(action), "tone": "danger" if action == REMOVE else "filled",
+            "why_not": reason, "words": words, "foot_note": None if reason in SAID_BY_HINT else words,
+            "will": will_words(action, waiting), "upgrade_waiting": waiting, "in_missing_files": in_group(e)}
 
 
 def _line(key: str, e: Mapping, state: Mapping, place: Callable[[str], str] | None, today: date) -> str:
@@ -194,11 +214,23 @@ def _line(key: str, e: Mapping, state: Mapping, place: Callable[[str], str] | No
     return f"Missing since {since}. It was in {where}." if where else f"Missing since {since}."
 
 
-def _hint(key: str, e: Mapping, state: Mapping, action: str, *, library: bool = False) -> str:
-    """What can be done, by action: the To-do panel's words (`library` False: its buttons) or the Library's (`library`
-    True: its foot only opens To-do)."""
-    if _candidates(key, state):
+def _hint(key: str, e: Mapping, state: Mapping, action: str, reason: str | None, *, library: bool = False) -> str:
+    """What can be done, by action: the To-do panel's words (`library` False: its buttons, and they follow `reason`, the
+    song's `why_not`: a button that is disabled isn't advised) or the Library's (`library` True: its foot only opens
+    To-do; a song To-do doesn't list, `asked`, says it happens at the next sync instead)."""
+    if library:
+        if reason == "asked":
+            return f"{COMES_BACK} {REASONS['asked']}"
+        if _candidates(key, state):
+            return HINT_TWICE
+    elif reason == "found_twice":
         return HINT_TWICE
+    elif reason == "away":
+        return REASONS["away"]
+    elif reason in ("never", "check_open", "place_refused"):
+        return COMES_BACK
+    elif reason == "asked":
+        return f"{COMES_BACK} {REASONS['asked']}"
     waiting = bool(e.get("upgrade"))
     if action == DOWNLOAD_AGAIN:
         return (HINT_PLACE_LIBRARY if waiting else HINT_DOWNLOAD_LIBRARY) if library else (
@@ -213,8 +245,8 @@ def detail_view(key: str, e: Mapping, state: Mapping, place: Callable[[str], str
     v = view(key, e, state, place, today)
     if v is None:
         return None
-    return {**v, "line": _line(key, e, state, place, today), "hint": _hint(key, e, state, v["action"]),
-            "hint_library": _hint(key, e, state, v["action"], library=True)}
+    return {**v, "line": _line(key, e, state, place, today), "hint": _hint(key, e, state, v["action"], v["why_not"]),
+            "hint_library": _hint(key, e, state, v["action"], v["why_not"], library=True)}
 
 
 def place_keys(state: Mapping) -> list[str]:

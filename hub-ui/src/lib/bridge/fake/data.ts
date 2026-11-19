@@ -321,11 +321,36 @@ export function qualityLine(t: FakeTrack): string {
   const kbps = t.kbps ? ` ${t.kbps} kbps` : '';
   return `${src} ${(t.codec ?? 'aac').toUpperCase()}${kbps} · cutoff ${khz(t.cutoff_hz ?? 20000)}`;
 }
+/** missing.in_group: To-do's Missing files group lists a song whose file waits as missing, unless Download again was
+ *  asked (`fileGone`) and no refusal of the placement holds. The Library's `in_missing_files` is the same rule. */
+export const inMissingGroup = (t: FakeTrack): boolean => !t.fileGone || !!t.upgrade?.auto_refused?.message;
+
+/** views.TODO_SUB_*: the header's sentence parts, [one, many ({n})] (fake/data.test.ts pins them against views.py) */
+export const TODO_SUB_WORDS = {
+  nothing: 'Nothing to do',
+  tracks: ['1 track is not lossless yet', '{n} tracks are not lossless yet'],
+  questions: ['1 question about your files', '{n} questions about your files'],
+  checks: ['1 track to check in rekordbox', '{n} tracks to check in rekordbox'],
+  cdj: ["1 file won't play well on CDJs", "{n} files won't play well on CDJs"],
+  missing: ['1 song is missing its file', '{n} songs are missing their file'],
+} as const;
+/** views.todo_sub: the To-do page's second line as parts in order of importance. Every number counts tracks: "not
+ *  lossless yet" sums the chips of the groups below lossless (not `all`, which counts a track once however many groups it
+ *  is in), the checks are `check_tracks` (`rekordbox_check` counts items), the CDJ files and the songs whose file is
+ *  missing come last. Nothing in any of them: ["Nothing to do"]. */
+export function todoSub(chips: Record<string, number>, checkTracks: number): string[] {
+  const c = (g: string) => chips[g] ?? 0;
+  const tracks = ['upgrade_ready', 'not_found', 'weak', 'good_lossy', 'fake', 'other'].reduce((n, g) => n + c(g), 0);
+  const parts = ([[tracks, TODO_SUB_WORDS.tracks], [c('same_song') + c('duplicate'), TODO_SUB_WORDS.questions],
+    [checkTracks, TODO_SUB_WORDS.checks], [c('cdj'), TODO_SUB_WORDS.cdj], [c('missing_file'), TODO_SUB_WORDS.missing]] as const)
+    .filter(([n]) => n).map(([n, [one, many]]) => (n === 1 ? one : many.replace('{n}', String(n))));
+  return parts.length ? parts : [TODO_SUB_WORDS.nothing];
+}
 export function todoGroup(t: FakeTrack): TodoGroupKey | null {
   // views._group: a file that waits as missing wins over every other group; once Download again is asked
   // (`fileGone`) the song is in none (a song with no file and `fileGone` is no Not found either)
   // unless the sync's phase refused the placement and the refusal holds (the drive is full, Cloud Library Sync)
-  if (t.missing) return t.fileGone && !t.upgrade?.auto_refused?.message ? null : 'missing_file';
+  if (t.missing) return inMissingGroup(t) ? 'missing_file' : null;
   if (t.status === 'missing' && t.fileGone) return null;
   if (t.unchecked) return null;  // as views._group: its quality is only the codec's guess
   if (t.other) return 'other';
@@ -742,7 +767,7 @@ const PROBLEM_SECTIONS = ['missing', 'errors', 'conflicts', 'ambiguous'];
 /** report.SECTIONS (the titles the window reads) and report.PART_LABELS: fake/auto.test.ts pins them against report.py */
 export const SECTION_LABELS: Record<string, string> = {
   upgraded: 'Upgraded (your cues stayed)', upgrade_waits: 'Upgrades still waiting',
-  placed_missing: 'Better version put in (its file was missing)',
+  placed_missing: 'Better versions put in (their files were missing)',
 };
 export const PART_LABELS: RunDetail['part_labels'] = { upgraded: 'Upgraded', waiting: 'Still waiting', refused: "Couldn't go in" };
 export function runDetail(id: string, started: Date, duration_s: number, exit_code: number, results: Result[],

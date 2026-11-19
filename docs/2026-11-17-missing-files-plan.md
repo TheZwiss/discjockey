@@ -402,9 +402,12 @@ when its drive is away) plus:
 
 - `detail`: "Missing since 12 Nov · was in Techno 2019" (`words.short_day` of `missing_since`; `place` of the row's
   path: the Folder column's words). An ambiguous one: "In 2 places now · keep one and it links again".
-- `missing: {since: ISO date, place: str, action: "download_again" | "remove", why_not: str | null, words: str |
-  null, will: str, upgrade_waiting: bool}` (`missing.view`); `words` is the reason's words when `why_not` is set;
-  `will` is `missing.will_words` (what the action does for this song: a download or the parked version, D9).
+- `missing: {since: ISO date, place: str, action: "download_again" | "remove", label: str, tone: "filled" | "danger",
+  why_not: str | null, words: str | null, foot_note: str | null, will: str, upgrade_waiting: bool, in_missing_files:
+  bool}` (`missing.view`); `words` is the reason's words when `why_not` is set; `will` is `missing.will_words` (what
+  the action does for this song: a download or the parked version, D9). (amended at FC: `label` / `tone` are the single
+  song's button, `foot_note` the words under it when it is disabled (null for `found_twice` and `away`, which `hint`
+  says), `in_missing_files` whether To-do lists the song, `missing.in_group`, the rule `views._group` uses too.)
 
 ### 5.3 The track's details (`views.track_detail`, the To-do and Library panels, `track show`)
 
@@ -424,6 +427,10 @@ nothing is downloaded."; the ambiguous hint is the same in both):
   it had. Or press Download again: the better version already waiting for it goes in at your next sync, and nothing
   is downloaded."
 - Remove with `upgrade_waiting`, `hint` adds: "Its better version waiting in Upgrade ready goes with it."
+- (amended at FC) `hint` follows `why_not` first, so it never advises what the disabled button refuses: `never`,
+  `check_open`, `place_refused`: the first sentence only; `away`: "Its drive isn't connected; plug it in to decide.";
+  `found_twice`: the ambiguous one. A song already asked for (`asked`, not in To-do) says, in `hint` and `hint_library`:
+  the first sentence and "You asked for it already: it happens at your next sync."
 
 ### 5.4 Words (binding)
 
@@ -444,13 +451,14 @@ nothing is downloaded."; the ambiguous hint is the same in both):
 | Sync preview / report | §3 last rows |
 | Placement, before a start (`start_note` clause) | "{p} missing songs get their better version at the end of the sync." (rekordbox open: "… at the end of the sync, once rekordbox is closed."); with one song (amended at D1: built so) `start_note` and `place_notes` name it: "Artist – Title gets its better version at the end of the sync." The words are made engine-side (`words.place_plan_line(n, waits, name=)`; the window shows `place_notes` verbatim, §6.1) |
 | Placement result rows | done, repointed and lined up: "Its better version is in, at {name}; rekordbox's track plays it with its cues."; done, `aligned: false`: "Its better version is in, at {name}; check its cues in rekordbox."; done, not repointed: "Its better version is in, at {name}."; waits: "Waits for rekordbox to be closed: its better version goes in at your next sync."; parked file gone: "Its better version was no longer in Upgrades ready, so it downloads at your next sync." |
-| Report section `placed_missing` | "Better version put in (its file was missing)" |
+| Report section `placed_missing` | "Better versions put in (their files were missing)" (amended at FC: the plural, as To-do's batch list title, its row and its card say it) |
 | Check card (`report.check_text`, `placed_missing`) | repointed, lined up: "Its file was missing, so its better version took its place. rekordbox's track plays it with its cues and grid: play it once to check."; `aligned: false`: "… Discjockey couldn't measure where rekordbox's timeline sat for the missing file: check that its cues and grid sit on the beat."; not repointed: "Its file was missing, so its better version took its place, as a new file to rekordbox (a different edit: your old track's cues don't fit it)."; no rekordbox track held it: the first sentence only. `words.person_steps` (amended at D1: built so): `step:look` when the track was repointed (or nothing in rekordbox plays it by name: Discjockey never wrote its text columns, so a Reload Tag would replace the names the person changed), `step:relocate_new` when rekordbox takes it as a new file (not repointed, lined up, no exact or shifted match), with the new file's path at the end of its sentence |
 
 ### 5.5 Library rows
 
 `file_state` `file_missing` (from the stored mark) is now a value of `LibraryRow.file_state` and `TodoItem.file_state`
-(today both exclude it). Nothing else changes in the Library: its panel shows `track.missing` (§7.3); actions stay in
+(today both exclude it). (amended at FC: every Library row carries `in_missing_files`, true only for a row whose file
+waits as missing and that To-do's group lists.) Nothing else changes in the Library: its panel shows `track.missing` (§7.3); actions stay in
 To-do.
 
 ## 6. Bridge, commands, catalogue (E3a: reads; E3b: writes and commands)

@@ -84,16 +84,22 @@ export type MissingAction = 'download_again' | 'remove';
 /** Why the action can't run for the song now (`missing.why_not`), the first that applies. */
 export type MissingReason = 'not_missing' | 'away' | 'wrong_action' | 'found_twice' | 'never' | 'check_open' | 'place_refused' | 'asked';
 /** A `missing_file` item's `missing` (`missing.view`): `since` the ISO day of the first scan that missed the file,
- *  `place` where it was (the Folder column's words; '' without a path), `why_not` null when `action` can run and
- *  `words` its reason's sentence, `will` what the action does for this song ("Downloads again at your next sync" /
- *  "Gets the better version already waiting for it at your next sync; nothing is downloaded" / "Removed from your
- *  library"), `upgrade_waiting` a parked better version waits (Download again puts it in, Remove deletes it). */
-export type MissingView = { since: string; place: string; action: MissingAction; why_not: MissingReason | null;
-  words: string | null; will: string; upgrade_waiting: boolean };
+ *  `place` where it was (the Folder column's words; '' without a path), `label` and `tone` the single song's button
+ *  ("Download again" filled / "Remove from library…" danger), `why_not` null when `action` can run and `words` its
+ *  reason's sentence, `foot_note` the words to show under a disabled button (`words`, null when nothing holds the action
+ *  back or the note above says them already: found in several places, its drive away), `will` what the action does for
+ *  this song ("Downloads again at your next sync" / "Gets the better version already waiting for it at your next sync;
+ *  nothing is downloaded" / "Removed from your library"), `upgrade_waiting` a parked better version waits (Download
+ *  again puts it in, Remove deletes it), `in_missing_files` To-do's Missing files group lists the song (false once
+ *  Download again is asked, unless the sync refused its placement). */
+export type MissingView = { since: string; place: string; action: MissingAction; label: string; tone: 'filled' | 'danger';
+  why_not: MissingReason | null; words: string | null; foot_note: string | null; will: string; upgrade_waiting: boolean;
+  in_missing_files: boolean };
 /** `track().missing`: the item's fields plus `line` ("Missing since 12 Nov. It was in Techno 2019."), `hint` (what can
- *  be done, by action: the To-do panel's, with its buttons) and `hint_library` (the same for the Library, whose foot only
- *  opens To-do; the same text when the song was found in several places). Null when the song's file isn't marked
- *  missing. */
+ *  be done, by action and by `why_not`: the To-do panel's, with its buttons; a disabled button's action isn't advised)
+ *  and `hint_library` (the same for the Library, whose foot only opens To-do; the same text when the song was found in
+ *  several places; for a song already asked for, both say it happens at the next sync). Null when the song's file isn't
+ *  marked missing. */
 export type MissingDetail = MissingView & { line: string; hint: string; hint_library: string };
 /** One song of `missing_files_preview` (`missing.preview`): `will` says whether the action runs for it now, `reason` and
  *  `words` why not otherwise (`words` is the action's `will` sentence when it does), `since` the ISO day its file was
@@ -452,6 +458,9 @@ export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: FileSt
    *  null on every other row (views.next_due) */
   next_try: string | null; position: number | null; place: string | null; subfolder: string | null;
   playlists: string[];
+  /** To-do's Missing files group lists the song: true only for a row whose file waits as missing and that the group
+   *  lists (views.library; false for every other row, and for a song whose Download again is asked) */
+  in_missing_files: boolean;
   /** the song's page on its service, for the row menu's "Open in {Service}" (null: no page known; the item is absent) */
   track_link: TrackLink | null };
 export type LibraryView = 'all' | 'unlisted' | 'playlist' | 'folder';
@@ -574,6 +583,9 @@ export type Todo = {
   /** the tracks with an open check in rekordbox, whatever the filter: `chips.rekordbox_check` counts items (a batch is
    *  one), this counts tracks (a batch counts its `size`), the page header's number */
   check_tracks: number; hidden_count: number; show_hidden: boolean;
+  /** the page header's second line, as parts in order of importance ("3 tracks are not lossless yet", "2 songs are
+   *  missing their file"; ["Nothing to do"] when none): the engine words it (views.todo_sub) */
+  sub: string[];
   groups: TodoGroup[];
   empty: EmptyKind | null;
   /** `empty`'s words for the command line ("Everything is lossless."), null for no state or one the engine has no

@@ -142,3 +142,14 @@ def test_rekordbox_open_adds_the_before_start_line():
 def test_no_upgrades_and_a_switch_that_is_off_print_nothing():
     assert upgrade_lines(None, NAMES, full=True) == [] and upgrade_lines({"results": []}, NAMES, full=True) == []
     assert upgrade_lines({"results": [row("a", "refused", message="m")]}, NAMES, full=False) == []   # held: no plan line
+
+
+def test_one_placement_is_said_once_several_are_listed():
+    # issue 43 FC, M8: with one placement the clause names the song already; with several it counts them and the list names them
+    one = {"results": [row("t1", "would") | {"action": "place"}]}
+    two = {"results": [row("t1", "would") | {"action": "place"}, row("t2", "would") | {"action": "place"}]}
+    name = lambda k: f"Artist - {k}"
+    assert len(upgrade_lines(one, name, full=True)) == 1
+    lines = upgrade_lines(two, name, full=True)
+    assert len(lines) == 3 and lines[1:] == ["  Artist - t1", "  Artist - t2"]
+    assert len(upgrade_lines(two, name, full=False)) == 1

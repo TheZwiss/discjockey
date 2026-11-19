@@ -10,7 +10,7 @@ import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 import { foldText } from '../../format';
 import { needsSetting } from './liked';
 import {
-  SERVICE_NAME, byQuality, dateOnly, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
+  SERVICE_NAME, byQuality, dateOnly, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, inMissingGroup, trackRow, type FakeState,
   type FakeTrack,
 } from './data';
 
@@ -338,7 +338,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   const mk = (t: FakeTrack, over: Partial<LibraryRow> = {}): Entry => ({ t, row: {
     ...trackRow(t), sound_checked: !t.unchecked, file_state: pathState(s, t), wait: null, next_try: null, position: null,
     place: placeOf(sites, pathOf(t)!), subfolder: null, playlists: held.get(t.track_id) ?? [], track_link: fakeLink(t),
-    ...over } });
+    in_missing_files: !!t.missing && inMissingGroup(t), ...over } });
 
   let entries: Entry[] = [];
   let also: Entry[] | null = null;
@@ -386,7 +386,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
         const notFound = h.t !== null && todoGroup(h.t) === 'not_found';
         entries.push({ t: null, row: { ...trackRow(missing), sound_checked: true, file_state: 'no_file',
           wait: notFound ? 'not_found' : 'waiting', next_try: notFound ? nextTry(h.t!.next_try_days) : null, position, place: null,
-          subfolder: null, playlists: held.get(h.key) ?? [line.folder], track_link: fakeLink(missing) } });
+          subfolder: null, playlists: held.get(h.key) ?? [line.folder], track_link: fakeLink(missing), in_missing_files: false } });
       }
       also = files.filter((t) => !heldKeys.has(t.track_id) && fold(libraryFolder(pathOf(t)!) ?? '') === fold(line.folder))
         .map((t) => mk(t, { place: null }));

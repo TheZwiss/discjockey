@@ -63,7 +63,7 @@ def upgrade_lines(block: dict | None, name_of: Callable[[str], str], *, full: bo
             lines += [f"  {name_of(r['track'])} ({UPGRADE_HOW.get(r['how'], r['how'])})" for r in coming]
     if placing:
         lines.append(place_clause(placing))
-        if full:
+        if full and len(placing) > 1:  # one song: the clause names it already (issue 43 FC, M8)
             lines += [f"  {name_of(r['track'])}" for r in placing]
     if full and held:
         lines.append(UPGRADE_HELD)

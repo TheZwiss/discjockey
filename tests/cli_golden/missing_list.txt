@@ -1,4 +1,5 @@
 To-do items  6
+Summary      1 track is not lossless yet · 5 songs are missing their file
 Checks open  0
 Hidden       0
 

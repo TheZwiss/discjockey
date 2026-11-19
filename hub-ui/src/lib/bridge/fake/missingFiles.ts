@@ -3,7 +3,7 @@
 // and the scenario `missing_files` (open it with ?scenario=missing_files) that shows every state the plan's shots need.
 // The words are the engine's: fake/missingFiles.test.ts reads missing.py and pins each one.
 import type { FakeState, FakeTrack } from './data';
-import { dateOnly, makeUpgrade } from './data';
+import { dateOnly, inMissingGroup, makeUpgrade } from './data';
 import { placeAt, trackPlace } from './library';
 import { MUSIC_DIR, ownTrack } from './aiffScenes';
 import type { MissingAction, MissingAll, MissingConfirm, MissingDetail, MissingItemResult, MissingPreview, MissingReason, MissingResult, MissingView,
@@ -93,14 +93,22 @@ export function itemDetail(s: FakeState, t: FakeTrack): string {
   return where ? `Missing since ${since} · was in ${where}` : `Missing since ${since}`;
 }
 
+/** missing.action_label: the single song's button ("Remove from library…": Remove asks first) */
+const actionLabel = (action: MissingAction): string => ACTION_WORDS[action] + (action === REMOVE ? '…' : '');
+/** missing.SAID_BY_HINT: the reasons whose words To-do's note `hint` says already, so `foot_note` leaves them out */
+const SAID_BY_HINT: MissingReason[] = ['found_twice', 'away'];
+
 /** missing.view: the `missing` of a To-do item, null when the song's file isn't marked missing */
 export function missingView(s: FakeState, t: FakeTrack): MissingView | null {
   if (!t.missing) return null;
   const action = missingAction(t);
   const reason = whyNot(s, t, action);
   const waiting = !!t.upgrade;
-  return { since: t.missing.since.slice(0, 10), place: wasIn(s, t), action, why_not: reason,
-    words: reason ? reasonWords(reason, action, t) : null, will: willWords(action, waiting), upgrade_waiting: waiting };
+  const words = reason ? reasonWords(reason, action, t) : null;
+  return { since: t.missing.since.slice(0, 10), place: wasIn(s, t), action, label: actionLabel(action),
+    tone: action === REMOVE ? 'danger' : 'filled', why_not: reason, words,
+    foot_note: reason && SAID_BY_HINT.includes(reason) ? null : words, will: willWords(action, waiting),
+    upgrade_waiting: waiting, in_missing_files: inMissingGroup(t) };
 }
 
 function line(s: FakeState, t: FakeTrack): string {
@@ -114,8 +122,17 @@ function line(s: FakeState, t: FakeTrack): string {
   const where = wasIn(s, t);
   return where ? `Missing since ${since}. It was in ${where}.` : `Missing since ${since}.`;
 }
-function hint(t: FakeTrack, action: MissingAction, library = false): string {
-  if (t.missing!.found?.length) return HINT_TWICE;
+/** missing._hint: what can be done, by action. To-do's (`library` false) follows `reason` (the song's `why_not`): a
+ *  disabled button's action isn't advised; the Library's has no buttons, its foot opens To-do. A song already asked for
+ *  (`asked`) says it happens at the next sync in both. */
+function hint(t: FakeTrack, action: MissingAction, reason: MissingReason | null, library = false): string {
+  if (library) {
+    if (reason === 'asked') return `${COMES_BACK} ${REASON_WORDS.asked}`;
+    if (t.missing!.found?.length) return HINT_TWICE;
+  } else if (reason === 'found_twice') return HINT_TWICE;
+  else if (reason === 'away') return REASON_WORDS.away;
+  else if (reason === 'never' || reason === 'check_open' || reason === 'place_refused') return COMES_BACK;
+  else if (reason === 'asked') return `${COMES_BACK} ${REASON_WORDS.asked}`;
   const waiting = !!t.upgrade;
   if (action === DOWNLOAD_AGAIN) return library ? (waiting ? HINT_PLACE_LIBRARY : HINT_DOWNLOAD_LIBRARY) : waiting ? HINT_PLACE : HINT_DOWNLOAD;
   return (library ? HINT_REMOVE_LIBRARY : HINT_REMOVE) + (waiting ? HINT_REMOVE_PARKED : '');
@@ -123,7 +140,7 @@ function hint(t: FakeTrack, action: MissingAction, library = false): string {
 /** missing.detail_view: `track().missing`, the view plus its `line`, `hint` and `hint_library` */
 export function missingDetail(s: FakeState, t: FakeTrack): MissingDetail | null {
   const v = missingView(s, t);
-  return v ? { ...v, line: line(s, t), hint: hint(t, v.action), hint_library: hint(t, v.action, true) } : null;
+  return v ? { ...v, line: line(s, t), hint: hint(t, v.action, v.why_not), hint_library: hint(t, v.action, v.why_not, true) } : null;
 }
 
 /** missing.select_all_label: the head link's words, from two songs */

@@ -21,7 +21,7 @@ SECTIONS = [
     ("fake", "Fake lossless (the Qobuz file is really lossy)"),
     ("upgrade_ready", "Better version found, waiting for you (run discjockey upgrade list)"),
     ("swapped", "Swapped in the better version (cue points stay)"),
-    ("placed_missing", "Better version put in (its file was missing)"),
+    ("placed_missing", "Better versions put in (their files were missing)"),
     ("added_new", "Better version added as a new file"),
     ("upgraded", "Upgraded (your cues stayed)"),
     ("upgrade_waits", "Upgrades still waiting"),

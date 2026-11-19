@@ -232,6 +232,48 @@ def test_library_rows_say_file_missing_and_the_summary_counts_the_to_do():
     assert {r["track_id"]: r["file_state"] for r in away["rows"]}["c"] == "offline"
 
 
+def test_library_rows_say_whether_to_do_lists_a_missing_song():
+    # W3: the window never decides it; true only for a row marked missing that the Missing files group lists
+    st = state(a=gone(), b=e(title="B"), c=own(title="C"), d=gone(file_gone="2026-11-18", title="D"),
+               f=gone(upgrade=PARKED, title="F"))
+    lib = views.library(st, "all", None, "", "all", None, lines=[])
+    assert {r["track_id"]: r["in_missing_files"] for r in lib["rows"]} == {"a": True, "b": False, "c": True, "d": False,
+                                                                           "f": True}
+    away = views.library(st, "all", None, "", "all", None, away={"/Volumes/Example/Music": "unmounted"}, lines=[])
+    assert {r["track_id"]: r["in_missing_files"] for r in away["rows"]}["c"] is True      # an offline drive: still in the group
+
+
+def test_todo_sub_is_the_headers_second_line_in_parts():
+    # W1: the sentence parts were the window's; same parts, order and words
+    none = dict.fromkeys(views.TODO_GROUP_KEYS, 0)
+    sub = lambda chips, check_tracks=0: views.todo_sub({**none, **chips}, check_tracks)
+    assert sub({}) == ["Nothing to do"]
+    assert sub({"weak": 4, "good_lossy": 6, "fake": 3, "not_found": 3, "upgrade_ready": 2, "other": 1}) == [
+        "19 tracks are not lossless yet"]
+    assert sub({"fake": 1}) == ["1 track is not lossless yet"]
+    assert sub({"weak": 16, "same_song": 1, "duplicate": 1}) == ["16 tracks are not lossless yet",
+                                                                 "2 questions about your files"]
+    assert sub({"weak": 1, "same_song": 1}) == ["1 track is not lossless yet", "1 question about your files"]
+    assert sub({"rekordbox_check": 2}, 5) == ["5 tracks to check in rekordbox"]   # tracks, not the 2 items
+    assert sub({"rekordbox_check": 1}, 1) == ["1 track to check in rekordbox"]
+    assert sub({"rekordbox_check": 1, "weak": 1}, 1) == ["1 track is not lossless yet", "1 track to check in rekordbox"]
+    assert sub({"weak": 14, "upgrade_ready": 2, "same_song": 1, "duplicate": 1}, 5) == [
+        "16 tracks are not lossless yet", "2 questions about your files", "5 tracks to check in rekordbox"]
+    assert sub({"cdj": 6}) == ["6 files won't play well on CDJs"]
+    assert sub({"cdj": 1, "weak": 2}) == ["2 tracks are not lossless yet", "1 file won't play well on CDJs"]
+    assert sub({"missing_file": 1}) == ["1 song is missing its file"]
+    assert sub({"missing_file": 3, "weak": 2}) == ["2 tracks are not lossless yet", "3 songs are missing their file"]
+    assert sub({"missing_file": 1, "cdj": 2, "rekordbox_check": 1, "same_song": 1, "weak": 1}, 1) == [
+        "1 track is not lossless yet", "1 question about your files", "1 track to check in rekordbox",
+        "2 files won't play well on CDJs", "1 song is missing its file"]
+
+
+def test_the_todo_answer_carries_the_sub():
+    out = views.todo(state(t=gone(), u=e("not_lossless", cutoff_hz=16000, title="U")), "all", False, {}, TODAY, place=place)
+    assert out["sub"] == ["1 track is not lossless yet", "1 song is missing its file"]
+    assert views.todo(state(t=e()), "all", False, {}, TODAY)["sub"] == ["Nothing to do"]
+
+
 def test_track_detail_carries_the_missing_object_with_line_and_hint():
     st = state(a=gone(), b=e())
     d = views.track_detail("a", st["tracks"]["a"], [], TODAY, exists=True, place="Techno 2019", records=st, where=place)
@@ -313,6 +355,11 @@ def test_types_ts_names_the_filters_actions_reasons_and_fields_the_views_send():
     assert fields(ts_type("MissingConfirm")) == list(missing.confirm_for(missing.REMOVE, 1))
     detail = missing.detail_view("t", gone(), state(t=gone()), place, TODAY)
     assert list(detail) == [*view, "line", "hint", "hint_library"]
+    assert "in_missing_files" in fields(ts_type("LibraryRow"))             # FC: the Library rows' flag
+    assert "sub" in fields(ts_type("Todo"))                                # FC: the header's parts
+    out = views.todo(state(t=gone()), "all", False, {}, TODAY, place=place)
+    lib = views.library(state(t=gone()), "all", None, "", "all", None, lines=[])
+    assert "in_missing_files" in lib["rows"][0] and isinstance(out["sub"], list)
 
 
 def test_the_contract_doc_names_every_reason_and_the_group():

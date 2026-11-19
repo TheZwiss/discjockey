@@ -299,7 +299,7 @@ describe('the cells', () => {
 });
 
 const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state,
-  wait: null, next_try: null, position: null, place: null, subfolder: null, playlists: [], track_link: null });
+  wait: null, next_try: null, position: null, place: null, subfolder: null, playlists: [], in_missing_files: false, track_link: null });
 
 describe('a dimmed row', () => {
   it('is a downloaded song that left every playlist', () => {

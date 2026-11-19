@@ -1151,6 +1151,7 @@ def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, wit
                 "duration_ms": (e or {}).get("duration_ms") or t.duration_ms,
                 "status": "missing", "path": None, "source": None, "cutoff_hz": None, "upgrade": None}
         rows.append({**track_row(k, base, cover), "sound_checked": True, "file_state": "no_file",
+                     "in_missing_files": False,
                      "wait": "not_found" if e is not None and _group(e) == "not_found" else "waiting",
                      # when a song nothing usable was found for is looked for again (To-do's next-try line)
                      "next_try": next_due(e) if e is not None and _group(e) == "not_found" else None,
@@ -1303,7 +1304,10 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
 
     Stage D: `aiff_stopped` ({batch_id, left} in the answer, null for none): the newest stopped Convert batch that
     started in the Library (`stopped_batch(rows, scope="library:")`), for the header's "Resume · {k} left". The rows
-    carry no AIFF answer."""
+    carry no AIFF answer.
+
+    Issue 43 FC: every row carries `in_missing_files`, whether To-do's Missing files group lists the song
+    (`missing.in_group`; true only for a row whose file waits as missing, false for every other row)."""
     records = records or {}
     with_file = files_with_file(state)
     found = sites(state, lines, watched)
@@ -1316,6 +1320,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
 
     def row(k: str, e: dict, **extra) -> dict:
         return {**track_row(k, e, cover), "sound_checked": sound_checked(e), "file_state": file_state(e, away),
+                "in_missing_files": file_missing(e) and missing_rule.in_group(e),
                 "wait": None, "next_try": None, "position": None, "place": found.place(e["path"]), "subfolder": None,
                 "playlists": holders.get(k, []), "track_link": link_of(k, e), **extra}
 
@@ -1566,7 +1571,7 @@ def _group(e: dict) -> str | None:
     happens by itself and the song stays (issue 43 FB, F3). A song with no file row and `file_gone` (after `folder
     remove`) is no "Not found" either: the sync downloads it."""
     if file_missing(e):
-        return None if e.get("file_gone") and not missing_rule.place_refused(e) else "missing_file"
+        return "missing_file" if missing_rule.in_group(e) else None
     if e["status"] == "missing" and e.get("file_gone"):
         return None
     if not sound_checked(e):  # its quality is only the codec's guess: nothing to do about it yet
@@ -1574,6 +1579,32 @@ def _group(e: dict) -> str | None:
     if e.get("upgrade"):
         return "upgrade_ready"
     return {"missing": "not_found", "weak": "weak", "good_lossy": "good_lossy", "fake": "fake"}.get(quality_class(e))
+
+
+# The page header's sentence parts, in order of importance (`todo_sub`): one with 1 song, one for the rest ({n}).
+TODO_SUB_NOTHING = "Nothing to do"
+TODO_SUB_TRACKS = ("1 track is not lossless yet", "{n} tracks are not lossless yet")
+TODO_SUB_QUESTIONS = ("1 question about your files", "{n} questions about your files")
+TODO_SUB_CHECKS = ("1 track to check in rekordbox", "{n} tracks to check in rekordbox")
+TODO_SUB_CDJ = ("1 file won't play well on CDJs", "{n} files won't play well on CDJs")
+TODO_SUB_MISSING = ("1 song is missing its file", "{n} songs are missing their file")
+
+
+def todo_sub(chips: Mapping[str, int], check_tracks: int) -> list[str]:
+    """The To-do page's second line as parts in order of importance (the window drops whole parts where they don't fit;
+    issue 43 FC: it was the window's). Every number counts tracks, as its words say:
+    "not lossless yet" is the sum of the chips of the groups of tracks below lossless (Upgrade ready, Not found, Weak,
+    Good lossy, Fake lossless, Other: not `chips["all"]` minus the rest, which counts a track once however many groups
+    it is in); the questions (Same song, Duplicates) are about the user's own files; the checks are `check_tracks`
+    (`chips["rekordbox_check"]` counts items, a batch is one); the CDJ group's files are named after them (they can be
+    lossless, so no part of "not lossless yet"); the songs whose file went missing (`chips["missing_file"]`) last.
+    Nothing in any of them: ["Nothing to do"]."""
+    tracks = sum(chips[g] for g in ("upgrade_ready", "not_found", "weak", "good_lossy", "fake", "other"))
+    questions = chips["same_song"] + chips["duplicate"]
+    parts = [_plural(n, *words) for n, words in ((tracks, TODO_SUB_TRACKS), (questions, TODO_SUB_QUESTIONS),
+                                                 (check_tracks, TODO_SUB_CHECKS), (chips["cdj"], TODO_SUB_CDJ),
+                                                 (chips["missing_file"], TODO_SUB_MISSING)) if n]
+    return parts or [TODO_SUB_NOTHING]
 
 
 def todo_listed(k: str, e: dict, held: Collection[str], never: Mapping[str, object]) -> bool:
@@ -1961,7 +1992,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     Same track batch that still has items left). The checks of one AIFF batch with two or more tracks open are one
     item, a `BatchCheckItem` (`key` `batch:<id>`, `batch: {id, size, started, tracks}`), which counts as one in
     `chips`; one open check of a batch stays a plain item. `check_tracks` is the tracks with an open check (a batch
-    counts its `size`, hidden tracks too, whatever the filter): the page header counts tracks, `chips` counts items.
+    counts its `size`, hidden tracks too, whatever the filter): the page header counts tracks, `chips` counts items;
+    `sub` is that header's second line (`todo_sub`).
 
     Stage C (plan §3, §4): `auto_on` is Settings' Auto-upgrade switch and `started_by` the AIFF batches' starters, batch
     id -> `aiff_batches.started_by` (the api reads the batches the open checks belong to). An Upgrade ready row's
@@ -2089,8 +2121,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
         empty = "nothing_here"
     # the page header's count of checks is tracks (a batch is one item in `chips` but holds `size` tracks)
     check_tracks = sum(1 for e in state["tracks"].values() if e.get("rekordbox_check"))
-    return {"chips": chips, "check_tracks": check_tracks, "hidden_count": hidden, "show_hidden": show_hidden,
-            "groups": groups, "empty": empty, "empty_text": TODO_EMPTY.get(empty)}
+    return {"chips": chips, "check_tracks": check_tracks, "sub": todo_sub(chips, check_tracks),
+            "hidden_count": hidden, "show_hidden": show_hidden, "groups": groups, "empty": empty, "empty_text": TODO_EMPTY.get(empty)}
 
 
 def todo_others(prep, last_report: dict | None) -> dict[str, str]:

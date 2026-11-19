@@ -35,7 +35,7 @@ New not lossless  New tracks that are not lossless
 Fake              Fake lossless (the Qobuz file is really lossy)
 Upgrade ready     Better version found, waiting for you (run discjockey upgrade list)
 Swapped           Swapped in the better version (cue points stay)
-Placed missing    Better version put in (its file was missing)
+Placed missing    Better versions put in (their files were missing)
 Added new         Better version added as a new file
 Upgraded          Upgraded (your cues stayed)
 Upgrade waits     Upgrades still waiting

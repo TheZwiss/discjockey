@@ -129,7 +129,7 @@ def test_download_again_with_the_switch_off_places_the_parked_version_repoints_r
     assert [(r["section"], r["path"], r["status"]) for r in data["results"]
             if r["section"] != "rekordbox_check"] == [("placed_missing", NEW, "lossless")]
     text = found.report.read_text()
-    assert "## Better version put in (its file was missing) (1)" in text and "## Upgraded" not in text
+    assert "## Better versions put in (their files were missing) (1)" in text and "## Upgraded" not in text
     assert report.auto_upgrade_line(out.to_dict()) == "1 missing song got its better version."
     assert [x.text for x in events if isinstance(x, Message)] == [words.placing_line(1)]
     assert isinstance(events[-1], RunFinished) and events[-1].exit_code == 0
@@ -514,7 +514,7 @@ def test_the_check_of_a_placement_has_its_words_and_step_for_each_case(fields, t
 def test_the_report_has_the_section_after_swapped_and_the_run_summary_counts_it_as_lossless():
     keys = [k for k, _ in report.SECTIONS]
     assert keys.index("placed_missing") == keys.index("swapped") + 1
-    assert dict(report.SECTIONS)["placed_missing"] == "Better version put in (its file was missing)"
+    assert dict(report.SECTIONS)["placed_missing"] == "Better versions put in (their files were missing)"
     from discjockey.hub import views
     summary = views.run_summary("r", {"results": [{"section": "placed_missing", "status": "lossless"}]})
     assert summary["counts"]["lossless"] == 1
@@ -527,7 +527,7 @@ def test_the_console_lists_placements_apart_from_the_upgrades():
     block = {"results": [row("a", "place"), row("b", "same_track")]}
     assert upgrade_lines(block, lambda k: f"Artist - {k}", full=True) == [
         "At the end, 1 upgrade goes in place of your files; your cues stay.", "  Artist - b (in place)",
-        "a gets its better version at the end of the sync.", "  Artist - a"]   # (FB b) one song: the clause names it
+        "a gets its better version at the end of the sync."]   # (FB b) one song: the clause names it, and (FC M8) only it
     # the Sync page's rule: it waits only for rekordbox (a plain wait for another reason is no "once rekordbox is closed")
     waiting = lambda reason: {"results": [{**row("a", "place", "waiting"), "reason": reason}]}  # noqa: E731
     assert upgrade_lines(waiting("rekordbox_open"), str, full=False)[0].endswith("once rekordbox is closed.")

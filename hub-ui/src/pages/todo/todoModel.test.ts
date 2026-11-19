@@ -25,7 +25,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
   const chips = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
-  return { chips, check_tracks: 0, hidden_count: 0, show_hidden: false, empty: null, empty_text: null,
+  return { chips, check_tracks: 0, sub: ['Nothing to do'], hidden_count: 0, show_hidden: false, empty: null, empty_text: null,
     groups: groups.map(([key, ids]) => ({ key, label: key, hint: '', items: ids.map((id) => item(id, key)) })) };
 }
 function upgrade(extra: Partial<Upgrade> = {}): Upgrade {

@@ -2817,7 +2817,7 @@ def test_a_batch_sends_its_cards_summary_for_every_shape_of_batch():
 def test_run_detail_sends_the_reports_own_titles_of_its_sections_and_parts():
     d = views.run_detail("x", {"results": []}, state())
     assert d["section_labels"] == dict(report.SECTIONS) and d["section_labels"]["placed_missing"] == (
-        "Better version put in (its file was missing)")
+        "Better versions put in (their files were missing)")
     assert d["part_labels"] == {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}
 
 

@@ -66,13 +66,15 @@ def page(payload: Mapping, *, message: str | None = None, verbose: bool = False,
     """The To-do answer as a page: a summary, then a section per group. `--verbose` leaves the summary to `rest`
     (the raw counts) and prints every field of every item."""
     chips = payload.get("chips") or {}
-    placed = {"groups"} if verbose else {"groups", "chips", "check_tracks", "hidden_count", "show_hidden", "empty",
+    placed = {"groups"} if verbose else {"groups", "chips", "check_tracks", "sub", "hidden_count", "show_hidden", "empty",
                                          "empty_text"}
     sections = []
     if not verbose:
         rows = [Row("To-do items", generic.scalar(chips.get("all"))),
                 Row("Checks open", generic.scalar(payload.get("check_tracks"))),
                 Row("Hidden", generic.scalar(payload.get("hidden_count")))]
+        if payload.get("sub"):  # the window's header line, worded by the engine
+            rows.insert(1, Row("Summary", " · ".join(payload["sub"])))
         if payload.get("empty"):
             rows.append(Row("Nothing to show", generic.scalar(payload.get("empty_text"))))
         sections.append(Section(None, rows))

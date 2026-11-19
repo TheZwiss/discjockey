@@ -7,7 +7,7 @@ from datetime import date
 import pytest
 
 from discjockey import missing
-from discjockey.hub import outcomes
+from discjockey.hub import outcomes, views
 from discjockey.planner import ENTRY_KEYS
 
 TODAY = date(2026, 11, 18)
@@ -144,15 +144,49 @@ def test_the_view_of_a_song_whose_file_is_not_missing_is_none():
 
 def test_the_view_carries_the_day_the_place_the_action_and_the_words():
     v = missing.view("t1", gone(), state(), place, TODAY)
-    assert v == {"since": "2026-11-12", "place": "Techno 2019", "action": "download_again", "why_not": None,
-                 "words": None, "will": "Downloads again at your next sync", "upgrade_waiting": False}
+    assert v == {"since": "2026-11-12", "place": "Techno 2019", "action": "download_again",
+                 "label": "Download again", "tone": "filled", "why_not": None, "words": None, "foot_note": None,
+                 "will": "Downloads again at your next sync", "upgrade_waiting": False, "in_missing_files": True}
     parked = missing.view("t1", gone(upgrade=PARKED), state(), place, TODAY)
     assert parked["upgrade_waiting"] is True and parked["will"].startswith("Gets the better version")
     refused = missing.view("local:1", own(), state({"never": {"local:1": {}}}), place, TODAY)
     assert (refused["action"], refused["why_not"], refused["words"]) == ("remove", None, None)
+    assert (refused["label"], refused["tone"]) == ("Remove from library…", "danger")
     asked = missing.view("t1", gone(file_gone="2026-11-18"), state(), place, TODAY)
     assert (asked["why_not"], asked["words"]) == ("asked", missing.REASONS["asked"])
     assert missing.view("t1", gone(), state(), None, TODAY)["place"] == ""            # no place words: empty, not None
+
+
+def test_the_view_says_the_buttons_label_tone_and_foot_note_and_whether_to_do_lists_the_song():
+    # M1: the window makes none of it. `foot_note` is the reason's words under a disabled button, null when the note
+    # above says them already (found in several places; its drive away) or nothing holds the action back.
+    never = state({"never": {"t1": {}}})
+    v = missing.view("t1", gone(), never, place, TODAY)
+    assert (v["why_not"], v["foot_note"]) == ("never", "You chose Never download for it.")
+    v = missing.view("local:1", own(rekordbox_check={"reason": "swapped"}), state(), place, TODAY)
+    assert (v["label"], v["tone"], v["foot_note"]) == ("Remove from library…", "danger", v["words"])
+    assert v["foot_note"] == "Its rekordbox check is still open: finish it first."
+    twice = state({"ambiguous": {"t1": ["Library/A/x.aiff", "/Volumes/Example/y.aiff"]}})
+    assert missing.view("t1", gone(), twice, place, TODAY)["foot_note"] is None
+    away = missing.view("t1", gone(online=False), state(), place, TODAY)
+    assert (away["why_not"], away["foot_note"]) == ("away", None) and away["words"] == missing.REASONS["away"]
+    refused = {"reason": "space", "message": "Not enough free space on that drive.", "at": "2026-11-18T09:00:00"}
+    held = missing.view("t1", gone(file_gone="2026-11-18", upgrade={**PARKED, "auto_refused": refused}), state(), place,
+                        TODAY)
+    assert held["foot_note"] == "Not enough free space on that drive." and held["in_missing_files"] is True
+    assert missing.view("t1", gone(), state(), place, TODAY)["foot_note"] is None
+
+
+def test_in_missing_files_is_the_rule_that_decides_whether_to_do_lists_the_song():
+    # W3: one rule (`in_group`) for the group, the Library's rows and the details
+    refused = {"reason": "space", "message": "No room.", "at": "2026-11-18T09:00:00"}
+    assert missing.in_group(gone()) and missing.in_group(own())
+    assert not missing.in_group(gone(file_gone="2026-11-18"))
+    assert missing.in_group(gone(file_gone="2026-11-18", upgrade={**PARKED, "auto_refused": refused}))
+    asked = missing.view("t1", gone(file_gone="2026-11-18"), state(), place, TODAY)
+    assert (asked["why_not"], asked["in_missing_files"]) == ("asked", False)
+    for entry in (gone(), own(), gone(file_gone="2026-11-18", upgrade={**PARKED, "auto_refused": refused})):
+        assert (views._group(entry) == "missing_file") is missing.in_group(entry)
 
 
 def test_the_item_line_says_since_when_and_where_it_was():
@@ -189,6 +223,34 @@ def test_the_details_line_and_hint_by_action():
     assert d["hint_library"].endswith("Or open it in To-do to remove it from your library. Its better version waiting "
                                       "in Upgrade ready goes with it.")
     assert d["action"] == "remove" and d["upgrade_waiting"] is True       # the item's fields are in it too
+
+
+def test_the_hint_does_not_advise_an_action_the_button_below_it_refuses():
+    # M3: To-do's hint follows why_not; the Library's (no buttons) stays as it was
+    back = missing.COMES_BACK
+    never = missing.detail_view("t1", gone(), state({"never": {"t1": {}}}), place, TODAY)
+    assert never["why_not"] == "never" and never["hint"] == back
+    assert never["hint_library"].endswith("Or open it in To-do to download it again.")
+    check = missing.detail_view("local:1", own(rekordbox_check={"reason": "swapped"}), state(), place, TODAY)
+    assert check["why_not"] == "check_open" and check["hint"] == back
+    refused = {"reason": "space", "message": "No room.", "at": "2026-11-18T09:00:00"}
+    held = missing.detail_view("t1", gone(file_gone="2026-11-18", upgrade={**PARKED, "auto_refused": refused}), state(),
+                               place, TODAY)
+    assert held["why_not"] == "place_refused" and held["hint"] == back
+    for key, entry in (("t1", gone(online=False)), ("local:1", own(online=False))):  # "put it back" is wrong advice offline
+        away = missing.detail_view(key, entry, state(), place, TODAY)
+        assert away["why_not"] == "away" and away["hint"] == missing.REASONS["away"]
+    twice = state({"ambiguous": {"t1": ["Library/A/x.aiff", "/Volumes/Example/y.aiff"]}})
+    assert missing.detail_view("t1", gone(), twice, place, TODAY)["hint"] == missing.HINT_TWICE
+
+
+def test_a_song_asked_for_already_says_it_happens_at_the_next_sync_not_to_do_it_again():
+    # W3: To-do doesn't list it (in_missing_files false); the Library's note says what is true instead of "open it in To-do"
+    said = f"{missing.COMES_BACK} You asked for it already: it happens at your next sync."
+    for entry in (gone(file_gone="2026-11-18"), gone(file_gone="2026-11-18", upgrade=PARKED)):
+        d = missing.detail_view("t1", entry, state(), place, TODAY)
+        assert (d["why_not"], d["in_missing_files"]) == ("asked", False)
+        assert d["hint"] == d["hint_library"] == said
 
 
 def test_a_song_found_in_two_places_says_where_and_what_to_do():

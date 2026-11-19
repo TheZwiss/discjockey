@@ -665,7 +665,7 @@ holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lo
 count), and the to-do list holds no such file (but the Missing files group: its items say `file_missing`). The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
 tracks, Not in a playlist and the folder views, never under a playlist folder. Rows (and `also`) carry four more
-fields: `wait` (`waiting`, `not_found` or `null`), `next_try` (a `not_found` row only, else `null`: the day the sync looks
+fields (and `in_missing_files`, see "Missing files"): `wait` (`waiting`, `not_found` or `null`), `next_try` (a `not_found` row only, else `null`: the day the sync looks
 for it again, ISO and due on and after it, or `next_sync` when it never looked yet; the page words it as To-do's
 next-try line against its own today), `position` (the place in the playlist's record, playlist views
 only, else `null`), `place` and `playlists`. `place` is where the file sits, in the words of the Folder column: a
@@ -754,6 +754,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "own": false,
    "sound_checked": true,
    "file_state": "here",
+   "in_missing_files": false,
    "wait": null,
    "next_try": null,
    "position": 2,
@@ -782,6 +783,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "own": false,
    "sound_checked": true,
    "file_state": "here",
+   "in_missing_files": false,
    "wait": null,
    "next_try": null,
    "position": 1,
@@ -810,6 +812,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "own": false,
    "sound_checked": true,
    "file_state": "no_file",
+   "in_missing_files": false,
    "wait": "not_found",
    "next_try": "2026-10-20",
    "position": 3,
@@ -980,6 +983,13 @@ counts each track once, `chips.rekordbox_check` every check item (hidden ones to
 counts the same checks as **tracks**: a batch counts its `size`, hidden tracks too, whatever the filter. The page header
 says "{n} tracks to check in rekordbox" from it, and "{n} tracks are not lossless yet" from the sum of the chips of the
 groups below lossless (`upgrade_ready`, `not_found`, `weak`, `good_lossy`, `fake`, `other`), never from `chips.all`.
+`sub` (`string[]`, amended at FC) is that header line itself, worded by the engine (`views.todo_sub`) as parts in order
+of importance: "{n} tracks are not lossless yet", "{n} questions about your files" (`same_song` + `duplicate`), "{n}
+tracks to check in rekordbox" (`check_tracks`), "{n} files won't play well on CDJs" (`chips.cdj`), "{n} songs are
+missing their file" (`chips.missing_file`), each with its own singular ("1 track is not lossless yet", "1 question about
+your files", "1 track to check in rekordbox", "1 file won't play well on CDJs", "1 song is missing its file") and only
+when its number is above 0; `["Nothing to do"]` when none. The page shows the parts and drops whole ones where they don't
+fit; the command line prints them joined by " · " on a "Summary" row of `todo list`.
 `empty_text` is `empty`'s words for the command line (`all_lossless` "Everything is lossless.", `all_hidden` "Only hidden
 tracks are left.", `nothing_here` "Nothing here."), null when `empty` is null; the window keeps its own copy until phase 6.
 ```json
@@ -998,6 +1008,7 @@ tracks are left.", `nothing_here` "Nothing here."), null when `empty` is null; t
   "other": 0
  },
  "check_tracks": 0,
+ "sub": ["1 track is not lossless yet"],
  "hidden_count": 0,
  "show_hidden": false,
  "groups": [
@@ -1358,7 +1369,7 @@ Qobuz `days_to_load` is null.
   "report_md": "reports/2026-10-19_214700.md",
   "queued": 0,
   "folder_order": ["Hard_Bounce", "Powertrance"],
-  "section_labels": {"new_lossless": "New lossless tracks", "placed_missing": "Better version put in (its file was missing)", "...": "..."},
+  "section_labels": {"new_lossless": "New lossless tracks", "placed_missing": "Better versions put in (their files were missing)", "...": "..."},
   "part_labels": {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}
  }
 }
@@ -2144,7 +2155,7 @@ action.
   refusal the phase records (`space`, `cloud`) goes on the parked upgrade as for an upgrade; the song keeps its mark. A done
   row's `message` is "Its better version is in, at {name}; rekordbox's track plays it with its cues." (`; check its cues in
   rekordbox.` when the missing file's timeline was unknown or another edit has its name; no clause when rekordbox's track was
-  left alone) and its result is in section `placed_missing` ("Better version put in (its file was missing)"). The block's
+  left alone) and its result is in section `placed_missing` ("Better versions put in (their files were missing)"). The block's
   `line` counts placements apart, after the upgrades' clauses: "1 missing song got its better version." / "… waits for its
   better version until your next sync." / "… couldn't get its better version yet." The dry run's rows say `would`;
   `auto_upgrade_preview().start_note` adds "{n} missing songs get their better version at the end of the sync[, once rekordbox is
@@ -2317,11 +2328,16 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   several places: "In 2 places now · keep one and it links again") and `missing: MissingView`: `{since` (ISO day of the
   first scan that missed it), `place` (where it was, the Folder column's words; `""` without a path), `action`
   (`download_again` for a song in a playlist, an own key linked to one included; `remove` for any other: the song
-  decides, not a choice), `why_not` (null, or `not_missing` | `away` | `wrong_action` | `found_twice` | `never` | `check_open` |
-  `place_refused` | `asked`, the first that applies), `words` (the reason's sentence, null when `why_not` is null), `will` (what the action
+  decides, not a choice), `label` and `tone` (amended at FC: the single song's button, "Download again" with tone
+  `filled`, "Remove from library…" with tone `danger`: the dots because Remove asks first), `why_not` (null, or `not_missing` | `away` | `wrong_action` | `found_twice` | `never` | `check_open` |
+  `place_refused` | `asked`, the first that applies), `words` (the reason's sentence, null when `why_not` is null), `foot_note` (amended at FC: the words to show under a
+  disabled button: `words`, null when `why_not` is null or the note above says them already, which is the case for
+  `found_twice` and `away`: `hint` is those very words), `will` (what the action
   does for this song: "Downloads again at your next sync", "Gets the better version already waiting for it at your next
   sync; nothing is downloaded" (Download again with a parked upgrade: the parked version goes in), "Removed from your
-  library"), `upgrade_waiting` (a parked better version waits: the placement above, or Remove's deleting it)`}`. The
+  library"), `upgrade_waiting` (a parked better version waits: the placement above, or Remove's deleting it) and
+  `in_missing_files` (amended at FC: To-do's Missing files group lists the song: true unless Download again was asked
+  and no held refusal keeps it there; one rule, `missing.in_group`, for the group, this field and the Library's)`}`. The
   window shows these words and decides nothing.
 - **The group carries `all: {download_again: n, remove: m, label}`**: `n` and `m` count the items not hidden whose
   `missing.why_not` is null, by action: what the commands' `--all` act on. `label` is the head link's words,
@@ -2330,16 +2346,24 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   The window shows it as it is.
 - **`track()`** gains `missing: MissingDetail | null`: `MissingView` plus `line` ("Missing since 12 Nov. It was in
   Techno 2019."; in several places "Found in 2 places: Techno 2019 and Old crates."), `hint` (what can be done, by
-  action; with `upgrade_waiting` the placement's or Remove's variant; in several places "Delete or move away the copies
+  action; with `upgrade_waiting` the placement's or Remove's variant; amended at FC: by `why_not` first, so it never
+  advises what the disabled button under it refuses: `never`, `check_open` and `place_refused` say the first sentence
+  only ("Put the file back in any watched folder and it links again with everything it had."), `away` says its reason's
+  words ("Its drive isn't connected; plug it in to decide."), `asked` the first sentence and "You asked for it already:
+  it happens at your next sync."; in several places "Delete or move away the copies
   you don't want; the one left links again.") and `hint_library` (the same first sentence, for the Library, whose foot
   has no such buttons and only opens To-do: "... Or open it in To-do to download it again." / with `upgrade_waiting`
   "... Or open it in To-do to download it again: the better version already waiting for it goes in, and nothing is
   downloaded." / "... Or open it in To-do to remove it from your library." (Remove's parked-version sentence follows
-  as in `hint`); the several-places hint is the same in both). Null when the song's file isn't marked missing (a file gone since the last
+  as in `hint`); the several-places hint is the same in both; amended at FC: for a song already asked for (`asked`, which
+  To-do doesn't list) it is the same as `hint`, the first sentence and "You asked for it already: it happens at your next
+  sync.", never "open it in To-do"). Null when the song's file isn't marked missing (a file gone since the last
   scan shows `file_state: "file_missing"` from the live check, without `missing`). `next_qobuz_check` is `"next_sync"`
   for a song whose Download again was asked.
 - **`library()`**: a row's `file_state` may be `file_missing` (the stored mark; `LibraryRow.file_state` is `FileState |
-  "no_file"`); `summary.to_do` counts a missing song (own ones too). A `not_found` row's `next_try` is `"next_sync"` after
+  "no_file"`); every row carries `in_missing_files` (amended at FC: true only for a row whose file waits as missing and
+  that To-do's Missing files group lists, by `missing.in_group`: false for every other row and for a song whose Download
+  again was asked; the window decides nothing about whether To-do lists a song); `summary.to_do` counts a missing song (own ones too). A `not_found` row's `next_try` is `"next_sync"` after
   Download again, and a song with no file row and `file_gone` is `waiting`, not `not_found`.
 - **Reasons**: the eight `why_not` keys are `refused` reasons in `hub/outcomes.py` (the command line's result rows use
   them; `away` keeps the row the rekordbox flows have). Offline wins: a missing song whose drive isn't connected is

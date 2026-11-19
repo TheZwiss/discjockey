@@ -34,7 +34,9 @@ def page(payload: Mapping, *, message: str | None = None, verbose: bool = False,
         sections.append(Section("Current file", current))
     if isinstance(t.get("missing"), Mapping):  # a file that waits as missing: the engine's lines, not the raw keys
         sections.append(Section("Missing", _rows(t["missing"], (("line", "Status"), ("hint", "What to do"),
-                                                                 ("will", "Will"), ("words", "Held back")))))
+                                                                 ("label", "Button"), ("will", "Will"),
+                                                                 ("words", "Held back"),
+                                                                 ("in_missing_files", "In To-do")))))
     placed = WORDED | (set() if verbose else RAW) | ({"missing"} if isinstance(t.get("missing"), Mapping) and not verbose
                                                       else set())  # `--verbose` prints its raw keys too
     sections += generic.rest(t, placed, verbose=verbose, limit=limit, offset=offset)

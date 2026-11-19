@@ -8,7 +8,7 @@ import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
   cutoffText, pathOf, previewAction, qualityLabel, qualityLine, qualityOf, result, runDetail, runId,
-  readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, fileThere, todoFileState, todoGroup, trackRow, type FakeAccount, type FakeFolder, type FakeState,
+  readStatus, sampleCandidates, readOk, todoDetail, todoFree, fileFormatLine, sourceFormatLine, sourceHowOf, sourceFull, fileThere, todoFileState, todoGroup, todoSub, trackRow, type FakeAccount, type FakeFolder, type FakeState,
   type FakeTrack,
 } from './data';
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
@@ -1276,6 +1276,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         const name = s.dropped?.name ?? '';
         s.dropped = null;
         Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'manual', codec: 'wav', upgrade: null });
+        if (t.missing) { t.missing = undefined; t.fileGone = false; }  // the dropped file is the song's file: it leaves Missing files
         finish(true, opResult(t, 'bought', `bought file ${name}`));
       }, 1500 / speed));
     },
@@ -1678,7 +1679,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'
       ? 'nothing_here' as const : hidden_count ? 'all_hidden' as const : 'all_lossless' as const;
     const check_tracks = s.tracks.filter((t) => t.rekordbox_check).length;
-    return { chips, check_tracks, hidden_count, show_hidden, groups, empty, empty_text: empty ? TODO_EMPTY[empty] ?? null : null };
+    return { chips, check_tracks, sub: todoSub(chips, check_tracks), hidden_count, show_hidden, groups, empty,
+      empty_text: empty ? TODO_EMPTY[empty] ?? null : null };
   }
 
   function linesProblem(lines: PlaylistLine[]): string | null {
