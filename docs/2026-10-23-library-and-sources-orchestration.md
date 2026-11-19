@@ -800,6 +800,18 @@ Results:
     during its pytest; uncommitted). Coordinator finished it: rebuild, svelte-check 0, vitest 1698, committed 5f9df829,
     full pytest 6008 passed + 2 failed = issue 45 (ffmpeg build tests fail on main too since macOS 27.2: ld vs SDK).
     npm run rules not re-run after the last edits: npm run verify before the merge covers it. Stage ~6.07M.
+    STATE 2026-11-19 (2nd compact; PAUSED by the user after S1 fix U, wait for "go"): stage branch
+    feat/missing-files = feat/missing-files-u1 = 5f9df829 (pushed); worktree mf-u1 clean, node_modules link removed;
+    no agent running. Next, one at a time after the go: D1 (Sonnet docs: spec/README/CLAUDE.md incl. 'switch off moves
+    no file' now false for Download again placements; plan amends: §5.4 steps look/relocate_new + start_note clause +
+    engine-side words + 'Missing since' + `away` reason + singular confirm + hint_library, §6.1 sync_preview
+    places/place_notes, §7 departures (Select all counts what it selects; Open in To-do secondary; quality badge in
+    Missing files; placed card; Put it back drop zone); issues 43/40; scripts/missing_files_rehearsal.py §10.2
+    made-up data + its run) -> Opus stage review (with rehearsal output; open: held batch panel after partial undo
+    keeps whole-batch wording; CLI `missing list` prints the all.label row; console placement line not naming the
+    song) -> fix rounds -> npm run verify (run_in_background) -> merge into main. No release without the go.
+    Full pytest: deselect/expect the 2 issue-45 tests (machine toolchain), brief agents so. Still asked of the user:
+    rekordbox looks normal? -> delete scratchpad rbcopy/; Command Line Tools reinstall (issue 45).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
