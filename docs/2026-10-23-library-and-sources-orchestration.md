@@ -847,6 +847,9 @@ Results:
     FC (Sonnet fix-round): **184k** (86 calls; est. ~180k) -> 52741b06; W1 todo.sub, W3 in_missing_files + asked
     hint, M1 label/tone/foot_note, M3 hint by why_not, M6 report label plural, M8 console once, M9 fake; pytest
     6032. Next FD window round (+ static). Stage total ~7.28M.
+    FD (Sonnet fix-round): **132k** (55 calls; est. ~180k) -> e9663101 + static 8966f686; all 8 window findings,
+    3 stale shot checks fixed; vitest 1715, pytest 6032. npm run verify running (coordinator, background).
+    Stage total ~7.41M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
