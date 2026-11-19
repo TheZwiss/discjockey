@@ -176,12 +176,20 @@ A file is known by (watched folder, path, size, mtime). A scan sorts every file 
   Other key → the audio was replaced outside Discjockey: keep the song link, analyse the quality again.
 - **Moved:** a known path is gone and a new path has its content key. Update the path and set placed by `user`.
   If more than one new file has that key, nothing is decided: the To-do page asks which one it is (the existing
-  "ambiguous" flow).
+  "ambiguous" flow). This holds across scans: a missing file (below) is matched against every scan's new files for as
+  long as it waits, so a file that shows up later, in any watched folder and under any name, is Moved back to its song
+  (amended for issue 43).
 - **New:** a path with an unknown key. In `Library/`: indexed, not linked to a song (it shows under "Also in this
   folder", §11). In an import folder: handled by the import job (§10). A bought file under the expected name is
   still adopted as today (§7).
-- **Gone:** a known path is gone and nothing has its key. The file row is removed and its song has no file; for a
-  playlist song the sync downloads it again, as today.
+- **Missing** (was "Gone"; amended for issue 43): a known path is gone and nothing has its key. The row waits,
+  marked missing since that scan, and its song keeps everything it has (answers, parked upgrade, rekordbox check,
+  playlists, history) and is left alone like one in an offline folder: nothing is downloaded and nothing is forgotten.
+  A file with its key anywhere in the watched folders later is Moved back to it (above). To-do lists it under Missing
+  files, with where it was; only the user's word decides: Remove from library for an own song, Download again for a
+  playlist song (the sync downloads it, or, when a better version already waits for it, puts that one in at its end).
+  An index row of nobody's song (a file in "Also in this folder", a copy) whose file is gone is dropped: nothing of
+  any song is lost.
 - **Copy:** a new path has the key of a file that is still there. Indexed as its own file and reported as a
   duplicate (§10.4).
 
@@ -189,7 +197,11 @@ A file is known by (watched folder, path, size, mtime). A scan sorts every file 
 
 A watched folder is offline when its path doesn't exist or, for a path under `/Volumes/<name>`, that volume isn't
 mounted. A scan never touches an offline folder's files: they keep their rows, marked offline, and their songs stay
-satisfied. Views show them as offline. Nothing is downloaded and nothing is reported as gone.
+satisfied. Views show them as offline. Nothing is downloaded and nothing is reported as gone or missing.
+
+Nothing is decided by one scan (issue 43): a scan that could not see everything (a subfolder it could not list, a file
+it could not read) marks the files it did not find as missing, no more, and the next scan that sees them links them
+back. A missing file is not offline: its folder was read and the file is not in it.
 
 A scan runs at the start of every sync and dry run, when the window opens, and when the window comes back to the
 front after more than a minute. A scan with nothing changed takes one `stat` per file.
@@ -378,6 +390,10 @@ a playlist carries that playlist's name as a badge.
 - **A watched folder disappears mid-scan:** it becomes offline; the scan goes on with the others.
 - **A file can't be read during import** (damaged, permission): it is listed under "Couldn't read" in the import's
   report and tried again on the next scan.
+- **A scan can't see everything** (a subfolder it can't list, a file it can't read): it decides nothing about what it
+  did not see. Files not found wait as missing and link back at the next scan that finds them (§6.3; issue 43). The
+  only "held" left is a file that is there but whose changed audio could not be judged: its song is left alone until it
+  can be.
 - **A move fails mid-tidy-up:** that file stays where it was, the batch records it as skipped, the rest go on.
 - **A source can't read a playlist:** the existing playlist error card, worded for that service.
 

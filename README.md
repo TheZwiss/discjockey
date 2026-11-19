@@ -49,7 +49,7 @@ library follow them.
 ### Review before anything downloads
 
 The Sync page shows the whole plan: new downloads, missing songs looked for again, lossy files checked for a lossless
-copy, files gone from your playlists and files you bought. Switch a playlist or folder off on the left, untick single tracks,
+copy, songs you asked to download again and files you bought. Switch a playlist or folder off on the left, untick single tracks,
 and pick how many downloads run today; the rest waits for the next sync.
 
 <img src="docs/readme/app-sync.png" alt="The Sync page: playlists with switches on the left, the plan with 228 tracks in five kinds in the middle, today's amount, the weekly checks and Start sync on the right">
@@ -343,8 +343,16 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
 - **Offline:** a folder on a drive that isn't connected shows "Offline: connect the drive". Its songs stay in
   Library; they just can't be played or moved until the drive is back, and nothing is forgotten.
 - **Folder not found:** a folder that was moved, renamed or deleted (its drive is there) shows "Folder not found:
-  moved, renamed or deleted? Put it back or remove it here." It waits the same way. A single song whose file was
-  deleted inside a folder that is there says "This file isn't there any more." until the next scan.
+  moved, renamed or deleted? Put it back or remove it here." It waits the same way.
+- **Missing files:** a song whose file was moved out of every watched folder, or deleted (its folder is there), waits.
+  It shows under **Missing files** on the To-do page, with the day it went missing and where it was. Nothing is
+  downloaded and nothing is forgotten: its upgrades, answers and rekordbox check stay with it. Put the file back
+  anywhere in a watched folder, under any name, and it links up again with all of that. A song from your playlists
+  has **Download again**: the next sync downloads it, and when a better version is already waiting for it, that one
+  goes in at the end of the sync with its rekordbox cues and nothing is downloaded. A song of your own has
+  **Remove from library**, which asks first. Select several, or **Select all**, to do it for all of them at once. In
+  the Terminal: `discjockey missing list`, `missing download <track>… | --all` and `missing remove <track>… | --all
+  --yes`, the last two with `--dry-run` to see the plan first.
 - **Removing:** **Remove** asks first. Discjockey forgets the folder's files; the files stay where they are. If a
   song from your playlists had its only copy there, the dialog says so, and the next sync downloads it again.
 
@@ -370,7 +378,7 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
 - The console never imports: it only says how many files wait and how many songs need your answer, and asks you to
   open the window.
 
-**Two new groups on the To-do page** (only for what your own music raises):
+**New groups on the To-do page** (for what your own music raises):
 
 - **Is this the same song?** A file of yours might be a playlist song: same title with another artist, or the same
   artist and title with a different length. Until you answer, Discjockey doesn't download that song. **Yes, it's the
@@ -379,9 +387,11 @@ Mac or on a drive. Your `Library/` is always watched and is listed first.
   keep; when one is clearly better (lossless, or an AIFF beside a WAV) Discjockey picks it for you and says why. The
   button names the result (for example **Keep the AIFF**); the other files move to `Superseded/`. Nothing is deleted.
   **Keep both** (**Keep all**), the list's last row, leaves them all.
+- **Missing files:** a song whose file isn't in any watched folder any more (see "Missing files" above). Both your own music and your playlists' songs can be in it.
 
-Your own music appears on the To-do page only here, under **Upgrade ready** and under **Won't play well on CDJs** (see
-[Making files AIFF](#making-files-aiff)), never as "weak" or "fake" lossless: the Library shows each file's quality.
+Your own music appears on the To-do page only here, under **Upgrade ready**, under **Won't play well on CDJs** (see
+[Making files AIFF](#making-files-aiff)) and under **Missing files**, never as "weak" or "fake" lossless: the Library
+shows each file's quality.
 
 **Upgrade checks are spread over runs.** The first look on Qobuz for a better version of each imported lossy file
 runs at most 25 per sync, and never more than half of what is left of today's Qobuz allowance, so a big import doesn't
@@ -430,7 +440,7 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
   out of the sync, and nothing at all is done with its files (no download, no check for a better copy). A track in
   several playlists or folders stays in while any of them is on. A folder switched off takes the folders inside it
   along. The strip on top of the plan shows how much of it is new downloads, missing songs looked for again, lossy
-  files checked for a lossless copy, files gone and bought files.
+  files checked for a lossless copy, songs you asked to download again and bought files.
 - **The plan** lists every track by playlist, each with a tick and an icon that says why it is there (point at a
   row to read it in words). **Tick all** and **None** work per playlist; the search field above (**⌘F**) finds an
   artist or title.
