@@ -847,7 +847,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         source_url: sourceUrl === link.url ? null : sourceUrl,
         track_link: link,
         // views.next_due: Download again was asked, so the next sync downloads it (or puts its parked version in)
-        next_qobuz_check: t.in_playlists && t.fileGone ? 'next_sync' : q === 'lossless' ? null : q === 'missing'
+        next_qobuz_check: t.in_playlists && t.fileGone ? (t.missing && t.upgrade?.auto_refused?.message ? null : 'next_sync') : q === 'lossless' ? null : q === 'missing'
           ? (t.next_try_days === 1 ? 'next_sync' : plus(t.next_try_days ?? 5)) : plus(4),
         rejected_sources: [...t.rejected_sources],
         buy_links: { beatport: `https://www.beatport.com/search?q=${query}`, bandcamp: `https://bandcamp.com/search?q=${query}` },

@@ -77,17 +77,20 @@ def test_why_not_names_the_first_reason(key, entry, action, extra, reason):
     assert missing.why_not(key, entry, {**state(), **extra}, action) == reason
 
 
-def test_found_twice_stops_only_download_again_and_check_open_only_remove():
+def test_found_twice_stops_both_actions_and_check_open_only_remove():
+    # F5 (amended at FB): both copies are there, so Remove would turn them into new songs: it is refused too
     twice = {"ambiguous": {"local:1": ["a.aiff", "b.aiff"]}}
-    assert missing.why_not("local:1", own(), twice, "remove") is None               # Remove may still run
+    assert missing.why_not("local:1", own(), twice, "remove") == "found_twice"
+    assert missing.why_not("local:1", own(), twice, "download_again") == "wrong_action"   # (an own song: not its action)
+    assert missing.why_not("local:1", own(in_playlists=True), twice, "download_again") == "found_twice"
     assert missing.why_not("t1", gone(rekordbox_check={"reason": "swapped"}), state(), "download_again") is None
     first = missing.why_not("t1", gone(file_gone="2026-11-18"), {"never": {"t1": {}}}, "download_again")
     assert first == "never"                                                        # the order of the plan's list
 
 
 def test_every_reason_has_words_and_wrong_action_names_the_other_action():
-    assert set(missing.REASONS) == {"not_missing", "away", "wrong_action", "found_twice", "never", "check_open",
-                                     "asked"}
+    assert list(missing.REASONS) == ["not_missing", "away", "wrong_action", "found_twice", "never", "check_open",
+                                     "place_refused", "asked"]
     assert missing.reason_words("not_missing", "remove") == "Its file is back."
     assert missing.reason_words("away", "remove") == "Its drive isn't connected; plug it in to decide."
     assert missing.reason_words("wrong_action", "remove") == "This song gets Download again instead."
@@ -97,6 +100,28 @@ def test_every_reason_has_words_and_wrong_action_names_the_other_action():
     assert missing.reason_words("never", "download_again") == "You chose Never download for it."
     assert missing.reason_words("check_open", "remove") == "Its rekordbox check is still open: finish it first."
     assert missing.reason_words("asked", "download_again") == "You asked for it already: it happens at your next sync."
+
+
+REFUSED = {"reason": "space", "message": "Not enough free space on that drive.", "at": "2026-11-18T09:00:00"}
+
+
+def test_a_held_refusal_of_the_placement_is_its_own_reason_with_the_records_words():
+    # F3 (FB): Download again asked (`file_gone`), the sync's phase met a space or cloud refusal and recorded it on the
+    # parked upgrade: the song says so, with the engine's own message, instead of "it happens at your next sync"
+    held = gone(file_gone="2026-11-18", upgrade={**PARKED, "auto_refused": REFUSED})
+    assert missing.place_refused(held) == "Not enough free space on that drive."
+    assert missing.place_refused(gone(file_gone="2026-11-18", upgrade=PARKED)) is None
+    assert missing.place_refused(gone()) is None
+    assert missing.why_not("t1", held, state(), "download_again") == "place_refused"
+    assert missing.why_not("t1", gone(file_gone="2026-11-18", upgrade=PARKED), state(), "download_again") == "asked"
+    # a refusal recorded before Download again was asked is the upgrade's own: not this reason
+    assert missing.why_not("t1", gone(upgrade={**PARKED, "auto_refused": REFUSED}), state(), "download_again") is None
+    v = missing.view("t1", held, state(), place, TODAY)
+    assert (v["why_not"], v["words"]) == ("place_refused", "Not enough free space on that drive.")
+    assert missing.reason_words("place_refused", "download_again", held) == "Not enough free space on that drive."
+    assert missing.reason_words("place_refused", "download_again") == missing.REASONS["place_refused"]
+    p = missing.preview(state(t1=held), ["t1"], "download_again", place, TODAY)
+    assert (p["items"][0]["reason"], p["items"][0]["words"]) == ("place_refused", "Not enough free space on that drive.")
 
 
 def test_the_reasons_are_known_to_the_outcome_table_as_refused():

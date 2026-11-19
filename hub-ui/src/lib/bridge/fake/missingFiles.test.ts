@@ -7,8 +7,10 @@ import { createFakeBridge } from './bridge';
 import {
   ACTION_WORDS, COMES_BACK, REMOVE_CONFIRM_BODY, REMOVE_CONFIRM_BODY_ONE, HINT_DOWNLOAD, HINT_DOWNLOAD_LIBRARY, HINT_PLACE, HINT_PLACE_LIBRARY,
   HINT_REMOVE, HINT_REMOVE_LIBRARY, HINT_REMOVE_PARKED, HINT_TWICE, REASON_WORDS, WILL,
-  missingSet, shortDay, summary, whyNot,
+  missingSet, missingView, reasonWords, shortDay, summary, whyNot,
 } from './missingFiles';
+import { AUTO_REFUSED_WORDS, markRefused } from './auto';
+import { todoGroup } from './data';
 import type { HubEvent } from '../events';
 import type { Fail, Library, MissingPreview, MissingResult, Todo, TodoItem, TrackDetail } from '../types';
 
@@ -256,6 +258,18 @@ describe('whyNot, as missing.why_not', () => {
     expect(whyNot(s, t(set.never), 'download_again')).toBe('never');
     expect(whyNot(s, t(set.asked), 'download_again')).toBe('asked');
     expect(whyNot(s, t(set.ownCheck), 'remove')).toBe('check_open');
+    // F5 (FB): a song found in two places gets neither action, an own one is not removed
+    t(set.own).missing.found = ['Library/A/x.aiff', '/Volumes/Example/y.aiff'];
+    expect(whyNot(s, t(set.own), 'remove')).toBe('found_twice');
+    // F3 (FB): Download again asked and the sync's phase recorded a held refusal for the placement
+    const parked = t(set.askedParked);
+    expect(whyNot(s, parked, 'download_again')).toBe('asked');
+    expect(todoGroup(parked)).toBeNull();
+    markRefused(s, parked, 'space');
+    expect(whyNot(s, parked, 'download_again')).toBe('place_refused');
+    expect(todoGroup(parked)).toBe('missing_file');   // views._group: the held refusal keeps it in Missing files
+    expect(missingView(s, parked)).toMatchObject({ why_not: 'place_refused', words: AUTO_REFUSED_WORDS.space });
+    expect(reasonWords('place_refused', 'download_again')).toBe(REASON_WORDS.place_refused);
     const back = s.tracks.find((x: { missing?: unknown }) => !x.missing);
     expect(whyNot(s, back, 'download_again')).toBe('not_missing');
   });

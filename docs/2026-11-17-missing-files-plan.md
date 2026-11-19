@@ -243,9 +243,12 @@ One new module holds the issue's rules, so the views, the hub and the commands a
 - `why_not(key, e, state, action) -> str | None`, the first that applies, else None:
   `not_missing` (its file is back, or it has no file row), `away` (its drive isn't connected: offline wins, both
   actions; amended at D1: built so), `wrong_action` (the other action is this song's),
-  `found_twice` (`key in state["ambiguous"]`; Download again only: Remove may still run for an own song),
+  `found_twice` (`key in state["ambiguous"]`; both actions, amended at FB: both copies are there, and after Remove they
+  would be unlinked rows the import turns into new songs),
   `never` (`key in state["never"]`; Download again only), `check_open` (an open `rekordbox_check`; Remove only: its
-  undo store would be left behind), `asked` (`file_gone` already set; Download again only).
+  undo store would be left behind), `place_refused` (`file_gone` set and the sync's phase recorded a held refusal,
+  `space` or `cloud`, on the parked upgrade; Download again only; amended at FB: the song stays in To-do with the
+  record's own message as its words, and `next_due` is None), `asked` (`file_gone` already set; Download again only).
 - `REASONS: dict[str, str]`, the words (§5.4). They join `views`' reason words the way `eligible.REASONS` do; check
   first: whether the CLI's `partial`/`skipped` rows take reason words from a shared table (`hub/outcomes.py`), and
   register them there too.
@@ -436,7 +439,7 @@ nothing is downloaded."; the ambiguous hint is the same in both):
 | `CONFIRM["missing remove"]` (command line) | the confirm's body, one line |
 | Result words | "{n} song(s) download again at your next sync." / "Removed {n} song(s) from your library."; with placements: "{n} song(s) download again and {p} get the better version already waiting for them, at your next sync." (only the parts that apply); skipped ones add "{k} skipped: see why." |
 | `will` (item, dry run, selection panel) | "Downloads again at your next sync"; "Gets the better version already waiting for it at your next sync; nothing is downloaded"; "Removed from your library" |
-| Reasons | `not_missing` "Its file is back."; `away` "Its drive isn't connected; plug it in to decide." (amended at D1: built so: checked second, after `not_missing`; both actions; an offline drive can't tell whether the file is there); `wrong_action` "This song gets {the other action} instead."; `found_twice` "Its file is in several places now: keep one and it links again."; `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open: finish it first."; `asked` "You asked for it already: it happens at your next sync." |
+| Reasons | `not_missing` "Its file is back."; `away` "Its drive isn't connected; plug it in to decide." (amended at D1: built so: checked second, after `not_missing`; both actions; an offline drive can't tell whether the file is there); `wrong_action` "This song gets {the other action} instead."; `found_twice` "Its file is in several places now: keep one and it links again."; `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open: finish it first."; `place_refused` (amended at FB) the refusal record's own message, fallback "The sync couldn't put its better version in; it tries again when that changes."; `asked` "You asked for it already: it happens at your next sync." |
 | Scan message | §2.3 |
 | Sync preview / report | §3 last rows |
 | Placement, before a start (`start_note` clause) | "{p} missing songs get their better version at the end of the sync." (rekordbox open: "… at the end of the sync, once rekordbox is closed."); with one song (amended at D1: built so) `start_note` and `place_notes` name it: "Artist – Title gets its better version at the end of the sync." The words are made engine-side (`words.place_plan_line(n, waits, name=)`; the window shows `place_notes` verbatim, §6.1) |

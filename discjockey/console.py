@@ -4,10 +4,9 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 
-from .auto_upgrade import before_start_line
+from .auto_upgrade import before_start_line, place_clause
 from .events import ActionFinished, ActionStarted, BatchProgress, Message, Progress, StepChanged, Waiting
 from .report import folder_label
-from .words import place_plan_line
 
 VERBS = {"adopt_bought": "Adding bought file", "acquire": "Downloading", "upgrade": "Looking for a better version"}
 STEP_TEXT = {"search": "searching", "download": "downloading", "check": "checking length",
@@ -63,7 +62,7 @@ def upgrade_lines(block: dict | None, name_of: Callable[[str], str], *, full: bo
         if full:
             lines += [f"  {name_of(r['track'])} ({UPGRADE_HOW.get(r['how'], r['how'])})" for r in coming]
     if placing:
-        lines.append(place_plan_line(len(placing), any(r["state"] == "waiting" for r in placing)))
+        lines.append(place_clause(placing))
         if full:
             lines += [f"  {name_of(r['track'])}" for r in placing]
     if full and held:

@@ -250,12 +250,13 @@ def test_remove_deletes_the_parked_download_only_after_the_records_are_saved(lib
     assert seen == [(False, PARKED_OLD)]                                        # the song's record was gone when the file went
 
 
-def test_remove_still_runs_for_a_song_found_in_several_places(lib):
+def test_remove_is_refused_for_a_song_found_in_several_places(lib):
+    # F5 (amended at FB): both copies are there; after Remove they would be unlinked rows the import makes new songs of
     api, rec, paths = lib
     st = load_state(paths)
     st["ambiguous"] = {"t5": ["Library/Hard_Bounce/Copy a.aiff", "Library/Hard_Bounce/Copy b.aiff"]}
     r = missing.remove(paths, ["t5"], now=lambda: NOW, state=st)
-    assert [(x.state, x.reason) for x in r] == [("done", None)] and "t5" not in entries(paths)
+    assert [(x.state, x.reason) for x in r] == [("skipped", "found_twice")] and "t5" in entries(paths)
 
 
 def test_remove_skips_a_song_whose_rekordbox_check_is_open_and_one_that_is_back(lib):

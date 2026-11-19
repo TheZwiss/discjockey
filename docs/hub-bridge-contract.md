@@ -2307,7 +2307,10 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   (a song with an open check is in both; `chips.all` counts it once): Upgrade ready, Won't play well on CDJs, Not found,
   Weak, Good lossy, Fake, Other and the CDJ group never hold a missing song, and `upgrade_ready_keys` (Upgrade all,
   `upgrade list`, Auto-upgrade's set) leaves it out; its parked upgrade stays. A song for which Download again was asked
-  (`file_gone` set) is in no group: the sync downloads it (or puts its parked version in). A song with no file row and
+  (`file_gone` set) is in no group: the sync downloads it (or puts its parked version in), unless the sync's phase
+  refused that placement for a held reason (`space`, `cloud`; `auto_refused` on the parked upgrade): then the song stays in
+  Missing files, `why_not` is `place_refused` with the record's own message as `words`, and `next_qobuz_check` is null
+  (amended at FB). A song with no file row and
   `file_gone` (after `folder remove`) is no Not found either; its Library row says `wait: "waiting"`.
 - **A missing item** is a `TodoItem` (`group: "missing_file"`, `free` false, `file_state` `file_missing`, or `offline` /
   `folder_missing` when its drive or folder is away) plus `detail` ("Missing since 12 Nov · was in Techno 2019"; in
@@ -2315,7 +2318,7 @@ song or downloads a playlist song again. This section is the read side (E3a) and
   first scan that missed it), `place` (where it was, the Folder column's words; `""` without a path), `action`
   (`download_again` for a song in a playlist, an own key linked to one included; `remove` for any other: the song
   decides, not a choice), `why_not` (null, or `not_missing` | `away` | `wrong_action` | `found_twice` | `never` | `check_open` |
-  `asked`, the first that applies), `words` (the reason's sentence, null when `why_not` is null), `will` (what the action
+  `place_refused` | `asked`, the first that applies), `words` (the reason's sentence, null when `why_not` is null), `will` (what the action
   does for this song: "Downloads again at your next sync", "Gets the better version already waiting for it at your next
   sync; nothing is downloaded" (Download again with a parked upgrade: the parked version goes in), "Removed from your
   library"), `upgrade_waiting` (a parked better version waits: the placement above, or Remove's deleting it)`}`. The
@@ -2338,14 +2341,16 @@ song or downloads a playlist song again. This section is the read side (E3a) and
 - **`library()`**: a row's `file_state` may be `file_missing` (the stored mark; `LibraryRow.file_state` is `FileState |
   "no_file"`); `summary.to_do` counts a missing song (own ones too). A `not_found` row's `next_try` is `"next_sync"` after
   Download again, and a song with no file row and `file_gone` is `waiting`, not `not_found`.
-- **Reasons**: the seven `why_not` keys are `refused` reasons in `hub/outcomes.py` (the command line's result rows use
+- **Reasons**: the eight `why_not` keys are `refused` reasons in `hub/outcomes.py` (the command line's result rows use
   them; `away` keeps the row the rekordbox flows have). Offline wins: a missing song whose drive isn't connected is
   skipped by both actions (its drive isn't there to tell), checked right after `not_missing`.
   Words (`wrong_action` names the action the song gets instead): `not_missing` "Its file is back."; `away` "Its drive
   isn't connected; plug it in to decide."; `wrong_action` "This
   song gets {Download again | Remove from library} instead."; `found_twice` "Delete or move away the copies you don't
-  want; the one left links again." (the same sentence as the details' hint); `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open:
-  finish it first."; `asked` "You asked for it already: it happens at your next sync."
+  want; the one left links again." (the same sentence as the details' hint; refused for both actions, amended at FB: a song
+  whose file is in several places isn't removed, both copies are there); `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open:
+  finish it first."; `place_refused` "The sync couldn't put its better version in; it tries again when that changes." (the fallback;
+  the item says the refusal record's own message instead, e.g. "Not enough free space on that drive."); `asked` "You asked for it already: it happens at your next sync."
 - **Fake backend**: scenario `missing_files` (`hub-ui/src/lib/bridge/fake/missingFiles.ts`): the plain scenario with eleven
   songs whose file waits as missing (a playlist song, one with a parked better version, one found in two places, one
   marked Never download, a hidden one, one whose Download again was asked, one whose Download again was asked and whose

@@ -82,7 +82,7 @@ export type CdjWords = { short: string; words: string };
  *  library for any other (the song decides, `missing.action_for`). */
 export type MissingAction = 'download_again' | 'remove';
 /** Why the action can't run for the song now (`missing.why_not`), the first that applies. */
-export type MissingReason = 'not_missing' | 'away' | 'wrong_action' | 'found_twice' | 'never' | 'check_open' | 'asked';
+export type MissingReason = 'not_missing' | 'away' | 'wrong_action' | 'found_twice' | 'never' | 'check_open' | 'place_refused' | 'asked';
 /** A `missing_file` item's `missing` (`missing.view`): `since` the ISO day of the first scan that missed the file,
  *  `place` where it was (the Folder column's words; '' without a path), `why_not` null when `action` can run and
  *  `words` its reason's sentence, `will` what the action does for this song ("Downloads again at your next sync" /

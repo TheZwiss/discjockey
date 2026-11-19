@@ -324,7 +324,8 @@ export function qualityLine(t: FakeTrack): string {
 export function todoGroup(t: FakeTrack): TodoGroupKey | null {
   // views._group: a file that waits as missing wins over every other group; once Download again is asked
   // (`fileGone`) the song is in none (a song with no file and `fileGone` is no Not found either)
-  if (t.missing) return t.fileGone ? null : 'missing_file';
+  // unless the sync's phase refused the placement and the refusal holds (the drive is full, Cloud Library Sync)
+  if (t.missing) return t.fileGone && !t.upgrade?.auto_refused?.message ? null : 'missing_file';
   if (t.status === 'missing' && t.fileGone) return null;
   if (t.unchecked) return null;  // as views._group: its quality is only the codec's guess
   if (t.other) return 'other';

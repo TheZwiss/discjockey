@@ -11,7 +11,7 @@ from hub_helpers import LOSSLESS, fake_spotify, make_api, make_root, write_state
 from test_missing_rules import PARKED, SINCE, TODAY, e, gone, own, place, state
 
 from discjockey import db, missing
-from discjockey.hub import views
+from discjockey.hub import select, views
 from discjockey.library import load_state
 
 
@@ -35,6 +35,24 @@ def group(out, key="missing_file"):
 ])
 def test_group_puts_a_missing_file_first_and_a_download_asked_nowhere(entry, expected):
     assert views._group(entry) == expected
+
+
+def test_a_placement_refused_and_held_stays_in_to_do_with_the_refusals_words():
+    # F3 (FB): Download again on a parked upgrade leaves To-do, unless the sync's phase recorded a held refusal
+    refused = {"reason": "space", "message": "Not enough free space on that drive.", "at": "2026-11-18T09:00:00"}
+    held = gone(file_gone="2026-11-18", upgrade={**PARKED, "auto_refused": refused})
+    assert views._group(held) == "missing_file"
+    assert views._group(gone(file_gone="2026-11-18", upgrade=PARKED)) is None       # today's behaviour without a record
+    assert views.next_due(held) is None
+    assert views.next_due(gone(file_gone="2026-11-18", upgrade=PARKED)) == "next_sync"
+    out = views.todo(state(t=held, u=gone(file_gone="2026-11-18", upgrade=PARKED, title="U")), "all", False, {}, TODAY,
+                     place=place)
+    assert [i["track_id"] for i in group(out)["items"]] == ["t"]
+    item = group(out)["items"][0]
+    assert (item["missing"]["why_not"], item["missing"]["words"]) == ("place_refused",
+                                                                      "Not enough free space on that drive.")
+    d = missing.detail_view("t", held, state(t=held), place, TODAY)
+    assert d["why_not"] == "place_refused" and d["words"] == "Not enough free space on that drive."
 
 
 def test_todo_lists_a_missing_song_whoever_it_belongs_to():
@@ -135,6 +153,16 @@ def test_the_group_counts_what_the_head_link_acts_on_by_action():
     shown = group(views.todo(st, "all", True, {}, TODAY, place=place))
     assert shown["all"] == {"download_again": 3, "remove": 1, "label": "Select all · 7"}  # hidden songs are never counted
     assert {"h"} == {i["track_id"] for i in shown["items"]} - set(reasons)
+
+
+def test_remove_all_leaves_out_an_own_song_found_in_several_places():
+    # F5 (FB): both copies are there; Remove is refused for it, so the head link's Remove count and ids leave it out
+    st = state(c=own(), d=own(title="D"))
+    st["ambiguous"] = {"d": ["Library/A/x.aiff", "/Volumes/Example/y.aiff"]}
+    out = views.todo(st, "all", False, {}, TODAY, place=place)
+    assert group(out)["all"]["remove"] == 1
+    assert select.remove_missing_ids(out) == ["c"]
+    assert {i["track_id"]: i["missing"]["why_not"] for i in group(out)["items"]} == {"c": None, "d": "found_twice"}
 
 
 def test_hidden_missing_songs_are_counted_and_shown_on_request_like_any_item():

@@ -585,7 +585,7 @@ def next_due(e: dict) -> str | None:
     if not e.get("in_playlists"):
         return None
     if e.get("file_gone"):  # Download again: the next sync downloads it (or puts its parked version in)
-        return "next_sync"
+        return None if file_missing(e) and missing_rule.place_refused(e) else "next_sync"  # a held refusal: not by itself
     if e.get("upgrade") or e["status"] == "lossless":
         return None
     day = e.get("last_attempt") if e["status"] == "missing" else e.get("last_upgrade_check")
@@ -1561,10 +1561,12 @@ FREE_GROUPS = ("not_found", "weak", "good_lossy", "fake")  # where an artist's f
 def _group(e: dict) -> str | None:
     """The To-do group of a song's own state (None: none). A file that waits as missing wins over every other group
     (nothing else can be done with a song whose file isn't there; issue 43 D13); once Download again is asked
-    (`file_gone`) the song leaves To-do: the sync downloads it (or puts its parked version in). A song with no file
-    row and `file_gone` (after `folder remove`) is no "Not found" either: the sync downloads it."""
+    (`file_gone`) the song leaves To-do: the sync downloads it (or puts its parked version in), unless the sync's phase
+    refused that placement and the refusal holds (the drive is full, the track is in Cloud Library Sync): then nothing
+    happens by itself and the song stays (issue 43 FB, F3). A song with no file row and `file_gone` (after `folder
+    remove`) is no "Not found" either: the sync downloads it."""
     if file_missing(e):
-        return None if e.get("file_gone") else "missing_file"
+        return None if e.get("file_gone") and not missing_rule.place_refused(e) else "missing_file"
     if e["status"] == "missing" and e.get("file_gone"):
         return None
     if not sound_checked(e):  # its quality is only the codec's guess: nothing to do about it yet

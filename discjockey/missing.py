@@ -6,7 +6,9 @@ caller's library lock.
 
 - `action_for(key, e)`: the action follows the song, not a choice (D11): a song in a playlist gets Download again, any
   other song gets Remove from library.
-- `why_not(key, e, state, action)`: the first reason the action can't run for the song now, else None.
+- `why_not(key, e, state, action)`: the first reason the action can't run for the song now, else None. A song found in
+  several places (`found_twice`) gets neither action; a placement the sync refused and still holds (`place_refused`)
+  keeps the song in To-do with the refusal's own words.
 - `will_words(action, upgrade_waiting)`: what the action does for this song (D9: a song with a parked upgrade gets
   that version put in, nothing is downloaded). The window shows these words and decides nothing.
 - `view(...)`: the `missing` object of a To-do item; `detail_view(...)` the one of `track()` (the item's fields plus the
@@ -43,6 +45,7 @@ REASONS = {
     "found_twice": HINT_TWICE,
     "never": "You chose Never download for it.",
     "check_open": "Its rekordbox check is still open: finish it first.",
+    "place_refused": "The sync couldn't put its better version in; it tries again when that changes.",
     "asked": "You asked for it already: it happens at your next sync.",
 }
 
@@ -83,33 +86,48 @@ def action_for(key: str, e: Mapping) -> str:
     return DOWNLOAD_AGAIN if e.get("in_playlists") else REMOVE
 
 
+def place_refused(e: Mapping) -> str | None:
+    """The words of a refusal the sync's last phase recorded on the song's parked upgrade (`upgrade.auto_refused`, §4.5.4:
+    the drive is full, the track is in Cloud Library Sync) and that still holds, else None. The record's own `message`
+    is the engine's sentence; the phase keeps it out of every later sync until the fact changes."""
+    record = (e.get("upgrade") or {}).get("auto_refused")
+    message = record.get("message") if isinstance(record, Mapping) else None
+    return message if isinstance(message, str) and message else None
+
+
 def why_not(key: str, e: Mapping, state: Mapping, action: str) -> str | None:
     """Why `action` can't run for song `key` now (a `REASONS` key), else None. The first that applies:
     `not_missing` (its file is back, or it has no file row), `away` (its drive isn't connected: offline wins, the drive
     isn't there to tell; both actions), `wrong_action` (the other action is this song's),
-    `found_twice` (in several places; Download again only: Remove may still run for an own song), `never` (Download
-    again only), `check_open` (an open rekordbox check; Remove only: its undo store would be left behind), `asked`
-    (`file_gone` already set; Download again only)."""
+    `found_twice` (in several places; both actions, amended at FB: both copies are there, and after Remove they would
+    be unlinked rows the import turns into new songs), `never` (Download again only), `check_open` (an open rekordbox
+    check; Remove only: its undo store would be left behind), `place_refused` (`file_gone` set and the sync's phase
+    recorded a held refusal for the placement; Download again only), `asked` (`file_gone` already set; Download again
+    only)."""
     if not file_missing(e):
         return "not_missing"
     if not e.get("online", True):
         return "away"
     if action != action_for(key, e):
         return "wrong_action"
+    if key in (state.get("ambiguous") or {}):
+        return "found_twice"
     if action == DOWNLOAD_AGAIN:
-        if key in (state.get("ambiguous") or {}):
-            return "found_twice"
         if key in (state.get("never") or {}):
             return "never"
         if e.get("file_gone"):
-            return "asked"
+            return "place_refused" if place_refused(e) else "asked"
     elif e.get("rekordbox_check"):
         return "check_open"
     return None
 
 
-def reason_words(reason: str, action: str) -> str:
-    """The words of a `why_not` reason for `action` (`wrong_action` names the action the song gets instead)."""
+def reason_words(reason: str, action: str, e: Mapping | None = None) -> str:
+    """The words of a `why_not` reason for `action` (`wrong_action` names the action the song gets instead).
+    `place_refused` says the refusal record's own message when the song's entry `e` is given (`REASONS`' sentence
+    otherwise)."""
+    if reason == "place_refused" and e is not None and place_refused(e):
+        return place_refused(e)
     return REASONS[reason].format(other=ACTION_WORDS[other_action(action)])
 
 
@@ -161,7 +179,7 @@ def view(key: str, e: Mapping, state: Mapping, place: Callable[[str], str] | Non
     reason = why_not(key, e, state, action)
     waiting = bool(e.get("upgrade"))
     return {"since": e["missing_since"][:10], "place": _was_in(e, place), "action": action, "why_not": reason,
-            "words": reason_words(reason, action) if reason else None, "will": will_words(action, waiting),
+            "words": reason_words(reason, action, e) if reason else None, "will": will_words(action, waiting),
             "upgrade_waiting": waiting}
 
 
@@ -298,7 +316,7 @@ def preview(state: Mapping, keys: Sequence[str], action: str, place: Callable[[s
         items.append({"track_id": key, "artist": e.get("artist") or "", "title": e.get("title") or "",
                       "place": _was_in(e, place), "since": (e.get("missing_since") or "")[:10] or None,
                       "will": reason is None, "reason": reason,
-                      "words": will_words(action, waiting) if reason is None else reason_words(reason, action),
+                      "words": will_words(action, waiting) if reason is None else reason_words(reason, action, e),
                       "upgrade_waiting": waiting})
     n = sum(1 for i in items if i["will"])
     return {"action": action, "items": items, "n": n, "skipped": len(items) - n,
@@ -331,8 +349,8 @@ def run_words(action: str, results: Sequence[ItemResult], state: Mapping | None 
     return summary(action, *_counts(action, rows), done=True)
 
 
-def _skip(key: str, action: str, reason: str) -> ItemResult:
-    return ItemResult(key, action, "skipped", reason, reason_words(reason, action))
+def _skip(key: str, action: str, reason: str, e: Mapping | None = None) -> ItemResult:
+    return ItemResult(key, action, "skipped", reason, reason_words(reason, action, e))
 
 
 def download_again(paths: library.Paths, keys: Sequence[str], *, now: Callable[[], datetime],
@@ -349,7 +367,7 @@ def download_again(paths: library.Paths, keys: Sequence[str], *, now: Callable[[
     for key in keys:
         e, reason = _checked(key, state, DOWNLOAD_AGAIN)
         if reason:
-            results.append(_skip(key, DOWNLOAD_AGAIN, reason))
+            results.append(_skip(key, DOWNLOAD_AGAIN, reason, e))
             continue
         results.append(ItemResult(key, DOWNLOAD_AGAIN, "done", None, will_words(DOWNLOAD_AGAIN, bool(e.get("upgrade")))))
         asked.append((dict(e), results[-1]))
@@ -377,7 +395,7 @@ def remove(paths: library.Paths, keys: Sequence[str], *, now: Callable[[], datet
     for key in keys:
         e, reason = _checked(key, state, REMOVE)
         if reason:
-            results.append(_skip(key, REMOVE, reason))
+            results.append(_skip(key, REMOVE, reason, e))
             continue
         results.append(ItemResult(key, REMOVE, "done", None, will_words(REMOVE, bool(e.get("upgrade")))))
         gone.append((dict(e), results[-1]))

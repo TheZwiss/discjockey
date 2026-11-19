@@ -108,6 +108,16 @@ def test_the_text_page_of_missing_list_says_what_each_song_will_get_in_the_engin
     assert "download_again" not in out and "{" not in out  # no raw keys or dicts of the nested object
 
 
+def test_the_text_page_leaves_out_the_head_links_words_and_verbose_and_json_keep_them(lib, capsys):
+    # (a, FB) "Select all · 5" is the window's link text; the terminal shows the two counts `--all` acts on
+    code, out, err = run(["missing", "list"], capsys)
+    assert code == OK and "Select all" not in out and re.search(r"Download again\s+2", out)
+    code, out, err = run(["missing", "list", "--verbose"], capsys)
+    assert code == OK and "Select all · 5" in out
+    code, env = run_json(["missing", "list"], capsys)
+    assert group(env)["all"]["label"] == "Select all · 5"
+
+
 # --- missing download ---
 
 def test_download_again_for_a_song_sets_file_gone_and_changes_nothing_else(lib, capsys):

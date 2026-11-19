@@ -52,9 +52,12 @@ def _group(group: Mapping, *, verbose: bool, show_hidden: bool, limit: int, offs
         if batch and batch.get("aiff_id"):
             sections.append(Section(batch["aiff_id"], table=generic.table([_item(t) for t in batch.get("tracks") or []],
                                                                          columns=columns)))
-    # the group's own facts (Upgrade all's counts, the stopped batch that waits for Resume), under the group's name
-    sections += generic.rest({k: v for k, v in group.items() if k not in GROUP_KEYS and v is not None}, (),
-                             heading=group.get("label"), verbose=False, limit=limit, offset=offset)
+    # the group's own facts (Upgrade all's counts, the stopped batch that waits for Resume), under the group's name;
+    # `all.label` is the window's link text ("Select all · 5"), not a fact: `--verbose` and `--json` keep it
+    own = {k: v for k, v in group.items() if k not in GROUP_KEYS and v is not None}
+    if isinstance(own.get("all"), Mapping):
+        own["all"] = {k: v for k, v in own["all"].items() if k != "label"}
+    sections += generic.rest(own, (), heading=group.get("label"), verbose=False, limit=limit, offset=offset)
     return sections
 
 

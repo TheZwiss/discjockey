@@ -23,6 +23,7 @@ export const REASON_WORDS: Record<MissingReason, string> = {
   found_twice: "Delete or move away the copies you don't want; the one left links again.",
   never: 'You chose Never download for it.',
   check_open: 'Its rekordbox check is still open: finish it first.',
+  place_refused: "The sync couldn't put its better version in; it tries again when that changes.",
   asked: 'You asked for it already: it happens at your next sync.',
 };
 /** missing.WILL */
@@ -56,20 +57,24 @@ export function shortDay(iso: string, today: Date): string {
 /** missing.action_for: a song in a playlist gets Download again, any other song Remove from library */
 export const missingAction = (t: FakeTrack): MissingAction => (t.in_playlists ? DOWNLOAD_AGAIN : REMOVE);
 
+/** missing.place_refused: the message of the refusal the sync's phase recorded on the parked upgrade, else null */
+export const placeRefused = (t: FakeTrack): string | null => t.upgrade?.auto_refused?.message || null;
+
 /** missing.why_not: the first reason `action` can't run for the song now, else null */
 export function whyNot(s: FakeState, t: FakeTrack, action: MissingAction): MissingReason | null {
   if (!t.missing) return 'not_missing';
   if (t.away === 'offline') return 'away';   // its drive isn't there to tell: offline wins, for both actions
   if (action !== missingAction(t)) return 'wrong_action';
+  if (t.missing.found?.length) return 'found_twice';   // both actions: both copies are there
   if (action === DOWNLOAD_AGAIN) {
-    if (t.missing.found?.length) return 'found_twice';
     if (s.never.includes(t.track_id)) return 'never';
-    if (t.fileGone) return 'asked';
+    if (t.fileGone) return placeRefused(t) ? 'place_refused' : 'asked';
   } else if (t.rekordbox_check) return 'check_open';
   return null;
 }
 /** missing.reason_words */
-export function reasonWords(reason: MissingReason, action: MissingAction): string {
+export function reasonWords(reason: MissingReason, action: MissingAction, t?: FakeTrack): string {
+  if (reason === 'place_refused' && t && placeRefused(t)) return placeRefused(t)!;
   const other = action === DOWNLOAD_AGAIN ? REMOVE : DOWNLOAD_AGAIN;
   return REASON_WORDS[reason].replace('{other}', ACTION_WORDS[other]);
 }
@@ -95,7 +100,7 @@ export function missingView(s: FakeState, t: FakeTrack): MissingView | null {
   const reason = whyNot(s, t, action);
   const waiting = !!t.upgrade;
   return { since: t.missing.since.slice(0, 10), place: wasIn(s, t), action, why_not: reason,
-    words: reason ? reasonWords(reason, action) : null, will: willWords(action, waiting), upgrade_waiting: waiting };
+    words: reason ? reasonWords(reason, action, t) : null, will: willWords(action, waiting), upgrade_waiting: waiting };
 }
 
 function line(s: FakeState, t: FakeTrack): string {
@@ -186,7 +191,7 @@ export function previewMissing(s: FakeState, ids: string[], action: MissingActio
     const waiting = !!t?.upgrade;
     return { track_id: id, artist: t?.artist ?? '', title: t?.title ?? '', place: t ? wasIn(s, t) : '',
       since: t?.missing ? t.missing.since.slice(0, 10) : null, will: reason === null, reason,
-      words: reason === null ? willWords(action, waiting) : reasonWords(reason, action), upgrade_waiting: waiting };
+      words: reason === null ? willWords(action, waiting) : reasonWords(reason, action, t), upgrade_waiting: waiting };
   });
   const n = items.filter((i) => i.will).length;
   return { action, items, n, skipped: items.length - n, words: summary(action, ...counts(action, items)),
@@ -206,7 +211,7 @@ export function runMissing(s: FakeState, ids: string[], action: MissingAction): 
     const t = s.tracks.find((x) => x.track_id === id);
     const reason = t ? whyNot(s, t, action) : 'not_missing';
     if (!t || reason) {
-      results.push({ track_id: id, action, state: 'skipped', reason, words: reasonWords(reason!, action) });
+      results.push({ track_id: id, action, state: 'skipped', reason, words: reasonWords(reason!, action, t) });
       continue;
     }
     if (t.upgrade) waiting.add(id);
