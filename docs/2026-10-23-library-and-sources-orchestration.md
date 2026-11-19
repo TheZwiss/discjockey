@@ -836,6 +836,10 @@ Results:
     re-read todo(), the console double line; asks design §9.1) -> window fix round -> npm run verify
     (run_in_background) -> merge into main. No release without the go. Still asked of the user: rekordbox
     looks normal? -> delete scratchpad rbcopy/; Command Line Tools reinstall (issue 45).
+    2026-11-19 user back: rekordbox looks normal (rbcopy/ already gone with a scratchpad clean). Issue 45 agent
+    (Sonnet) **61k**: old Xcode 26.1.1 ld vs CLT 27.2 SDK; build_ffmpeg.sh pins `xcrun --sdk macosx` SDKROOT,
+    030fe4c1 on main, entry removed; no user step. Merged into the stage b9982b65 (no more deselects). R2 Sonnet
+    window review dispatched (material ~65k, est. ~150k). Stage total ~6.87M (+61k issue 45 outside the stage).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
