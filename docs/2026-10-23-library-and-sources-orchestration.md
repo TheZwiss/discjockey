@@ -812,6 +812,30 @@ Results:
     song) -> fix rounds -> npm run verify (run_in_background) -> merge into main. No release without the go.
     Full pytest: deselect/expect the 2 issue-45 tests (machine toolchain), brief agents so. Still asked of the user:
     rekordbox looks normal? -> delete scratchpad rbcopy/; Command Line Tools reinstall (issue 45).
+    D1a docs (Sonnet fix-round, 2026-11-19 after the go): **127k** (53 calls; est. ~130k) -> 99ce4103 on
+    feat/missing-files-u1 (main merged in first, 6b60e8c0); pytest 6008 passed (2 issue-45 tests deselected).
+    D1 split: rehearsal script is D1b (together ~300k). Stage running total ~6.20M.
+    D1b rehearsal (Sonnet fix-round): **158k** (45 calls; est. ~170k) -> 2cfc27f3; 35 PASS / 0 FAIL / 2 SKIP
+    (`folder list`, `sync plan` not built: issue 39 phase 2); pytest 6010. Stage review split by material
+    (engine diff ~67k + UI diff ~76k tokens): R1 Opus engine/bridge/CLI (est. ~200k), then R2 Sonnet window.
+    Stage running total ~6.36M.
+    R1 stage review engine (Opus): **275k** (75 calls; est. ~200k): needs fixes, 1 Critical (F1 _save_files wipes a
+    missing row's key + mark on a quality save, fill_kbps hits it every sync), Important F2 F3 F6 F7, Minor F4 F5 F8
+    a b d (scratchpad/review-43-R1.md). F5 decided by the rules (no past user answer; Remove of a song whose file
+    is in two places = loss): found_twice for both actions. Fix rounds: FA (F1 F2 F4 F6) -> FB (F3 F5 a b d) ->
+    R2 window review (carries F7 F8 c) -> window fix round. Stage running total ~6.64M.
+    FA (Sonnet fix-round): **102k** (41 calls; est. ~170k) -> 1c38ec72; F1 F2 F4 F6 fixed with tests; pytest 6017.
+    Stage running total ~6.74M.
+    FB (Sonnet fix-round): **129k** (47 calls; est. ~150k) -> 8e504897; F3 (new reason place_refused, record's
+    words, stays in To-do), F5 (found_twice both actions), a (text page drops all.label), b (place_clause shared
+    by start_note + console), d (bash-guard lists `missing`); pytest 6021, vitest lib 1081. Note for R2: console
+    prints the one-song clause AND the indented line naming the same song (double?). Stage total ~6.87M.
+    STATE 2026-11-19 (PAUSED by the user after FB; wait for "go"): stage branch = u1 = 8e504897 (pushed),
+    worktree clean, nothing running. Next after the go: R2 Sonnet window review (UI diff ~76k tokens; carries R1
+    F7 header line into views.todo, F8 single-song button words/tone from engine, c held batch panel rebuilt from
+    re-read todo(), the console double line; asks design §9.1) -> window fix round -> npm run verify
+    (run_in_background) -> merge into main. No release without the go. Still asked of the user: rekordbox
+    looks normal? -> delete scratchpad rbcopy/; Command Line Tools reinstall (issue 45).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):

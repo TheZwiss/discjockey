@@ -28,15 +28,21 @@ tar -xf "$tarball" -C "$work"
 src=$(find "$work" -mindepth 1 -maxdepth 1 -type d -name 'ffmpeg-*' | head -n 1)
 [ -n "$src" ] || { echo "build_ffmpeg: $tarball holds no ffmpeg-* folder" >&2; exit 1; }
 
+# The SDK that belongs to the selected developer directory. A bare clang takes the newest SDK it finds, and with Xcode
+# selected that can be a newer Command Line Tools SDK (macOS 27.2) which Xcode's older ld cannot read ("ld: tapi
+# error: malformed file ... libSystem.B.tbd", issue 45); `xcrun --sdk macosx` answers with the one that matches.
+sdk=$(xcrun --sdk macosx --show-sdk-path 2>/dev/null || true)
+[ -d "$sdk" ] || { echo "build_ffmpeg: no macOS SDK found (xcrun --sdk macosx --show-sdk-path)" >&2; exit 1; }
+
 cd "$src"
 # a clean environment: no Homebrew pkg-config paths or flags leak into the configuration
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$work" TMPDIR="$work" ./configure "$@" > "$work/configure.log" 2>&1 || {
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$work" TMPDIR="$work" SDKROOT="$sdk" ./configure "$@" > "$work/configure.log" 2>&1 || {
   tail -n 40 ffbuild/config.log >&2 2>/dev/null || tail -n 40 "$work/configure.log" >&2
   echo "build_ffmpeg: configure failed" >&2
   exit 1
 }
 jobs=$(sysctl -n hw.ncpu)
-env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$work" TMPDIR="$work" make -j"$jobs" ffmpeg ffprobe > "$work/make.log" 2>&1 || {
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$work" TMPDIR="$work" SDKROOT="$sdk" make -j"$jobs" ffmpeg ffprobe > "$work/make.log" 2>&1 || {
   tail -n 40 "$work/make.log" >&2
   echo "build_ffmpeg: make failed" >&2
   exit 1

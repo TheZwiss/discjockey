@@ -284,12 +284,12 @@ needs_apple_silicon = pytest.mark.skipif(not (platform.system() == "Darwin" and 
                                          reason="build_ffmpeg.sh builds for an Apple Silicon Mac")
 
 
-def stub_ffmpeg_source(tmp_path) -> Path:
-    """A stand-in for FFmpeg's source release: a configure that does nothing and a Makefile that compiles thin
-    arm64 programs."""
+def stub_ffmpeg_source(tmp_path, configure="exit 0") -> Path:
+    """A stand-in for FFmpeg's source release: a configure that does nothing (or runs the given line) and a
+    Makefile that compiles thin arm64 programs."""
     source = tmp_path / "ffmpeg-0"
     source.mkdir()
-    (source / "configure").write_text("#!/bin/sh\nexit 0\n")
+    (source / "configure").write_text(f"#!/bin/sh\n{configure}\n")
     (source / "configure").chmod(0o755)
     (source / "Makefile").write_text("ffmpeg ffprobe:\n\techo 'int main(void){return 0;}' | clang -x c - -arch arm64 -o $@\n")
     tarball = tmp_path / "ffmpeg-0.tar.xz"
@@ -320,3 +320,13 @@ def test_the_build_script_itself_takes_relative_paths(tmp_path):
     subprocess.run(["sh", str(PACKAGING / "build_ffmpeg.sh"), tarball.name, "made/here", "--prefix=/nowhere"],
                    cwd=tmp_path, check=True)
     assert sorted(p.name for p in (tmp_path / "made" / "here").iterdir()) == ["ffmpeg", "ffprobe"]
+
+
+@needs_apple_silicon
+def test_the_build_script_pins_the_sdk_of_the_selected_toolchain(tmp_path):
+    """Issue 45: a bare clang takes the newest SDK it finds, which Xcode's older ld may not read; the script hands
+    configure and make the SDK `xcrun --sdk macosx` names."""
+    tarball = stub_ffmpeg_source(tmp_path, configure='[ -d "$SDKROOT/usr/lib" ] || exit 1')
+    subprocess.run(["sh", str(PACKAGING / "build_ffmpeg.sh"), str(tarball), str(tmp_path / "out"), "--prefix=/nowhere"],
+                   cwd=tmp_path, check=True)
+    assert (tmp_path / "out" / "ffmpeg").is_file()
