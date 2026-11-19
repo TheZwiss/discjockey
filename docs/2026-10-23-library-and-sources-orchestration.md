@@ -844,6 +844,9 @@ Results:
     (selection panel acts on stale previews) W3 (asked song dead end in Library, in_missing_files), Minor M1-M9
     (scratchpad/review-43-R2.md). Fix rounds: FC engine+contract+fake, then FD window (+ static build).
     Stage total ~7.10M.
+    FC (Sonnet fix-round): **184k** (86 calls; est. ~180k) -> 52741b06; W1 todo.sub, W3 in_missing_files + asked
+    hint, M1 label/tone/foot_note, M3 hint by why_not, M6 report label plural, M8 console once, M9 fake; pytest
+    6032. Next FD window round (+ static). Stage total ~7.28M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
