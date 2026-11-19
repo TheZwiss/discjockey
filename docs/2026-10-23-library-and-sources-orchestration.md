@@ -840,6 +840,10 @@ Results:
     (Sonnet) **61k**: old Xcode 26.1.1 ld vs CLT 27.2 SDK; build_ffmpeg.sh pins `xcrun --sdk macosx` SDKROOT,
     030fe4c1 on main, entry removed; no user step. Merged into the stage b9982b65 (no more deselects). R2 Sonnet
     window review dispatched (material ~65k, est. ~150k). Stage total ~6.87M (+61k issue 45 outside the stage).
+    R2 window review (Sonnet): **233k** (51 calls; est. ~150k): needs fixes, Important W1 (header sub, = F7) W2
+    (selection panel acts on stale previews) W3 (asked song dead end in Library, in_missing_files), Minor M1-M9
+    (scratchpad/review-43-R2.md). Fix rounds: FC engine+contract+fake, then FD window (+ static build).
+    Stage total ~7.10M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
