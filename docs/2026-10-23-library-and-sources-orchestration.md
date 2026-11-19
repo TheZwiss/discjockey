@@ -736,6 +736,82 @@ Results:
     E4a2 (Sonnet) done 23938d95: **238k** (67 calls): placement undo + recovery at every cut point (35 tests),
     missing_facts in the op, end_step(missing=), alignment dropped on 'replaced' (side effect: Same track for that
     song's parked upgrade -> needs_choice); 5939 passed. Stage so far ~3.32M.
+    R-E4a (Sonnet) **203k**: not ready -> ready after 8b4a6df9: 3 Important (stale alignment kept + marked instead of
+    dropped, so Same track stays for present songs; same-path cut point told apart by FileSize; same-name other-edit
+    check aligned:false) + 1 Minor (no-op PPTH splice). Plan §10 E4b row gained SECTIONS/check_text/person_steps.
+    Stage branch -> E4a. Stage so far ~3.52M.
+    E4b1 (Sonnet, cut once by the 5-hour limit, resumed) done 77274ff4: **312k**: placement phase (place_keys, plan/
+    Planned.place, switch off = placements only, download_again batches, placed_missing section/words/steps, schema 11
+    step rebuilds aiff_batches/aiff_items CHECKs); 5980 passed + 1 wording fix re-run by file. step `look` not
+    `reload_tag` (E4a: text columns never written) -> plan amend in D1; CLAUDE.md 'switch off moves no file' -> D1.
+    Stage so far ~3.83M.
+    E4b2 (Sonnet) done 2462a7bd: **227k** (73 calls; expected 130-180k): contract/types/fake for placements, check_status
+    words, fake redownload plan + bad_args; hub-level preview/plan-id tests (no engine fix). Open: sync_preview
+    auto_upgrade counts no placements (null with switch off) -> R-E4b fix round. Stage so far ~4.06M.
+    R-E4b (Sonnet) **239k**: not ready: 5 Important (schema CHECK widen only from v10; unreadable rekordbox drops a
+    placement silently; sync_preview places/place_notes; batch.from_sync for download_again cards; relocate_new step
+    path) + 3 Minor + plan amends (§5.4 steps/words, §6.1 -> D1). Important 1 declined: schema 11 unreleased, real
+    library measured at 9 (ro), only scratch DBs at 11 -> keep one v11 step (no updater niceties). Stage so far ~4.30M.
+    R-E4b fix (Sonnet fix-round) be31c291: **164k**: 4 Important + 2 Minor fixed (places/place_notes, from_sync,
+    unreadable -> waits, relocate_new path); 5996 passed. Stage branch -> E4b (be31c291). Stage so far ~4.46M.
+    U1 split (record 300-390k + material ~90k): U1a Sonnet models/flow/tests/shots.json, U1b Opus components.
+    U1a (Sonnet) done 4a899afe + static 371ae733 on feat/missing-files-u1: **261k** (77 calls; expected 160-220k):
+    missingModel.ts, MissingFlow, todoModel/libraryModel/planModel/endModel, FILE_STATE_TAG Missing, 9 shots entries;
+    vitest 1692. Open: PLACED_LABEL copied from report.py (engine should send section labels) -> R-U1. Stage ~4.72M.
+    U1b (Opus ui-build) done c2a59b90 + static 6cba2837: **251k** (75 calls): Page/Details/MissingSelection/Library/
+    BeforeStart/EndScreen; vitest 1693; npm run rules failed (local connect EAGAIN) -> shots agent. Found: placement
+    batches/progress use window 'upgraded' words + batchCheckCard ignores placed_missing words -> engine words in R-U1
+    fix. Taste: 'Last known file' and 'Skipped · n' kept (decided, not asked). Stage so far ~4.97M.
+    R-U1 (Sonnet) **201k**: not ready: 6 Important (Library parked-upgrade song shows Replace; panel counts/labels/
+    confirm/none-can-run computed in window -> missing.preview button/confirm + all.label; section_labels; BatchProgress
+    lead/count; batch row_name/row_sub/list_title; batchCheckCard placed_missing steps) + 6 Minor (3,4 = phase 6 moves,
+    6 precedent; 5 decided: Select all label counts what it selects). Fix split F1 engine words (3-6), F2 selection +
+    Library (1,2, minors 1,2,5). Stage so far ~5.17M.
+    F1 (Sonnet fix-round) 8b7b2373 + 7e685dfb: **180k**: section_labels/part_labels, BatchProgress lead/count (CLI
+    too), batch row_name/row_sub/list_title/card_summary, batchCheckCard placed steps; 6001 passed + golden re-run.
+    Edge -> F2: card_summary null for mixed batches (send it always). Stage so far ~5.35M.
+    F2 (Sonnet fix-round) 071f5ae8 + 04898b82: **236k** (105 calls): Library parked-missing -> Open in to-do;
+    missing.preview button/confirm, all.label; MissingFlow {panel}; found_twice hint once; card_summary always +
+    placed_summary; 6005 passed, vitest 1697. Stage so far ~5.59M.
+    STATE 2026-11-19 (before compact): S1 shots agent running (id a523af6022badf0b2, worktree mf-u1, report only,
+    expected 120-170k; it may run Vite/shots with the sandbox off; check ps after). Branch feat/missing-files-u1 head
+    04898b82 (stage branch feat/missing-files still at be31c291: fast-forward to u1 once S1's fixes are in). Next, one
+    at a time: S1 fix round (Sonnet fix-round; Opus only if a finding needs design) -> D1 (docs: spec/README/CLAUDE.md
+    incl. 'switch off moves no file' now false for Download again placements; plan amends from R-E4b: §5.4 steps
+    look/relocate_new + start_note clause + engine-side words, §6.1 sync_preview places/place_notes, §7 departures
+    accepted by R-U1; issues 43/40; scripts/missing_files_rehearsal.py §10.2 made-up data + its run) -> Opus stage
+    review (with the rehearsal output) -> fix rounds -> npm run verify (run_in_background) -> merge into main. No
+    release without the go. Open for the stage review: held batch panel after a partial undo keeps whole-batch
+    wording; CLI `missing list` prints the all.label row. User told ~0.7-1.1M left (total ~6.3-6.7M). Still asked of
+    the user: does rekordbox look normal -> then delete scratchpad rbcopy/ copies.
+    S1 (Sonnet shots) **179k** (50 calls; expected 120-170k): 10 states x 1100/2560, rules clean; 3 shots.json
+    assertions wrong; ~10 findings. Decided (rules, not asked): Remove skips an offline song (`away`, offline wins);
+    'Missing since' one phrasing; found_twice one sentence; singular confirm; Library gets hint_library pointing at
+    Open in To-do; start note names the song when one; Select all keeps counting what it selects (R-U1 minor 5;
+    plan §7.1 amend in D1); 'Open in To-do' stays a secondary button (as the not-found state), capital T; Missing
+    files rows keep the quality badge (group says missing); placed rows get their own card in the Sync end; head
+    hint + placed line wrap. Fix split: E engine words (brief-43-S1E.md) then UI (shots.json, wiring). Stage ~5.77M.
+    S1 fix E (Sonnet fix-round) 01065874: **147k** (55 calls): `away` reason both actions, 'Missing since', singular
+    confirm, hint_library, start note names the song; 6010 passed. S1 fix U (Sonnet, brief-43-S1U.md) next. Stage ~5.92M.
+    S1 fix U running (agent aec71f3d6acdd65ef, ~137k at its rules run, then build + pytest + commit) when the usage
+    limit hit (2026-11-19). On resume: check its report/commits on feat/missing-files-u1 (resume it via SendMessage if
+    cut), log its size, ps, then D1 per the STATE block above.
+    S1 fix U (Sonnet fix-round): **~150k** (73 calls; cut by the limit, a dropped connection, then stopped by the user
+    during its pytest; uncommitted). Coordinator finished it: rebuild, svelte-check 0, vitest 1698, committed 5f9df829,
+    full pytest 6008 passed + 2 failed = issue 45 (ffmpeg build tests fail on main too since macOS 27.2: ld vs SDK).
+    npm run rules not re-run after the last edits: npm run verify before the merge covers it. Stage ~6.07M.
+    STATE 2026-11-19 (2nd compact; PAUSED by the user after S1 fix U, wait for "go"): stage branch
+    feat/missing-files = feat/missing-files-u1 = 5f9df829 (pushed); worktree mf-u1 clean, node_modules link removed;
+    no agent running. Next, one at a time after the go: D1 (Sonnet docs: spec/README/CLAUDE.md incl. 'switch off moves
+    no file' now false for Download again placements; plan amends: §5.4 steps look/relocate_new + start_note clause +
+    engine-side words + 'Missing since' + `away` reason + singular confirm + hint_library, §6.1 sync_preview
+    places/place_notes, §7 departures (Select all counts what it selects; Open in To-do secondary; quality badge in
+    Missing files; placed card; Put it back drop zone); issues 43/40; scripts/missing_files_rehearsal.py §10.2
+    made-up data + its run) -> Opus stage review (with rehearsal output; open: held batch panel after partial undo
+    keeps whole-batch wording; CLI `missing list` prints the all.label row; console placement line not naming the
+    song) -> fix rounds -> npm run verify (run_in_background) -> merge into main. No release without the go.
+    Full pytest: deselect/expect the 2 issue-45 tests (machine toolchain), brief agents so. Still asked of the user:
+    rekordbox looks normal? -> delete scratchpad rbcopy/; Command Line Tools reinstall (issue 45).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
