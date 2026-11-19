@@ -815,6 +815,10 @@ Results:
     D1a docs (Sonnet fix-round, 2026-11-19 after the go): **127k** (53 calls; est. ~130k) -> 99ce4103 on
     feat/missing-files-u1 (main merged in first, 6b60e8c0); pytest 6008 passed (2 issue-45 tests deselected).
     D1 split: rehearsal script is D1b (together ~300k). Stage running total ~6.20M.
+    D1b rehearsal (Sonnet fix-round): **158k** (45 calls; est. ~170k) -> 2cfc27f3; 35 PASS / 0 FAIL / 2 SKIP
+    (`folder list`, `sync plan` not built: issue 39 phase 2); pytest 6010. Stage review split by material
+    (engine diff ~67k + UI diff ~76k tokens): R1 Opus engine/bridge/CLI (est. ~200k), then R2 Sonnet window.
+    Stage running total ~6.36M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
