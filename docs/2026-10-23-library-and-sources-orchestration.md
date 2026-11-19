@@ -826,6 +826,16 @@ Results:
     R2 window review (carries F7 F8 c) -> window fix round. Stage running total ~6.64M.
     FA (Sonnet fix-round): **102k** (41 calls; est. ~170k) -> 1c38ec72; F1 F2 F4 F6 fixed with tests; pytest 6017.
     Stage running total ~6.74M.
+    FB (Sonnet fix-round): **129k** (47 calls; est. ~150k) -> 8e504897; F3 (new reason place_refused, record's
+    words, stays in To-do), F5 (found_twice both actions), a (text page drops all.label), b (place_clause shared
+    by start_note + console), d (bash-guard lists `missing`); pytest 6021, vitest lib 1081. Note for R2: console
+    prints the one-song clause AND the indented line naming the same song (double?). Stage total ~6.87M.
+    STATE 2026-11-19 (PAUSED by the user after FB; wait for "go"): stage branch = u1 = 8e504897 (pushed),
+    worktree clean, nothing running. Next after the go: R2 Sonnet window review (UI diff ~76k tokens; carries R1
+    F7 header line into views.todo, F8 single-song button words/tone from engine, c held batch panel rebuilt from
+    re-read todo(), the console double line; asks design §9.1) -> window fix round -> npm run verify
+    (run_in_background) -> merge into main. No release without the go. Still asked of the user: rekordbox
+    looks normal? -> delete scratchpad rbcopy/; Command Line Tools reinstall (issue 45).
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
