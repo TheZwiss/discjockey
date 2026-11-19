@@ -852,6 +852,13 @@ Results:
     Stage total ~7.41M.
     verify on the stage: 1249 shots, 0 with problems; vitest 1715; check 0 errors; CI green (44573223074).
     **Issue 43 MERGED into main dfb471d7 (2026-11-19).** Stage total ~7.41M (+61k issue 45). No release.
+    **Issue 43 live test (2026-11-19 evening, user's go, no Qobuz subscription):** live agent (Sonnet, CLI on the real
+    library, backup in ~/DJ Downloader/.claude/backups/issue43-live-2026-11-19/) **78k** over 4 resumes: schema 9 needs a
+    writer (`library scan`) to migrate; own song local:890 away/missing/back PASSED but turned 'bought' (scan's `moved`
+    write set placed_by 'user' over 'import', older than issue 43). Backup restored, fix-round (Sonnet) **69k**: CASE keeps
+    'import', merged main 17295707; re-run all PASS. Download again + placement (song B) not testable live: no playlist
+    song has a parked version without Qobuz (rehearsal covered it); rekordbox repoint after placement still untested live.
+    Screenshots: screencapture -l blocked (no Screen Recording permission). Issue 43 total ~7.56M.
     Plan stays in docs/ until the user's live test. Next: live test of issue 43 with the user (put a file away,
     scan, To-do Missing files, put it back, Download again with a parked version), then issue 39 phase 2 setup
     choice; issue 44 flake; archive issue 33's plans.
