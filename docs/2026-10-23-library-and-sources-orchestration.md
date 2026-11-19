@@ -819,6 +819,11 @@ Results:
     (`folder list`, `sync plan` not built: issue 39 phase 2); pytest 6010. Stage review split by material
     (engine diff ~67k + UI diff ~76k tokens): R1 Opus engine/bridge/CLI (est. ~200k), then R2 Sonnet window.
     Stage running total ~6.36M.
+    R1 stage review engine (Opus): **275k** (75 calls; est. ~200k): needs fixes, 1 Critical (F1 _save_files wipes a
+    missing row's key + mark on a quality save, fill_kbps hits it every sync), Important F2 F3 F6 F7, Minor F4 F5 F8
+    a b d (scratchpad/review-43-R1.md). F5 decided by the rules (no past user answer; Remove of a song whose file
+    is in two places = loss): found_twice for both actions. Fix rounds: FA (F1 F2 F4 F6) -> FB (F3 F5 a b d) ->
+    R2 window review (carries F7 F8 c) -> window fix round. Stage running total ~6.64M.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
