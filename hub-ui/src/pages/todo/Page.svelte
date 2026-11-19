@@ -19,29 +19,36 @@
   // Check in rekordbox (stage B §6.4): a Same track batch's open checks are one row ("3 tracks upgraded", its panel
   // BatchCheckCards: the steps for all, a row per track, Done and Undo all); two or more checks selected show the
   // same panel for the selection ("4 checks selected", Done for all, Undo n).
+  // Missing files (issue 43 §7.1, §7.4): selectable like Upgrade ready; its head carries "Select all · n" (the engine's
+  // count of the songs whose action can run now; selects the group's songs that are not hidden), no Resume (there is no
+  // batch). Two or more selected show the selection panel (lib/decisions MissingSelection: one job per press, Download
+  // again or Remove), kept with the job's words until the next pick (`missingPinned`).
   import { tick, untrack } from 'svelte';
   import { api } from '$lib/bridge/client';
   import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
   import { hub, writeBlockedReason } from '$lib/stores/hub';
-  import type { AiffScope, Fail, Todo, TodoFilter, TodoItem, TrackDetail } from '$lib/bridge/types';
+  import type { AiffScope, Fail, Todo, TodoFilter, TodoGroupKey, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { filesVersion } from '$lib/stores/hub';
   import {
     NO_SELECTION, clickSelect, dropSelected, escapeSelection, isSelected, keepSelected, moveSelected, onlySelected,
     selectAll, selectOne, type Selection,
   } from '$lib/components';
-  import { AiffBatchPanel, BatchCheckCards, ChecksFlow, UpgradeSelection, aiffBatch, upgradeBatch } from '$lib/decisions';
-  import { batchRowName, batchRowSub, checkTracks, convertAllLabel, localDay, resumeLabel, upgradeAllLabel, upgradeAllShown } from '$lib/decisions/decisionModel';
+  import {
+    AiffBatchPanel, BatchCheckCards, ChecksFlow, MissingFlow, MissingSelection, UpgradeSelection, aiffBatch, upgradeBatch,
+  } from '$lib/decisions';
+  import { checkTracks, convertAllLabel, resumeLabel, upgradeAllLabel, upgradeAllShown } from '$lib/decisions/decisionModel';
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
   import {
     AwayTag, Badge, Button, Cover, EmptyState, ListRow, ListSection, PageHeader, ProblemCard, Segmented, Skeleton, Surface,
   } from '$lib/components';
   import { ListPanelFrame, Panel } from '$lib/frames';
-  import { artistTitle, rowAway } from '$lib/format';
+  import { artistTitle } from '$lib/format';
   import {
-    FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, headerSub, holdApplies, itemKey, keepSelection,
-    batchListStep, cdjAllKeys, cdjGroup, checksPanelShows, coalesce, heldChecks, keepPinned, multiCdj, multiChecks, multiScope, openCount,
-    queueRows, rowBadge, rowDim, selectAfterHide, selectFromTrack, upgradeAllKeys, upgradeGroup, wholeCdjGroup, wholeUpgradeGroup,
+    FILTER_MAX, segOptions, filterFrom, findHeld, flatten, ghostOf, heldBatch, holdApplies, itemKey, keepSelection,
+    batchListStep, cdjAllKeys, cdjGroup, checksPanelShows, coalesce, heldChecks, keepPinned, missingAllKeys,
+    missingGroup, multiCdj, multiChecks, multiMissing, multiScope, openCount, queueRows, rowAwayTag, rowBadge, rowDim, rowSub,
+    selectAfterHide, selectFromTrack, upgradeAllKeys, upgradeGroup, wholeCdjGroup, wholeUpgradeGroup,
     withHeldItem, MULTI_GROUPS,
     type CheckHold, type TodoHold,
   } from './todoModel';
@@ -83,11 +90,11 @@
   // left with one track is a single check now, and the reason a track wasn't undone belongs beside it
   let checkHold = $state<CheckHold | null>(null);
   const held = $derived(checkHold ? heldChecks(items, checkHold) : null);
-  const panelChecks = $derived(held ? { tracks: held.tracks, batch: checkHold?.batch ?? null }
+  const panelChecks = $derived(held ? { tracks: held.tracks, batch: heldBatch(items, checkHold) }
     : multiCheck ? { tracks: checkTracks(selItems), batch: null }
     : checkBatch ? { tracks: checkBatch.batch.tracks, batch: checkBatch.batch } : null);
   const checksFlow = new ChecksFlow({ onact: () => {
-    if (panelChecks) checkHold = { ids: panelChecks.tracks.map((t) => t.track_id), batch: panelChecks.batch };
+    if (panelChecks) checkHold = { ids: panelChecks.tracks.map((t) => t.track_id), batch: panelChecks.batch ? { id: panelChecks.batch.id } : null };
   } });
   const upGroup = $derived(upgradeGroup(data));
   const wholeGroup = $derived(multiUp && wholeUpgradeGroup(upGroup, selItems));
@@ -105,9 +112,16 @@
   /** the track's name and cover as this list shows them (the panel's rows, and the names of a batch's end) */
   const known = $derived(new Map(items.filter((i) => !isBatch(i)).map((i) => [i.track_id,
     { name: artistTitle(i.artist, i.title), cover_url: i.cover_url }])));
+  // two or more songs of Missing files: their selection panel. `missingPinned`: a job pressed there keeps the panel, with
+  // the job's words at its end, until the next pick, whatever the selection becomes as the songs leave the group
+  const missingG = $derived(missingGroup(data));
+  const multiMissingSel = $derived(multiMissing(selItems));
+  let missingPinned = $state(false);
+  const missingFlow = new MissingFlow({ onact: () => (missingPinned = true), name: (id) => known.get(id)?.name ?? id });
+  const missingRun = $derived(missingPinned && (!!missingFlow.busy || !!missingFlow.ended));
   // a batch's panel with its progress or result, kept until the next pick: it comes before the checks' panel, which the
   // finished batch's own check row (another group, picked by position) would otherwise put in its place
-  const pinnedBatch = $derived((pinned && !!upgradeBatch.view) || aiffRun);
+  const pinnedBatch = $derived((pinned && !!upgradeBatch.view) || aiffRun || missingRun);
   // a batch the hub runs that this window didn't start (it was reloaded): its panel follows it from the start
   $effect(() => {
     const j = $hub.job;
@@ -233,7 +247,7 @@
       // the checks the panel acted on: the rows that still hold them stay selected; none left ends the hold
       const checks = !fromQuery && checkHold ? heldChecks(after, checkHold) : null;
       if (checkHold && !checks) checkHold = null;
-      sel = fromQuery ? selectOne(fromQuery) : (upgradeBatch.view && pinned) || aiffRun ? keepPinned(sel, before.map(itemKey), after.map(itemKey))
+      sel = fromQuery ? selectOne(fromQuery) : (upgradeBatch.view && pinned) || aiffRun || missingRun ? keepPinned(sel, before.map(itemKey), after.map(itemKey))
         : held ? selectOne(itemKey(held))
         : checks ? { keys: checks.keys, anchor: checks.keys[0] }
         : keepSelected(sel, before.map(itemKey), after.map(itemKey), (a) => keepSelection(a, before, after));
@@ -300,6 +314,8 @@
     upgradeBatch.clear();
     aiffPinned = false;
     aiffBatch.clear();
+    missingPinned = false;
+    missingFlow.clear();
   }
   function pickOne(key: string | null) { picked(selectOne(key)); }
   function choose(key: string, e: MouseEvent) {
@@ -365,6 +381,19 @@
   function aiffCancel() {
     picked(escapeSelection(sel));
   }
+  /** "Select all · n" of Missing files: the group's songs that are not hidden, its first the anchor; the panel then
+   *  offers both actions. */
+  function selectAllMissing() {
+    const keys = missingAllKeys(missingG);
+    picked(keys.length ? { keys, anchor: keys[0] } : NO_SELECTION);
+  }
+  /** The Missing files panel's Done: the job's words are put away, back to the group's first song (or the list's first). */
+  function missingDone() {
+    missingPinned = false;
+    missingFlow.clear();
+    const first = missingG?.items[0] ?? items[0];
+    pickOne(first ? itemKey(first) : null);
+  }
   /** The selection panel's Done: back to the group's first item (or the list's first one). */
   function batchDone() {
     pinned = false;
@@ -378,6 +407,11 @@
   // the panel's own Resume says it while it shows that batch's end, so the head doesn't say it twice
   const headResumeCdj = $derived(cdjG?.stopped && !(aiffRun && aiffBatch.view?.end?.resume?.batch_id === cdjG.stopped.batch_id)
     ? cdjG.stopped : null);
+
+  /** A group head's own action: Upgrade all / Resume, Convert all / Resume, Select all; none for the other groups. */
+  function headAction(key: TodoGroupKey) {
+    return key === 'upgrade_ready' ? groupAction : key === 'cdj' ? cdjAction : key === 'missing_file' ? missingAction : undefined;
+  }
 
   // Part B: the "Wrong song?" / "Find a version" dialog opens for this track.
   let versionsFor = $state<TrackDetail | null>(null);
@@ -406,13 +440,13 @@
 {#snippet row(i: TodoItem)}
   {@const key = itemKey(i)}
   {@const batch = isBatch(i) ? i.batch : null}
-  <!-- a batch's row: the first track's cover, "{n} tracks upgraded" over "{day} · Same track" (the sync's: "· Upgraded during your sync") -->
+  <!-- a batch's row: the first track's cover, the engine's `row_name` over its `row_sub` -->
   {#snippet lead()}<Cover url={i.cover_url} seed={batch?.tracks[0]?.track_id ?? i.track_id} size={28} />{/snippet}
-  {#snippet name()}{batch ? batchRowName(batch.size, batch.kind) : artistTitle(i.artist, i.title)}{/snippet}
-  {#snippet sub()}{batch ? batchRowSub(batch.started, localDay(new Date()), batch.started_by, batch.kind, batch.tracks.every((t) => t.check?.reason === 'renamed')) : [i.folder, i.detail].filter(Boolean).join(' · ')}{/snippet}
+  {#snippet name()}{batch ? batch.row_name : artistTitle(i.artist, i.title)}{/snippet}
+  {#snippet sub()}{batch ? batch.row_sub : rowSub(i)}{/snippet}
   {#snippet trailing()}
     {@const b = rowBadge(i)}
-    {@const away = batch ? null : rowAway(i)}
+    {@const away = batch ? null : rowAwayTag(i)}
     {#if away}<AwayTag state={away} test="todo-away" />{:else}<Badge tone={b.quality} text={b.label} />{/if}
     <span class="act">{#if i.hidden}<Badge tone="muted" text="HIDDEN" />{:else if i.upgrade_ready}<Badge tone="lossless"
       text="UPGRADE" />{:else if i.free}<span title="The artist gives it away for free"><Badge tone="accent"
@@ -448,8 +482,15 @@
   {/if}
 {/snippet}
 
+{#snippet missingAction()}
+  <!-- no Resume: each press is one job, nothing waits half done; "Select all · 1" would only be the row's own button -->
+  {#if missingG?.all?.label}
+    <Button variant="link" size="sm" onclick={selectAllMissing} data-test="todo-select-all">{missingG.all.label}</Button>
+  {/if}
+{/snippet}
+
 {#snippet main()}
-  <PageHeader title="To-do" sub={data ? headerSub(data) : undefined} readStatus />
+  <PageHeader title="To-do" sub={data?.sub} readStatus />
 
   {#if error}
     <ProblemCard kind={error.kind} message={error.message} onretry={load} compact={!!data} />
@@ -465,13 +506,13 @@
         {#if data.hidden_count || showHidden}<div class="again">{@render hiddenToggle()}</div>{/if}
       </Surface>
     {:else}
-      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(openCount(only.items, extraKey)) : undefined} hint={only?.hint} summaryTest="todo-count"
+      <Surface kind="list" label={only ? only.label : 'All to-dos'} summary={only ? String(openCount(only.items, extraKey)) : undefined} hint={only?.hint} wrapHint summaryTest="todo-count"
         header={data.hidden_count || showHidden ? hiddenToggle : undefined} style={COLS}
-        action={only?.key === 'upgrade_ready' ? groupAction : only?.key === 'cdj' ? cdjAction : undefined}
+        action={only ? headAction(only.key) : undefined}
         grow={{ rows: rowCount, tall: true }} data-test="todo-list">
         {#each data.groups as g (g.key)}
-          {#if sections}<ListSection label={g.label} summary={String(openCount(g.items, extraKey))} hint={g.hint}
-            action={g.key === 'upgrade_ready' ? groupAction : g.key === 'cdj' ? cdjAction : undefined} test="todo-section" />{/if}
+          {#if sections}<ListSection label={g.label} summary={String(openCount(g.items, extraKey))} hint={g.hint} wrap
+            action={headAction(g.key)} test="todo-section" />{/if}
           {#each g.items as i (itemKey(i))}{@render row(i)}{/each}
         {/each}
       </Surface>
@@ -487,7 +528,15 @@
 {/snippet}
 
 {#snippet panel()}
-  {#if aiffScope && (aiffRun || multiCdjSel)}
+  {#if missingRun || multiMissingSel}
+    <MissingSelection items={selItems.filter((i) => i.group === 'missing_file')} flow={missingFlow}
+      nameOf={(i) => artistTitle(i.artist, i.title)} coverOf={(id) => known.get(id)?.cover_url ?? null}
+      ondrop={(i) => {
+        picked(dropSelected(sel, itemKey(i)));
+        if (sel.keys.length < 2) void focusSelected();   // the selection panel gives way: focus the row left
+      }}
+      ondone={missingDone} />
+  {:else if aiffScope && (aiffRun || multiCdjSel)}
     <AiffBatchPanel scope={aiffScope} origin="todo" known={(id) => known.get(id) ?? null} oncancel={aiffCancel}
       ondone={aiffDone} onact={aiffActed} />
   {:else if panelChecks && checksPanelShows(pinnedBatch, true)}
@@ -518,7 +567,7 @@
 {/snippet}
 
 <!-- with no to-do left the panel says when it will have something, never blank (mockup todo-decisions) -->
-<ListPanelFrame {main} panel={selected || selPanel || panelChecks || aiffScope ? panel : data?.empty === 'all_lossless' || data?.empty === 'all_hidden' ? nothing : null}
+<ListPanelFrame {main} panel={selected || selPanel || panelChecks || aiffScope || missingRun || multiMissingSel ? panel : data?.empty === 'all_lossless' || data?.empty === 'all_hidden' ? nothing : null}
   emptyPanel="Pick a track to see what you can do." />
 
 {#if versionsFor}

@@ -23,14 +23,23 @@ describe('activityLine (its tooltip)', () => {
 });
 
 describe('the sync\'s Auto-upgrade phase', () => {
-  const upgrading = run({ phase: 'upgrading', total: 6, index: 6, upgrade: { batch_id: 3, done: 2, total: 9, name: 'Artist - Title' } });
+  const upgrading = run({ phase: 'upgrading', total: 6, index: 6, upgrade: { batch_id: 3, done: 2, total: 9, name: 'Artist - Title', lead: 'Upgrading', count: '2 of 9 upgraded' } });
   it('names the track and how many are done', () => {
     expect(activityLine(activityText(upgrading, 0))).toBe('Upgrading · Artist - Title · 2 of 9 upgraded');
     expect(activityShort(upgrading)).toBe('2 of 9 upgraded');
   });
   it('after the last track only the count is left', () => {
-    const end = run({ phase: 'upgrading', total: 6, index: 6, upgrade: { batch_id: 3, done: 9, total: 9, name: null } });
+    const end = run({ phase: 'upgrading', total: 6, index: 6, upgrade: { batch_id: 3, done: 9, total: 9, name: null, lead: 'Upgrading', count: '9 of 9 upgraded' } });
     expect(activityLine(activityText(end, 0))).toBe('Upgrading · 9 of 9 upgraded');
     expect(activityShort(end)).toBe('9 of 9 upgraded');
+  });
+  it('prints the engine\'s words as they come: a batch of placements is not "upgraded"', () => {
+    const put = run({ phase: 'upgrading', total: 6, index: 6,
+      upgrade: { batch_id: 3, done: 1, total: 4, name: 'Artist - Title', lead: 'Putting in better versions', count: '1 of 4 put in' } });
+    expect(activityLine(activityText(put, 0))).toBe('Putting in better versions · Artist - Title · 1 of 4 put in');
+    expect(activityShort(put)).toBe('1 of 4 put in');
+    const end = run({ phase: 'upgrading', total: 6, index: 6,
+      upgrade: { batch_id: 3, done: 4, total: 4, name: null, lead: 'Putting in better versions', count: '4 of 4 put in' } });
+    expect(activityLine(activityText(end, 0))).toBe('Putting in better versions · 4 of 4 put in');
   });
 });

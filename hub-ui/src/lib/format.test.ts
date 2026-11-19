@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FileState } from './bridge/types';
-import { OFFLINE_WORDS, fileAway, fileAwayWords, ago, artistTitle, clock, count, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, formatWords, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural, sizeWords,
+import { FILE_STATE_TAG, OFFLINE_WORDS, fileAway, fileAwayWords, ago, artistTitle, clock, count, cutoffStat, dateShort, dayMonth, duration, estimate, estimateText, fileFormat, formatWords, fitMiddle, foldText, khz, megabytes, minutesLong, noteParts, percent, plural, sizeWords,
   qualityWords, runIdFromReport, runWhen, upgradeLabel } from './format';
 
 describe('format', () => {
@@ -127,6 +127,9 @@ describe('qualityWords', () => {
     expect(fileAway(t('lossless', 'file_missing'))).toBe(true);
     expect(fileAwayWords(t('missing', 'offline'))).toBeNull();   // no file, nothing to be away
     expect(fileAway(t('missing', 'offline'))).toBe(false);
+  });
+  it('a row\'s AwayTag says "Missing" for a file that waits as missing (issue 43, plan §5.4)', () => {
+    expect(FILE_STATE_TAG).toEqual({ offline: 'Offline', folder_missing: 'Folder not found', file_missing: 'Missing' });
   });
   it('upgradeLabel: "Upgrade ready", plus what it is when it is not lossless', () => {
     expect(upgradeLabel('lossless version')).toBe('Upgrade ready');

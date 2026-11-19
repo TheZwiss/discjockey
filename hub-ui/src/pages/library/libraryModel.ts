@@ -181,12 +181,20 @@ export function inTodo(t: Pick<TrackRow, 'status' | 'upgrade_ready' | 'in_playli
 }
 /** The same for a table row: a song without a file is on the to-do list only when it was not found (its group there)
  *  and the user didn't hide it there; one still waiting for the next sync isn't. */
-export function rowInTodo(r: Pick<LibraryRow, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden' | 'file_state' | 'wait'>): boolean {
+export function rowInTodo(r: Pick<LibraryRow, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden' | 'file_state' | 'wait' | 'in_missing_files'>): boolean {
+  if (r.in_missing_files) return true;   // the engine says the Missing files group lists it
   return r.file_state === 'no_file' ? r.wait === 'not_found' && !r.hidden : inTodo(r);
 }
 
 export function todoHref(id: string): string {
   return `/todo?track=${encodeURIComponent(id)}`;
+}
+/** A song whose file waits as missing (issue 43; `track().missing` is set): its details' note is the engine's `line` and
+ *  `hint` (`missingNote`), and its one button "Open in To-do" goes to the Missing files group with the song picked. The
+ *  actions stay in To-do (one place decides). */
+export { missingNote } from '$lib/decisions/missingModel';
+export function missingTodoHref(id: string): string {
+  return `/todo?filter=missing_file&track=${encodeURIComponent(id)}`;
 }
 
 // ---------- the quality filter ----------
@@ -453,11 +461,15 @@ export function alsoHint(folder: string, neverRead = false): string {
  *  AIFF, Give it its clean name: `aiff`, its look and whether the CDJs refuse the file) and Open in to-do for any other
  *  to-do (a weak file is bought and dropped there); nothing for a lossless track (or one the to-do list doesn't show).
  *  A file the CDJs refuse is To-do's CDJ item, so the AIFF button stands in for Open in to-do; any other file keeps
- *  both, the filled one first (`aiff_todo`: Convert above Open in to-do; `todo_aiff`: the outlined Convert under it). */
-export type FootKind = NonNullable<Decision>['kind'] | 'todo' | 'aiff' | 'aiff_todo' | 'todo_aiff';
-export function footAction(t: Pick<TrackDetail, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'>,
+ *  both, the filled one first (`aiff_todo`: Convert above Open in to-do; `todo_aiff`: the outlined Convert under it).
+ *  A song whose file waits as missing and that the Missing files group lists (`missing.in_missing_files`, issue 43)
+ *  has `missing`: Open in to-do to its item (`missingTodoHref`), where Download again or Remove is decided; the Library
+ *  offers no action of its own for it. A song already asked for is in no group, so it has no such button. */
+export type FootKind = NonNullable<Decision>['kind'] | 'todo' | 'aiff' | 'aiff_todo' | 'todo_aiff' | 'missing';
+export function footAction(t: Pick<TrackDetail, 'status' | 'upgrade_ready' | 'in_playlists' | 'hidden'> & Partial<Pick<TrackDetail, 'missing'>>,
   decision: Decision, aiff: { variant: 'filled' | 'outline'; cdj: boolean } | null = null): FootKind | null {
   if (decision) return decision.kind;
+  if (t.missing?.in_missing_files) return 'missing';
   const todo = inTodo(t);
   if (!aiff) return todo ? 'todo' : null;
   if (!todo || aiff.cdj) return 'aiff';

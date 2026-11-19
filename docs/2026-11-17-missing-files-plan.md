@@ -1,6 +1,6 @@
 # Missing files wait and come back (issue 43): plan
 
-Status: plan, 2026-11-17. Issue: `docs/issues.md` entry 43 (the user's decision of 2026-11-17 is binding). Changes
+Status: built (D1 2026-11-19); stage review next. Plan of 2026-11-17. Issue: `docs/issues.md` entry 43 (the user's decision of 2026-11-17 is binding). Changes
 spec `docs/2026-10-23-library-and-sources-design.md` §6.3 (Gone) and §6.4, and answers issue 40's audit point "out of
 every watched folder". Branch `feat/missing-files` from `main` (9168609b); group worktrees
 `.claude/worktrees/mf-<group>` on `feat/missing-files-<group>`, each merged into the stage branch when its checks are
@@ -153,7 +153,7 @@ gets D6's.
 | New file whose key a present row has | `copies` | the same |
 
 `ScanResult` fields after the change: `offline`, `unchanged`, `retagged`, `replaced`, `moved`, `ambiguous`, `new`,
-`copies`, `gone` (unlinked row ids), `missing` (linked row ids that wait, those missing before included), `back` (row
+`copies`, `unambiguous` (amended at FA: linked rows that were ambiguous and whose candidates are all gone; they are in `missing` too and `apply_scan` clears their `ambiguous` column), `gone` (unlinked row ids), `missing` (linked row ids that wait, those missing before included), `back` (row
 ids that were missing and are seen again: present at their path, retagged, replaced or moved), `unjudged` (was `held`;
 `scan_library` only), `unreadable`, `unopenable`. The docstring states the rules of the table.
 
@@ -196,7 +196,7 @@ Each row: where, the rule, the reason. "Left alone" means as an offline file tod
 
 | Consumer | Rule for a song whose file row is missing |
 |---|---|
-| `planner.plan` rule 2/3 (`planner.py` ~l.495–515) | Before the `online` check: `if file_missing(e)`: a bought file under the expected name in `Library/<folder>` → `adopt_bought`; elif the key is in `state["ambiguous"]` → nothing; elif `file_gone` and no `upgrade` → `acquire` reason `redownload`; else nothing (satisfied; with `file_gone` and a parked upgrade the sync's last phase places it, D9). D12 |
+| `planner.plan` rule 2/3 (`planner.py` ~l.495–515) | Before the `online` check: `if file_missing(e)`: a bought file under the expected name in `Library/<folder>` → `adopt_bought`; elif the key is in `state["ambiguous"]` → nothing; elif `file_gone` and no `upgrade` → `acquire` reason `redownload`; else nothing (satisfied; with `file_gone` and a parked upgrade the sync's last phase places it, D9; amended at FA: a row whose drive is away plans nothing at all, offline wins, checked first). D12 |
 | `planner.plan` "vanished since the scan" (`fold(e["path"]) not in on_disk`) | `continue` (wait; the next scan marks it), no `redownload`. D12 |
 | `planner._Own.free` / `askable` | not free (no question, no duplicate group, no merge into a playlist song) |
 | `planner._own_check_due` | not due (no upgrade check while missing) |
@@ -241,10 +241,14 @@ One new module holds the issue's rules, so the views, the hub and the commands a
 - `ACTIONS = ("download_again", "remove")`.
 - `action_for(key, e) -> str`: `download_again` when `e["in_playlists"]`, else `remove` (D11).
 - `why_not(key, e, state, action) -> str | None`, the first that applies, else None:
-  `not_missing` (its file is back, or it has no file row), `wrong_action` (the other action is this song's),
-  `found_twice` (`key in state["ambiguous"]`; Download again only: Remove may still run for an own song),
+  `not_missing` (its file is back, or it has no file row), `away` (its drive isn't connected: offline wins, both
+  actions; amended at D1: built so), `wrong_action` (the other action is this song's),
+  `found_twice` (`key in state["ambiguous"]`; both actions, amended at FB: both copies are there, and after Remove they
+  would be unlinked rows the import turns into new songs),
   `never` (`key in state["never"]`; Download again only), `check_open` (an open `rekordbox_check`; Remove only: its
-  undo store would be left behind), `asked` (`file_gone` already set; Download again only).
+  undo store would be left behind), `place_refused` (`file_gone` set and the sync's phase recorded a held refusal,
+  `space` or `cloud`, on the parked upgrade; Download again only; amended at FB: the song stays in To-do with the
+  record's own message as its words, and `next_due` is None), `asked` (`file_gone` already set; Download again only).
 - `REASONS: dict[str, str]`, the words (§5.4). They join `views`' reason words the way `eligible.REASONS` do; check
   first: whether the CLI's `partial`/`skipped` rows take reason words from a shared table (`hub/outcomes.py`), and
   register them there too.
@@ -273,6 +277,7 @@ song's `upgrade["file"]` (after, so a crash leaves at worst an orphan file in `U
 pointing at a deleted file). Log `"removed from library"` per song. Check first: that removing an entry whose row
 `facts()` can't find takes `_save_files`' delete branch (it does today for `removed` songs: `released.update(...)`),
 and that Favourites drop a key no song has (`views` leaves a gone key out today: `test_favourites_resolve_...`).
+Remove scans first (amended at FA): a file put back since the last scan links again before anything is forgotten; the hub's `missing_files` job runs `library.scan_library` before it reads the records (a song that linked back is skipped `not_missing`).
 
 ### 4.4 The dry run (E3b)
 
@@ -312,11 +317,12 @@ Reason: with the file missing, every case is a new file plus a repoint, which is
 |---|---|
 | `precondition(need_current=True)` | `need_current=False`; the row must be missing (`models.file_missing(e)`) and its path empty: a file back since the plan is `Skipped("not_missing")`, its drive away `Skipped("away")`; nothing placed |
 | Measuring the two versions again (`compare`) | nothing to measure: the stored `upgrade["alignment"]`, taken at parking against this very file (`execute._park`). Check first: whether a scan that judged the file `replaced` before it went missing can leave an older file's measurement; if so, the placement takes such a measurement as `unknown` |
+| (added in E4a2) the stored measurement after a scan judged the file `replaced` | `db.apply_scan` marks the song's `upgrade["alignment"]` `alignment_stale` in the branch that rewrites a replaced file's row (it was measured against the old content; the measurement itself stays, so what Same track on a file that is there is offered, and measures again when it runs, is as before; `upgrades.keep_measurement` clears the mark with a fresh one), and the placement reads a stale measurement as `unknown`: placed as it is, no repoint, cues never land off silently |
 | Same edit (`swap_safe`) | rendered at `k = L − d` (`build_staged`) and every rekordbox track of the old path pointed at it |
 | A different edit or `unknown` (Same track refuses `needs_choice`) | placed as it is (`k = 0`), no repoint: rekordbox's old track keeps its cues on the missing path, since they don't fit another edit. Reason: New track's rule for an edit that isn't the same; a refusal would last for good, since nothing can make the edits match |
 | rekordbox's timeline `d` (`timeline_offset(old_file)` decodes and probes the file) | `timeline_offset(old_path, view=…, codec=<stored file_codec>)`: with `codec` given it never opens the file. Known without it: no rekordbox (`no_rekordbox`), no track holds the path (`not_in_rekordbox`), no track with cues or a grid (`no_cues`), a format whose d can only be 0 (`format`: PCM, FLAC, ALAC; every Discjockey download is an AIFF). Otherwise the new answer `missing_file` (d unknown). No stored codec: the extension decides, as `timing.zero_only` would |
 | d unknown (Same track refuses `timing` / `not_analysed`) | placed at `k = L`, repointed, check `aligned: false`, whose words ask the user to look at the cues (§5.4). Reason: a refusal would leave the song unplaceable for good (the file that could tell d is gone), and no repoint would strand its cues in rekordbox; the error left is the old format's start trim only, the check says so, and the step has its undo |
-| Where the new file goes (`plan_names`: next to the old file) | where the redownload would have gone: `folder_dir(<the song's placement folder>, status)` + `Artist - Title.aiff`, chosen by the `NameReserver` as the executor chooses for an `acquire` (`execute.py`). Reason: "instead of downloading" means the same place; an emptied import folder is never filled again. Check first: for an own key linked to a playlist song the placement folder is the one rule 2's `acquire` names; the reserver doesn't add the song's ID because the missing row still names that very path |
+| Where the new file goes (`plan_names`: next to the old file) | where the redownload would have gone: `folder_dir(<the song's placement folder>, status)` + `Artist - Title.aiff`, chosen by the `NameReserver` as the executor chooses for an `acquire` (`execute.py`). Reason: "instead of downloading" means the same place; an emptied import folder is never filled again. Check first: for an own key linked to a playlist song the placement folder is the one rule 2's `acquire` names; the reserver doesn't add the song's ID because the missing row still names that very path. The new file may take the missing file's own name (a lossy AIFF in `not_lossless/` with a better lossy version). Then rekordbox's tracks at that name play it whatever is written: a repoint changes only their file facts, so recovery and undo tell the sides of the commit by `FileSize` where the path is the same (`rbstep.tracks_at(sizes=…)`), and a different or unknown edit makes the check `aligned: false` when a rekordbox library exists (words: look at the cues) |
 | Step 6, old file → `Superseded/` | nothing to move: `superseded: None` in the op; the run, `recover_convert` and `undo_convert` skip every step that names it |
 | `keep_comment(old_file, …)`; rekordbox's text columns planned against the old file's tags | the download's own tags. rekordbox's text columns are not written: `row_change(..., text=False)` writes identity (`FolderPath`, `FileNameL`, `FileType`) and file facts (size, rate, bits, bit rate, length) only; `PPTH` and `contentFile` as today. Reason: without the old tags no column can be told apart from the user's own edit, so every field stays as rekordbox has it |
 | An AIFF old file (Same track swaps it in place) | the same placement. A Discjockey file from `not_lossless/` gets its lossless version in the folder's root, and rekordbox's track is pointed there (no Auto Relocate needed) |
@@ -396,15 +402,22 @@ when its drive is away) plus:
 
 - `detail`: "Missing since 12 Nov · was in Techno 2019" (`words.short_day` of `missing_since`; `place` of the row's
   path: the Folder column's words). An ambiguous one: "In 2 places now · keep one and it links again".
-- `missing: {since: ISO date, place: str, action: "download_again" | "remove", why_not: str | null, words: str |
-  null, will: str, upgrade_waiting: bool}` (`missing.view`); `words` is the reason's words when `why_not` is set;
-  `will` is `missing.will_words` (what the action does for this song: a download or the parked version, D9).
+- `missing: {since: ISO date, place: str, action: "download_again" | "remove", label: str, tone: "filled" | "danger",
+  why_not: str | null, words: str | null, foot_note: str | null, will: str, upgrade_waiting: bool, in_missing_files:
+  bool}` (`missing.view`); `words` is the reason's words when `why_not` is set; `will` is `missing.will_words` (what
+  the action does for this song: a download or the parked version, D9). (amended at FC: `label` / `tone` are the single
+  song's button, `foot_note` the words under it when it is disabled (null for `found_twice` and `away`, which `hint`
+  says), `in_missing_files` whether To-do lists the song, `missing.in_group`, the rule `views._group` uses too.)
 
 ### 5.3 The track's details (`views.track_detail`, the To-do and Library panels, `track show`)
 
-`TrackDetail` gains `missing: MissingDetail | null`: the item's `missing` fields plus `line` and `hint`:
+`TrackDetail` gains `missing: MissingDetail | null`: the item's `missing` fields plus `line`, `hint` and `hint_library`
+(amended at D1: built so: `hint_library` is the hint the Library's panel shows, whose foot has no such buttons and
+only opens To-do: the same first sentence, then "Or open it in To-do to download it again." / "… to remove it from your
+library."; the Download again one with a waiting version keeps "the better version already waiting for it goes in, and
+nothing is downloaded."; the ambiguous hint is the same in both):
 
-- `line`: "Not seen since 12 Nov. It was in Techno 2019." (ambiguous: "Found in 2 places: Techno 2019 and
+- `line`: "Missing since 12 Nov. It was in Techno 2019." (amended at D1: built so; was "Not seen since …"; ambiguous: "Found in 2 places: Techno 2019 and
   Old crates.").
 - `hint`, by action: Download again: "Put the file back in any watched folder and it links again with everything it
   had. Or download it again at your next sync." Remove: "Put the file back in any watched folder and it links again
@@ -414,33 +427,38 @@ when its drive is away) plus:
   it had. Or press Download again: the better version already waiting for it goes in at your next sync, and nothing
   is downloaded."
 - Remove with `upgrade_waiting`, `hint` adds: "Its better version waiting in Upgrade ready goes with it."
+- (amended at FC) `hint` follows `why_not` first, so it never advises what the disabled button refuses: `never`,
+  `check_open`, `place_refused`: the first sentence only; `away`: "Its drive isn't connected; plug it in to decide.";
+  `found_twice`: the ambiguous one. A song already asked for (`asked`, not in To-do) says, in `hint` and `hint_library`:
+  the first sentence and "You asked for it already: it happens at your next sync."
 
 ### 5.4 Words (binding)
 
 | Where | Words |
 |---|---|
 | Group label / hint | "Missing files" / "not where they were; put a file back and it links again" |
-| Row detail | "Missing since {day} · was in {place}"; ambiguous "In {n} places now · keep one and it links again" |
+| Row detail | "Missing since {day} · was in {place}"; the details' line "Missing since {day}. It was in {place}." (amended at D1: built so); ambiguous "In {n} places now · keep one and it links again" |
 | AwayTag on a row (window `FILE_STATE_TAG.file_missing`) | "Missing" (was "File not found") |
 | Buttons | "Download again"; "Remove from library…" (the dots: it asks first) |
 | Selection panel buttons | "Download again · {n}"; "Remove from library · {m}…" |
 | Group head link | "Select all · {n}" (selects the group; the selection panel acts) |
-| Confirm (Remove) | title "Remove from your library?" (several: "Remove {m} songs from your library?"); body "Their files aren't in your watched folders. Discjockey forgets these songs, your answers about them and any better version waiting for them. If a file comes back later, it is added as a new song."; button "Remove", tone danger |
+| Confirm (Remove) | title "Remove from your library?" (several: "Remove {m} songs from your library?"); body "Their files aren't in your watched folders. Discjockey forgets these songs, your answers about them and any better version waiting for them. If a file comes back later, it is added as a new song." (amended at D1: built so: for one song the body is singular: "Its file isn't in your watched folders. Discjockey forgets this song, your answers about it and any better version waiting for it. If the file comes back later, it is added as a new song."); button "Remove", tone danger |
 | `CONFIRM["missing remove"]` (command line) | the confirm's body, one line |
 | Result words | "{n} song(s) download again at your next sync." / "Removed {n} song(s) from your library."; with placements: "{n} song(s) download again and {p} get the better version already waiting for them, at your next sync." (only the parts that apply); skipped ones add "{k} skipped: see why." |
 | `will` (item, dry run, selection panel) | "Downloads again at your next sync"; "Gets the better version already waiting for it at your next sync; nothing is downloaded"; "Removed from your library" |
-| Reasons | `not_missing` "Its file is back."; `wrong_action` "This song gets {the other action} instead."; `found_twice` "Its file is in several places now: keep one and it links again."; `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open: finish it first."; `asked` "You asked for it already: it happens at your next sync." |
+| Reasons | `not_missing` "Its file is back."; `away` "Its drive isn't connected; plug it in to decide." (amended at D1: built so: checked second, after `not_missing`; both actions; an offline drive can't tell whether the file is there); `wrong_action` "This song gets {the other action} instead."; `found_twice` "Its file is in several places now: keep one and it links again."; `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open: finish it first."; `place_refused` (amended at FB) the refusal record's own message, fallback "The sync couldn't put its better version in; it tries again when that changes."; `asked` "You asked for it already: it happens at your next sync." |
 | Scan message | §2.3 |
 | Sync preview / report | §3 last rows |
-| Placement, before a start (`start_note` clause) | "{p} missing song(s) get their better version at the end of the sync." (rekordbox open: "… once rekordbox is closed.") |
+| Placement, before a start (`start_note` clause) | "{p} missing songs get their better version at the end of the sync." (rekordbox open: "… at the end of the sync, once rekordbox is closed."); with one song (amended at D1: built so) `start_note` and `place_notes` name it: "Artist – Title gets its better version at the end of the sync." The words are made engine-side (`words.place_plan_line(n, waits, name=)`; the window shows `place_notes` verbatim, §6.1) |
 | Placement result rows | done, repointed and lined up: "Its better version is in, at {name}; rekordbox's track plays it with its cues."; done, `aligned: false`: "Its better version is in, at {name}; check its cues in rekordbox."; done, not repointed: "Its better version is in, at {name}."; waits: "Waits for rekordbox to be closed: its better version goes in at your next sync."; parked file gone: "Its better version was no longer in Upgrades ready, so it downloads at your next sync." |
-| Report section `placed_missing` | "Better version put in (its file was missing)" |
-| Check card (`report.check_text`, `placed_missing`) | repointed, lined up: "Its file was missing, so its better version took its place. rekordbox's track plays it with its cues and grid: play it once to check."; `aligned: false`: "… Discjockey couldn't measure where rekordbox's timeline sat for the missing file: check that its cues and grid sit on the beat."; not repointed: "Its file was missing, so its better version took its place, as a new file to rekordbox (a different edit: your old track's cues don't fit it)."; no rekordbox track held it: the first sentence only. `words.person_steps`: `step:reload_tag` for repointed, `step:relocate_new` for not repointed |
+| Report section `placed_missing` | "Better versions put in (their files were missing)" (amended at FC: the plural, as To-do's batch list title, its row and its card say it) |
+| Check card (`report.check_text`, `placed_missing`) | repointed, lined up: "Its file was missing, so its better version took its place. rekordbox's track plays it with its cues and grid: play it once to check."; `aligned: false`: "… Discjockey couldn't measure where rekordbox's timeline sat for the missing file: check that its cues and grid sit on the beat."; not repointed: "Its file was missing, so its better version took its place, as a new file to rekordbox (a different edit: your old track's cues don't fit it)."; no rekordbox track held it: the first sentence only. `words.person_steps` (amended at D1: built so): `step:look` when the track was repointed (or nothing in rekordbox plays it by name: Discjockey never wrote its text columns, so a Reload Tag would replace the names the person changed), `step:relocate_new` when rekordbox takes it as a new file (not repointed, lined up, no exact or shifted match), with the new file's path at the end of its sentence |
 
 ### 5.5 Library rows
 
 `file_state` `file_missing` (from the stored mark) is now a value of `LibraryRow.file_state` and `TodoItem.file_state`
-(today both exclude it). Nothing else changes in the Library: its panel shows `track.missing` (§7.3); actions stay in
+(today both exclude it). (amended at FC: every Library row carries `in_missing_files`, true only for a row whose file
+waits as missing and that To-do's group lists.) Nothing else changes in the Library: its panel shows `track.missing` (§7.3); actions stay in
 To-do.
 
 ## 6. Bridge, commands, catalogue (E3a: reads; E3b: writes and commands)
@@ -455,6 +473,7 @@ To-do.
 | `rescan_library()` (changed, E1) | job `scan` | result gains `missing`, `back` (§2.3) |
 | `missing_files_preview(track_ids: list[str], action: str)` (new, E3b) | read, in `LIBRARY_METHODS` | §4.4; an unknown action is `bad_args`; an unknown song as `_track_list` refuses today |
 | `missing_files(track_ids: list[str], action: str)` (new, E3b) | write job, kind `missing_files`, `replanned_work` (the Sync page shows the planned download, or the placement in its Auto-upgrade line, at once; check first that the replan refreshes the Auto-upgrade dry run too) |
+| `sync_preview()` (changed, E4b; amended at D1: built so) | read | `auto_upgrade` is `{on, ready, places, place_notes}`: `ready` counts the upgrades only; `places` the songs the sync's last phase would put their parked version in (switch on or off); `place_notes` `{closed, open}`, the engine's clause for them (§5.4), null when `places` is 0; the window shows it verbatim and counts nothing |
 | `auto_upgrade_preview()`, `auto_upgrade_run()`, the sync's result (changed, E4b) | read / job | the Auto-upgrade block's rows carry `action`, `how` may be `placed`; with the switch off the block is present when something is placed (§4.5.4) | `{job_id}`; `JobFinished.result`: `{action, results: [ItemResult], done: [keys], skipped: [keys], words}`; every song skipped → `OpProblem(..., "changed")` with the results kept (`ctx.failed_result`, as `rekordbox_checked` does) |
 
 Mirrors `upgrade` / `upgrade_preview` (one method, `action` names the verb), so the catalogue's `fixed` works as for
@@ -563,6 +582,22 @@ missing pattern (then block + gallery + doc, CLAUDE.md). The window shows engine
 A `place` row shows like any row of the block, with the engine's words (§5.4). Check first: whether the block's
 rows or counts key anything on `how` or assume every row is an upgrade (a label, an icon, "upgraded"); if so, they
 follow `action` / `how: "placed"` with engine words, nothing decided in the window.
+
+### 7.4b Departures of the built window from this section (amended at D1: built so)
+
+- **Select all counts what it selects.** The head link's words are the engine's (`all.label`, "Select all · k", null
+  under two songs) and k is the number of songs it selects: every one that is not hidden, a song that can't act now
+  included (the panel lists it dimmed with its reason and the buttons skip it). §7.1's `all.download_again +
+  all.remove` would count only the songs that can act, a number that disagrees with the panel the link opens.
+- **Open in To-do is a secondary full-width button** in the Library panel's foot (like the Library's other To-do
+  buttons), not a link in its body: it is the panel's one action there.
+- **The quality badge stays in a Missing files row** (LOSSLESS or lossy, as every row's slot); the AwayTag "Missing"
+  is not shown there, because the group's head already says the file is missing. An offline drive and a folder not
+  found still show their tags (`rowAwayTag`); the Library's rows show "Missing".
+- **Placed rows get their own card on the Sync end screen**, apart from the Auto-upgrade parts (Upgraded, Still
+  waiting, Couldn't go in): a placement is not an upgrade of a file that is there.
+- **The drop zone's card is titled "Put its file back"** (`PUT_BACK_TITLE`) where the song's file is gone, instead of
+  "Get a lossless file": the dropped file is put in as the song's file.
 
 ### 7.5 Critique and shots
 
@@ -742,8 +777,8 @@ Sizes from the record (Sonnet engine group 150–310k, Opus UI build 300–400k,
 | **E2** consumers | Sonnet | `planner.py` (incl. D9's and the ambiguous rule), `execute.py`, `apply_outcome` (where it lives), `tidy.py`, `cdj.py`, `report.py` words; tests §9.2 E2 | the repro (playlist song) green, the CDJ test green again | 150–210k |
 | **E3a** views + read shapes | Sonnet | `missing.py` (rules, `will_words`, `view`), `views.py` (§3's `views` rows, To-do group, item, `track_detail`, rows), `hub/api.py` (`todo`, `track` pass `place`), contract doc, `types.ts`, `contract.ts`, fake scenario `missing_files` (reads); tests §9.2 E3a | `todo()` / `track()` answer the group | 210–260k |
 | **E3b** actions + commands | Sonnet | `missing.py` (writes, preview), `hub/api.py` (two methods), `catalog.py`, `select.py`, `cli/` (render check), contract doc, `types.ts`, `contract.ts`, fake methods, CONTRIBUTING lines; tests §9.2 E3b | `missing download/remove` run end to end | 200–260k |
-| **E4a** the placement step | Sonnet | `convert.py` (`place_parked`, the op without `superseded`, recovery, undo), `rekordbox/offset.py` (`codec=`, `missing_file`), `rekordbox/write.py` (`row_change(text=False)`), `rekordbox/eligible.py` (`place_quick`, reason words), `batches.py` (action `place`), `upgrades.py` only if the undo dispatch needs it, `report.check_text` + `words.person_steps` for `placed_missing`; tests §9.2 E4a | the decision's repro green with a `make_master` library | 200–250k |
-| **E4b** the phase | Sonnet | `missing.place_keys`, `auto_upgrade.py` (`plan`, `Planned.place`, records, `Outcome` rows, `start_note` words), `run.py` (`upgrade_phase`, `auto_upgrade_only`), `batches.py` / `db.py` / `models.py` (`download_again`, `SYNC_STARTED_BY`), `report.py` section, `views.auto_upgrade_view`, contract doc, `types.ts`, `contract.ts`, fake block; tests §9.2 E4b | a Download again song placed by `auto_upgrade_only` with the switch off | 150–200k |
+| **E4a** the placement step | Sonnet | `convert.py` (`place_parked`, the op without `superseded`, recovery, undo), `rekordbox/offset.py` (`codec=`, `missing_file`), `rekordbox/write.py` (`row_change(text=False)`), `rekordbox/eligible.py` (`place_quick`, reason words), `upgrades.py` only if the undo dispatch needs it (the action `place` in `batches.py` and the report words for `placed_missing` are E4b's); tests §9.2 E4a | the decision's repro green with a `make_master` library | 200–250k |
+| **E4b** the phase | Sonnet | `missing.place_keys`, `auto_upgrade.py` (`plan`, `Planned.place`, records, `Outcome` rows, `start_note` words), `run.py` (`upgrade_phase`, `auto_upgrade_only`), `batches.py` / `db.py` / `models.py` (`download_again`, `SYNC_STARTED_BY`), `report.py` section (`SECTIONS` gains `placed_missing`) and `report.check_text` + `words.person_steps` for the check `placed_missing` (E4a left them: an unknown check reason falls back to the generic words), `views.auto_upgrade_view`, contract doc, `types.ts`, `contract.ts`, fake block; tests §9.2 E4b | a Download again song placed by `auto_upgrade_only` with the switch off | 150–200k |
 | **U1** the window | Opus `ui-build` | §7 (`pages/todo/*`, `lib/decisions/*`, `pages/library` details, `lib/format.ts`, §7.4a's check of the Sync block), shots.json entries; vitest | the group, panel, selection, Library note | 300–390k |
 | **S1** shots | Sonnet | `node scripts/shots.mjs` on the eight states of §7.5 at 1100 and 2560, compared to `main` for the To-do, Library and Sync pages; `npm run rules -- --page todo --only <shots>` (and `--page sync`) | the shots and a list of what looks wrong (no fixes) | 90–130k |
 | **D1** docs + rehearsal | Sonnet | spec, README, CLAUDE.md, issues 43/40 (§8), `scripts/missing_files_rehearsal.py` (§10.2), its run | the rehearsal PASS; issue 43 removed | 130–170k |

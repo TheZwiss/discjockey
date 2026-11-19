@@ -39,8 +39,8 @@ BRIDGE = bridge_methods()
 EXISTING = [e for e in catalog.ENTRIES if not e.cli_first]
 
 
-def test_the_bridge_has_95_methods_and_each_has_an_entry():
-    assert len(BRIDGE) == 95
+def test_the_bridge_has_97_methods_and_each_has_an_entry():
+    assert len(BRIDGE) == 97
     assert set(BRIDGE) == {e.method for e in EXISTING}
 
 

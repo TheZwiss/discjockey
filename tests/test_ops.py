@@ -162,6 +162,26 @@ def add(paths, src, analyze=lambda p: ("pcm_s16le", None), tid="t1aaaaaaa"):
     return ops.add_bought_file(paths, state, tid, src, analyze=analyze, now=lambda: NOW), state
 
 
+def test_a_bought_file_for_a_song_whose_file_is_missing_goes_nowhere_near_superseded(paths, tmp_path):
+    """Issue 43 §3, §7.2: nothing is there to supersede; the song's row takes the bought file's place and the mark goes."""
+    from discjockey import db
+    (paths.root / LOSSY).unlink()
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET missing_since = '2026-11-10T09:00:00'")
+        (file_id,) = conn.execute("SELECT id FROM files").fetchone()
+    state = load_state(paths)
+    assert state["tracks"]["t1aaaaaaa"]["missing_since"]
+    result, state = add(paths, bought(tmp_path))
+    e = state["tracks"]["t1aaaaaaa"]
+    assert result.section == "bought" and e["path"] == "Library/A/Artist - Song.wav" and e["status"] == "lossless"
+    assert not (paths.root / "Superseded").exists()
+    assert (paths.root / e["path"]).read_bytes() == b"RIFF bought audio"
+    with db.connect(paths.db_file) as conn:
+        assert conn.execute("SELECT id, path, missing_since FROM files").fetchall() == [
+            (file_id, "A/Artist - Song.wav", None)]
+    assert not load_state(paths)["tracks"]["t1aaaaaaa"].get("missing_since")
+
+
 def test_bought_wav_is_filed_under_the_expected_name(paths, tmp_path):
     src = bought(tmp_path)
     before = (src.read_bytes(), src.stat().st_mtime_ns)

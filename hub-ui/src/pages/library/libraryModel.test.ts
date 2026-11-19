@@ -8,9 +8,10 @@ import {
   rowTitleTip, segOptions, selectedIndex, shortUrl, sortKey, sortState, subfolderCell, subtitleParts, tableKind, tableLines,
   titleNote, viewSort, waitWords, windowSlice, alsoHint, playlistColumnFor, artistColumnFor, shownSort, tooManyFor,
   heldRow, holdApplies, withHeld, rowMenu, FILES_SCOPE, MAKE_AIFF, aiffHeader, inspectorSubject, isBatchSubject,
-  keepTableSelection, selectAllRows, tableScope,
+  keepTableSelection, selectAllRows, tableScope, missingNote, missingTodoHref,
 } from './libraryModel';
 import { click, escape, move, single, NONE, type Selection } from '$lib/components/selectionModel';
+import { decisionFor } from '$lib/decisions/decisionModel';
 import type { LibraryRow, TrackDetail } from '$lib/bridge/types';
 
 const row = (id: string, extra: Partial<TrackRow> = {}): TrackRow => ({
@@ -121,6 +122,25 @@ describe('the panel', () => {
     // a decision wins; the card isn't there then, and without it the foot is as before
     expect(footAction(weak, { kind: 'upgrade' }, filled)).toBe('upgrade');
     expect(footAction(weak, null, null)).toBe('todo');
+  });
+  it('foot of a song whose file waits as missing: Open in to-do to its Missing files item, whatever else it is', () => {
+    const missing = { line: 'Missing since 12 Nov.', hint: 'Put the file back.', in_missing_files: true } as TrackDetail['missing'];
+    expect(footAction(t({ missing }), null)).toBe('missing');                                     // lossless
+    expect(footAction(t({ status: 'not_lossless', missing }), null)).toBe('missing');             // would be Open in to-do
+    expect(footAction(t({ in_playlists: false, missing }), null, { variant: 'filled', cdj: false })).toBe('missing');
+    // a decision the to-do list holds for it (its rekordbox check) still wins
+    expect(footAction(t({ missing }), { kind: 'check', item: { ...row('x'), group: 'rekordbox_check', detail: '', free: false,
+      file_state: 'here' } })).toBe('check');
+    expect(footAction(t({ missing: null }), null)).toBeNull();
+    // a song already asked for (Download again) is in no group: no button that would find nothing, the usual foot instead
+    const asked = { ...missing!, in_missing_files: false };
+    expect(footAction(t({ missing: asked }), null)).toBeNull();
+    expect(footAction(t({ status: 'not_lossless', missing: asked }), null)).toBe('todo');
+    // a parked better version is no decision for it (its file is gone: Download again in To-do puts it in): the foot says Open in to-do
+    const parked = t({ status: 'not_lossless', upgrade: up(true), missing });
+    expect(decisionFor([], parked)).toBeNull();
+    expect(footAction(parked, decisionFor([], parked))).toBe('missing');
+    expect(footAction({ ...parked, missing: null }, decisionFor([], { ...parked, missing: null }))).toBe('upgrade');
   });
   it('file name without the folders', () => {
     expect(fileName('Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff')).toBe('Armin Hermann - Get Naughty.aiff');
@@ -283,7 +303,7 @@ describe('the cells', () => {
 });
 
 const here = (r: TrackRow, file_state: LibraryRow['file_state'] = 'here'): LibraryRow => ({ ...r, sound_checked: true, file_state,
-  wait: null, next_try: null, position: null, place: null, subfolder: null, playlists: [], track_link: null });
+  wait: null, next_try: null, position: null, place: null, subfolder: null, playlists: [], in_missing_files: false, track_link: null });
 
 describe('a dimmed row', () => {
   it('is a downloaded song that left every playlist', () => {
@@ -436,6 +456,10 @@ describe('a playlist view (D6, D9): its rows, its queue and its count', () => {
     expect(rowInTodo(waiting('w', 'not_found'))).toBe(true);
     expect(rowInTodo({ ...waiting('w', 'not_found'), hidden: true })).toBe(false);  // To-do doesn't show a hidden one
     expect(rowInTodo(lr('a', { status: 'not_lossless' }))).toBe(true);
+    // the engine says whether the Missing files group lists the song: a lossless playlist song and an own song count
+    expect(rowInTodo({ ...here(row('m'), 'here'), in_missing_files: true })).toBe(true);
+    expect(rowInTodo({ ...here(row('m', { in_playlists: false }), 'here'), in_missing_files: true })).toBe(true);
+    expect(rowInTodo({ ...here(row('m'), 'here'), in_missing_files: false })).toBe(false);
     expect(rowTitleTip({ ...waiting('w'), in_playlists: false }, 'A - w')).toBe('A - w');
   });
   it('the table lists the songs, then the folder\'s other files under their head; an empty line only beside them', () => {
@@ -729,5 +753,15 @@ describe('the header\'s AIFF button (three states)', () => {
     expect(aiffHeader(null, true, 'Resume · 7 left').label).toBe('Resume · 7 left');
     // a run found in a reloaded window has no frozen label: the idle one
     expect(aiffHeader(null, true).label).toBe('Make AIFF…');
+  });
+});
+
+describe('a missing file\'s details (issue 43)', () => {
+  it('"Open in To-do" goes to the Missing files group with the song picked; the note is the engine\'s line and hint', () => {
+    expect(missingTodoHref('t7')).toBe('/todo?filter=missing_file&track=t7');
+    expect(missingTodoHref('a b/c')).toBe('/todo?filter=missing_file&track=a%20b%2Fc');
+    expect(missingNote({ missing: { line: 'Missing since 12 Nov. It was in Techno 2019.', hint: 'Put the file back.', hint_library: 'Open it in To-do.' } as any }, 'library'))
+      .toEqual({ title: 'Missing since 12 Nov. It was in Techno 2019.', text: 'Open it in To-do.' });
+    expect(missingNote({ missing: null })).toBeNull();
   });
 });

@@ -40,7 +40,7 @@ absolute path of the program.
   `--detach` and `--wait-busy` stand anywhere on the line; a flag a command does not take is a usage error, never
   ignored. `--dry-run` shows what a command that changes things would do (where `help` lists it in `flags`); `--yes` is
   the window's confirmation, taken only by the commands whose `needs_yes` is true (`upgrade discard`, `track undo`,
-  `batch undo`, `folder remove`, `rekordbox restore`): without it they answer `refused` / `needs_yes` with what they
+  `batch undo`, `folder remove`, `missing remove`, `rekordbox restore`): without it they answer `refused` / `needs_yes` with what they
   would do, and any other command answers `bad_args` to the flag (a command never prompts). `discjockey call <method>
   [--args <json|->]` sends a bridge method the window's own payload, through the same refusals as the noun-verb command.
   `discjockey app open` opens the window.
@@ -73,6 +73,13 @@ absolute path of the program.
   on a clean library is `refused`; a dry run with more than 50 own files whose facts are unread is `refused`
   (`facts_missing`, next `library facts`; up to 50 are read in memory and never stored, in the window too; past 50 the
   window plans on the stored facts and never refuses).
+- **Songs whose file is missing (issue 43):** `missing list [--hidden]` lists them as To-do's Missing files group does;
+  `missing download <song…>|--all [--dry-run]` asks Download again (the sync downloads them, or puts a waiting better
+  version in), `missing remove <song…>|--all [--dry-run] --yes` removes them from the library. A song is a key or the
+  old path of its missing file; `--all` is the group's list for that action. The action follows the song (a song in a
+  playlist downloads again, any other is removed): one it doesn't fit is skipped with its reason, the run ends `partial`
+  (exit 6), or `refused` (exit 7) when every song was skipped. Remove is final (no undo) and deletes no music file, only
+  the better version waiting in `Upgrades ready/`.
 - **Scratch folders:** a command run by hand always sets `DISCJOCKEY_SUPPORT=<scratch folder>` and
   `DISCJOCKEY_REKORDBOX=<fixture folder or an empty folder>`: without them it reads, and a job writes, the real library
   and the real rekordbox library. `where` prints what a process resolved. A set but empty `DISCJOCKEY_REKORDBOX=` means

@@ -28,8 +28,10 @@ export type FakeAccount = FakeService & { browser: Browser; profile?: string | n
 
 /** As the state's `rekordbox_check`: an added_as_new and a swapped one also keep what the two files measured as, a
  *  swapped one whether the file moved up out of not_lossless/, and both the undo (here: the fields as they were). */
-export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed'; since: string; match?: string;
+export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed' | 'placed_missing'; since: string; match?: string;
   offset_ms?: number; moved?: boolean; aligned?: boolean; relocate?: boolean; undo?: Partial<FakeTrack>;
+  /** issue 43: a `placed_missing` check: rekordbox's track of the missing file was pointed at the new file */
+  repointed?: boolean;
   /** stage B: the AIFF batch that left it, whether Reload Tag is still needed, what was written in rekordbox */
   batch?: number; reload_tag?: boolean; rekordbox?: { entries: number; kept: string[] } | null;
   /** as the undo record's `old`: where the old file (added) or the copy of the old audio (swap) is now */
@@ -45,8 +47,8 @@ export type RekordboxCheck = { reason: 'wrong_song' | 'added_as_new' | 'swapped'
  *  tracks carry their own checks. `id` runs on from 1 in the order given; items `done` are marked done (set the track's
  *  own `rekordbox_check` for the check), `planned` ones are left (the batch is Resumable when `state` is `stopped`). */
 export type SeedBatch = { kind: 'upgrade' | 'convert' | 'mixed'; scope: string; state: 'stopped' | 'done';
-  started_by?: 'user' | 'make_aiff' | 'cdj_all' | 'upgrade_all' | 'auto_upgrade';
-  items: { track: string; action: 'convert' | 'rename' | 'same_track'; state: 'done' | 'planned' }[] };
+  started_by?: 'user' | 'make_aiff' | 'cdj_all' | 'upgrade_all' | 'auto_upgrade' | 'download_again';
+  items: { track: string; action: 'convert' | 'rename' | 'same_track' | 'place'; state: 'done' | 'planned' }[] };
 export type FakeAudio = { codec: string; rate: number | null; bits: number | null; kbps: number | null;
   ext?: string; tagsClean?: boolean };
 
@@ -87,6 +89,11 @@ export type FakeTrack = {
   cloud?: boolean;
   /** stage D: rekordbox holds a track for this file (default true while rekordbox has a library) */
   inRekordbox?: boolean;
+  /** issue 43: the file waits as missing (the engine's `missing_since`): `since` the ISO day of the scan that missed it,
+   *  `found` the paths a song found in several places has now (the engine's `ambiguous`). Its path stays. */
+  missing?: { since: string; found?: string[] };
+  /** issue 43: Download again was asked (the engine's `file_gone`): the song leaves To-do, the next sync downloads it */
+  fileGone?: boolean;
 };
 /** One move of a move batch as the fake keeps it (the engine's `moves` row). */
 export type FakeMove = {
@@ -214,7 +221,7 @@ export type FakeState = {
   /** the sync's Auto-upgrade phase: the fake rekordbox is opened after this many tracks of the batch (the rest wait) */
   autoOpensAfter?: number;
   /** who started a scenario's AIFF batch (batch id -> `aiff_batches.started_by`); unset: the user */
-  batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade'>;
+  batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade' | 'download_again'>;
   /** stage D: the room per drive (a folder on it, as `AiffPlan.space` says it) in bytes; a drive not listed has 400 GB */
   freeBytes?: Record<string, number>;
   /** stage D: AIFF batches that exist before the page does anything, e.g. a stopped Make all (`seedBatches`, convert.ts) */
@@ -289,9 +296,13 @@ export function pathOf(t: FakeTrack): string | null {
   return `Library/${t.at ?? t.folder}${sub}/${t.artist} - ${t.title}.aiff`;
 }
 /** A to-do item's `file_state` (the contract's): the file's drive or folder state, `no_file` for a song without one. */
-export function todoFileState(t: FakeTrack): 'here' | 'offline' | 'folder_missing' | 'no_file' {
-  return !trackRow(t).path ? 'no_file' : t.away === 'offline' || t.away === 'folder_missing' ? t.away : 'here';
+export function todoFileState(t: FakeTrack): 'here' | 'offline' | 'folder_missing' | 'file_missing' | 'no_file' {
+  // views.file_state: an away drive or folder first (it can't tell), then the stored mark of a file that waits as missing
+  return !trackRow(t).path ? 'no_file' : t.away === 'offline' || t.away === 'folder_missing' ? t.away
+    : t.missing ? 'file_missing' : 'here';
 }
+/** Whether the file can be played: its drive is there and it isn't marked missing (views: `state == "here"`). */
+export const fileThere = (t: FakeTrack): boolean => !t.away && !t.missing;
 export function trackRow(t: FakeTrack): TrackRow {
   return {
     track_id: t.track_id, artist: t.artist, title: t.title, folder: t.folder, duration_s: t.duration_s,
@@ -310,7 +321,37 @@ export function qualityLine(t: FakeTrack): string {
   const kbps = t.kbps ? ` ${t.kbps} kbps` : '';
   return `${src} ${(t.codec ?? 'aac').toUpperCase()}${kbps} · cutoff ${khz(t.cutoff_hz ?? 20000)}`;
 }
+/** missing.in_group: To-do's Missing files group lists a song whose file waits as missing, unless Download again was
+ *  asked (`fileGone`) and no refusal of the placement holds. The Library's `in_missing_files` is the same rule. */
+export const inMissingGroup = (t: FakeTrack): boolean => !t.fileGone || !!t.upgrade?.auto_refused?.message;
+
+/** views.TODO_SUB_*: the header's sentence parts, [one, many ({n})] (fake/data.test.ts pins them against views.py) */
+export const TODO_SUB_WORDS = {
+  nothing: 'Nothing to do',
+  tracks: ['1 track is not lossless yet', '{n} tracks are not lossless yet'],
+  questions: ['1 question about your files', '{n} questions about your files'],
+  checks: ['1 track to check in rekordbox', '{n} tracks to check in rekordbox'],
+  cdj: ["1 file won't play well on CDJs", "{n} files won't play well on CDJs"],
+  missing: ['1 song is missing its file', '{n} songs are missing their file'],
+} as const;
+/** views.todo_sub: the To-do page's second line as parts in order of importance. Every number counts tracks: "not
+ *  lossless yet" sums the chips of the groups below lossless (not `all`, which counts a track once however many groups it
+ *  is in), the checks are `check_tracks` (`rekordbox_check` counts items), the CDJ files and the songs whose file is
+ *  missing come last. Nothing in any of them: ["Nothing to do"]. */
+export function todoSub(chips: Record<string, number>, checkTracks: number): string[] {
+  const c = (g: string) => chips[g] ?? 0;
+  const tracks = ['upgrade_ready', 'not_found', 'weak', 'good_lossy', 'fake', 'other'].reduce((n, g) => n + c(g), 0);
+  const parts = ([[tracks, TODO_SUB_WORDS.tracks], [c('same_song') + c('duplicate'), TODO_SUB_WORDS.questions],
+    [checkTracks, TODO_SUB_WORDS.checks], [c('cdj'), TODO_SUB_WORDS.cdj], [c('missing_file'), TODO_SUB_WORDS.missing]] as const)
+    .filter(([n]) => n).map(([n, [one, many]]) => (n === 1 ? one : many.replace('{n}', String(n))));
+  return parts.length ? parts : [TODO_SUB_WORDS.nothing];
+}
 export function todoGroup(t: FakeTrack): TodoGroupKey | null {
+  // views._group: a file that waits as missing wins over every other group; once Download again is asked
+  // (`fileGone`) the song is in none (a song with no file and `fileGone` is no Not found either)
+  // unless the sync's phase refused the placement and the refusal holds (the drive is full, Cloud Library Sync)
+  if (t.missing) return inMissingGroup(t) ? 'missing_file' : null;
+  if (t.status === 'missing' && t.fileGone) return null;
   if (t.unchecked) return null;  // as views._group: its quality is only the codec's guess
   if (t.other) return 'other';
   if (t.upgrade) return 'upgrade_ready';
@@ -384,6 +425,11 @@ export function checkStatus(c: RekordboxCheck | null): string {
   if (c?.reason === 'wrong_song') return 'now the right song: analyse again';
   if (c?.reason === 'converted') return c.rekordbox ? 'an AIFF now: nothing to redo' : 'an AIFF now, not in rekordbox';
   if (c?.reason === 'renamed') return 'clean name now';
+  if (c?.reason === 'placed_missing') {   // a better version put in for a missing file (report.placed_check_text's five cases)
+    if (c.repointed) return c.aligned === false ? 'better version in place: check cues and grid' : 'better version in place: play it once';
+    if (c.match === 'exact' || c.match === 'shifted') return 'better version in place, not in rekordbox';
+    return c.aligned === false ? 'check cues and grid' : 'add as a new track, set the cues';
+  }
   return 'check it in rekordbox';
 }
 /** As views.check_view. */
@@ -396,6 +442,21 @@ export function checkView(c: RekordboxCheck, batchSize = 1): RekordboxCheckView 
 }
 /** As report.NO_RELOCATE: rekordbox's Relocate offers only files of the same type. */
 const NO_RELOCATE = "rekordbox can't relocate a track to a file of another type. Add the new file to rekordbox as a new track and set its cues there; your old track keeps playing the old file in Superseded/.";
+/** As report.PLACED_*: the words of a placement for a missing file. */
+const PLACED_CHECK = 'Its file was missing, so its better version took its place.';
+/** As report.placed_check_text: pointed at the new file (lined up, or its timeline unknown), not pointed with the same
+ *  edit (nothing beyond the first sentence), or another edit (a new file to rekordbox, or the missing file's own name). */
+export function placedCheckText(check: RekordboxCheck): string {
+  if (check.repointed) {
+    return check.aligned === false
+      ? `${PLACED_CHECK} Discjockey couldn't measure where rekordbox's timeline sat for the missing file: check that its cues and grid sit on the beat.`
+      : `${PLACED_CHECK} rekordbox's track plays it with its cues and grid: play it once to check.`;
+  }
+  if (check.match === 'exact' || check.match === 'shifted') return PLACED_CHECK;
+  return check.aligned === false
+    ? `${PLACED_CHECK.slice(0, -1)} under the missing file's name, so rekordbox's track at that name plays it now (a different edit): check that its cues and grid sit on the beat.`
+    : `${PLACED_CHECK.slice(0, -1)}, as a new file to rekordbox (a different edit: your old track's cues don't fit it).`;
+}
 /** As report.check_text: the same edit (exact or shifted) can be relocated in rekordbox and keeps its cues, exactly
  *  when the new file was rendered lined up (`aligned`). */
 export function checkText(check: RekordboxCheck): string {
@@ -409,6 +470,7 @@ export function checkText(check: RekordboxCheck): string {
       ? 'Your file has its clean name now, and your rekordbox track follows it with its cues, playlists and history.'
       : "Your file has its clean name now. This file isn't in your rekordbox collection, so there was nothing to keep there.";
   }
+  if (check.reason === 'placed_missing') return placedCheckText(check);
   if (check.reason === 'repointed') {
     return check.rekordbox
       ? 'The better audio is in a new AIFF with a clean name, and your rekordbox track plays it with its cues, playlists and history. In rekordbox, analyse it again so the waveform shows the full sound (lock the beatgrid first if you set it by hand).'
@@ -702,6 +764,12 @@ export function result(section: string, t: { folder: string; artist: string; tit
 const NEW_FILE_SECTIONS = ['new_lossless', 'new_not_lossless', 'fake', 'swapped', 'added_new', 'bought', 'replaced',
   'moved', 'redownloaded'];
 const PROBLEM_SECTIONS = ['missing', 'errors', 'conflicts', 'ambiguous'];
+/** report.SECTIONS (the titles the window reads) and report.PART_LABELS: fake/auto.test.ts pins them against report.py */
+export const SECTION_LABELS: Record<string, string> = {
+  upgraded: 'Upgraded (your cues stayed)', upgrade_waits: 'Upgrades still waiting',
+  placed_missing: 'Better versions put in (their files were missing)',
+};
+export const PART_LABELS: RunDetail['part_labels'] = { upgraded: 'Upgraded', waiting: 'Still waiting', refused: "Couldn't go in" };
 export function runDetail(id: string, started: Date, duration_s: number, exit_code: number, results: Result[],
   stopped_after: number | null, upgrades_ready: number, auto_upgrade: RunDetail['auto_upgrade'] = null): RunDetail {
   const sections: Record<string, Result[]> = {};
@@ -710,11 +778,12 @@ export function runDetail(id: string, started: Date, duration_s: number, exit_co
   const count = (...ss: string[]) => results.filter((r) => ss.includes(r.section)).length;
   return {
     run_id: id, kind: 'sync', started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
-    exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded', 'upgraded'),
+    exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded', 'upgraded', 'placed_missing'),
       lossy: count('new_not_lossless', 'fake'), problems: count(...PROBLEM_SECTIONS), moved: count('moved') },
     stopped_after, sections, needs_you: results.filter((r) => PROBLEM_SECTIONS.includes(r.section) && r.track_id),
     for_rekordbox: { new_files: newFiles.length, folders: [...new Set(newFiles.map((p) => p.slice(0, p.lastIndexOf('/'))))].sort() },
     upgrades_ready, report_md: `reports/${id}.md`, queued: count('queued'), folder_order: [], auto_upgrade,
+    section_labels: SECTION_LABELS, part_labels: PART_LABELS,
   };
 }
 export function sampleRuns(now: Date, tracks: FakeTrack[], n = 3): FakeRun[] {

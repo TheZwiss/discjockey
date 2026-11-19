@@ -19,3 +19,6 @@ export { canSwap, decisionFor, upgradeWays, type Decision, type Way } from './de
 export { default as AiffBatchPanel } from './AiffBatchPanel.svelte';
 export { AiffBatchFlow, aiffBatch, type AiffPlanRead, type AiffRunView } from './flows.svelte';
 export { scopeKey as aiffScopeKey, type AiffOrigin } from './aiffBatchModel';
+export { MissingFlow } from './flows.svelte';
+export { default as MissingSelection } from './MissingSelection.svelte';
+export * from './missingModel';

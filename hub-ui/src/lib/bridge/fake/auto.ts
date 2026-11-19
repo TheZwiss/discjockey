@@ -5,6 +5,7 @@
 // `s.rekordbox_state` / `s.rekordbox_running` (the dev toolbar's "rekordbox open" sets the latter).
 import type { HubEvent } from '../events';
 import type { AutoRefused, AutoUpgradeBlock, AutoUpgradeResult, RekordboxStatus, Result, RunSummary, SyncPreview, Upgrade } from '../types';
+import { shortDay } from './missingFiles';
 import { dateOnly, isoLocal, makeUpgrade, pathOf, qualityOf, result, runDetail, runId, type FakeState, type FakeTrack } from './data';
 
 /** The switch (on unless the state says off). */
@@ -28,6 +29,44 @@ export const AUTO_REFUSED_SHORT: Record<AutoRefused['reason'], string> = {
 export const AUTO_WAITING_DETAIL = 'Waits for rekordbox to be closed';
 /** views.AUTO_BATCH_DETAIL */
 export const AUTO_BATCH_DETAIL = 'Upgraded during your sync';
+/** views.BATCH_PLACED */
+export const BATCH_PLACED = 'Better versions put in during your sync';
+
+/** views._card_summary: the summary of a batch's "In rekordbox" card, from its checks (reason, rekordbox's entries; null
+ *  entries: nothing was written there, so a swap's track is the one rekordbox has). */
+const CARD_ONE = 'same track, cues kept', CARD_MANY = 'same tracks, cues kept', PLACED_SUMMARY = 'better versions in';
+export function cardSummary(checks: { reason: string; rekordbox: { entries: number } | null }[]): string | null {
+  const steps = checks.filter((c) => c.reason !== 'placed_missing' && c.reason !== 'renamed'
+    && (c.rekordbox ? c.rekordbox.entries > 0 : c.reason === 'swapped'));
+  if (steps.length) return steps.length > 1 ? CARD_MANY : CARD_ONE;
+  return checks.some((c) => c.reason === 'placed_missing') ? PLACED_SUMMARY : null;
+}
+/** views._batch_how, _batch_row_name, _batch_list_title, _day_words and the card's summaries: the words of a To-do batch
+ *  item, from its checks, its kind, who started it and the day of its first check. */
+export function batchWords(checks: { reason: string; rekordbox: { entries: number } | null }[], kind: 'upgrade' | 'convert' | 'mixed',
+  fromSync: boolean, started: string | null, now: Date): { how: string; row_name: string; row_sub: string; list_title: string;
+  card_summary: string | null; placed_summary: string | null } {
+  const reasons = checks.map((c) => c.reason);
+  const n = reasons.length;
+  const placed = reasons.filter((r) => r === 'placed_missing').length;
+  const how = placed === n ? BATCH_PLACED : fromSync ? AUTO_BATCH_DETAIL : kind === 'upgrade' ? 'Same track'
+    : reasons.every((r) => r === 'renamed') ? 'Clean name' : 'Made AIFF';
+  const row_name = placed === n ? `${n} better ${n === 1 ? 'version' : 'versions'} put in` : placed ? `${n} tracks changed`
+    : kind === 'upgrade' ? `${n} tracks upgraded` : `${n} tracks`;
+  const list_title = reasons.every((r) => r === 'converted') ? 'Made AIFF' : reasons.every((r) => r === 'renamed') ? 'Clean names'
+    : placed === n ? 'Better versions put in'
+      : reasons.some((r) => ['converted', 'renamed', 'placed_missing'].includes(r)) ? 'Changed' : 'Upgraded';
+  const today = dateOnly(now), yesterday = dateOnly(new Date(now.getTime() - 86400000));
+  const day = !started ? '' : started.slice(0, 10) === today ? 'today' : started.slice(0, 10) === yesterday ? 'yesterday' : shortDay(started, now);
+  return { how, row_name, row_sub: day ? `${day} · ${how}` : how, list_title, card_summary: cardSummary(checks),
+    placed_summary: placed ? PLACED_SUMMARY : null };
+}
+/** batches.progress_words: the phase's words for a BatchProgress, from the actions of the batch's items. */
+export function progressWords(actions: string[], done: number, total: number): { lead: string; count: string } {
+  const kinds = new Set(actions);
+  if (kinds.size === 1 && kinds.has('place')) return { lead: 'Putting in better versions', count: `${done} of ${total} put in` };
+  return { lead: 'Upgrading', count: `${done} of ${total} ${kinds.size === 1 && kinds.has('same_track') ? 'upgraded' : 'done'}` };
+}
 /** The engine's words for a refusal, recorded on the parked upgrade by the sync: design §8 (convert.REFUSED), and
  *  upgrades.COULD_NOT_COMPARE for `needs_choice` (the two files could not be compared at all). */
 export const AUTO_REFUSED_WORDS: Record<AutoRefused['reason'], string> = {
@@ -57,10 +96,16 @@ export function autoDetail(s: FakeState, t: FakeTrack, same: string | null, plai
   return plain;
 }
 
-/** `sync_preview().auto_upgrade`: the upgrades the sync's last phase would put in place (waiting ones included), the
- *  recorded refusals left out; null while the switch is off. */
-export function autoPreview(s: FakeState, ready: number): SyncPreview['auto_upgrade'] {
-  return autoOn(s) ? { on: true, ready } : null;
+/** `sync_preview().auto_upgrade` (api._auto_upgrade_ready): `ready` the upgrades the sync's last phase would put in place
+ *  (waiting ones included, the recorded refusals and the placements left out), `places` the missing songs it would give their
+ *  parked better version (with the switch off too), `place_notes` the sentence for them; null while the switch is off and
+ *  nothing is to be placed. */
+export function autoPreview(s: FakeState, ready: number, placing: FakeTrack[]): SyncPreview['auto_upgrade'] {
+  const places = placing.length;
+  if (!autoOn(s) && !places) return null;
+  const name = places === 1 ? `${placing[0].artist} \u2013 ${placing[0].title}` : undefined;   // one song is named
+  return { on: autoOn(s), ready: autoOn(s) ? ready : 0, places,
+    place_notes: places ? { closed: placePlanLine(places, false, name), open: placePlanLine(places, true, name) } : null };
 }
 
 /** views.same_track_reason for a fake track: null when Same track can run now (the quick answer: rekordbox's cached state). */
@@ -75,7 +120,13 @@ export function sameTrackReasonOf(s: FakeState, t: FakeTrack): string | null {
 /** The set of the sync's last phase, in To-do's order (auto_upgrade.plan): Upgrade all's list (hidden left out) filtered
  *  by the quick Same track answer, minus the tracks a recorded refusal still holds. The switch is not asked here. */
 export const readyTracks = (s: FakeState): FakeTrack[] => s.tracks.filter((t) => t.in_playlists && !t.hidden && t.upgrade
-  && sameTrackReasonOf(s, t) === null && !t.upgrade.auto_refused);
+  && !t.missing && sameTrackReasonOf(s, t) === null && !t.upgrade.auto_refused);
+
+/** `missing.place_keys`: the songs the sync's last phase puts a parked better version in for (issue 43): the file waits as
+ *  missing, Download again was asked (`fileGone`), a better version is parked, the file is not found in two places, the
+ *  drive is there. Hidden ones are in (the user asked for each); the switch is not asked. In To-do's order. */
+export const placeTracks = (s: FakeState): FakeTrack[] => s.tracks.filter((t) => !!t.missing && !!t.fileGone && !!t.upgrade
+  && !t.missing.found?.length && !t.away);
 
 /** Makes `n` more tracks of the playlists wait with a lossless version of the same edit (a scenario's Upgrade ready
  *  rows), lossy files first; every other one is an MP3 (Same track makes it a new AIFF). A lossless track is turned into
@@ -107,30 +158,55 @@ export const AUTO_WAITS_WORDS = {
   not_reached: 'The sync stopped before this one; it is upgraded at your next sync.',
   busy: 'Another Discjockey window or the Terminal was changing your rekordbox library; it is upgraded at your next sync.',
 } as const;
+/** auto_upgrade.PLACE_WAITS: the same rows for a placement; what waits is the song's better version */
+export const PLACE_WAITS_WORDS = {
+  rekordbox_open: 'Waits for rekordbox to be closed: its better version goes in at your next sync.',
+  not_reached: 'The sync stopped before this one; its better version goes in at your next sync.',
+  busy: 'Another Discjockey window or the Terminal was changing your rekordbox library; its better version goes in at your next sync.',
+  rekordbox_unreadable: "Discjockey can't open this rekordbox version's library yet, so it can't point your rekordbox track at the file; its better version goes in once it can.",
+} as const;
 export const AUTO_DONE_NOTE = 'Your track keeps its cues, playlists and history';
+/** convert.placed_words: what a finished placement says (the file's name; rekordbox's track plays it with its cues). */
+export const placedWords = (name: string, repointed = true, aligned = true): string =>
+  !aligned ? `Its better version is in, at ${name}; check its cues in rekordbox.`
+    : `Its better version is in, at ${name}${repointed ? "; rekordbox's track plays it with its cues." : '.'}`;
 const CHANGED_WORDS = 'Your rekordbox track changed while Discjockey was working on it, so nothing was changed. Try again.';
 /** auto_upgrade.waiting_line: what the phase says when it meets rekordbox open at the end of a sync. */
 export const autoWaitingLine = (n: number): string => `${n} upgrade${n === 1 ? ' waits' : 's wait'} for rekordbox to be closed.`;
 export const autoUpgradingLine = (n: number): string => `Upgrading ${n} track${n === 1 ? '' : 's'} at the end of the sync...`;
+/** words.placing_line / words.place_waiting_line / words.place_plan_line */
+export const placingLine = (n: number): string => `Putting in the better version of ${n} missing song${n === 1 ? '' : 's'} at the end of the sync...`;
+export const placeWaitingLine = (n: number): string => `${n} missing song${n === 1 ? ' waits' : 's wait'} for rekordbox to be closed to get ${n === 1 ? 'its' : 'their'} better version.`;
+export const placePlanLine = (n: number, waits = false, name?: string): string =>
+  `${n === 1 ? `${name ?? '1 missing song'} gets its better version` : `${n} missing songs get their better version`} at the end of the sync${waits ? ', once rekordbox is closed' : ''}.`;
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
-/** report.auto_upgrade_line: the run's one-line account of its phase; null when nothing happened. */
+/** report.auto_upgrade_line: the run's one-line account of its phase; null when nothing happened. The placements (rows
+ *  with `action` `place`) are counted apart, after the upgrades' clauses: put in, waiting, couldn't go in. */
 export function autoLine(block: Pick<AutoUpgradeBlock, 'done' | 'refused' | 'results'>): string | null {
-  const m = block.results.filter((r) => r.state === 'waiting' && r.reason === 'rekordbox_open').length;
-  const j = block.results.filter((r) => r.state === 'waiting' && r.reason !== 'rekordbox_open').length;
-  const n = block.done, k = block.refused;
-  if (!(n || m || j || k)) return null;
+  const placed = block.results.filter((r) => r.action === 'place');
+  const rest = block.results.filter((r) => r.action !== 'place');
+  const p = placed.filter((r) => r.state === 'done').length;
+  const pw = placed.filter((r) => r.state === 'waiting').length;
+  const pr = placed.filter((r) => r.state === 'refused').length;
+  const m = rest.filter((r) => r.state === 'waiting' && r.reason === 'rekordbox_open').length;
+  const j = rest.filter((r) => r.state === 'waiting' && r.reason !== 'rekordbox_open').length;
+  const n = block.done - p, k = block.refused - pr;
+  if (!(n || m || j || k || p || pw || pr)) return null;
+  const out: string[] = [];
   if (n) {
-    const out = [`Upgraded ${plural(n, 'track', 'tracks')}; your cues stayed.`];
+    out.push(`Upgraded ${plural(n, 'track', 'tracks')}; your cues stayed.`);
     if (m) out.push(`${m} ${m === 1 ? 'waits' : 'wait'} for rekordbox to be closed.`);
     if (j) out.push(`${j} ${j === 1 ? 'waits' : 'wait'} for your next sync.`);
     if (k) out.push(`${k} couldn't go in; To-do says why.`);
-    return out.join(' ');
+  } else {
+    if (m) out.push(`${plural(m, 'upgrade waits', 'upgrades wait')} for rekordbox to be closed.`);
+    if (j) out.push(`${plural(j, 'upgrade waits', 'upgrades wait')} for your next sync.`);
+    if (k) out.push(`${plural(k, 'upgrade', 'upgrades')} couldn't go in; To-do says why.`);
   }
-  const out: string[] = [];
-  if (m) out.push(`${plural(m, 'upgrade waits', 'upgrades wait')} for rekordbox to be closed.`);
-  if (j) out.push(`${plural(j, 'upgrade waits', 'upgrades wait')} for your next sync.`);
-  if (k) out.push(`${plural(k, 'upgrade', 'upgrades')} couldn't go in; To-do says why.`);
+  if (p) out.push(`${plural(p, 'missing song got', 'missing songs got')} ${p === 1 ? 'its' : 'their'} better version.`);
+  if (pw) out.push(`${plural(pw, 'missing song waits', 'missing songs wait')} for ${pw === 1 ? 'its' : 'their'} better version until your next sync.`);
+  if (pr) out.push(`${plural(pr, 'missing song', 'missing songs')} couldn't get ${pr === 1 ? 'its' : 'their'} better version yet.`);
   return out.join(' ');
 }
 
@@ -140,11 +216,14 @@ export function autoLine(block: Pick<AutoUpgradeBlock, 'done' | 'refused' | 'res
  *  `s.batchSkip` (a track's full check refuses it with that reason). */
 export type PhasePlan = { batch: number | null; order: string[]; rows: AutoUpgradeResult[] };
 export function planPhase(s: FakeState, batchId: number): PhasePlan | null {
-  if (!autoOn(s)) return null;
-  const set = readyTracks(s);
+  const places = placeTracks(s);
+  if (!autoOn(s) && !places.length) return null;   // the switch off and nothing to place: no phase (auto_upgrade.plan)
+  const set = [...places, ...(autoOn(s) ? readyTracks(s) : [])];   // placements first
+  const placed = (t: FakeTrack) => places.includes(t);
   const row = (t: FakeTrack, state: AutoUpgradeResult['state'], reason: string | null, message: string | null): AutoUpgradeResult =>
-    ({ track: t.track_id, name: `${t.artist} \u2013 ${t.title}`, state, reason, message, how: t.upgrade!.swap_how });
-  const waits = (t: FakeTrack) => row(t, 'waiting', 'rekordbox_open', AUTO_WAITS_WORDS.rekordbox_open);
+    ({ track: t.track_id, name: `${t.artist} \u2013 ${t.title}`, state, reason, message, action: placed(t) ? 'place' : 'same_track',
+      how: placed(t) ? 'placed' : t.upgrade!.swap_how });
+  const waits = (t: FakeTrack) => row(t, 'waiting', 'rekordbox_open', (placed(t) ? PLACE_WAITS_WORDS : AUTO_WAITS_WORDS).rekordbox_open);
   if (!set.length) return { batch: null, order: [], rows: [] };
   if (s.rekordbox_running) return { batch: null, order: [], rows: set.map(waits) };
   const opens = s.autoOpensAfter ?? Infinity;
@@ -152,8 +231,10 @@ export function planPhase(s: FakeState, batchId: number): PhasePlan | null {
     if (i >= opens) return waits(t);
     const late = s.batchSkip?.[t.track_id];
     if (late) return row(t, 'refused', late, (AUTO_REFUSED_WORDS as Record<string, string>)[late] ?? CHANGED_WORDS);
-    // the second done track had its title edited in rekordbox, which Same track keeps (convert.kept_note)
-    return row(t, 'done', null, i === 1 ? `${AUTO_DONE_NOTE}. Kept your own title in rekordbox.` : AUTO_DONE_NOTE);
+    if (placed(t)) return row(t, 'done', null, placedWords(`${t.artist} - ${t.title}.aiff`));
+    // the second done upgrade had its title edited in rekordbox, which Same track keeps (convert.kept_note)
+    const upgrades = set.slice(0, i).filter((x) => !placed(x)).length;
+    return row(t, 'done', null, upgrades === 1 ? `${AUTO_DONE_NOTE}. Kept your own title in rekordbox.` : AUTO_DONE_NOTE);
   });
   return { batch: batchId, order: set.map((t) => t.track_id), rows };
 }
@@ -162,15 +243,23 @@ export function planPhase(s: FakeState, batchId: number): PhasePlan | null {
  *  "Upgrading n tracks…" and one BatchProgress per track it reaches (and the closing one when it got through them all). */
 export function phaseEvents(plan: PhasePlan): HubEvent[] {
   const message = (text: string): HubEvent => ({ type: 'Message', level: 'info', text });
-  if (plan.batch === null) return plan.rows.length ? [message(autoWaitingLine(plan.rows.length))] : [];
+  const isPlace = (r: AutoUpgradeResult) => r.action === 'place';
+  if (plan.batch === null) {   // rekordbox open at the start: the upgrades' line, then the placements'
+    const up = plan.rows.filter((r) => !isPlace(r)).length, pl = plan.rows.filter(isPlace).length;
+    return [...(up ? [message(autoWaitingLine(up))] : []), ...(pl ? [message(placeWaitingLine(pl))] : [])];
+  }
   const n = plan.order.length;
+  const places = plan.rows.filter(isPlace).length;
+  const words = (done: number) => progressWords(plan.rows.map((r) => r.action ?? 'same_track'), done, n);
   const stopsAt = plan.rows.findIndex((r) => r.reason === 'rekordbox_open');
   const reached = stopsAt < 0 ? n : stopsAt;
-  const out: HubEvent[] = [message(autoUpgradingLine(n))];
+  const out: HubEvent[] = [];
+  if (n - places) out.push(message(autoUpgradingLine(n - places)));
+  if (places) out.push(message(placingLine(places)));
   for (let i = 0; i < reached; i++) {
-    out.push({ type: 'BatchProgress', batch_id: plan.batch, done: i, total: n, track_id: plan.rows[i].track, name: plan.rows[i].name });
+    out.push({ type: 'BatchProgress', batch_id: plan.batch, done: i, total: n, track_id: plan.rows[i].track, name: plan.rows[i].name, ...words(i) });
   }
-  if (reached === n) out.push({ type: 'BatchProgress', batch_id: plan.batch, done: n, total: n, track_id: null, name: null });
+  if (reached === n) out.push({ type: 'BatchProgress', batch_id: plan.batch, done: n, total: n, track_id: null, name: null, ...words(n) });
   return out;
 }
 /** The recorded stream with the phase before its (last) RunFinished; `at` is the 0-based index of the phase's first event. */
@@ -184,7 +273,8 @@ export function withPhase(base: HubEvent[], phase: HubEvent[]): { events: HubEve
  *  (so rekordbox opening later in the batch never happens either). */
 export function stopRows(plan: PhasePlan, handled: number): AutoUpgradeResult[] {
   return plan.rows.map((r, i) => (i < handled ? r
-    : { ...r, state: 'waiting', reason: 'not_reached', message: AUTO_WAITS_WORDS.not_reached }));
+    : { ...r, state: 'waiting', reason: 'not_reached',
+      message: (r.action === 'place' ? PLACE_WAITS_WORDS : AUTO_WAITS_WORDS).not_reached }));
 }
 
 /** The run's block (the report's `.json` key `auto_upgrade`, with `line`). `backup` is the id of the copy of rekordbox's library. */
@@ -196,12 +286,13 @@ export function autoBlock(plan: PhasePlan, rows: AutoUpgradeResult[], stopped: b
 }
 
 /** The run's rows for the phase, after the batch's changes were made: `upgraded` for a done track (its new file), the
- *  rest `upgrade_waits` (waiting and refused ones). Looks the tracks up by id. */
+ *  rest `upgrade_waits` (waiting and refused ones); a done placement is `placed_missing`. Looks the tracks up by id. */
 export function phaseResults(rows: AutoUpgradeResult[], track: (id: string) => FakeTrack | undefined): Result[] {
   return rows.flatMap((r) => {
     const t = track(r.track);
     if (!t) return [];
     if (r.state === 'done') {
+      if (r.action === 'place') return [result('placed_missing', t, r.message ?? '', { status: 'lossless', source: t.source, path: pathOf(t) })];
       return [result('upgraded', t, r.message ?? '', { status: 'lossless', source: t.source, path: pathOf(t) })];
     }
     return [result('upgrade_waits', t, r.message ?? '')];
@@ -215,7 +306,7 @@ export const backupId = (d: Date): string => d.toISOString().slice(0, 19).replac
 export function addPastAutoRun(s: FakeState, daysBack = 2): void {
   const tracks = s.tracks.filter((t) => t.in_playlists && !t.upgrade && !t.rekordbox_check && !t.away && qualityOf(t) === 'lossless').slice(0, 3);
   const rows: AutoUpgradeResult[] = tracks.map((t, i) => ({ track: t.track_id, name: `${t.artist} \u2013 ${t.title}`, state: 'done',
-    reason: null, message: AUTO_DONE_NOTE, how: i % 2 ? 'new_aiff' : 'in_place' }));
+    reason: null, message: AUTO_DONE_NOTE, how: i % 2 ? 'new_aiff' : 'in_place', action: 'same_track' }));
   const started = new Date(s.now);
   started.setDate(started.getDate() - daysBack);
   started.setHours(21, 32, 0, 0);

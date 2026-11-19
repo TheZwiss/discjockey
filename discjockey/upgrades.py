@@ -162,11 +162,12 @@ def fields_before(e: dict, *, keep_undo: bool = False) -> dict:
     return b
 
 
-def undo_keys(paths: Paths, new: str, old: str) -> dict | None:
-    """The content keys of the two files an undo checks, or None (no undo) if one can't be read."""
+def undo_keys(paths: Paths, new: str, old: str | None) -> dict | None:
+    """The content keys of the two files an undo checks, or None (no undo) if one can't be read. `old` None: the
+    placement for a missing file has no old file (its `old` and `old_key` are None)."""
     try:
         return {"file": new, "file_key": content_key(paths.root / new), "old": old,
-                "old_key": content_key(paths.root / old)}
+                "old_key": None if old is None else content_key(paths.root / old)}
     except OSError:
         return None
 
@@ -521,7 +522,8 @@ def keep_measurement(paths: Paths, state: dict, track_id: str, e: dict, alignmen
     files could not be compared) changes nothing: the stored one stays."""
     if alignment.result == "unknown" or not e.get("upgrade"):
         return
-    state["tracks"][track_id] = {**e, "upgrade": {**e["upgrade"], "alignment": alignment.to_dict()}}
+    state["tracks"][track_id] = {**e, "upgrade": {**{k: v for k, v in e["upgrade"].items() if k != "alignment_stale"},
+                                                   "alignment": alignment.to_dict()}}
     save_state(paths, state)
 
 
@@ -853,8 +855,8 @@ def undo(paths: Paths, state: dict, track_id: str, *, session: Session | None = 
     before = u["before"]
     parked = (before.get("upgrade") or {}).get("file")  # None for a Convert: it parked nothing
     _unchanged(paths, u["file"], u["file_key"], step)
-    if not renamed:  # a rename keeps no old file: its old name is where the file itself goes back to
-        _unchanged(paths, u["old"], u["old_key"], step)
+    if not renamed and u["old"] is not None:  # a rename keeps no old file (its old name is where the file itself goes
+        _unchanged(paths, u["old"], u["old_key"], step)  # back to); nor does a placement for a missing file
     if not converted and (u["kind"] in ("swap", "convert") or u.get("rendered")) \
             and not (paths.root / u["held"]).is_file():
         noun = "swap" if u["kind"] == "swap" else "upgrade"

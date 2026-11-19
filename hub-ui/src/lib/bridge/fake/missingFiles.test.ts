@@ -1,0 +1,595 @@
+// Issue 43, group E3a2: the fake's missing files answer as the engine does (discjockey/missing.py, hub/views.py) and
+// the scenario `missing_files` shows every state the plan's shots need.
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { createFakeBridge } from './bridge';
+import {
+  ACTION_WORDS, COMES_BACK, REMOVE_CONFIRM_BODY, REMOVE_CONFIRM_BODY_ONE, HINT_DOWNLOAD, HINT_DOWNLOAD_LIBRARY, HINT_PLACE, HINT_PLACE_LIBRARY,
+  HINT_REMOVE, HINT_REMOVE_LIBRARY, HINT_REMOVE_PARKED, HINT_TWICE, REASON_WORDS, WILL,
+  missingSet, missingView, reasonWords, shortDay, summary, whyNot,
+} from './missingFiles';
+import { AUTO_REFUSED_WORDS, markRefused } from './auto';
+import { TODO_SUB_WORDS, todoGroup, todoSub } from './data';
+import type { HubEvent } from '../events';
+import type { Fail, Library, LibraryRow, MissingPreview, MissingResult, Todo, TodoItem, TrackDetail } from '../types';
+
+const py = readFileSync(fileURLToPath(new URL('../../../../../discjockey/missing.py', import.meta.url)), 'utf8');
+const words = readFileSync(fileURLToPath(new URL('../../../../../discjockey/words.py', import.meta.url)), 'utf8');
+
+const val = <T>(r: T | Fail): T => { if ((r as Fail).ok === false) throw new Error(`refused: ${(r as Fail).message}`); return r as T; };
+const strings = (src: string) => [...src.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1].replace(/\\(.)/g, '$1'));
+/** The value of a top-level constant of missing.py: its string literals, joined (an implicit concatenation too). */
+function constant(name: string): string {
+  const m = new RegExp(`^${name} = ([\\s\\S]*?)(?=\\n\\S)`, 'm').exec(py);
+  if (!m) throw new Error(`${name} is not in missing.py`);
+  return strings(m[1]).join('');
+}
+/** The `"key": "value"` pairs of a top-level dict of missing.py. */
+function table(name: string): Record<string, string> {
+  const m = new RegExp(`^${name} = \\{([\\s\\S]*?)\\n\\}`, 'm').exec(py);
+  if (!m) throw new Error(`${name} is not in missing.py`);
+  return Object.fromEntries([...m[1].matchAll(/"(\w+)": "((?:[^"\\]|\\.)*)"/g)].map((x) => [x[1], x[2]]));
+}
+/** The quoted keys of the dict a function returns, between its `def` and the next `def`. */
+function keysOf(fn: string): string[] {
+  const body = py.slice(py.indexOf(`def ${fn}(`)).split(/\ndef /)[0];
+  return [...body.matchAll(/"(\w+)":/g)].map((x) => x[1]);
+}
+
+describe('the fake speaks the engine\'s words (missing.py)', () => {
+  it('the reasons, the will words and the buttons', () => {
+    // `found_twice` is the hint's one sentence (HINT_TWICE), so missing.py names the constant, not a second literal
+    expect(py).toContain('"found_twice": HINT_TWICE,');
+    expect(REASON_WORDS).toEqual({ ...table('REASONS'), found_twice: constant('HINT_TWICE') });
+    expect(WILL).toEqual(table('WILL'));
+    const m = /^ACTION_WORDS = \{(.*?)\}/m.exec(py)!;
+    expect(Object.values(ACTION_WORDS)).toEqual(strings(m[1]));
+  });
+  it('the selection panel\'s button, Remove\'s question and the head link', () => {
+    expect(REMOVE_CONFIRM_BODY).toBe(constant('REMOVE_CONFIRM_BODY'));
+    expect(REMOVE_CONFIRM_BODY_ONE).toBe(constant('REMOVE_CONFIRM_BODY_ONE'));
+    expect(py).toContain('f"{ACTION_WORDS[action]} · {n}" + ("…" if action == REMOVE else "")');
+    expect(py).toContain('"Remove from your library?" if n == 1 else f"Remove {n} songs from your library?"');
+    expect(py).toContain('f"Select all · {k}" if k >= 2 else None');
+    expect(keysOf('preview').slice(-2)).toEqual(['button', 'confirm']);
+    expect(py).toContain('"confirm_label": "Remove", "tone": "danger"');
+  });
+  it('the hints', () => {
+    const comes = constant('COMES_BACK');
+    expect(COMES_BACK).toBe(comes);
+    const built = (name: string) => constant(name).replace('{COMES_BACK}', comes);
+    expect(HINT_DOWNLOAD).toBe(built('HINT_DOWNLOAD'));
+    expect(HINT_PLACE).toBe(built('HINT_PLACE'));
+    expect(HINT_REMOVE).toBe(built('HINT_REMOVE'));
+    expect(HINT_DOWNLOAD_LIBRARY).toBe(built('HINT_DOWNLOAD_LIBRARY'));
+    expect(HINT_PLACE_LIBRARY).toBe(built('HINT_PLACE_LIBRARY'));
+    expect(HINT_REMOVE_LIBRARY).toBe(built('HINT_REMOVE_LIBRARY'));
+    expect(HINT_REMOVE_PARKED).toBe(constant('HINT_REMOVE_PARKED'));
+    expect(HINT_TWICE).toBe(constant('HINT_TWICE'));
+  });
+  it('the hints follow why_not (M3) and the asked song says it happens at the next sync (W3)', () => {
+    expect(py).toContain('return f"{COMES_BACK} {REASONS[\'asked\']}"');
+    expect(py).toContain('return REASONS["away"]');
+    expect(py).toContain('elif reason in ("never", "check_open", "place_refused"):\n        return COMES_BACK');
+    expect(py).toContain('SAID_BY_HINT = ("found_twice", "away")');
+    expect(py).toContain('"label": action_label(action), "tone": "danger" if action == REMOVE else "filled"');
+    expect(py).toContain('return ACTION_WORDS[action] + ("…" if action == REMOVE else "")');
+  });
+  it('the fields of the item\'s missing and of the track\'s details', () => {
+    const view = ['since', 'place', 'action', 'label', 'tone', 'why_not', 'words', 'foot_note', 'will', 'upgrade_waiting', 'in_missing_files'];
+    expect(keysOf('view')).toEqual(view);
+    expect(keysOf('detail_view')).toEqual(['line', 'hint', 'hint_library']);
+  });
+  it('the sentences of the item and the details line', () => {
+    // the fake writes them in missingFiles.ts (itemDetail, line); each template is still in missing.py
+    for (const t of ['f"In {len(found)} places now · keep one and it links again"', 'f"Missing since {since} · was in {where}"',
+      'f"Missing since {since}"', 'f"Missing since {since}. It was in {where}."', 'f"Missing since {since}."',
+      'f"Found in {len(found)} places: {names}."']) expect(py).toContain(t);
+  });
+  it('the day words', () => {
+    expect(words).toContain('day = f"{d.day} {MONTHS[d.month - 1]}"');
+    expect(shortDay('2026-11-12', new Date(2026, 10, 18))).toBe('12 Nov');
+    expect(shortDay('2025-11-12', new Date(2026, 10, 18))).toBe('12 Nov 2025');
+  });
+});
+
+async function setup(scenario = 'missing_files') {
+  const f = createFakeBridge(scenario, { speed: 100, emit: () => {} });
+  const s = (f as any)._ctx.s;
+  const todo = async (filter = 'all', hidden = false) => val(await f.todo(filter as never, hidden)) as Todo;
+  const group = async (hidden = false) => (await todo('all', hidden)).groups.find((g) => g.key === 'missing_file');
+  const item = async (id: string, hidden = true) => ((await group(hidden))?.items ?? []).find((i) => i.track_id === id) as TodoItem | undefined;
+  const detail = async (id: string) => val(await f.track(id)).track as TrackDetail;
+  return { f, s, todo, group, item, detail, set: missingSet(s)! };
+}
+
+describe('the scenario missing_files', () => {
+  it('has the Missing files group second, after Check in rekordbox', async () => {
+    const { todo } = await setup();
+    const t = await todo();
+    expect(t.groups.map((g) => g.key).slice(0, 2)).toEqual(['rekordbox_check', 'missing_file']);
+    const g = t.groups[1];
+    expect(g.label).toBe('Missing files');
+    expect(g.hint).toBe('not where they were; put a file back and it links again');
+  });
+
+  it('a playlist song: Download again, its place and day', async () => {
+    const { item, set, s } = await setup();
+    const it = (await item(set.plain))!;
+    expect(it.missing).toMatchObject({ action: 'download_again', why_not: null, words: null, upgrade_waiting: false,
+      will: WILL.download });
+    expect(it.missing!.since).toBe(it.missing!.since.slice(0, 10));
+    expect(it.detail).toBe(`Missing since ${shortDay(it.missing!.since, s.now)} · was in ${it.missing!.place}`);
+    expect(it.file_state).toBe('file_missing');
+    expect(it.group).toBe('missing_file');
+    expect(it.free).toBe(false);
+  });
+
+  it('a playlist song with a parked upgrade gets it put in, nothing is downloaded', async () => {
+    const { item, detail, set } = await setup();
+    const it = (await item(set.parked))!;
+    expect(it.missing).toMatchObject({ action: 'download_again', why_not: null, upgrade_waiting: true, will: WILL.place });
+    expect((await detail(set.parked)).missing!.hint).toBe(HINT_PLACE);
+    expect((await detail(set.parked)).missing!.hint_library).toBe(HINT_PLACE_LIBRARY);
+    expect((await detail(set.plain)).missing!.hint_library).toBe(HINT_DOWNLOAD_LIBRARY);
+    expect((await detail(set.plain)).missing!.line).toMatch(/^Missing since \d+ \w{3}\. It was in /);
+  });
+
+  it('a song found in two places: Download again is blocked, the line names both', async () => {
+    const { item, detail, set } = await setup();
+    const it = (await item(set.twice))!;
+    expect(it.detail).toBe('In 2 places now · keep one and it links again');
+    expect(it.missing).toMatchObject({ why_not: 'found_twice', words: REASON_WORDS.found_twice });
+    const d = (await detail(set.twice)).missing!;
+    expect(d.line).toMatch(/^Found in 2 places: Crates and Old\.$/);
+    expect(d.hint).toBe(HINT_TWICE);
+    expect(d.hint_library).toBe(HINT_TWICE);
+  });
+
+  it('a song marked Never download is blocked by it', async () => {
+    const { item, set } = await setup();
+    expect((await item(set.never))!.missing).toMatchObject({ why_not: 'never', words: REASON_WORDS.never });
+  });
+
+  it('an own song gets Remove, with the parked version\'s line, and an open check blocks it', async () => {
+    const { item, detail, set } = await setup();
+    expect((await item(set.own))!.missing).toMatchObject({ action: 'remove', why_not: null, will: WILL.remove });
+    expect((await detail(set.own)).missing!.hint).toBe(HINT_REMOVE);
+    expect((await detail(set.own)).missing!.hint_library).toBe(HINT_REMOVE_LIBRARY);
+    expect((await item(set.ownParked))!.missing).toMatchObject({ action: 'remove', upgrade_waiting: true, will: WILL.remove });
+    expect((await detail(set.ownParked)).missing!.hint).toBe(HINT_REMOVE + HINT_REMOVE_PARKED);
+    expect((await detail(set.ownParked)).missing!.hint_library).toBe(HINT_REMOVE_LIBRARY + HINT_REMOVE_PARKED);
+    expect((await item(set.ownCheck))!.missing).toMatchObject({ action: 'remove', why_not: 'check_open', words: REASON_WORDS.check_open });
+  });
+
+  it('an own song with an open check is in both groups and counted once', async () => {
+    const { todo, set } = await setup();
+    const t = await todo();
+    const inGroups = t.groups.filter((g) => g.items.some((i) => i.track_id === set.ownCheck)).map((g) => g.key);
+    expect(inGroups).toEqual(['rekordbox_check', 'missing_file']);
+    const keys = t.groups.flatMap((g) => g.items.map((i) => i.track_id));
+    expect(keys.filter((k) => k === set.ownCheck)).toHaveLength(2);
+  });
+
+  it('a song on a drive that is away is offline: the drive wins over the mark', async () => {
+    const { item, detail, set } = await setup();
+    expect((await item(set.ownOffline))!.file_state).toBe('offline');
+    const d = await detail(set.ownOffline);
+    expect(d.file_state).toBe('offline');
+    expect(d.missing).not.toBeNull();
+    expect(d.audio_url).toBeNull();
+    // offline wins: neither action runs for it, and the words say why (not "Removed from your library")
+    expect((await item(set.ownOffline))!.missing).toMatchObject({ action: 'remove', why_not: 'away', words: REASON_WORDS.away });
+    expect(REASON_WORDS.away).toBe("Its drive isn't connected; plug it in to decide.");
+  });
+
+  it('a hidden song is listed only with Show hidden and is left out of the group\'s all', async () => {
+    const { group, set } = await setup();
+    const shown = (await group())!;
+    expect(shown.items.map((i) => i.track_id)).not.toContain(set.hidden);
+    const all = (await group(true))!;
+    expect(all.items.map((i) => i.track_id)).toContain(set.hidden);
+    const runnable = (a: string) => all.items.filter((i) => !i.hidden && i.missing!.action === a && i.missing!.why_not === null).length;
+    const label = `Select all · ${all.items.filter((i) => !i.hidden).length}`;
+    expect((all as { all: unknown }).all).toEqual({ download_again: runnable('download_again'), remove: runnable('remove'), label });
+    // plain + parked can download again; own + ownParked can be removed (ownOffline's drive is away) (twice, never and the check are blocked);
+    // the link selects every song shown, the blocked ones too
+    expect((all as { all: unknown }).all).toEqual({ download_again: 2, remove: 2, label });
+  });
+
+  it('a song whose Download again was asked leaves To-do; its details say next sync and the Library row still lists it', async () => {
+    const { todo, detail, f, set } = await setup();
+    const t = await todo('all', true);
+    expect(t.groups.flatMap((g) => g.items.map((i) => i.track_id))).not.toContain(set.asked);
+    expect((await detail(set.asked)).next_qobuz_check).toBe('next_sync');
+    expect((await detail(set.asked)).missing).not.toBeNull();
+    const lib = val(await f.library('all', null, '', 'all', null)) as Library;
+    expect(lib.rows.find((r) => r.track_id === set.asked)!.file_state).toBe('file_missing');
+  });
+
+  it('the group wins over every other group but Check in rekordbox, and Upgrade all leaves a missing song out', async () => {
+    const { todo, set } = await setup();
+    const t = await todo('all', true);
+    for (const id of [set.parked, set.ownParked]) {
+      expect(t.groups.filter((g) => g.items.some((i) => i.track_id === id)).map((g) => g.key)).toEqual(['missing_file']);
+    }
+    const up = t.groups.find((g) => g.key === 'upgrade_ready');
+    expect(up?.items.map((i) => i.track_id) ?? []).not.toContain(set.parked);
+  });
+
+  it('chips count the group, and the sidebar\'s to-do counts the song', async () => {
+    const { todo } = await setup();
+    const t = await todo();
+    // plain, parked, twice, never, own, ownParked, ownCheck, ownOffline (the hidden one only with Show hidden)
+    expect(t.chips.missing_file).toBe(8);
+    expect(t.hidden_count).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Library rows say file_missing, unless the drive is away', async () => {
+    const { f, set } = await setup();
+    const lib = val(await f.library('all', null, '', 'all', null)) as Library;
+    const state = (id: string) => lib.rows.find((r) => r.track_id === id)!.file_state;
+    expect(state(set.plain)).toBe('file_missing');
+    expect(state(set.own)).toBe('file_missing');
+    expect(state(set.ownOffline)).toBe('offline');
+  });
+
+  it('the details of a song that is there carry no missing, and the player is off for a missing one', async () => {
+    const { detail, set, s } = await setup();
+    const there = s.tracks.find((t: { track_id: string; missing?: unknown; status: string; in_playlists: boolean; own?: boolean }) =>
+      !t.missing && t.status === 'lossless' && t.in_playlists && !t.own);
+    expect((await detail(there.track_id)).missing).toBeNull();
+    expect((await detail(set.plain)).audio_url).toBeNull();
+    expect((await detail(set.plain)).file_state).toBe('file_missing');
+  });
+});
+
+describe('every other scenario stays as it was', () => {
+  it.each(['normal', 'big', 'todo_duplicates'])('%s has no missing group and no missing in a track\'s details', async (name) => {
+    const { todo, detail, s } = await setup(name);
+    const t = await todo('all', true);
+    expect(t.groups.find((g) => g.key === 'missing_file')).toBeUndefined();
+    expect(t.chips.missing_file).toBe(0);
+    expect((await detail(s.tracks[0].track_id)).missing).toBeNull();
+  });
+});
+
+describe('whyNot, as missing.why_not', () => {
+  it('names the first reason that applies, every one of the six', async () => {
+    const { s, set } = await setup();
+    const t = (id: string) => s.tracks.find((x: { track_id: string }) => x.track_id === id);
+    expect(whyNot(s, t(set.plain), 'download_again')).toBeNull();
+    expect(whyNot(s, t(set.plain), 'remove')).toBe('wrong_action');
+    expect(whyNot(s, t(set.own), 'download_again')).toBe('wrong_action');
+    expect(whyNot(s, t(set.twice), 'download_again')).toBe('found_twice');
+    expect(whyNot(s, t(set.never), 'download_again')).toBe('never');
+    expect(whyNot(s, t(set.asked), 'download_again')).toBe('asked');
+    expect(whyNot(s, t(set.ownCheck), 'remove')).toBe('check_open');
+    // F5 (FB): a song found in two places gets neither action, an own one is not removed
+    t(set.own).missing.found = ['Library/A/x.aiff', '/Volumes/Example/y.aiff'];
+    expect(whyNot(s, t(set.own), 'remove')).toBe('found_twice');
+    // F3 (FB): Download again asked and the sync's phase recorded a held refusal for the placement
+    const parked = t(set.askedParked);
+    expect(whyNot(s, parked, 'download_again')).toBe('asked');
+    expect(todoGroup(parked)).toBeNull();
+    markRefused(s, parked, 'space');
+    expect(whyNot(s, parked, 'download_again')).toBe('place_refused');
+    expect(todoGroup(parked)).toBe('missing_file');   // views._group: the held refusal keeps it in Missing files
+    expect(missingView(s, parked)).toMatchObject({ why_not: 'place_refused', words: AUTO_REFUSED_WORDS.space });
+    expect(reasonWords('place_refused', 'download_again')).toBe(REASON_WORDS.place_refused);
+    const back = s.tracks.find((x: { missing?: unknown }) => !x.missing);
+    expect(whyNot(s, back, 'download_again')).toBe('not_missing');
+  });
+});
+
+
+// ---------- the two actions ----------
+
+/** A scenario with its events kept, and the two calls with the job awaited (the job's `JobFinished`). */
+async function acting() {
+  const evs: HubEvent[] = [];
+  const f = createFakeBridge('missing_files', { speed: 100, emit: (e: HubEvent) => evs.push(e) });
+  const s = (f as any)._ctx.s;
+  const set = missingSet(s)!;
+  const finished = async (id: string) => {
+    for (let i = 0; i < 400; i++) {
+      const e = evs.find((x) => x.type === 'JobFinished' && x.job_id === id);
+      if (e) return e as Extract<HubEvent, { type: 'JobFinished' }>;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error('the job did not finish');
+  };
+  const run = async (ids: string[], action: 'download_again' | 'remove') => {
+    const started = await f.missing_files(ids, action) as { ok: true; job_id: string };
+    return finished(started.job_id);
+  };
+  const preview = async (ids: string[], action: 'download_again' | 'remove') => val(await f.missing_files_preview(ids, action)) as MissingPreview;
+  const todoIds = async () => ((await f.todo('all', true)) as Todo).groups.find((g) => g.key === 'missing_file')?.items.map((i) => i.track_id) ?? [];
+  return { f, s, set, run, preview, todoIds, evs };
+}
+
+describe('the summary line, as missing.summary (tests/test_missing_actions.py pins the same sentences)', () => {
+  it.each([
+    ['download_again', 1, 0, 0, 0, '1 song downloads again at your next sync.'],
+    ['download_again', 2, 0, 0, 1, '2 songs download again at your next sync; 1 is skipped.'],
+    ['download_again', 0, 1, 0, 0, '1 song gets the better version already waiting for it at your next sync; nothing is downloaded.'],
+    ['download_again', 0, 2, 0, 0, '2 songs get the better version already waiting for them at your next sync; nothing is downloaded.'],
+    ['download_again', 1, 1, 0, 0, '1 song downloads again and 1 gets the better version already waiting for it, at your next sync.'],
+    ['download_again', 2, 2, 0, 0, '2 songs download again and 2 get the better version already waiting for them, at your next sync.'],
+    ['download_again', 0, 0, 0, 3, 'Nothing to do: 3 songs are skipped.'],
+    ['remove', 0, 0, 1, 0, 'Removes 1 song from your library.'],
+    ['remove', 0, 0, 3, 2, 'Removes 3 songs from your library; 2 are skipped.'],
+    ['remove', 0, 0, 0, 1, 'Nothing to remove: 1 song is skipped.'],
+  ] as const)('%s %i %i %i %i', (action, plain, placed, removed, skipped, line) => {
+    expect(summary(action, plain, placed, removed, skipped)).toBe(line);
+  });
+  it('says "Removed" once the run is over, and names the same fragments as missing.py', () => {
+    expect(summary('remove', 0, 0, 2, 0, true)).toBe('Removed 2 songs from your library.');
+    for (const t of ['Nothing to remove: ', 'Nothing to do: ', "'Removed' if done else 'Removes'", 'from your library', 'again and ',
+      'the better version already waiting for ', 'at your next sync; nothing is downloaded', "'is' if skipped == 1 else 'are'"]) {
+      expect(py).toContain(t);
+    }
+  });
+});
+
+describe('missing_files_preview', () => {
+  it('says per song what would happen, in the order asked, and one line for all', async () => {
+    const { preview, set } = await acting();
+    const p = await preview([set.parked, 'nope', set.plain, set.own], 'download_again');
+    expect(p.items.map((i) => i.track_id)).toEqual([set.parked, 'nope', set.plain, set.own]);
+    expect(p.items.map((i) => [i.will, i.reason])).toEqual([[true, null], [false, 'not_missing'], [true, null], [false, 'wrong_action']]);
+    expect(p.items[0]).toMatchObject({ upgrade_waiting: true, words: WILL.place });
+    expect(p.items[1]).toMatchObject({ artist: '', title: '', place: '', since: null, words: REASON_WORDS.not_missing });
+    expect(p.items[2]).toMatchObject({ words: WILL.download, since: expect.stringMatching(/^\d{4}-\d\d-\d\d$/) });
+    expect(p.items[3].words).toBe('This song gets Remove from library instead.');
+    expect([p.n, p.skipped]).toEqual([2, 2]);
+    expect(p.words).toBe('1 song downloads again and 1 gets the better version already waiting for it, at your next sync; 2 are skipped.');
+    expect([p.button, p.confirm]).toEqual(['Download again · 2', null]);
+  });
+  it('marks the parked version Remove would delete, and changes nothing', async () => {
+    const { preview, set, s, todoIds } = await acting();
+    const before = await todoIds();
+    const p = await preview([set.own, set.ownParked, set.ownCheck], 'remove');
+    expect(p.items.map((i) => i.upgrade_waiting)).toEqual([false, true, false]);
+    expect(p.items[2]).toMatchObject({ will: false, reason: 'check_open' });
+    expect(p.words).toBe('Removes 2 songs from your library; 1 is skipped.');
+    expect(p.button).toBe('Remove from library · 2…');
+    expect(p.confirm).toEqual({ title: 'Remove 2 songs from your library?', body: REMOVE_CONFIRM_BODY, confirm_label: 'Remove', tone: 'danger' });
+    const one = await preview([set.own, set.ownCheck], 'remove');
+    expect([one.button, one.confirm?.title]).toEqual(['Remove from library · 1…', 'Remove from your library?']);
+    const away = await preview([set.own, set.ownOffline], 'remove');
+    expect(away.items[1]).toMatchObject({ will: false, reason: 'away', words: REASON_WORDS.away });
+    expect([away.n, away.skipped, away.confirm?.body]).toEqual([1, 1, REMOVE_CONFIRM_BODY_ONE]);   // one song: the singular question
+    const none = await preview([set.ownCheck], 'remove');
+    expect([none.n, none.button, none.confirm]).toEqual([0, null, null]);
+    expect(await todoIds()).toEqual(before);
+    expect(s.tracks.some((t: { track_id: string }) => t.track_id === set.own)).toBe(true);
+  });
+  it('refuses an unknown action and no songs', async () => {
+    const { f, set } = await acting();
+    expect(await f.missing_files_preview([set.plain], 'forget' as never)).toMatchObject({ ok: false, kind: 'bad_args', outcome: 'bad_args',
+      message: 'action must be one of download_again, remove.' });
+    expect(await f.missing_files_preview([], 'remove')).toMatchObject({ ok: false, message: 'No tracks were chosen.' });
+  });
+});
+
+describe('missing_files', () => {
+  it('Download again sets file_gone: the song leaves To-do, the parked version stays', async () => {
+    const { run, set, s, todoIds, f } = await acting();
+    const e = await run([set.plain, set.parked], 'download_again');
+    expect(e).toMatchObject({ ok: true, kind: 'missing_files', problem: null });
+    const r = e.result as MissingResult;
+    expect(r).toMatchObject({ action: 'download_again', done: [set.plain, set.parked], skipped: [], recovered: [] });
+    expect(r.results.map((x) => [x.state, x.reason, x.words])).toEqual([['done', null, WILL.download], ['done', null, WILL.place]]);
+    expect(r.words).toBe('1 song downloads again and 1 gets the better version already waiting for it, at your next sync.');
+    const ids = await todoIds();
+    expect(ids).not.toContain(set.plain);
+    expect(ids).not.toContain(set.parked);
+    const parked = s.tracks.find((t: { track_id: string }) => t.track_id === set.parked);
+    expect(parked.upgrade).toBeTruthy();
+    expect(parked.missing).toBeTruthy();
+    expect((val(await f.track(set.plain)) as { track: TrackDetail }).track.next_qobuz_check).toBe('next_sync');
+  });
+
+  it('a song the action does not fit is skipped with its reason; the run still ends ok', async () => {
+    const { run, set, s } = await acting();
+    const e = await run([set.plain, set.own, set.twice, set.never, set.asked, 'nope'], 'download_again');
+    const r = e.result as MissingResult;
+    expect(e.ok).toBe(true);
+    expect(r.done).toEqual([set.plain]);
+    expect(r.results.map((x) => x.reason)).toEqual([null, 'wrong_action', 'found_twice', 'never', 'asked', 'not_missing']);
+    expect(r.results[1].words).toBe('This song gets Remove from library instead.');
+    expect(r.words).toBe('1 song downloads again at your next sync; 5 are skipped.');
+    expect(s.tracks.find((t: { track_id: string }) => t.track_id === set.own).fileGone).toBeFalsy();
+  });
+
+  it('every song skipped ends the job changed with the result kept', async () => {
+    const { run, set } = await acting();
+    const e = await run([set.own], 'download_again');
+    expect(e).toMatchObject({ ok: false, problem: 'changed', message: 'Nothing to do: 1 song is skipped.' });
+    expect(e.result).toMatchObject({ action: 'download_again', done: [], skipped: [set.own] });
+  });
+
+  it('Remove deletes an own song and its parked version, and only what was asked', async () => {
+    const { run, set, s, todoIds } = await acting();
+    const count = s.tracks.length;
+    const e = await run([set.own, set.ownParked, set.ownCheck, set.plain], 'remove');
+    const r = e.result as MissingResult;
+    expect(r.done).toEqual([set.own, set.ownParked]);
+    expect(r.results.map((x) => x.reason)).toEqual([null, null, 'check_open', 'wrong_action']);
+    expect(r.results[0].words).toBe(WILL.remove);
+    expect(r.words).toBe('Removed 2 songs from your library; 2 are skipped.');
+    const left = s.tracks.map((t: { track_id: string }) => t.track_id);
+    expect(left).toHaveLength(count - 2);
+    expect(left).not.toContain(set.own);
+    expect(left).not.toContain(set.ownParked);
+    expect(left).toContain(set.ownCheck);
+    expect(left).toContain(set.plain);
+    expect(await todoIds()).not.toContain(set.own);
+  });
+
+  it('Remove twice: the second finds nothing and ends changed', async () => {
+    const { run, set } = await acting();
+    await run([set.own], 'remove');
+    const e = await run([set.own], 'remove');
+    expect(e).toMatchObject({ ok: false, problem: 'changed', message: 'Nothing to remove: 1 song is skipped.' });
+  });
+
+  it('refuses an unknown action and no songs, and answers busy while a job runs', async () => {
+    const { f, set } = await acting();
+    expect(await f.missing_files([set.plain], 'forget' as never)).toMatchObject({ ok: false, kind: 'bad_args', outcome: 'bad_args' });
+    expect(await f.missing_files([], 'remove')).toMatchObject({ ok: false, message: 'No tracks were chosen.' });
+    expect(await f.missing_files([set.plain], 'download_again')).toMatchObject({ ok: true });
+    expect(await f.missing_files([set.own], 'remove')).toMatchObject({ ok: false, kind: 'busy' });
+  });
+});
+
+describe('the Sync plan after Download again (acquire reason redownload)', () => {
+  const redownloads = async (f: Awaited<ReturnType<typeof acting>>['f']) => {
+    const p = val(await f.sync_preview()) as unknown as { groups: { key: string; label: string; actions: { track_id: string; kind: string; reason: string | null }[] }[];
+      counts: { redownloads: number }; never: { track_id: string }[] };
+    return { ids: p.groups.find((g) => g.key === 'acquire:redownload')?.actions.map((a) => a.track_id) ?? [], p };
+  };
+  it('lists the download of a missing playlist song whose Download again was asked and that has no parked version', async () => {
+    const { f, set, run } = await acting();
+    const { ids, p } = await redownloads(f);
+    expect(ids).toEqual([set.asked]);                     // askedParked is placed by the sync's last phase: nothing is downloaded
+    expect(p.counts.redownloads).toBe(1);
+    expect(p.groups.find((g) => g.key === 'acquire:redownload')).toMatchObject({ label: 'Download again (its file is missing)',
+      actions: [{ kind: 'acquire', reason: 'redownload' }] });
+    await run([set.plain, set.parked], 'download_again');
+    expect((await redownloads(f)).ids.sort()).toEqual([set.asked, set.plain].sort());   // plain joins; parked (a parked version) does not
+  });
+  it('leaves out a song marked Never download', async () => {
+    const { f, set, s } = await acting();
+    s.never.push(set.asked);
+    const { ids, p } = await redownloads(f);
+    expect(ids).toEqual([]);
+    expect(p.never.map((a) => a.track_id)).toContain(set.asked);
+  });
+});
+
+
+// ---------- issue 43 FC: what the engine now sends (missing.py, views.py) ----------
+
+const views = readFileSync(fileURLToPath(new URL('../../../../../discjockey/hub/views.py', import.meta.url)), 'utf8');
+
+describe('the To-do header\'s second line (views.todo_sub)', () => {
+  it('the words are views.py\'s', () => {
+    const pair = (name: string) => strings(new RegExp(`^TODO_SUB_${name} = \\((.*)\\)$`, 'm').exec(views)![1]);
+    expect(strings(/^TODO_SUB_NOTHING = (.*)$/m.exec(views)![1])).toEqual([TODO_SUB_WORDS.nothing]);
+    expect(pair('TRACKS')).toEqual([...TODO_SUB_WORDS.tracks]);
+    expect(pair('QUESTIONS')).toEqual([...TODO_SUB_WORDS.questions]);
+    expect(pair('CHECKS')).toEqual([...TODO_SUB_WORDS.checks]);
+    expect(pair('CDJ')).toEqual([...TODO_SUB_WORDS.cdj]);
+    expect(pair('MISSING')).toEqual([...TODO_SUB_WORDS.missing]);
+  });
+  it('the parts, in order and with their singulars, as tests/test_missing_views.py pins them', () => {
+    const none = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0,
+      good_lossy: 0, fake: 0, other: 0 };
+    const sub = (chips: Partial<typeof none>, check = 0) => todoSub({ ...none, ...chips }, check);
+    expect(sub({})).toEqual(['Nothing to do']);
+    expect(sub({ weak: 4, good_lossy: 6, fake: 3, not_found: 3, upgrade_ready: 2, other: 1 })).toEqual(['19 tracks are not lossless yet']);
+    expect(sub({ fake: 1 })).toEqual(['1 track is not lossless yet']);
+    expect(sub({ weak: 16, same_song: 1, duplicate: 1 })).toEqual(['16 tracks are not lossless yet', '2 questions about your files']);
+    expect(sub({ rekordbox_check: 2 }, 5)).toEqual(['5 tracks to check in rekordbox']);
+    expect(sub({ cdj: 1, weak: 2 })).toEqual(['2 tracks are not lossless yet', "1 file won't play well on CDJs"]);
+    expect(sub({ missing_file: 1 })).toEqual(['1 song is missing its file']);
+    expect(sub({ missing_file: 3, weak: 2 })).toEqual(['2 tracks are not lossless yet', '3 songs are missing their file']);
+    expect(sub({ missing_file: 1, cdj: 2, rekordbox_check: 1, same_song: 1, weak: 1 }, 1)).toEqual(['1 track is not lossless yet',
+      '1 question about your files', '1 track to check in rekordbox', "2 files won't play well on CDJs", '1 song is missing its file']);
+  });
+  it('the To-do answer carries it', async () => {
+    const { todo } = await setup();
+    const t = await todo();
+    expect(t.sub).toEqual(todoSub(t.chips, t.check_tracks));
+    expect(t.sub.at(-1)).toBe(`${t.chips.missing_file} songs are missing their file`);
+  });
+});
+
+describe('the single song\'s button words and tone, and the note under it (M1, M3)', () => {
+  it('label and tone follow the action', async () => {
+    const { item, set } = await setup();
+    expect((await item(set.plain))!.missing).toMatchObject({ label: 'Download again', tone: 'filled', foot_note: null });
+    expect((await item(set.own))!.missing).toMatchObject({ label: 'Remove from library…', tone: 'danger', foot_note: null });
+  });
+  it('foot_note is the reason\'s words, left out where the note above says them already', async () => {
+    const { item, detail, set } = await setup();
+    expect((await item(set.never))!.missing!.foot_note).toBe(REASON_WORDS.never);
+    expect((await item(set.ownCheck))!.missing!.foot_note).toBe(REASON_WORDS.check_open);
+    expect((await item(set.twice))!.missing).toMatchObject({ why_not: 'found_twice', foot_note: null });
+    expect((await item(set.ownOffline))!.missing).toMatchObject({ why_not: 'away', foot_note: null });
+    expect((await detail(set.never)).missing!.foot_note).toBe(REASON_WORDS.never);
+  });
+  it('the hint does not advise what the disabled button refuses', async () => {
+    const { detail, set } = await setup();
+    expect((await detail(set.never)).missing!.hint).toBe(COMES_BACK);
+    expect((await detail(set.ownCheck)).missing!.hint).toBe(COMES_BACK);
+    expect((await detail(set.ownOffline)).missing!.hint).toBe(REASON_WORDS.away);
+    expect((await detail(set.twice)).missing!.hint).toBe(HINT_TWICE);
+    expect((await detail(set.plain)).missing!.hint).toBe(HINT_DOWNLOAD);       // unchanged where nothing holds the button back
+    expect((await detail(set.never)).missing!.hint_library).toBe(HINT_DOWNLOAD_LIBRARY);   // the Library's stays
+    const { s } = await setup();
+    const parked = s.tracks.find((x: { track_id: string }) => x.track_id === set.askedParked);
+    markRefused(s, parked, 'space');
+    expect(missingView(s, parked)).toMatchObject({ why_not: 'place_refused', foot_note: AUTO_REFUSED_WORDS.space });
+  });
+  it('a placement the sync refused: the hint says the first sentence only', async () => {
+    const { s, set, detail } = await setup();
+    markRefused(s, s.tracks.find((x: { track_id: string }) => x.track_id === set.askedParked), 'space');
+    expect((await detail(set.askedParked)).missing!.hint).toBe(COMES_BACK);
+  });
+});
+
+describe('whether To-do lists a missing song, said by the engine (W3)', () => {
+  const asked = `${COMES_BACK} ${REASON_WORDS.asked}`;
+  it('a song asked for already says it happens at the next sync, in To-do\'s words and the Library\'s', async () => {
+    const { detail, set } = await setup();
+    for (const id of [set.asked, set.askedParked]) {
+      const m = (await detail(id)).missing!;
+      expect(m).toMatchObject({ why_not: 'asked', in_missing_files: false, hint: asked, hint_library: asked });
+    }
+  });
+  it('the details of a listed song say true', async () => {
+    const { detail, set } = await setup();
+    for (const id of [set.plain, set.own, set.ownOffline, set.twice]) expect((await detail(id)).missing!.in_missing_files).toBe(true);
+  });
+  it('the Library rows carry it: true for a listed missing song (an own one, an offline one too), false for every other', async () => {
+    const { f, s, set } = await setup();
+    const lib = val(await f.library('all', null, '', 'all', null)) as Library;
+    const flag = (id: string) => lib.rows.find((r) => r.track_id === id)!.in_missing_files;
+    for (const id of [set.plain, set.parked, set.own, set.ownOffline, set.twice, set.never]) expect(flag(id)).toBe(true);
+    for (const id of [set.asked, set.askedParked]) expect(flag(id)).toBe(false);
+    const there = s.tracks.find((t: { missing?: unknown; status: string; in_playlists: boolean }) => !t.missing && t.status === 'lossless' && t.in_playlists);
+    expect(flag(there.track_id)).toBe(false);
+    expect(lib.rows.every((r: LibraryRow) => typeof r.in_missing_files === 'boolean')).toBe(true);
+    // a held refusal puts the asked song back in the group, and the row says so
+    markRefused(s, s.tracks.find((x: { track_id: string }) => x.track_id === set.askedParked), 'space');
+    const again = val(await f.library('all', null, '', 'all', null)) as Library;
+    expect(again.rows.find((r) => r.track_id === set.askedParked)!.in_missing_files).toBe(true);
+  });
+  it('the rows of a playlist\'s song with no file say false', async () => {
+    const { f } = await setup();
+    const lib = val(await f.library('playlist', 'Hard_Bounce', '', 'all', null)) as Library;
+    expect(lib.rows.length).toBeGreaterThan(0);
+    for (const r of lib.rows.filter((x) => x.file_state === 'no_file')) expect(r.in_missing_files).toBe(false);
+  });
+});
+
+describe('a bought file dropped on a missing song (M9, as tests/test_ops.py)', () => {
+  it('puts the file in as the song\'s file: the song leaves Missing files', async () => {
+    const { f, s, set, todo } = await setup();
+    s.dropped = { track_id: set.parked, name: 'Artist - Song.wav' };
+    const started = (await f.add_bought_file(set.parked)) as { ok: true; job_id: string };
+    expect(started.ok).toBe(true);
+    for (let i = 0; i < 400 && s.tracks.find((t: { track_id: string }) => t.track_id === set.parked).missing; i++) await new Promise((r) => setTimeout(r, 5));
+    const t = s.tracks.find((x: { track_id: string }) => x.track_id === set.parked);
+    expect(t.missing).toBeUndefined();
+    expect(t.fileGone).toBe(false);
+    expect(t.status).toBe('lossless');
+    const ids = ((await todo('all', true)).groups.find((g) => g.key === 'missing_file')?.items ?? []).map((i) => i.track_id);
+    expect(ids).not.toContain(set.parked);
+    expect(((await f.track(set.parked)) as unknown as { track: TrackDetail }).track.missing).toBeNull();
+  });
+});

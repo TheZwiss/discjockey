@@ -258,6 +258,16 @@ def test_a_report_links_a_track_of_every_playlist_service():
         "[YouTube Music](https://music.youtube.com/watch?v=EXAMPLEid01) · ")
 
 
+def test_a_redownload_is_worded_for_a_missing_file():
+    """Issue 43 §3: the plan line and the run's section say the file was missing, not gone."""
+    plan = render_plan(Plan({"tracks": {}}, [act("acquire", "t1", reason="redownload")], [], [], []), full=True)
+    assert "Download again (its file is missing): 1" in plan
+    log = RunLog(STARTED)
+    log.add(Result("redownloaded", "A", "Artist", "Song", "t1", "q"))
+    assert "Downloaded again (its file was missing)" in render_report(log, FINISHED)
+    assert "gone" not in plan
+
+
 def test_the_sections_no_run_makes_any_more_are_gone():
     # moved, adopted and conflicts belonged to the old relocate step: the hub still reads them in stored run
     # results, but no run writes them and a new report has no heading for them

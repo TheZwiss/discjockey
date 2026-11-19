@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
 import type { HubEvent } from '../events';
-import { isBatch, type AiffBatchResult, type Todo, type TodoItem, type UndoResult } from '../types';
+import { isBatch, type AiffBatchResult, type CountedGroup, type Todo, type TodoItem, type UndoResult } from '../types';
 
 function setup(scenario = 'upgrade-multi') {
   const evs: HubEvent[] = [];
@@ -23,7 +23,7 @@ function setup(scenario = 'upgrade-multi') {
   };
   const group = async (key: string) => {
     const t = (await f.todo('all', false)) as Todo & { ok: true };
-    return t.groups.find((g) => g.key === key);
+    return t.groups.find((g): g is CountedGroup => g.key === key);
   };
   return { evs, f, run, group, s: (f as any)._ctx.s };
 }

@@ -1,0 +1,18 @@
+To-do items  6
+Summary      1 track is not lossless yet · 5 songs are missing their file
+Checks open  0
+Hidden       0
+
+Missing files
+not where they were; put a file back and it links again
+Id  Artist         Title        Quality   Detail                                     Will
+t2  Armin Hermann  Get Naughty  16.0 kHz  Missing since 12 Nov · was in Hard_Bounce  Gets the better version already waiting for it at your next sync; nothing is downloaded
+t6  Odd Artist     Odd Song     LOSSLESS  Missing since 12 Nov · was in Hard_Bounce  Removed from your library
+t4  Old Artist     Old Song     LOSSLESS  Missing since 12 Nov · was in Hard_Bounce  Removed from your library
+t5  Plain Artist   Plain Song   LOSSLESS  Missing since 12 Nov · was in Hard_Bounce  Removed from your library
+t1  Vatoz Locoz    Gimme Gimme  LOSSLESS  Missing since 12 Nov · was in Hard_Bounce  Downloads again at your next sync
+5 of 5 shown
+
+Missing files › All
+Download again  2
+Remove          3

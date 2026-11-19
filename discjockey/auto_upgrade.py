@@ -27,8 +27,15 @@ from being decoded again at every sync, and the phase itself (`run_phase`), whic
   at every sync, and a measurement that says "a different edit" is stored on the upgrade by the step instead). A
   record whose stamp is None (it could not be read) never holds. The record steers only this phase: Upgrade all, a selection and a single
   Replace are the user acting and run the track again.
+- Placements (issue 43, D9, plan §4.5.4): the phase also puts the parked better version in for each song the user asked to
+  download again whose file is missing (`missing.place_keys`, `eligible.place_quick`; `convert.place_parked`, the batch
+  action `place`), whatever the switch says: Download again is the user's go for that song. They run first, in the same
+  batch and the same rules (rekordbox closed, `auto_waits`, `auto_refused` for `space` and `cloud`). With the switch off
+  ONLY placements run (`plan` is None when there is nothing to place, before anything of rekordbox is looked at). The
+  phase runs after the planner has saved the song's current playlist folder (`convert.place_names` reads the stored
+  entry's `folder`): `run.execute` and `run.finish_quietly` plan first, `auto_upgrade_only` has no plan to wait for.
 - `run_phase` (plan §1.2): `plan`, then, with rekordbox closed, one batch (`batches.start(started_by="auto_upgrade",
-  scope="sync")`, `batches.run(require_closed=True)`). rekordbox running when the phase starts: no batch row at all,
+  scope="sync")`, or `download_again` with the switch off, `batches.run(require_closed=True)`). rekordbox running when the phase starts: no batch row at all,
   every track of the set waits (its `auto_waits` mark is set), except those a held refusal leaves alone (listed as
   refused). Stop, rekordbox opening, `Busy` or Ctrl-C end the batch
   through `batches.end_auto` (its `planned` items are skipped, so To-do never offers Resume); the results and the
@@ -42,7 +49,8 @@ from being decoded again at every sync, and the phase itself (`run_phase`), whic
   sync is said as `waiting_line` (what happened), never as `before_start_line` (the Sync page's line before a start). Nothing else is recorded: other
   skips (`changed`, `unclean`, `busy`, ...) are in this run's results only, so the next sync simply tries again.
 - `Outcome` is the run's block (the report, `--json`, the end screen); its keys are plan stage C §1.6. The results go
-  into the run's log: `upgraded` (done), `upgrade_waits` (waiting, refused, not reached), `errors` (failed).
+  into the run's log: `upgraded` (done; `placed_missing` for a placement), `upgrade_waits` (waiting, refused, not
+  reached), `errors` (failed).
 """
 from __future__ import annotations
 
@@ -53,7 +61,7 @@ from pathlib import PurePosixPath
 
 import sqlcipher3
 
-from . import align, batches, convert, library, report as rep, upgrades, words
+from . import align, batches, convert, library, missing, report as rep, upgrades, words
 from .events import CancelToken, Emit, Message, Result, no_emit
 from .hub import views
 from .hub.outcomes import REASONS
@@ -65,7 +73,7 @@ from .rekordbox.offset import analysis_folder_files
 from .settings import Settings
 from .words import before_start_line, waiting_line  # the engine's words (`words.py`); console.py and the tests name them here
 
-__all__ = ["ANLZ_REFUSALS", "FILE_REFUSALS", "REFUSALS", "STEP", "WAITS", "Outcome", "Planned", "before_start_line",
+__all__ = ["ANLZ_REFUSALS", "FILE_REFUSALS", "PLACE_WAITS", "REFUSALS", "STEP", "WAITS", "Outcome", "Planned", "before_start_line",
            "file_stamps", "free_now", "plan", "refusal_holds", "run_phase", "stamps", "start_note", "waiting_line"]
 
 ANLZ_REFUSALS = ("timing", "not_analysed", "cloud")  # recorded with the analysis files' stamps
@@ -79,23 +87,37 @@ WAITS = {
     "busy": "Another Discjockey window or the Terminal was changing your rekordbox library; it is upgraded at your "
             "next sync.",
 }
+# the same rows for a placement (plan §5.4): what waits is the song's better version, put in at the next sync
+PLACE_WAITS = {
+    "rekordbox_open": "Waits for rekordbox to be closed: its better version goes in at your next sync.",
+    "not_reached": "The sync stopped before this one; its better version goes in at your next sync.",
+    "busy": "Another Discjockey window or the Terminal was changing your rekordbox library; its better version goes in "
+            "at your next sync.",
+    # rekordbox's library can't be read: the song is not dropped, it waits (the words of `batches.words`, its ending changed)
+    "rekordbox_unreadable": batches.words("rekordbox_unreadable", "place").removesuffix(". Nothing was changed.")
+                            + "; its better version goes in once it can.",
+}
 PLAN_CHANGED = REASONS["changed"].text  # a track of a plan's run whose answer is another now (`upgrade apply --plan` says it too)
 
 
 @dataclass(frozen=True)
 class Planned:
-    """What the phase would do now. `run`: song keys in To-do's order; `waiting`: (key, "rekordbox_open" | "busy");
-    `refused`: (key, its `auto_refused` record), held and not tried; `rekordbox_running`: what `running()` said."""
+    """What the phase would do now. `run`: song keys in To-do's order; `waiting`: (key, "rekordbox_open" | "busy" | "rekordbox_unreadable");
+    `refused`: (key, its `auto_refused` record), held and not tried; `rekordbox_running`: what `running()` said.
+    `place`: which keys of `run`, `waiting` and `refused` are placements (Download again for a missing file with a
+    parked better version, D9); `run` lists them first."""
     run: list[str]
     waiting: list[tuple[str, str]]
     refused: list[tuple[str, dict]]
     rekordbox_running: bool
+    place: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
 class Outcome:
     """The run's Auto-upgrade block. `results`: one dict per track, `{"track", "name", "state": "done" | "would" |
-    "waiting" | "refused" | "failed", "reason", "message", "how"}` (`how`: `in_place` | `new_aiff` | None).
+    "waiting" | "refused" | "failed", "reason", "message", "how", "action"}` (`action`: `same_track` | `place`, the
+    placement for a missing file; `how`: `in_place` | `new_aiff` | `placed`).
     `refused` (state and count) is only a reason in `REFUSALS`, the ones To-do shows and the next sync leaves alone;
     a skip nothing is recorded for (`changed`, `unclean`, `other_library`, ...) is `waiting` for the next sync with
     its own reason and words."""
@@ -201,24 +223,32 @@ def stamps(paths, keys: Sequence[str], state: dict, *, running: Callable[[], boo
 
 def plan(paths, state: dict, held: Collection[str], settings: Settings, *, running: Callable[[], bool],
          place: Place | None, status: master.Status | None = None, quick: bool = False) -> Planned | None:
-    """What the phase would do now, or None when the switch is off. `running` / `place` are rekordbox's process check
-    and library (the real ones are `process.running` and `locate()`); `held` the plan's question keys. `status` is a
-    rekordbox `Status` the caller already has (the hub's cached one): used as it is, nothing is opened for it.
+    """What the phase would do now, or None when there is nothing it may do: the switch is off and no song is waiting
+    to be placed (`missing.place_keys`: Download again was asked, its file is missing, a better version is parked).
+    With the switch off the set is the placements alone (Download again is the user's go for that song); nothing of
+    rekordbox is looked at when there are none. `running` / `place` are rekordbox's process check and library (the real
+    ones are `process.running` and `locate()`); `held` the plan's question keys. `status` is a rekordbox `Status` the
+    caller already has (the hub's cached one): used as it is, nothing is opened for it.
 
     rekordbox running: the tracks of the set wait (`rekordbox_open`) except those a recorded refusal still holds
     (`refused`: the library is never read for them, so a record of the analysis kind counts as holding); of its
-    library only the `Status` is read, and only for a set with a file that isn't an AIFF (the same set Upgrade all
-    counts, plan stage C §0.3). Otherwise the set runs, minus the tracks a still-holding refusal leaves alone
-    (`refused`); the records of the analysis kind are checked with one read open for all of them.
+    library only the `Status` is read, and only for a set with a placement or a file that isn't an AIFF (the same set
+    Upgrade all counts, plus the placements, plan stage C §0.3). Otherwise the set runs, minus the tracks a
+    still-holding refusal leaves alone (`refused`); the records of the analysis kind are checked with one read open for
+    all of them. Placements come first in `run`, `waiting` and `refused` order, and are named by `Planned.place`.
 
     `quick` is the Sync page's count before a start (plan §4): rekordbox's library is never opened, so a record of the
     analysis kind can't be checked and counts as holding (the track is `refused`, not counted as ready). A phase that
     meets rekordbox running sorts the records the same way, so its waiting count equals that page's `ready`."""
-    if not settings.auto_upgrade:
+    keys = views.upgrade_ready_keys(state, held) if settings.auto_upgrade else []
+    candidates = missing.place_keys(state)
+    present = {k: batches.present(paths, state["tracks"][k]) for k in (*candidates, *keys)}
+    # the file back on disk, or its drive away, leaves a song out whatever rekordbox says (`place_quick` asks the rest again)
+    placing = [k for k in candidates
+               if not isinstance(eligible.place_quick(state["tracks"][k], views.UNKNOWN_REKORDBOX, present[k]), Skip)]
+    if not settings.auto_upgrade and not placing:
         return None
     is_running = bool(running())
-    keys = views.upgrade_ready_keys(state, held)
-    present = {k: batches.present(paths, state["tracks"][k]) for k in keys}
 
     def eligible_keys(rb: master.Status) -> list[str]:
         return [k for k in keys if not isinstance(eligible.same_track_quick(state["tracks"][k], rb, present[k]),
@@ -227,12 +257,16 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
     rb = status
     if rb is None:
         rb = views.UNKNOWN_REKORDBOX
-        if any(not _is_aiff(state["tracks"][k]) for k in eligible_keys(rb)):
+        if placing or any(not _is_aiff(state["tracks"][k]) for k in eligible_keys(rb)):
             with rb_lock.reader_lock(paths.support) as free:  # shared, only while master.db is open (design §6.1)
-                # one keyed open, only for a file that isn't an AIFF; a library another Discjockey is changing is not
-                # opened: it is taken as readable, and the batch asks again under its own lock
+                # one keyed open, only for a placement or a file that isn't an AIFF; a library another Discjockey is
+                # changing is not opened: it is taken as readable, and the batch asks again under its own lock
                 rb = master.status(place, lambda: is_running) if free else views.UNKNOWN_REKORDBOX
-    ready = eligible_keys(rb)
+    verdicts = {k: eligible.place_quick(state["tracks"][k], rb, present[k]) for k in placing}
+    # a library rekordbox can't read keeps the placement: it waits (`rekordbox_unreadable`), it is not dropped
+    unreadable = [k for k, v in verdicts.items() if isinstance(v, Skip) and v.reason == "rekordbox_unreadable"]
+    placed = [k for k, v in verdicts.items() if not isinstance(v, Skip)]
+    ready = [*placed, *eligible_keys(rb)]
     unchecked = quick or is_running  # rekordbox's library is not read for the stamps: analysis records count as holding
 
     records = {k: r for k in ready if (r := _record(state["tracks"][k])) is not None}
@@ -249,33 +283,51 @@ def plan(paths, state: dict, held: Collection[str], settings: Settings, *, runni
             refused.append((k, record))
         else:
             run.append(k)
+    waiting = [(k, "rekordbox_unreadable") for k in unreadable]
+    place_keys = frozenset((*placed, *unreadable))
     if is_running:
-        return Planned([], [(k, "rekordbox_open") for k in run], refused, True)
-    return Planned(run, [], refused, False)
+        return Planned([], [(k, "rekordbox_open") for k in run] + waiting, refused, True, place_keys)
+    return Planned(run, waiting, refused, False, place_keys)
 
 
 def start_note(block: dict | None) -> str | None:
-    """The Sync page's before-start line for the phase, from its dry-run block (`Outcome.to_dict()`; None: the switch is
-    off): `words.before_start_line` when rekordbox is open (an upgrade of the set waits for it), `words.auto_plan_line`
-    when it is closed, nothing when no upgrade is coming. The count is the one the page's `auto_upgrade.ready` has:
-    the upgrades that would run plus those that would wait, a held refusal not among them."""
+    """The Sync page's before-start line for the phase, from its dry-run block (`Outcome.to_dict()`; None: nothing may
+    run: the switch is off and no song waits to be placed): `words.before_start_line` when rekordbox is open (an
+    upgrade of the set waits for it), `words.auto_plan_line` when it is closed, nothing when no upgrade is coming. The
+    count is the one the page's `auto_upgrade.ready` has: the upgrades that would run plus those that would wait, a held
+    refusal not among them. The placements for missing files (D9) are another clause (`words.place_plan_line`, with the
+    switch off too), after the upgrades' line; with one song it names it (`name` of its row)."""
     rows = (block or {}).get("results") or []
     coming = [r for r in rows if r["state"] in ("would", "waiting")]
-    if not coming:
+    placing = [r for r in coming if r.get("action") == "place"]
+    upgrading = [r for r in coming if r.get("action") != "place"]
+    lines = []
+    if upgrading:
+        waits = any(r["state"] == "waiting" and r["reason"] == "rekordbox_open" for r in upgrading)
+        lines.append(words.before_start_line(len(upgrading)) if waits else words.auto_plan_line(len(upgrading)))
+    if placing:
+        lines.append(place_clause(placing))
+    return " ".join(lines) or None
+
+
+def place_clause(placing: Sequence[dict]) -> str | None:
+    """The before-start clause for the placements (`words.place_plan_line`) from their dry-run rows, None without any:
+    it waits when a row waits for rekordbox (open, or a library that can't be read), and with one song it names it (the
+    row's `name`). The Sync page (`start_note`) and the console's plan lines say it through this one rule."""
+    if not placing:
         return None
-    if any(r["state"] == "waiting" and r["reason"] == "rekordbox_open" for r in coming):
-        return words.before_start_line(len(coming))
-    return words.auto_plan_line(len(coming))
+    waits = any(r["state"] == "waiting" and r["reason"] in ("rekordbox_open", "rekordbox_unreadable") for r in placing)
+    return words.place_plan_line(len(placing), waits, placing[0].get("name") if len(placing) == 1 else None)
 
 
 # --- the phase ---
 
 def _name(e: dict) -> str:
-    return f"{e.get('artist') or '?'} – {e.get('title') or '?'}"
+    return words.song_name(e)
 
 
-def _how(e: dict) -> str:
-    return "in_place" if upgrades.swap_possible(e) else "new_aiff"
+def _how(e: dict, placed: bool = False) -> str:
+    return "placed" if placed else "in_place" if upgrades.swap_possible(e) else "new_aiff"
 
 
 def _folder(e: dict, where: Callable[[str], str] | None) -> str:
@@ -284,14 +336,21 @@ def _folder(e: dict, where: Callable[[str], str] | None) -> str:
     return e.get("folder") or ((where(e["path"]) if where and e.get("path") else "") or "")
 
 
-def _row(e: dict, key: str, state: str, reason: str | None, message: str | None) -> dict:
-    return {"track": key, "name": _name(e), "state": state, "reason": reason, "message": message, "how": _how(e)}
+def _row(e: dict, key: str, state: str, reason: str | None, message: str | None, placed: bool = False) -> dict:
+    return {"track": key, "name": _name(e), "state": state, "reason": reason, "message": message,
+            "how": _how(e, placed), "action": "place" if placed else "same_track"}
+
+
+def _waits(placed: bool) -> dict[str, str]:
+    return PLACE_WAITS if placed else WAITS
 
 
 def _rows(planned: Planned, before: Mapping[str, dict]) -> list[dict]:
     """The rows of the tracks the phase does not run: held refusals (their recorded words), then the ones that wait."""
-    return ([_row(before[k], k, "refused", r.get("reason"), r.get("message")) for k, r in planned.refused]
-            + [_row(before[k], k, "waiting", why, WAITS[why]) for k, why in planned.waiting])
+    return ([_row(before[k], k, "refused", r.get("reason"), r.get("message"), k in planned.place)
+             for k, r in planned.refused]
+            + [_row(before[k], k, "waiting", why, _waits(k in planned.place)[why], k in planned.place)
+               for k, why in planned.waiting])
 
 
 def _change(state: dict, key: str, *, drop: Sequence[str] = (), add: Mapping[str, object] | None = None) -> bool:
@@ -329,17 +388,17 @@ def _batch(paths, state: dict, batch_id: int, *, emit: Emit, token: CancelToken,
 def _batch_rows(result: batches.BatchResult, before: Mapping[str, dict]) -> list[dict]:
     rows = []
     for item in result.results:
-        e = before[item.track]
+        e, placed = before[item.track], item.action == "place"
         if item.state == "done":
-            rows.append(_row(e, item.track, "done", None, item.message))
+            rows.append(_row(e, item.track, "done", None, item.message, placed))
         elif item.state == "failed":
-            rows.append(_row(e, item.track, "failed", None, item.message))
-        elif item.reason in WAITS:
-            rows.append(_row(e, item.track, "waiting", item.reason, WAITS[item.reason]))
+            rows.append(_row(e, item.track, "failed", None, item.message, placed))
+        elif item.reason in _waits(placed):
+            rows.append(_row(e, item.track, "waiting", item.reason, _waits(placed)[item.reason], placed))
         elif item.reason in REFUSALS:  # a refusal the phase records: To-do says why
-            rows.append(_row(e, item.track, "refused", item.reason, item.message))
+            rows.append(_row(e, item.track, "refused", item.reason, item.message, placed))
         else:  # a skip it only reports (`changed`, `unclean`, ...): nothing is recorded, the next sync tries again
-            rows.append(_row(e, item.track, "waiting", item.reason, item.message))
+            rows.append(_row(e, item.track, "waiting", item.reason, item.message, placed))
     return rows
 
 
@@ -353,9 +412,10 @@ def run_phase(paths, state: dict, held: Collection[str], settings: Settings, log
     the others of the set do not run: those the plan had and whose answer changed (`changed`) are rows that wait
     (reason `changed`), the ones new since the plan are left out. `state` is the run's snapshot, kept current by the
     batch's steps and saved by the caller; `held` the plan's question keys; `running` / `place` rekordbox's process
-    check and library, `where` names an own song's folder for the results. Returns None when the switch is off
-    (nothing is read or written), else the run's block, which is also `log.auto_upgrade` (not in a dry run, which
-    touches neither the log nor the records)."""
+    check and library, `where` names an own song's folder for the results. Returns None when `plan` is (the switch is
+    off and no song waits to be placed: nothing is read or written), else the run's block, which is also
+    `log.auto_upgrade` (not in a dry run, which touches neither the log nor the records). The batch is started by
+    `auto_upgrade` with the switch on, by `download_again` with it off."""
     planned = plan(paths, state, held, settings, running=running, place=place)
     if planned is None:
         return None
@@ -366,24 +426,32 @@ def run_phase(paths, state: dict, held: Collection[str], settings: Settings, log
     if left_out:
         planned = replace(planned, run=[k for k in planned.run if k not in left_out])
     if dry_run:
-        rows = [_row(before[k], k, "would", None, None) for k in planned.run] + _rows(planned, before)
+        rows = [_row(before[k], k, "would", None, None, k in planned.place) for k in planned.run] + _rows(planned, before)
         return _outcome(None, None, rows, False, True)
 
     rows = _rows(planned, before)
     shown = {r["track"] for r in rows} | set(planned.run)
-    rows += [_row(state["tracks"].get(k) or {}, k, "waiting", "changed", PLAN_CHANGED) for k in changed
-             if k not in shown]  # the plan had it, its answer is another now (or it is gone): the run leaves it as it is
-    if planned.waiting:
-        emit(Message("info", waiting_line(len(planned.waiting))))
+    rows += [_row(state["tracks"].get(k) or {}, k, "waiting", "changed", PLAN_CHANGED, k in planned.place)
+             for k in changed if k not in shown]  # the plan had it, its answer is another now (or it is gone): the run leaves it as it is
+    waiting_places = sum(1 for k, _ in planned.waiting if k in planned.place)
+    if len(planned.waiting) > waiting_places:
+        emit(Message("info", waiting_line(len(planned.waiting) - waiting_places)))
+    if waiting_places:
+        emit(Message("info", words.place_waiting_line(waiting_places)))
     batch_id, backup, stopped, interrupted = None, None, False, False
     if planned.run and token.cancelled:  # Stop came while the phase was being worked out: it does not start
-        rows = [_row(before[k], k, "waiting", "not_reached", WAITS["not_reached"]) for k in planned.run] + rows
+        rows = [_row(before[k], k, "waiting", "not_reached", _waits(k in planned.place)["not_reached"],
+                     k in planned.place) for k in planned.run] + rows
         stopped = True
     elif planned.run:
-        n = len(planned.run)
-        emit(Message("info", f"Upgrading {n} track{'s' if n != 1 else ''} at the end of the sync..."))
-        batch_id = batches.start(paths, [(k, "same_track") for k in planned.run], started_by=batches.AUTO,
-                                 scope="sync", via=via, now=now)
+        places = sum(1 for k in planned.run if k in planned.place)
+        if (n := len(planned.run) - places):
+            emit(Message("info", f"Upgrading {n} track{'s' if n != 1 else ''} at the end of the sync..."))
+        if places:
+            emit(Message("info", words.placing_line(places)))
+        items = [(k, "place" if k in planned.place else "same_track") for k in planned.run]  # placements first
+        batch_id = batches.start(paths, items, scope="sync", via=via, now=now,
+                                 started_by=batches.AUTO if settings.auto_upgrade else batches.DOWNLOAD_AGAIN)
         result, stopped, interrupted = _batch(paths, state, batch_id, emit=emit, token=token, running=running,
                                               place=place, compare=compare, now=now)
         backup = result.backup
@@ -443,7 +511,8 @@ def _write_records(paths, state: dict, planned: Planned, rows: list[dict], *, ru
 
 
 def _file(log: rep.RunLog, state: dict, rows: list[dict], where) -> None:
-    """The rows as the run's results: `upgraded`, `upgrade_waits` and, for a failure, `errors`. A track the sync's
+    """The rows as the run's results: `upgraded` (`placed_missing` for a placement), `upgrade_waits` and, for a failure,
+    `errors`. A track the sync's
     check parked a moment ago (`upgrade_ready`) is told once, by its row here: the phase's result replaces the old one."""
     filed = {r["track"] for r in rows}
     log.results = [x for x in log.results if not (x.section == "upgrade_ready" and x.track_id in filed)]
@@ -453,7 +522,8 @@ def _file(log: rep.RunLog, state: dict, rows: list[dict], where) -> None:
         artist, title = e.get("artist") or "", e.get("title") or ""
         folder = _folder(e, where)
         if r["state"] == "done":
-            log.add(Result("upgraded", folder, artist, title, key, r["message"] or "", status=e.get("status"),
+            section = "placed_missing" if r.get("action") == "place" else "upgraded"
+            log.add(Result(section, folder, artist, title, key, r["message"] or "", status=e.get("status"),
                            source=e.get("source"), path=e.get("path")))
         elif r["state"] == "failed":
             log.add(Result("errors", folder, artist, title, key, r["message"] or "", error_kind="other"))

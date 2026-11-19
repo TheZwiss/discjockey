@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import (
-    align, auto_upgrade, config, db, library, pending_signs, planner, playlists_file, quality, report as rep, sources,
+    align, auto_upgrade, config, db, library, missing, pending_signs, planner, playlists_file, quality, report as rep, sources,
 )
 from .accounts import ACCOUNTS
 from .acquire import Acquirer, make_ready
@@ -30,7 +30,7 @@ from .execute import Executor
 from .hub import views
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
-from .models import Action, FetchedPlaylist, Plan, PlaylistLine, split_token
+from .models import Action, FetchedPlaylist, Plan, PlaylistLine, file_missing, split_token
 from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .rekordbox import process
@@ -429,8 +429,10 @@ def open_qobuz(prep: Prepared) -> QobuzSource | None:
 
 def fill_kbps(state: dict, fallback: FallbackSource, emit: Emit = no_emit) -> int:
     """Lossy files downloaded before Discjockey kept their bitrate get it from the stream they were made from (read
-    only, nothing is downloaded). A failed lookup stays empty and is tried again next sync. Returns how many got one."""
+    only, nothing is downloaded). A failed lookup stays empty and is tried again next sync. A file that isn't there
+    (missing, or its drive away) is left alone: nothing to learn about it. Returns how many got one."""
     todo = [e for e in state["tracks"].values() if e.get("status") == "not_lossless" and e.get("path")
+            and not file_missing(e) and e.get("online", True)
             and not e.get("source_kbps") and stream_url(e.get("source") or "", e.get("source_id"))]
     if not todo:
         return 0
@@ -456,10 +458,12 @@ def fill_kbps(state: dict, fallback: FallbackSource, emit: Emit = no_emit) -> in
 def upgrade_phase(prep: Prepared, *, emit: Emit, token: CancelToken, rekordbox: dict | None = None,
                   where: Callable[[str], str] | None = None) -> auto_upgrade.Outcome | None:
     """The run's last phase, Auto-upgrade (plan stage C §1.4), on the run's state and log. `rekordbox` replaces the real
-    rekordbox services (`running`, `place`, `compare`, optionally `now`): the hub's, or a test's. Returns None with the
-    switch off, before anything of rekordbox is looked at; a Ctrl-C inside is raised again once the phase's records are
+    rekordbox services (`running`, `place`, `compare`, optionally `now`): the hub's, or a test's. Runs after the planner
+    (`prep.state` holds every playlist folder it just saved: a placement names the song's folder from it, issue 43).
+    With the switch off only the placements for songs the user asked to download again run; with nothing to place it
+    returns None before anything of rekordbox is looked at. A Ctrl-C inside is raised again once the phase's records are
     in the state. Stop pressed before it starts means it does not start (`Cancelled`)."""
-    if not prep.settings.auto_upgrade:
+    if not prep.settings.auto_upgrade and not missing.place_keys(prep.state):
         return None
     token.check()
     options = {"running": process.running, "place": locate(), "compare": align.compare_files, "now": datetime.now,
@@ -471,7 +475,8 @@ def upgrade_phase(prep: Prepared, *, emit: Emit, token: CancelToken, rekordbox: 
 
 def finish_quietly(prep: Prepared, emit: Emit = no_emit, token: CancelToken | None = None,
                    rekordbox: dict | None = None, where: Callable[[str], str] | None = None) -> tuple[int, Path]:
-    """For a plan without actions: save flags and aliases, run the Auto-upgrade phase (when its switch is on), refresh
+    """For a plan without actions: save flags and aliases, run the Auto-upgrade phase (its switch on, or placements to
+    make), refresh
     not_lossless.md, write the report. Stop or Ctrl-C during the phase ends it with exit code 130; an unexpected
     error in it is filed like execute's (the report holds the crash note, RunFinished is sent, RunCrashed raised)."""
     token = token or CancelToken()
@@ -507,6 +512,16 @@ class PhaseRun:
     recovered: tuple[tuple[str, bool], ...] = ()  # what the start finished or undid: (message, ok), as the report says
 
 
+def _places_something(paths: Paths) -> bool:
+    """Whether a song waits to be placed (`missing.place_keys`), from the records read only: what the phase alone asks
+    with the switch off before it opens anything for writing. Records that can't be read, or no music folder, place
+    nothing."""
+    try:
+        return bool(missing.place_keys(library.open_state(paths, read_only=True)))
+    except (library.NoLibrary, StateError):
+        return False
+
+
 def auto_upgrade_only(paths: Paths, settings: Settings, *, emit: Emit = no_emit, token: CancelToken | None = None,
                       rekordbox: dict | None = None, dry_run: bool = False, only: Collection[str] | None = None,
                       changed: Collection[str] = ()) -> PhaseRun:
@@ -514,8 +529,9 @@ def auto_upgrade_only(paths: Paths, settings: Settings, *, emit: Emit = no_emit,
     plan and no read of the playlists, so it never calls the planner (with no fetched playlists the planner would mark
     every song as gone from its playlists). It opens the records, finishes interrupted steps (`recover_pending`), runs
     `auto_upgrade.run_phase`, saves, refreshes not_lossless.md and files a report that holds the phase's results and
-    its block (`kind` `auto_upgrade_only`). The switch off: nothing is read or written. A dry run (`dry_run`) opens the
-    records read only and writes nothing, not even a report.
+    its block (`kind` `auto_upgrade_only`). The switch off: only the placements for songs the user asked to download again
+    run (Download again is their go); with none, nothing is written (the records are looked at read only). A dry run
+    (`dry_run`) opens the records read only and writes nothing, not even a report.
 
     `held` is empty on purpose: a song the plan holds for "Is this the same song?" is one with no record or one whose
     status is `missing` (the planner's two places for a question), so it has no file, and the phase's set only takes a
@@ -524,7 +540,7 @@ def auto_upgrade_only(paths: Paths, settings: Settings, *, emit: Emit = no_emit,
     rekordbox services as for `upgrade_phase` (and `via`: where the batch says it started). Stop or Ctrl-C ends it with
     exit code 130 once the records are saved; an unexpected error is filed like a sync's (a report with a crash note,
     `RunFinished`, `RunCrashed`)."""
-    if not settings.auto_upgrade:
+    if not settings.auto_upgrade and not _places_something(paths):
         return PhaseRun(0, None, None)
     token = token or CancelToken()
     options = {"running": process.running, "place": locate(), "compare": align.compare_files, "now": datetime.now,
@@ -586,7 +602,8 @@ def action_step(event: ActionStarted) -> str:
 def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken | None = None,
             limit: int | None = None, verbose: bool = False,
             where: Callable[[str], str] | None = None, rekordbox: dict | None = None) -> tuple[int, Path]:
-    """Runs the plan, then (the switch on) the Auto-upgrade phase, `auto_upgrade.run_phase`: only when the plan ran to
+    """Runs the plan, then the Auto-upgrade phase, `auto_upgrade.run_phase` (the switch on, or placements to make for
+    songs the user asked to download again: the planner has saved their playlist folders by then): only when the plan ran to
     its end, never after Stop, Ctrl-C or a crash (`rekordbox` as for `upgrade_phase`). Returns (exit code, report
     path); 130 when stopped through the token (or a KeyboardInterrupt), also during the phase.
     State, not_lossless.md and the report are always written, whatever happens. An unexpected error files the run

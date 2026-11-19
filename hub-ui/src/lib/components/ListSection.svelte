@@ -25,19 +25,21 @@
   // chevron (the browser's A–Z toggle), above the fold button so they take their own clicks.
   // `action` (issue 33 stage B §6.1): the group's own action at the head's end, a `Button variant="link" size="sm"`
   // (To-do's "Upgrade all · 12", "Resume · 3 left"); the hint gives way to it, the action is never cut.
+  // `wrap`: the hint is data-carrying words (To-do's group hints, the engine's) and is never cut: it wraps to a second
+  // line, the head growing by that line (a hint that fits stays on the one line).
   import type { Snippet } from 'svelte';
   import { stuckEdge } from './stuckEdge';
   import { tip } from './tip';
 
   type Fold = { open: boolean; toggle: () => void; disabled?: boolean };
   type Props = { label: string; summary?: string; hint?: string; test?: string; stick?: 'top' | 'both';
-    on?: 'list' | 'chrome'; fold?: Fold; children?: Snippet; action?: Snippet };
-  let { label, summary, hint, test, stick = 'top', on = 'list', fold, children, action }: Props = $props();
+    on?: 'list' | 'chrome'; fold?: Fold; children?: Snippet; action?: Snippet; wrap?: boolean };
+  let { label, summary, hint, test, stick = 'top', on = 'list', fold, children, action, wrap = false }: Props = $props();
   const open = $derived(!fold || fold.open || !!fold.disabled);
   const foldTip = $derived(fold && !fold.disabled ? `${open ? 'Hide' : 'Show'} ${label.toLowerCase()}` : null);
 </script>
 
-<div class="section {on}" class:both={stick === 'both'} class:foldable={!!fold} data-list-section data-stick={stick}
+<div class="section {on}" class:both={stick === 'both'} class:foldable={!!fold} class:wrap data-list-section data-stick={stick}
   data-test={test} use:stuckEdge>
   {#if fold}
     <span class="hd" role="heading" aria-level="3">
@@ -49,7 +51,7 @@
   <span class="title" role={fold ? undefined : 'heading'} aria-level={fold ? undefined : 3}
     aria-hidden={fold ? 'true' : undefined}>{label}</span>
   {#if summary}<span class="summary" aria-hidden={fold ? 'true' : undefined}>{summary}</span>{/if}
-  {#if hint}<span class="hint">{hint}</span>{/if}
+  {#if hint}<span class="hint" class:wrap>{hint}</span>{/if}
   {#if fold || children || action}<span class="fill"></span>{/if}
   {#if children}<span class="own">{@render children()}</span>{/if}
   {#if action}<span class="own act">{@render action()}</span>{/if}
@@ -77,6 +79,10 @@
   .summary { flex: none; color: var(--text-muted); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
   .hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-label);
     font-size: var(--fs-small); }
+  /* a hint that wraps: the head grows by a line (its min-height stays the one-line head's); name and count stay centred
+     beside the hint's lines */
+  .section.wrap { padding-block: 6px; }
+  .hint.wrap { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.35; }
   .fill { flex: 1; }
   /* the action keeps its words; the hint before it gives way ("…"); the link ends on the rows' 16 px inset */
   .act { flex: none; }

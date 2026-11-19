@@ -1,7 +1,7 @@
 """discjockey/cdj.py: the CDJ rule (plan rekordbox stage D §1.4): every row both ways, the words, missing values."""
 import pytest
 
-from discjockey.cdj import REASONS, CdjProblem, cdj_problem
+from discjockey.cdj import REASONS, CdjProblem, cdj_problem, group_members
 from discjockey.models import FileAudio
 
 
@@ -99,3 +99,12 @@ def test_every_reason_is_named_and_returned_as_a_frozen_record():
     assert isinstance(found, CdjProblem)
     with pytest.raises(AttributeError):
         found.reason = "x"
+
+
+def test_a_file_that_waits_as_missing_is_not_a_member_of_the_cdj_group():
+    """Issue 43 §3: nothing can be done with a song whose file isn't there, so it is not offered a Convert."""
+    own = {"source": "manual", "status": "lossless", "path": "/Volumes/Example/Music/Example Artist - Song.opus",
+           "file_codec": "opus", "file_rate": 48000, "file_bits": None, "file_kbps": 128}
+    state = {"tracks": {"local:1": dict(own), "local:2": dict(own, missing_since="2026-11-10T09:00:00")}}
+    assert list(group_members(state)) == ["local:1"]
+    assert list(group_members(state, include_hidden=True)) == ["local:1"]

@@ -1,0 +1,13 @@
+Removed 2 songs from your library.
+
+Action     remove
+Done       t4, t5
+Skipped    none
+Words      Removed 2 songs from your library.
+Recovered  none
+
+Results
+Track id  Action  State  Reason  Words
+t4        remove  done   none    Removed from your library
+t5        remove  done   none    Removed from your library
+2 of 2 shown

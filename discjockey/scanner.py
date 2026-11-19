@@ -4,8 +4,11 @@
 Works on plain data: the watched folders and the index's file rows come in, a ScanResult goes out, no SQL here.
 A file whose path, size and mtime match its row is not read (one `lstat` per file). A folder that can't be seen is
 offline and its rows appear in no list; a subfolder that can't be listed or a file that can't be read leaves its
-rows as they are, and a row that would be gone is held instead when its file could be in a place the walk
-couldn't read (spec §12). So nothing is ever reported gone because something couldn't be read.
+rows as they are (spec §12).
+
+Nothing a song has is decided by one scan (issue 43): a linked row whose file isn't found is `missing`, and it is
+matched again by its content key at every scan for as long as its path stays empty (that is how a file put back, in
+any watched folder under any name, links to it again). Only an index row of nobody's file is dropped (`gone`).
 """
 from __future__ import annotations
 
@@ -181,15 +184,13 @@ class _Sorting:
     unopenable: list[tuple[int, str]] = field(default_factory=list)
     present: list[tuple[KnownFile, SeenFile]] = field(default_factory=list)  # rows whose file is at its path
     kept: list[KnownFile] = field(default_factory=list)  # rows left as they are (offline, unlisted, unreadable)
-    hold_if_gone: set[int] = field(default_factory=set)  # missing rows of a folder whose walk couldn't see it all
-    unreadable_sizes: set[int] = field(default_factory=set)  # sizes of files that couldn't be read (lstat worked)
+    still_missing: list[KnownFile] = field(default_factory=list)  # kept rows that were missing before: they still are
     missing: list[KnownFile] = field(default_factory=list)  # rows whose path is gone
     new: list[SeenFile] = field(default_factory=list)  # files no row has at their path
 
     def add(self, other: _Sorting) -> None:
-        self.hold_if_gone |= other.hold_if_gone
-        self.unreadable_sizes |= other.unreadable_sizes
-        for name in ("unchanged", "retagged", "replaced", "unreadable", "unopenable", "present", "kept", "missing", "new"):
+        for name in ("unchanged", "retagged", "replaced", "unreadable", "unopenable", "present", "kept", "still_missing",
+                     "missing", "new"):
             getattr(self, name).extend(getattr(other, name))
 
     def drop(self, prefix: str, row_ids: set[int]) -> None:
@@ -203,8 +204,8 @@ class _Sorting:
         self.unreadable = [u for u in self.unreadable if not under(u[1])]
         self.unopenable = [u for u in self.unopenable if not under(u[1])]
         self.kept = [row for row in self.kept if row.id not in row_ids]
+        self.still_missing = [row for row in self.still_missing if row.id not in row_ids]
         self.missing = [row for row in self.missing if row.id not in row_ids]
-        self.hold_if_gone -= row_ids
         self.new = [s for s in self.new if not under(s.rel)]
 
 
@@ -216,7 +217,7 @@ def _sort_folder(top: WatchedFolder, rows: dict[str, KnownFile], walked: _Walked
         seen.add(rel)
         out.unreadable.append((top.id, rel, reason))
         if rel in rows:
-            out.kept.append(rows[rel])
+            _keep(out, rows[rel])
     out.unopenable.extend((top.id, rel) for rel in walked.unopenable)
     for rel, path, st in walked.files:
         seen.add(rel)
@@ -234,9 +235,8 @@ def _sort_folder(top: WatchedFolder, rows: dict[str, KnownFile], walked: _Walked
             key = key_of(path)
         except OSError as e:
             out.unreadable.append((top.id, rel, _reason(e)))
-            out.unreadable_sizes.add(st.st_size)
             if row is not None:
-                out.kept.append(row)
+                _keep(out, row)
             continue
         found = SeenFile(top.id, rel, st.st_size, st.st_mtime_ns, key)
         if row is None:
@@ -251,13 +251,20 @@ def _sort_folder(top: WatchedFolder, rows: dict[str, KnownFile], walked: _Walked
         if rel in seen:
             continue
         if any(rel.startswith(p + "/") for p in walked.unlisted):
-            out.kept.append(row)  # its subfolder couldn't be listed: treated as unchanged, never gone
-            out.unchanged.append(row.id)
+            _keep(out, row)  # its subfolder couldn't be listed: left as it was, never decided
+            if not row.missing:
+                out.unchanged.append(row.id)
         else:
             out.missing.append(row)
-    if walked.unlisted or walked.unreadable:  # a moved file may be where the walk couldn't look
-        out.hold_if_gone.update(row.id for row in out.missing)
     return out
+
+
+def _keep(out: _Sorting, row: KnownFile) -> None:
+    """A row the walk couldn't judge (its file or folder couldn't be read) stays as it was: a missing one stays
+    missing."""
+    out.kept.append(row)
+    if row.missing:
+        out.still_missing.append(row)
 
 
 def _go_offline(result: ScanResult, sorting: _Sorting, folders: list[WatchedFolder], rows) -> None:
@@ -277,6 +284,10 @@ def _reconcile(result: ScanResult, s: _Sorting, snapshot_path: Callable[[int, st
     result.replaced = s.replaced
     result.unreadable = s.unreadable
     result.unopenable = s.unopenable
+    result.missing = [row.id for row in s.still_missing]
+    # rows that were missing and have their file at their path again; `moved` ones are added as they are decided
+    result.back = [row.id for row, _ in s.present if row.missing]
+    was_missing = {row.id for row in s.missing if row.missing}
 
     still_there = {found.content_key for _, found in s.present}
     still_there.update(row.content_key for row in s.kept if row.content_key is not None)
@@ -309,12 +320,16 @@ def _reconcile(result: ScanResult, s: _Sorting, snapshot_path: Callable[[int, st
             used.add((target.folder, target.rel))
             still_there.add(target.content_key)
             result.moved.append((row.id, target))
+            if row.id in was_missing:
+                result.back.append(row.id)
         elif candidates:
             result.ambiguous.append((row.id, sorted(snapshot_path(c.folder, c.rel) for c in candidates)))
-        elif row.id in s.hold_if_gone or (row.size is not None and row.size in s.unreadable_sizes):
-            result.held.append(row.id)  # could be the file that couldn't be read: decided on a later scan
+        elif row.linked:
+            result.missing.append(row.id)  # nothing has its key: it waits, with everything its song has
+            if row.ambiguous:
+                result.unambiguous.append(row.id)  # its candidates are all gone too (issue 43, FA)
         else:
-            result.gone.append(row.id)
+            result.gone.append(row.id)  # an index row of nobody's file
 
     order = sorted(s.missing, key=lambda row: (not row.linked, row.id))  # a song's file wins a shared target
     for row in order:  # by content key

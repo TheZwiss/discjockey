@@ -30,7 +30,7 @@ from typing import Callable
 from urllib.parse import quote
 
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
-from .. import aiff_plan as plans, audio, cdj, quality
+from .. import aiff_plan as plans, audio, cdj, missing, quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
@@ -45,7 +45,7 @@ from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
 from ..events import BatchProgress, Cancelled, CancelToken, Result
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatchRow, BatchResult, BatchRow, Candidate,
                       PlaylistLine,
-                      PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, token)
+                      PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, file_missing, token)
 from ..names import fold, search_fold
 from ..words import SCAN_OLDER, preview_words, rekordbox_words
 from ..ops import OpProblem, snapshot
@@ -80,12 +80,15 @@ NO_AIFF_BATCH = "Discjockey has no record of this batch."
 NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
 UNDO_NONE = batches.NOTHING_UNDONE
 NOTHING_TO_CHECK = "There is nothing to check for these tracks any more."
+NO_MISSING_LEFT = {select.DOWNLOAD_AGAIN: "No song whose file is missing waits for Download again.",
+                   select.REMOVE_MISSING: "No song whose file is missing waits for Remove from library."}
 NOTHING_TO_CHECK_ONE = "This track has nothing to check in rekordbox."
 NEWER_CHECK = "A later batch ({later}) changed this track again, so its check belongs to that batch: `check done --batch {later}`."
 NEWER_CHECK_STEP = "This track was changed again after this batch, so its check is not this batch's: `check done {track}`."
 CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any more."
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
-NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove"))  # run on what is there when --yes comes: no plan to run
+NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove",
+                         "missing download", "missing remove"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
@@ -117,6 +120,7 @@ LIBRARY_METHODS = frozenset((
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
+    "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
@@ -495,10 +499,14 @@ class HubApi:
             return False
 
     def _auto_upgrade_ready(self, state: dict) -> dict | None:
-        """`sync_preview().auto_upgrade`: `{on: true, ready: n}` with n the tracks the sync's last phase would upgrade
-        now (`auto_upgrade.plan`, quick: the cached rekordbox state, no read open of its library; a refusal that can't
-        be told to still hold without one counts as holding), counting those that would wait for rekordbox. None when
-        the switch is off (or the file unreadable) or there is no preview (no plan, so no questions to hold songs)."""
+        """`sync_preview().auto_upgrade`: `{on, ready, places, place_notes}`. `on`: the Auto-upgrade switch; `ready`: the
+        tracks the sync's last phase would upgrade now (`auto_upgrade.plan`, quick: the cached rekordbox state, no read
+        open of its library; a refusal that can't be told to still hold without one counts as holding), counting those
+        that would wait for rekordbox, not the placements; `places`: the songs it would put their parked better version
+        in for (Download again on a missing file; with the switch off too), counting those that would wait;
+        `place_notes`: `{closed, open}` the sentence for them (`engine_words.place_plan_line`, rekordbox closed / open), null
+        with none. None when the switch is off and nothing is to be placed (or the settings file is unreadable) or there
+        is no preview (no plan, so no questions to hold songs)."""
         prep = self._store.prep
         if prep is None:
             return None
@@ -509,7 +517,18 @@ class HubApi:
         planned = auto_upgrade.plan(self._paths, state, {q.song_key for q in prep.plan.questions}, settings,
                                     running=self._svc.rekordbox_running, place=self._svc.rekordbox_place(),
                                     status=self._rekordbox_status(), quick=True)
-        return None if planned is None else {"on": True, "ready": len(planned.run) + len(planned.waiting)}
+        if planned is None:
+            return None
+        coming = [k for k in (*planned.run, *(k for k, _ in planned.waiting))]
+        places = sum(1 for k in coming if k in planned.place)
+        if not settings.auto_upgrade and places == 0:
+            return None
+        name = None
+        if places == 1:  # the one song is named in the sentence
+            name = engine_words.song_name(state["tracks"].get(next(k for k in coming if k in planned.place)) or {})
+        notes = {"closed": engine_words.place_plan_line(places, False, name),
+                 "open": engine_words.place_plan_line(places, True, name)} if places else None
+        return {"on": bool(settings.auto_upgrade), "ready": len(coming) - places, "places": places, "place_notes": notes}
 
     def _checked_batches(self, state: dict) -> dict[int, AiffBatchRow]:
         """The AIFF batches the open rekordbox checks belong to, by id: To-do names the checks of a sync's Auto-upgrade
@@ -708,13 +727,22 @@ class HubApi:
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
         cdj_plan = self._cdj_plan(state, away, decided) if members and filt in (None, "all", "cdj") else None
+        # where a missing file was (the Missing files group's words); the sidebar's count needs none
+        where = None
+        if not count_only and any(file_missing(e) for e in state["tracks"].values()):
+            where = self._place(state)
         cdj_all = views.cdj_counts(cdj_plan.to_dict()) if cdj_plan else (0, 0)
         return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
                           questions, groups, files, self._audio, counted, away, rb, present,
                           views.stopped_batch(rows, kinds=("upgrade",)), self._auto_upgrade_on(),
                           {i: r.started_by for i, r in checked.items()}, cdj_all,
                           views.stopped_batch(rows, scope="todo:"), {i: r.kind for i, r in checked.items()},
-                          cdj_plan.waits if cdj_plan else None, decided, self._paths.root)
+                          cdj_plan.waits if cdj_plan else None, decided, self._paths.root, where)
+
+    def _place(self, state: dict) -> Callable[[str], str]:
+        """A file's place in the Folder column's words (a Library folder's playlist name, an import folder's name): where
+        a missing file was."""
+        return views.sites(state, pf.load(self._paths.playlists_file).rows, self._records_and_folders()[1]).place
 
     def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str]) -> plans.AiffPlan:
         """The `cdj` scope's plan for To-do, remembered on the records' generation (every write of songs, files or
@@ -1045,11 +1073,12 @@ class HubApi:
         with self._move_log() as conn:
             folders = db.watched_folders(conn) if conn is not None else []
         lines = pf.load(self._paths.playlists_file).rows
-        where = views.sites(state, lines, folders).place(e["path"]) if e.get("path") else None
+        place_of = views.sites(state, lines, folders).place
+        where = place_of(e["path"]) if e.get("path") else None
         rb = self._rekordbox_status()
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
                                     self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where,
-                                    rb, self._auto_upgrade_on())
+                                    rb, self._auto_upgrade_on(), state, place_of)
         # what Convert and Rename would do for this file (null: no file, a download, a better version waiting)
         detail["aiff"] = plans.file_answer(self._paths, state, track_id, rb=rb, tags=self._tags) if exists else None
         self._remember(state, [track_id])
@@ -1953,8 +1982,8 @@ class HubApi:
             prep = self._store.prep
             if prep is not None and summary != library.ScanSummary():
                 preview_after_run(self._store, prep, self._store.read_at)
-            return {"moved": summary.moved, "new": summary.new, "gone": summary.gone, "changed": summary.replaced,
-                    "copies": summary.copies}
+            return {"moved": summary.moved, "new": summary.new, "gone": summary.gone, "missing": summary.missing,
+                    "back": summary.back, "changed": summary.replaced, "copies": summary.copies}
 
         return {"job_id": self._jobs.start("scan", work).id}
 
@@ -2351,6 +2380,57 @@ class HubApi:
             return body
         return {"job_id": self._jobs.start("rekordbox_checked", work,
                                            track_id=ids[0] if ids is not None and len(ids) == 1 else None).id}
+
+    @staticmethod
+    def _missing_action(action: object) -> str:
+        """The action of a missing file's methods (`missing.ACTIONS`); anything else is `bad_args`."""
+        if action not in missing.ACTIONS:
+            raise BadId("usage", f"action must be one of {', '.join(missing.ACTIONS)}.")
+        return action  # type: ignore[return-value]
+
+    @bridge
+    def missing_files_preview(self, track_ids: list[str], action: str) -> dict:
+        """What Download again or Remove from library would do for songs whose file is missing, answered before it runs
+        (issue 43, plan §4.4; the dry run of `missing download|remove`): `{action, items, n, skipped, words}` as
+        `missing.preview` shapes it, one item per song with `will` and, when it can't, its `reason` and `words`. A song
+        that is not missing (or is no song) is an item that will not run. Reads only. An unknown action is `bad_args`."""
+        action = self._missing_action(action)
+        ids = self._track_list(track_ids)
+        state = self._state()
+        return missing.preview(state, ids, action, self._place(state), self._today())
+
+    @bridge
+    def missing_files(self, track_ids: list[str], action: str) -> dict:
+        """Download again (`download_again`) or Remove from library (`remove`) for songs whose file is missing: a write
+        job (kind "missing_files"; the plan is made again, so the Sync page shows the planned download, or the placement in
+        its Auto-upgrade line, at once). Each song is asked again when the job runs: one that changed since the click
+        is `skipped` with its reason. The result is `{action, results, done, skipped, words}`; every song skipped ends the
+        job `changed` with the same result kept. Remove is final (no undo) and deletes no music file: only the song's
+        records and its parked download in Upgrades ready/. Nothing is removed without this call. Remove scans the
+        watched folders first (inside the job), so a file put back since the last scan links again and its song is
+        `skipped` as not missing."""
+        action = self._missing_action(action)
+        ids = self._track_list(track_ids)
+        run_action = missing.download_again if action == missing.DOWNLOAD_AGAIN else missing.remove
+
+        def work(ctx) -> dict:
+            if action == missing.REMOVE:  # final: look at the folders first, so a file put back since the last scan
+                library.scan_library(self._paths, ctx.emit)  # links again before anything is forgotten (FA)
+            state, recovered = self._begin()
+            results = run_action(self._paths, ids, now=self._svc.now, state=state)
+            done = [r.track_id for r in results if r.state == "done"]
+            body = {"action": action, "results": [r.to_dict() for r in results], "done": done,
+                    "skipped": [r.track_id for r in results if r.state == "skipped"],
+                    "words": missing.run_words(action, results, state), "recovered": recovered}
+            if not done:
+                ctx.failed_result = body
+                raise OpProblem(body["words"], "changed")
+            if action == missing.REMOVE:
+                rep.write_not_lossless(self._paths, state)  # the removed songs leave that list
+            return body
+
+        return {"job_id": self._jobs.start("missing_files", replanned_work(self._store, work, self._svc.now),
+                                           track_id=ids[0] if len(ids) == 1 else None).id}
 
     def _plan_run(self, plan_id: str, mode: str, ids: list[str], state: dict, typed: set[str] | None = None
                   ) -> tuple[list[str], list[batches.ItemResult], dict]:
@@ -3127,7 +3207,8 @@ class CliApi(HubApi):
         (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
         for the whole run. An undo says how many tracks went back; "Done, checked" gives each track a row, `done` or
         `skipped` (nothing to check; `outcome: "ok"` when no track had one), and says that the undo ended. Read only: it looks at the records after the job. A
-        method with no words says nothing."""
+        method with no words says nothing. Download again and Remove from library (and their preview) give their one line
+        (`words`); their rows already carry theirs."""
         if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
             return self._upgrade_words(result)
         if method == "batch_resume" and isinstance(result.get("results"), list):
@@ -3140,6 +3221,8 @@ class CliApi(HubApi):
             if lossy := plan.get("lossy"):  # lossy files grow when they become AIFF (the console's old line)
                 return {"message": engine_words.LOSSY_NOTE.format(n=lossy, are="is" if lossy == 1 else "are")}
             return {}
+        if method in ("missing_files", "missing_files_preview") and isinstance(result.get("words"), str):
+            return {"message": result["words"]}  # the rows already carry their words (`results[].words`, `items[].words`)
         if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
             return self._undo_words(result)
         if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
@@ -3183,7 +3266,8 @@ class CliApi(HubApi):
         out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
                      "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
         batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
-                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"], "action": "same_track"}
+                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"],
+                                                         "action": r.get("action", "same_track")}
                                                         for r in rows if r["state"] in ("done", "failed")]}
         words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
         if "batch_id" in (words.get("data") or {}):
@@ -3245,7 +3329,8 @@ class CliApi(HubApi):
         for r in results:
             mine = []
             if r.get("state") == "done" and r.get("action") != "discard":  # a discard changes no file, so nothing to check
-                new_file = str(self._paths.root / r["path"]) if r.get("action") == "add_new" and r.get("path") else None
+                its = r.get("path") or (tracks.get(r["track"]) or {}).get("path")  # a placement's row carries none: the song's file now
+                new_file = str(self._paths.root / its) if r.get("action") in ("add_new", "place") and its else None
                 mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
                 for step in mine:
                     (steps if step["id"] == "step:relocate_new" else grouped[step["id"].removeprefix("step:")]).append(step)
@@ -3303,8 +3388,10 @@ class CliApi(HubApi):
     def auto_upgrade_preview(self) -> dict:
         """`sync run --auto-upgrade-only --dry-run`: what the sync's last phase would do now (`run.auto_upgrade_only` with
         `dry_run`: the records read only, nothing written, no report). `{auto_upgrade, start_note}`: the phase's block
-        (`auto_upgrade.Outcome`, `dry_run: true`; its rows are the plan's items) or null when Settings' switch is off,
-        and the Sync page's before-start line for it (`auto_upgrade.start_note`; null when no upgrade is coming).
+        (`auto_upgrade.Outcome`, `dry_run: true`; its rows are the plan's items, each with its `action`: `same_track` or
+        `place`, a missing song's parked better version) or null when Settings' switch is off and no placement is
+        coming (with the switch off the block holds the placements alone), and the Sync page's before-start line for
+        it (`auto_upgrade.start_note`; null when nothing is coming).
         Settings are read strictly, as a sync reads them: a file it cannot read is `config_invalid`."""
         found = run.auto_upgrade_only(self._paths, load_settings(self._support.settings_file), dry_run=True,
                                       rekordbox=self._rekordbox_services())
@@ -3316,7 +3403,8 @@ class CliApi(HubApi):
         """`sync run --auto-upgrade-only`: the sync's last phase alone (`run.auto_upgrade_only`: no playlists are read,
         the planner never runs) as a write job (kind "auto_upgrade"). The result is `{exit_code, report, auto_upgrade, recovered}`:
         the report's id (`report:<stamp>`: `report show` takes it; null with the switch off) and the phase's block
-        (`auto_upgrade.Outcome`; null when Settings' switch is off, which is read inside the job under the library lock).
+        (`auto_upgrade.Outcome`; null when Settings' switch is off and no placement was coming, which is read inside the job
+        under the library lock; with the switch off the placements run alone, in a batch started by `download_again`).
         rekordbox open: every upgrade of the set waits (`rekordbox_open`), nothing is moved, the job is done. A Stop ends it
         `stopped` once the records are saved. `plan_id` (`--plan`): only the tracks of that plan that still stand run; a
         track whose answer changed waits (`changed`), the ones new since the plan are in `new_since_plan`."""
@@ -3666,6 +3754,10 @@ class CliApi(HubApi):
         if want.verb_all == select.CHECK_DONE:
             return self._nothing_left({"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))},
                                       NOTHING_TO_CHECK)
+        if want.verb_all in (select.DOWNLOAD_AGAIN, select.REMOVE_MISSING):
+            ids = (select.download_again_ids if want.verb_all == select.DOWNLOAD_AGAIN else select.remove_missing_ids)(
+                self._todo(state, "missing_file", False))
+            return self._nothing_left({"ids": ids}, NO_MISSING_LEFT[want.verb_all])
         if want.verb_all == select.RENAME_ALL:
             ids = self._rename_all_ids(state, want.view, want.key)
             if want.plan is not None:  # a run with a plan answers for the plan's songs too (design §7.1)

@@ -83,9 +83,17 @@ def test_a_mixed_batch_uses_one_session_and_one_backup(tmp_path, monkeypatch):
         (0, 3, lib.tracks[0]), (1, 3, lib.tracks[1]), (2, 3, lib.tracks[2]), (3, 3, None)]
     assert all(isinstance(e, BatchProgress) and e.batch_id == batch_id for e in events)
     assert events[0].name == "Artist – Song 0" and events[-1].name is None
+    assert [(e.lead, e.count) for e in events] == [("Upgrading", f"{n} of 3 upgraded") for n in (0, 1, 2, 3)]
     log = lib.paths.operations_log.read_text()
     assert log.count('"operation": "upgrade_same_track"') == 3 and log.count('"result": "done"') == 3
     assert lib.paths.not_lossless_md.exists()
+
+
+def test_progress_words_follow_what_the_items_do():
+    assert batches.progress_words({"same_track"}, 1, 4) == ("Upgrading", "1 of 4 upgraded")
+    assert batches.progress_words({"place"}, 2, 4) == ("Putting in better versions", "2 of 4 put in")
+    assert batches.progress_words({"place", "same_track"}, 3, 4) == ("Upgrading", "3 of 4 done")
+    assert batches.progress_words({"convert"}, 0, 2) == ("Upgrading", "0 of 2 done")
 
 
 def test_a_batch_of_one(tmp_path, monkeypatch):

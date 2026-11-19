@@ -61,7 +61,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 10
+    assert int(version) == db.SCHEMA_VERSION == 11
     assert created == "2026-10-23T12:00:00"
 
 
@@ -1295,7 +1295,7 @@ def test_a_writer_upgrades_a_version_9_database_and_keeps_every_old_batch(tmp_pa
         db.check(conn, upgrade=True)
     after = everything(path)
     meta = dict(after.pop("meta"))
-    assert meta.pop("schema_version") == "10"
+    assert meta.pop("schema_version") == "11"
     assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
     with db.connect(path) as conn:
         for table in ("aiff_batches", "move_batches"):
@@ -1307,6 +1307,7 @@ def test_a_writer_upgrades_a_version_9_database_and_keeps_every_old_batch(tmp_pa
     assert [row[:3] + row[4:-1] for row in after.pop("aiff_batches")] == [  # every other old column as it was
         row[:3] + row[4:] for row in before.pop("aiff_batches")]
     assert [row[:-1] for row in after.pop("move_batches")] == before.pop("move_batches")
+    assert [row[:-1] for row in after.pop("files")] == before.pop("files")  # step 10 -> 11's column, last
     assert after == before  # the items and everything else untouched
 
 
@@ -1340,3 +1341,87 @@ def test_a_reader_refuses_a_version_9_database(tmp_path, library, monkeypatch):
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == db.OLDER
+
+
+# --- issue 43 (missing files wait): the schema step 10 -> 11 (`files.missing_since`) ---
+
+def version_10(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as before missing files waited: version 10, no `missing_since`."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 10)
+        m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in (1, 2, 3, 4, 5, 6, 7, 8, 9)})
+        return fresh(tmp_path, library, state, facts)
+
+
+def test_a_writer_upgrades_a_version_10_database_and_leaves_a_held_row_for_the_next_scan(tmp_path, library, monkeypatch):
+    path = version_10(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    with db.connect(path) as conn:
+        assert "missing_since" not in {r[1] for r in conn.execute("PRAGMA table_info(files)")}
+        conn.execute("UPDATE files SET held = 1 WHERE path = 'House/A - One.mp3'")  # v1.2.1: missing, move not ruled out
+    before = everything(path)
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+    after = everything(path)
+    meta = dict(after.pop("meta"))
+    assert meta.pop("schema_version") == "11"
+    assert meta == {k: v for k, v in before.pop("meta") if k != "schema_version"}
+    with db.connect(path) as conn:
+        assert [r[1] for r in conn.execute("PRAGMA table_info(files)")][-1] == "missing_since"
+        assert conn.execute("SELECT count(*) FROM files").fetchone()[0] > 0
+        assert conn.execute("SELECT count(missing_since) FROM files").fetchone()[0] == 0
+        assert conn.execute("SELECT held FROM files WHERE path = 'House/A - One.mp3'").fetchone() == (1,)
+        snap = db.snapshot(conn, library)
+    assert snap["tracks"]["sp1"]["held"] is True and snap["tracks"]["sp1"]["missing_since"] is None
+    assert [row[:-1] for row in after.pop("files")] == before.pop("files")  # every old column as it was
+    assert after == before
+
+
+def test_fresh_and_v10_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_10(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
+
+
+def test_a_reader_refuses_a_version_10_database(tmp_path, library, monkeypatch):
+    path = version_10(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
+
+
+# --- issue 43, FA: a quality save of a song whose file is not there (missing or away) writes the quality only ---
+
+_ROW = ("SELECT id, content_key, missing_since, file_codec, online, source_kbps FROM files "
+        "WHERE path = 'House/A - One.mp3'")
+
+
+def test_a_quality_change_of_a_missing_song_keeps_its_key_and_mark(tmp_path, library):
+    """run.fill_kbps sets source_kbps on any lossy download with a path, a missing one included."""
+    path = fresh(tmp_path, library, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    with db.connect(path) as conn:
+        conn.execute("UPDATE files SET missing_since = '2026-11-01T09:00:00', source_kbps = NULL, "
+                     "file_codec = 'mp3' WHERE path = 'House/A - One.mp3'")
+        before = conn.execute(_ROW).fetchone()
+        assert before[1] and before[2]
+        snap = db.snapshot(conn, library)
+        assert snap["tracks"]["sp1"]["missing_since"]
+        snap["tracks"]["sp1"]["source_kbps"] = 128  # what fill_kbps does
+        db.save(conn, snap, library=library, facts=no_facts, now=NOW)
+        after = conn.execute(_ROW).fetchone()
+    assert after == (*before[:5], 128)
+
+
+def test_a_quality_change_of_an_offline_song_keeps_its_key(tmp_path, library):
+    path = fresh(tmp_path, library, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
+    with db.connect(path) as conn:
+        conn.execute("UPDATE files SET online = 0, source_kbps = NULL WHERE path = 'House/A - One.mp3'")
+        before = conn.execute(_ROW).fetchone()
+        assert before[1] and before[4] == 0
+        snap = db.snapshot(conn, library)
+        snap["tracks"]["sp1"]["source_kbps"] = 128
+        db.save(conn, snap, library=library, facts=no_facts, now=NOW)
+        after = conn.execute(_ROW).fetchone()
+    assert after == (*before[:5], 128)

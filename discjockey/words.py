@@ -9,6 +9,8 @@ the USB step where the check has one: `report.usb_step`). The track's name is it
 command."""
 from __future__ import annotations
 
+from datetime import date
+
 from . import convert, rbstep, report
 from .hub.outcomes import person_step
 from .rekordbox.preview import REASON_WORDS
@@ -35,6 +37,7 @@ NOUN_WORDS = {
     "check": "The checks to do in rekordbox after a file changed.",
     "folder": "The folders Discjockey watches for your own files.",
     "library": "Your library: read it again, read file facts.",
+    "missing": "Songs whose file is missing: list them, download again or remove from your library.",
     "rekordbox": "rekordbox's library: its state, what a change would do, its backups.",
     "report": "The reports of past syncs.",
     "settings": "What Settings holds, and changing it.",
@@ -109,6 +112,34 @@ def waiting_line(n: int) -> str:
     return f"{n} upgrade{' waits' if n == 1 else 's wait'} for rekordbox to be closed."
 
 
+def place_plan_line(n: int, waits: bool = False, name: str | None = None) -> str:
+    """The Sync page's before-start clause for the placements (issue 43, D9, plan §5.4): songs the user asked to download
+    again whose file is missing and whose better version is parked get it at the end of the sync, with the Auto-upgrade
+    switch off too. `waits`: rekordbox is open, so they go in once it is closed. `name`: the one song's "Artist – Title"
+    when n is 1 (the clause names it; with several it keeps the count)."""
+    if n == 1 and name:
+        songs = f"{name} gets its better version"
+    else:
+        songs = "1 missing song gets its better version" if n == 1 else f"{n} missing songs get their better version"
+    return f"{songs} at the end of the sync{', once rekordbox is closed' if waits else ''}."
+
+
+def song_name(e: dict) -> str:
+    """A song's "Artist – Title" (the house dash) for a line that names it."""
+    return f"{e.get('artist') or '?'} – {e.get('title') or '?'}"
+
+
+def placing_line(n: int) -> str:
+    """What the phase says as it starts the placements."""
+    return f"Putting in the better version of {n} missing song{'s' if n != 1 else ''} at the end of the sync..."
+
+
+def place_waiting_line(n: int) -> str:
+    """What the phase says when it meets rekordbox open for the placements (`waiting_line`'s sibling)."""
+    return (f"{n} missing song{' waits' if n == 1 else 's wait'} for rekordbox to be closed to get "
+            f"{'its' if n == 1 else 'their'} better version.")
+
+
 # Settings (`settings show`, `settings set auto-upgrade`): the names the Settings page gives its two switches, and what
 # a change says
 AUTO_UPGRADE_LABEL = "Upgrade automatically when I sync"
@@ -153,6 +184,7 @@ def aiff_summary(results: list[dict], done: int, not_done: int) -> str:
 
 SWAP_REASONS = ("swapped", "repointed", "converted")  # the old rekordbox track keeps its file: Reload Tag
 ADDED_REASON = "added_as_new"                          # a new file: the old rekordbox track is pointed at it by hand
+PLACED_REASON = "placed_missing"                       # Download again put the parked version in for a missing file
 
 
 def rekordbox_words(state: str, problem: str | None) -> tuple[str, str | None]:
@@ -179,6 +211,14 @@ def person_steps(track_id: str, check: dict | None, new_path: str | None = None)
     reason = check.get("reason")
     if reason == ADDED_REASON:
         name, say = "relocate_new", check_sentence(check) + (f" The new file: {new_path}" if new_path else "")
+    elif reason == PLACED_REASON:
+        # a placement for a missing file (plan §5.4): the track was pointed at it (its text columns were never written,
+        # so a Reload Tag would replace the names the person changed: `look`), or it is a different edit that rekordbox
+        # takes as a new file (`relocate_new`), or nothing in rekordbox plays it by name (`look`)
+        new_file = not check.get("repointed") and check.get("aligned", True) and check.get("match") not in ("exact", "shifted")
+        name, say = ("relocate_new" if new_file else "look"), check_sentence(check)
+        if new_file and new_path:
+            say += f" The new file: {new_path}"
     elif reason in SWAP_REASONS:
         name, say = ("reload_tag" if check.get("reload_tag", True) is not False else "look"), check_sentence(check)
     else:
@@ -216,3 +256,14 @@ def preview_words(out: dict) -> dict:
             "timing": {**out["timing"], "result_text": TIMING_WORDS[out["timing"]["result"]]},
             "eligible": {k: v for action, reason in out["eligible"].items() for k, v in (
                 (action, reason), (f"{action}_text", "possible" if reason is None else REASON_WORDS[reason]))}}
+
+
+# English month abbreviations, never the locale's (the words are the engine's, the window and the command line say the
+# same thing)
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def short_day(d: date, today: date) -> str:
+    """A day in few words: "12 Nov" in `today`'s year, "12 Nov 2025" otherwise."""
+    day = f"{d.day} {MONTHS[d.month - 1]}"
+    return day if d.year == today.year else f"{day} {d.year}"

@@ -10,12 +10,15 @@
 
   type Props = Omit<HTMLAttributes<HTMLParagraphElement>, 'children' | 'title'> & { text: string; tone?: 'muted' | 'problem';
     /** up to three lines instead of one: only for a refusal that says what to do instead (FolderField) */
-    wrap?: boolean };
-  let { text, tone = 'muted', wrap = false, class: className, ...rest }: Props = $props();
+    wrap?: boolean;
+    /** a wrapping hint balances its lines (the default); `false` fills each line, for notes that stand under one another
+     *  and must take the same width (Sync's notes under Start) */
+    balance?: boolean };
+  let { text, tone = 'muted', wrap = false, balance = true, class: className, ...rest }: Props = $props();
   const problem = $derived(tone === 'problem');
 </script>
 
-<p {...rest} class="hint {className ?? ''}" class:problem class:wrap data-hint role={problem ? 'alert' : rest.role}
+<p {...rest} class="hint {className ?? ''}" class:problem class:wrap class:balance={wrap && balance} data-hint role={problem ? 'alert' : rest.role}
   data-note={problem ? 'problem' : undefined} title={text}>{text}</p>
 
 <style>
@@ -23,6 +26,7 @@
     margin: 0; min-width: 0; font-size: var(--fs-small); line-height: 1.4; color: var(--text-muted);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
+  .balance { text-wrap: balance; }
   .problem { color: var(--q-weak); }
-  .wrap { white-space: normal; text-wrap: balance; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
+  .wrap { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
 </style>

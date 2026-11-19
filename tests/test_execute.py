@@ -219,6 +219,117 @@ def test_a_file_gone_is_downloaded_again_into_the_placement_folder(env):
     assert len(ex.log.section("redownloaded")) == 1
 
 
+# --- issue 43: Download again of a song whose file row is missing (D7, D8) ---
+
+def missing_row(paths, state, path, *, extra=None):
+    """A saved song whose file row waits as missing: the file was there when saved, then went (a scan marked it)."""
+    from discjockey import db
+    touch(paths, path)
+    state["tracks"]["t1aaaaaaa"] = entry(path, **{"status": "lossless" if "not_lossless" not in path else "not_lossless",
+                                                  "file_gone": "2026-11-11", **(extra or {})})
+    from discjockey.library import save_state
+    save_state(paths, state)
+    (paths.root / path).unlink()
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET missing_since = '2026-11-10T09:00:00'")
+        (file_id,) = conn.execute("SELECT id FROM files").fetchone()
+    fresh = load_state(paths)
+    state.clear()
+    state.update(fresh)
+    return file_id
+
+
+def file_rows(paths):
+    from discjockey import db
+    with db.connect(paths.db_file) as conn:
+        return conn.execute("SELECT id, path, missing_since FROM files ORDER BY id").fetchall()
+
+
+@pytest.mark.parametrize("old", ["Library/A/not_lossless/Artist - Song.aiff", "Library/A/Artist - Song.aiff"])
+def test_a_placed_redownload_takes_over_the_missing_row_and_clears_the_mark(env, old):
+    """D7: the same files.id moves to the new place (or stays, when the new file lands on the old name)."""
+    paths, state, make = env
+    file_id = missing_row(paths, state, old)
+    assert state["tracks"]["t1aaaaaaa"]["missing_since"] and file_rows(paths)[0][2]
+    ex, _ = make(ready())
+    ex.run([act("acquire", reason="redownload")])
+    e = state["tracks"]["t1aaaaaaa"]
+    assert e["path"] == "Library/A/Artist - Song.aiff" and e["file_gone"] is None and e["status"] == "lossless"
+    assert (paths.root / e["path"]).read_bytes() == b"new audio"
+    assert file_rows(paths) == [(file_id, "A/Artist - Song.aiff", None)]  # (relative to Library/) one row, the same id, not missing
+    assert e["missing_since"] is None  # the run's own snapshot agrees with the row
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["missing_since"] is None
+    assert len(ex.log.section("redownloaded")) == 1
+
+
+def test_a_placed_redownload_with_every_field_as_before_still_clears_the_mark_and_reads_the_new_file(env):
+    """The same Qobuz track back under the same name: no entry field changes, the row must still be refreshed."""
+    paths, state, make = env
+    file_id = missing_row(paths, state, "Library/A/Artist - Song.aiff", extra={"source_how": "exact"})
+    ex, _ = make(ready(sid="q0"))
+    ex.run([act("acquire", reason="redownload")])
+    assert file_rows(paths) == [(file_id, "A/Artist - Song.aiff", None)]
+    assert load_state(paths)["tracks"]["t1aaaaaaa"]["missing_since"] is None
+    assert state["tracks"]["t1aaaaaaa"]["file_gone"] is None
+
+
+def test_a_redownload_that_finds_nothing_leaves_the_song_waiting(env):
+    """D8: the missing row stays (its content key may still come back), the mark is spent, the parked upgrade stays."""
+    paths, state, make = env
+    touch(paths, "Upgrades ready/A/Artist - Song.aiff", b"parked")
+    old = "Library/A/not_lossless/Artist - Song.aiff"
+    file_id = missing_row(paths, state, old, extra={"status": "not_lossless", "upgrade": dict(PARKED)})
+    before = dict(state["tracks"]["t1aaaaaaa"])
+    ex, _ = make(AcquireResult("missing", rejected=["qobuz:5"]))
+    ex.run([act("acquire", reason="redownload")])
+    e = state["tracks"]["t1aaaaaaa"]
+    for k in ("path", "status", "source", "source_id", "source_format", "file_id", "folder", "upgrade"):
+        assert e[k] == before[k], k
+    assert e["file_gone"] is None and e["last_attempt"] == "2026-10-20" and "qobuz:5" in e["rejected_sources"]
+    assert e["missing_since"] == "2026-11-10T09:00:00" and e["in_playlists"] is True
+    assert (paths.root / "Upgrades ready/A/Artist - Song.aiff").read_bytes() == b"parked"  # not deleted
+    assert file_rows(paths) == [(file_id, "A/not_lossless/Artist - Song.aiff", "2026-11-10T09:00:00")]
+    stored = load_state(paths)["tracks"]["t1aaaaaaa"]
+    assert (stored["path"], stored["file_gone"], stored["upgrade"]) == (old, None, dict(PARKED))
+    assert [r.error_kind for r in ex.log.section("missing")] == ["not_found"]
+
+
+def test_a_redownload_that_is_queued_keeps_the_mark_for_the_next_sync(env):
+    paths, state, make = env
+    old = "Library/A/Artist - Song.aiff"
+    missing_row(paths, state, old)
+    ex, _ = make(AcquireResult("queued", rejected=["qobuz:7"], note="daily limit"))
+    ex.run([act("acquire", reason="redownload")])
+    e = state["tracks"]["t1aaaaaaa"]
+    assert (e["path"], e["file_gone"], e["rejected_sources"]) == (old, "2026-11-11", ["qobuz:7"])
+    assert e["missing_since"] == "2026-11-10T09:00:00" and len(ex.log.section("queued")) == 1
+
+
+def test_a_redownload_that_errors_keeps_the_row_and_the_mark(env):
+    paths, state, make = env
+    old = "Library/A/Artist - Song.aiff"
+    missing_row(paths, state, old)
+    ex, _ = make(AcquireResult("errored", errors=["network"]))
+    ex.run([act("acquire", reason="redownload")])
+    e = state["tracks"]["t1aaaaaaa"]
+    assert (e["path"], e["file_gone"], e["missing_since"]) == (old, "2026-11-11", "2026-11-10T09:00:00")
+    assert len(ex.log.section("errors")) == 1
+
+
+def test_a_redownload_that_places_nothing_keeps_its_name_for_its_waiting_row(env):
+    """The old name is only released for the file that replaces it: a song found nowhere keeps its row at that name,
+    so another new song of the same name in the same run gets a tagged one, never the waiting row's place."""
+    paths, state, make = env
+    old = "Library/A/Artist - Song.aiff"
+    file_id = missing_row(paths, state, old)
+    ex, _ = make(AcquireResult("missing"), ready(sid="q2"))
+    ex.run([act("acquire", reason="redownload"), act("acquire", tid="t2bbbbbbb", reason="new")])
+    assert state["tracks"]["t1aaaaaaa"]["path"] == old and state["tracks"]["t2bbbbbbb"]["path"] != old
+    assert (paths.root / state["tracks"]["t2bbbbbbb"]["path"]).read_bytes() == b"new audio"
+    assert (file_id, "A/Artist - Song.aiff", "2026-11-10T09:00:00") in file_rows(paths)
+    assert len(ex.log.section("errors")) == 0 and len(ex.log.section("new_lossless")) == 1
+
+
 def files_under(paths, *dirs):
     return sorted(p.relative_to(paths.root).as_posix() for d in dirs for p in (paths.root / d).rglob("*") if p.is_file())
 
@@ -510,14 +621,16 @@ def test_errored_new_track_not_recorded(env):
     assert "network down" in ex.log.section("errors")[0].note
 
 
-def test_redownload_rejects_previous_fallback_source(env):
+def test_redownload_does_not_reject_the_source_of_the_file_that_went_missing(env):
+    """Issue 43: a missing file says nothing against the source it came from (rejected_sources means "wrong song");
+    a song found only there must be able to come back, however often Download again is tried."""
     paths, state, make = env
     state["tracks"]["t1aaaaaaa"] = entry("Library/A/not_lossless/x.aiff", status="not_lossless",
                                          source="youtube", source_id="y1")
     ex, acq = make(AcquireResult("missing"))
     ex.run([act("acquire", reason="redownload")])
-    assert "youtube:y1" in acq.calls[0][1]
-    assert "youtube:y1" in state["tracks"]["t1aaaaaaa"]["rejected_sources"]
+    assert "youtube:y1" not in acq.calls[0][1]
+    assert "youtube:y1" not in state["tracks"]["t1aaaaaaa"]["rejected_sources"]
 
 
 def test_keyboard_interrupt_keeps_finished_work(env):

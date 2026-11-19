@@ -17,6 +17,10 @@
   // has no file to show: its head (the dashed cover, "Artist · length · not downloaded yet", Waiting or NOT FOUND as in
   // its row) and one NoteCard that says what happens next; a song not found also has Open in to-do, where the ways to
   // get it are (`next`: when Qobuz looks again, from its details when the engine has them).
+  // A song whose file waits as missing (issue 43 §7.3): the engine's line and hint as a warn NoteCard where the file's
+  // picture would say it, the facts of the file it last had (no cutoff, spectrum or player: there is nothing to measure
+  // or play; an offline drive keeps its picture, which says to connect it), and Open in to-do in the foot, to its Missing
+  // files item: the actions are decided there, the Library has none of its own for it.
   import type { ComponentProps } from 'svelte';
   import {
     Badge, Button, EmptyState, ExternalLink, KeyValue, MiddleText, MiniPlayer, NoteCard, ProblemCard, QualityBadge, Skeleton,
@@ -31,7 +35,8 @@
   import type { Fail, LibraryRow, TrackDetail, TrackLink } from '$lib/bridge/types';
   import { sourceHowWords } from '$lib/copy';
   import {
-    NOT_FOUND_WORD, NO_FILE_PLACE, fileName, waitWords, noFileNote, footAction, placeLine, playlistsLine, shortUrl,
+    NOT_FOUND_WORD, NO_FILE_PLACE, fileName, waitWords, noFileNote, footAction, missingNote, missingTodoHref, placeLine,
+    playlistsLine, shortUrl,
   } from './libraryModel';
 
   type Spec = ComponentProps<typeof Spectrum>['spectrum'];
@@ -59,6 +64,9 @@
   // the file isn't there (drive away, folder or file not found): the picture says why, the player stays off, there is
   // nothing to show in Finder; the AIFF card isn't offered either
   const away = $derived(t ? fileAwayWords(t) : null);
+  // a missing file: the note says it, so only a drive or folder that is away keeps its picture
+  const note = $derived(t ? missingNote(t, 'library') : null);
+  const noteAway = $derived(note && t?.file_state !== 'file_missing' ? away : null);
   // the AIFF card (Convert, Give it its clean name): only without a decision, for a file there
   const aiff = $derived(t && aiffShown(t.aiff, decision, !!away) ? t.aiff : null);
   const aiffFlow = new AiffFlow({ onact: () => onacted?.(null) });
@@ -67,7 +75,7 @@
   $effect(() => { if (!aiff || !t) return; void t.track_id; return aiffFlow.attach(); });
   // the upgrade decision's Now/New and compare player stand in for the cutoff and the file's own spectrum and player
   const upgrading = $derived(decision?.kind === 'upgrade' && !!t?.upgrade);
-  const cutoff = $derived(t && !upgrading ? cutoffStat(t) : null);
+  const cutoff = $derived(t && !upgrading && !note ? cutoffStat(t) : null);
   const action = $derived(t ? footAction(t, decision, aiff ? { variant: aiffVariant(aiff), cdj: !!aiff.cdj } : null) : null);
   // the decisions' state (the "In rekordbox" pick, the file that stays, the running job), as in To-do's panel
   const upFlow = new UpgradeFlow({ onact: () => onacted?.(null) });
@@ -98,6 +106,7 @@
         </TrackHead>
       </Surface>
 
+      {#if note}<NoteCard tone="warn" title={note.title} data-test="missing-note">{note.text}</NoteCard>{/if}
       {#if aiff}<AiffCard {aiff} rekordbox={aiffFlow.rekordbox} problem={aiffFlow.problem} />{/if}
       {#if check}<CheckCards item={check} />{/if}
       {#if dup}<DuplicateChoice item={dup} flow={dupFlow} source={playSource} />{/if}
@@ -113,15 +122,17 @@
       {/if}
 
       {#if hasFile}
-        <Surface kind="card" label="Current file" data-test="current-file">
+        <Surface kind="card" label={note ? 'Last known file' : 'Current file'} data-test="current-file">
           {#snippet header()}
             {#if !away}<Button variant="link" size="sm" onclick={onfinder} data-test="details-finder">Show in Finder</Button>{/if}
           {/snippet}
-          {#if !cutoff && !upgrading}
+          {#if note}
+            {#if noteAway}<div data-test="spectrum"><Spectrum spectrum={null} height={64} away={noteAway} /></div>{/if}
+          {:else if !cutoff && !upgrading}
             <div data-test="spectrum"><Spectrum {spectrum} height={64} loading={spectrumLoading && !spectrum}
               error={spectrumError} noFile={!t.audio_url} {away} /></div>
           {/if}
-          {#if !upgrading}
+          {#if !upgrading && !note}
             <MiniPlayer url={t.audio_url} title={artistTitle(t.artist, t.title)} track_id={t.track_id}
               envelope={envelope(spectrum)} length_s={t.duration_s} start={onlisten} />
           {/if}
@@ -157,7 +168,7 @@
     </div>
   {/if}
 {/snippet}
-{#snippet noFileFoot()}<Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>{/snippet}
+{#snippet noFileFoot()}<Button wide onclick={ontodo} data-test="details-todo">Open in To-do</Button>{/snippet}
 
 {#snippet foot()}
   {#if action === 'upgrade' && t?.upgrade}
@@ -170,12 +181,15 @@
     <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
   {:else if action === 'aiff_todo' && t && aiff}
     <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
-    <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
+    <Button wide onclick={ontodo} data-test="details-todo">Open in To-do</Button>
   {:else if action === 'todo_aiff' && t && aiff}
-    <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
+    <Button wide onclick={ontodo} data-test="details-todo">Open in To-do</Button>
     <AiffFoot track_id={t.track_id} {aiff} flow={aiffFlow} />
   {:else if action === 'todo'}
-    <Button wide onclick={ontodo} data-test="details-todo">Open in to-do</Button>
+    <Button wide onclick={ontodo} data-test="details-todo">Open in To-do</Button>
+  {:else if action === 'missing' && t}
+    <!-- to the song's item in Missing files, picked: its Download again or Remove is decided there -->
+    <Button wide href={`#${missingTodoHref(t.track_id)}`} data-test="missing-open-todo">Open in To-do</Button>
   {/if}
 {/snippet}
 

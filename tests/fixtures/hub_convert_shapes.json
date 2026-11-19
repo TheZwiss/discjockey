@@ -14,7 +14,7 @@
   "cdj_group_all": ["n", "k"],
   "stopped": ["batch_id", "left"],
   "check_view": ["reason", "since", "match", "offset_ms", "moved", "aligned", "relocate", "reload_tag", "batch", "rekordbox", "text", "old_path", "old_name", "person_steps"],
-  "batch": ["id", "aiff_id", "size", "started", "started_by", "kind", "tracks"],
+  "batch": ["id", "aiff_id", "size", "started", "started_by", "from_sync", "kind", "tracks", "row_name", "row_sub", "list_title", "card_summary", "placed_summary"],
   "batch_result": ["batch", "state", "stop_reason", "total", "done", "skipped", "failed", "results", "backup", "recovered"],
   "item_result": ["track", "action", "state", "reason", "message", "path", "rekordbox"],
   "rekordbox_status": ["state", "running", "state_text", "problem", "problem_text", "version", "library", "db_version", "modified_at", "size"],

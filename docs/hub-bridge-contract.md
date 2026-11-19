@@ -132,7 +132,7 @@ remember=False)` (the command line's) acts on a write's record as it is, with no
   Auto-upgrade phase, a report titled "Discjockey Auto-upgrade run" that holds the `auto_upgrade` block; a report without
   the key is a sync; the window never starts the second),
   `auto_upgrade` (stage C: the run's Auto-upgrade block with its `line`, see "Auto-upgrade" below; null when the switch
-  was off for that run and in runs from before it).
+  was off for that run and nothing was placed for a missing song (issue 43), and in runs from before it).
 - **Result** (report line; in `ActionFinished.result`, run sections, op results): `section, folder, artist, title,
   track_id|null, note, status|null, source|null, cutoff_hz|null, path|null, error_kind` (`network|qobuz|other|not_found|null`),
   `found_status|null` (`upgrade_ready`: the found file's status — a SoundCloud original can be lossless; `status` stays
@@ -445,7 +445,7 @@ that the per-run cap left for later runs); both 0 before the first read. It also
 `{on: true, ready: n}` with n the upgrades the sync's last phase would put in place now, or null (the switch is off,
 settings.json can't be read, or there is no preview yet) — see "Auto-upgrade" below.
 Group `key`s/labels in order: `acquire:new` Download (new), `acquire:retry` Try again, `acquire:redownload` Download
-again, `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
+again (its file is missing; planned only for a song whose Download again the user asked for, issue 43: a missing file alone plans nothing), `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
 `adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no
 `from_folder` on a row any more (library stage 1): a sync moves no files, and files moved by hand are found by the
 scan (`rescan_library`). `key` is `[kind, track_id, to_dir]` (3 strings; example cut).
@@ -659,13 +659,13 @@ chips (Lossless, Good lossy, Weak, Fake), of `summary.by_quality` and `summary.l
 files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`. Every
 row also has `file_state` (2026-10-29, fix K): `here`, `offline` or `folder_missing`, read now exactly as `track()`'s
 (below: the live away set of the import folders, a stored `online = 0` stays `offline`), but per watched folder only:
-the list never checks a row's own file, so `file_missing` is `track()`'s alone; or `no_file` (above). A row that isn't
+a row whose file waits as missing (issue 43, "Missing files" below) says `file_missing` from its stored mark, no disk check, after the offline checks (a drive that is away says `offline`); or `no_file` (above). A row that isn't
 `here` doesn't play (Enter, double-click and its cover do nothing). The same
 holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole
-count), and the to-do list holds no such file. The user's
+count), and the to-do list holds no such file (but the Missing files group: its items say `file_missing`). The user's
 own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
 tracks, Not in a playlist and the folder views, never under a playlist folder. Rows (and `also`) carry four more
-fields: `wait` (`waiting`, `not_found` or `null`), `next_try` (a `not_found` row only, else `null`: the day the sync looks
+fields (and `in_missing_files`, see "Missing files"): `wait` (`waiting`, `not_found` or `null`), `next_try` (a `not_found` row only, else `null`: the day the sync looks
 for it again, ISO and due on and after it, or `next_sync` when it never looked yet; the page words it as To-do's
 next-try line against its own today), `position` (the place in the playlist's record, playlist views
 only, else `null`), `place` and `playlists`. `place` is where the file sits, in the words of the Folder column: a
@@ -754,6 +754,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "own": false,
    "sound_checked": true,
    "file_state": "here",
+   "in_missing_files": false,
    "wait": null,
    "next_try": null,
    "position": 2,
@@ -782,6 +783,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "own": false,
    "sound_checked": true,
    "file_state": "here",
+   "in_missing_files": false,
    "wait": null,
    "next_try": null,
    "position": 1,
@@ -810,6 +812,7 @@ innermost watched folder holding it is offline or not found) puts its words seco
    "own": false,
    "sound_checked": true,
    "file_state": "no_file",
+   "in_missing_files": false,
    "wait": "not_found",
    "next_try": "2026-10-20",
    "position": 3,
@@ -946,12 +949,14 @@ or Add as new file moves it into the entry and an undo puts the old one back. `s
 yet"; a lossy codec: "Your own file (MP3) · lossy, sound not checked yet").
 `track()` also carries `file_state` (2026-10-29, replaces the boolean `online`): `here`, `offline` (the file's drive is
 not connected), `folder_missing` (its watched folder is not found: moved, renamed or deleted while the drive is there)
-or `file_missing` (the folder is there, the file's path is not: it went since the last scan). Away is read now, not
+or `file_missing` (the folder is there, the file's path is not: it went since the last scan, or its row waits as
+missing: the stored mark of issue 43). Away is read now, not
 from the last scan: an import folder is away when the scanner's rule says so (`scanner.away_reason`: `unmounted` when
 its `/Volumes/<drive>` is not mounted, else `missing` when the path is not a folder; checked live once per request, like
 `watched_folders()`'s states), so an unplugged drive counts before any scan has seen it; the innermost watched folder
 holding the file decides. A file row that says `online = 0` and lies in no away folder stays `offline`. `file_missing`
-is checked for this one track (`Path.exists()`), in the api. A track without a file is `here`. For every state but
+is checked for this one track (`Path.exists()`) in the api, and also holds for a row marked missing (after the offline
+checks). A track without a file is `here`. For every state but
 `here` `audio_url` is null too: the panel says the words where the picture would be ("Offline: connect the drive" ·
 "Folder not found" · "This file isn't there any more."), keeps the player off, requests no spectrum and offers no Show in
 Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by the folder rule only (and carry no
@@ -960,11 +965,11 @@ Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by
 tag); the `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge
 already says the kHz.
 
-`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`).
+`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|missing_file|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`).
 Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". The import adds two
 groups after the first (see "Watched folders and the import" below): `same_song` and `duplicate`, whose items also carry
-a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, in a question and
-in a duplicate group (their quality is for the Library to show). First group
+a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, `missing_file`
+(issue 43), in a question and in a duplicate group (their quality is for the Library to show). First group
 `rekordbox_check` (label "Check in rekordbox", hint "the file changed; rekordbox needs a hand"): every track with a
 `rekordbox_check`, also hidden tracks and tracks no longer in a playlist; `detail` is what to do in rekordbox ("This
 track now plays the right song. In rekordbox: analyse it again and delete the old cues (they belong to the wrong
@@ -978,6 +983,13 @@ counts each track once, `chips.rekordbox_check` every check item (hidden ones to
 counts the same checks as **tracks**: a batch counts its `size`, hidden tracks too, whatever the filter. The page header
 says "{n} tracks to check in rekordbox" from it, and "{n} tracks are not lossless yet" from the sum of the chips of the
 groups below lossless (`upgrade_ready`, `not_found`, `weak`, `good_lossy`, `fake`, `other`), never from `chips.all`.
+`sub` (`string[]`, amended at FC) is that header line itself, worded by the engine (`views.todo_sub`) as parts in order
+of importance: "{n} tracks are not lossless yet", "{n} questions about your files" (`same_song` + `duplicate`), "{n}
+tracks to check in rekordbox" (`check_tracks`), "{n} files won't play well on CDJs" (`chips.cdj`), "{n} songs are
+missing their file" (`chips.missing_file`), each with its own singular ("1 track is not lossless yet", "1 question about
+your files", "1 track to check in rekordbox", "1 file won't play well on CDJs", "1 song is missing its file") and only
+when its number is above 0; `["Nothing to do"]` when none. The page shows the parts and drops whole ones where they don't
+fit; the command line prints them joined by " · " on a "Summary" row of `todo list`.
 `empty_text` is `empty`'s words for the command line (`all_lossless` "Everything is lossless.", `all_hidden` "Only hidden
 tracks are left.", `nothing_here` "Nothing here."), null when `empty` is null; the window keeps its own copy until phase 6.
 ```json
@@ -996,6 +1008,7 @@ tracks are left.", `nothing_here` "Nothing here."), null when `empty` is null; t
   "other": 0
  },
  "check_tracks": 0,
+ "sub": ["1 track is not lossless yet"],
  "hidden_count": 0,
  "show_hidden": false,
  "groups": [
@@ -1355,13 +1368,18 @@ Qobuz `days_to_load` is null.
   "upgrades_ready": 1,
   "report_md": "reports/2026-10-19_214700.md",
   "queued": 0,
-  "folder_order": ["Hard_Bounce", "Powertrance"]
+  "folder_order": ["Hard_Bounce", "Powertrance"],
+  "section_labels": {"new_lossless": "New lossless tracks", "placed_missing": "Better versions put in (their files were missing)", "...": "..."},
+  "part_labels": {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}
  }
 }
 ```
 Every row with a `track_id` except `queued` carries `cover_url` (the file's own cover, else Spotify's, else null).
 `queued`: how many tracks wait for the next sync (stopped before, left out, over the limit). `folder_order`: the
-playlist folders in playlists.txt order, for grouping the rows.
+playlist folders in playlists.txt order, for grouping the rows. `section_labels`: the report's own title of every section
+(`report.SECTIONS`; the end screen's part of the placements reads `placed_missing`); `part_labels`: the titles of the
+Auto-upgrade parts that hold rows of more than one section (`report.PART_LABELS`: `upgraded`, `waiting`, `refused`). The
+window prints them as they are.
 
 `spectrum(track_id, which="current")` — which: `current|upgrade`. `data`: base64 of `cols*bands` bytes, row by row
 in time, each row low→high frequency (band width `max_hz/bands`); byte v → dB = `floor_db * (1 - v/255)` (0 dB =
@@ -1684,7 +1702,7 @@ A job's success can carry words in `JobFinished.message`, empty otherwise: the i
 
 | method (positional args) | job kind | JobFinished.result |
 |---|---|---|
-| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path; with the switch on, the run's last phase is Auto-upgrade: it sends `BatchProgress` events and the report's `.json` carries `auto_upgrade`, see below); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
+| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | `{exit_code, report, actions, new_since_preview}` (`report`: absolute .md path; with the switch on, the run's last phase is Auto-upgrade: it sends `BatchProgress` events and the report's `.json` carries `auto_upgrade`, see below; with the switch off the phase still runs for the placements of missing songs (issue 43), alone, see "Auto-upgrade"); also on a `crashed` sync (`exit_code` 1, `report` its crash note; `actions` 0 when it crashed before the plan) |
 | `stop()` → `{"stopped": bool}` (not a job) — Stop safely: current write job (sync, download, Spotify login) | | |
 | `save_playlists(lines, loaded_version, files = null)` — `files` answers the save question when the change retargets files: `null` (nothing to ask) or `{choice: "leave"\|"move", renames: [[old, new]], moves: [[file_id, from_path]]}` (`from_path` as `preview_playlist_change`'s rows send it). `leave` makes the files this save would have moved the user's own placement (a later tidy-up lists them apart); `move` renames the chosen folders on disk (one batch each), then moves the chosen files (one batch). A malformed `files` is `refused` before a job starts | `save_playlists` | `{version, batches}`: `batches` are BatchResults, empty when nothing moved; problem `changed` = "playlists.txt was changed elsewhere…". A Stop after the save ends with problem `stopped` and the same `{version, batches}` as `result` |
 | `tidy_up(moves)` — `moves`: `[[file_id, from_path]]` from `tidy_preview` rows (not empty, else `refused`); each file moves only if it still looks as shown | `tidy` | BatchResult; a Stop ends with problem `stopped` and the batch so far as `result` |
@@ -1726,7 +1744,11 @@ their folder changes. `MovesProgress` events run during all three jobs. Example:
 finished.") while a terminal run holds the lock, `busy` ("Discjockey is still busy with the last change. Wait until it
 has finished.") while another write job runs. While a scan runs (the `scan` job, or the scan that `sync_preview` runs
 first) every write method answers `busy` with "Discjockey is checking your Library. Try again in a moment.". `scan` is the job kind for `JobStarted` / `JobFinished`; it has no
-`track_id`.
+`track_id`. Its result is `{moved, new, gone, missing, back, changed, copies}` (issue 43: nothing a song has is decided by
+one scan): `moved` files moved by hand, `new` files with unknown audio, `gone` index rows of nobody's file that were
+dropped, `missing` songs whose file wasn't found at this scan (they wait; To-do lists them), `back` missing files seen
+again (put back or moved, they link to their song again), `changed` files whose audio was replaced, `copies` new files
+with the audio of a file that is still there. `library scan --json` prints the same object.
 
 `use_candidate` / `use_link` are refused (problem `refused`) before any request to Qobuz (no login, no link lookup,
 nothing counted) with the messages of `ops.refusal`: "This is the version you have now." (the candidate is the
@@ -1935,7 +1957,8 @@ a test compares them): `dashboard`, `sidebar`, `sync_preview`, `refresh`, `libra
 `never_download`, `add_bought_file`, `use_candidate`, `use_link`, `reject_current`, `rekordbox_checked`, `upgrade`, `upgrade_all`,
 `undo_upgrade`, `batch_resume`, `batch_undo`, `rescan_library`, `show_in_finder`, `reveal`, `open_report`, `tidy_preview`, `move_batches`, `undo_preview`, `tidy_up`,
 `undo_moves`, `watched_folders`, `set_favourites`, `set_crate_shown`, `check_import_folder`, `removal_preview`, `add_watched_folder`,
-`remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`, `add_liked_music`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
+`remove_watched_folder`, `start_import`, `answer_same_song`, `keep_duplicates`, `supersede_duplicate`, `add_liked_music`,
+`missing_files_preview`, `missing_files`. Everything else works without a music folder, `open_licenses` included (Setup and Settings before one
 is chosen); `downloads_view()` then counts zero tracks.
 
 **Bound but missing.** A folder that vanishes while the hub runs (an unplugged drive) behaves as an unbound one: every
@@ -2036,7 +2059,7 @@ the third action).
 | `Message` | `level` `info|warning|debug`, `text` (hide debug) |
 | `ReadingPlaylist` | `index`, `total`, `folder` — before each playlist is read (a refresh, or a sync's start) |
 | `MovesProgress` | `batch_id`, `done`, `total` — after each move of a move batch, during `tidy`, `undo_moves` and a moving `save_playlists` (a folder rename counts as one move) |
-| `BatchProgress` | `batch_id`, `done`, `total`, `track_id`, `name` — before each track of an AIFF batch and after the last (`track_id`/`name` null then), during `upgrade_batch`, `batch_resume`, `batch_undo`, a `sync` (its Auto-upgrade phase, stage C: one batch, `batch_id` its real id) and, with `batch_id` 0 (no batch record), `upgrade_add_new` / `upgrade_discard` lists. `done` counts tracks handled, earlier runs of a resumed batch included |
+| `BatchProgress` | `batch_id`, `done`, `total`, `track_id`, `name`, `lead`, `count` — `lead` / `count` the phase's words, printed as they are (`batches.progress_words`): only Same track items "Upgrading" / "{done} of {total} upgraded", only placements of missing songs "Putting in better versions" / "{done} of {total} put in", any other mix "Upgrading" / "{done} of {total} done"; both "" for `upgrade_add_new` / `upgrade_discard` lists and an undo — before each track of an AIFF batch and after the last (`track_id`/`name` null then), during `upgrade_batch`, `batch_resume`, `batch_undo`, a `sync` (its Auto-upgrade phase, stage C: one batch, `batch_id` its real id) and, with `batch_id` 0 (no batch record), `upgrade_add_new` / `upgrade_discard` lists. `done` counts tracks handled, earlier runs of a resumed batch included |
 | `ImportProgress` | `phase` `scan|facts|tags|sound|link`, `done`, `total` (0 of 0 for scan and link), `unreadable` (files this import couldn't read so far) — during an import (importer.run_import), at each phase's start and end and at most every 25 files or 0.5 s between |
 
 Pause card: the pause runs inside the next action after its `ActionStarted` and search, so "next up" is the current
@@ -2048,7 +2071,7 @@ latest is sent). The pause card's source is the latest `SourceChosen` of the cur
 
 - **Problem kind `rekordbox_open`**: a batch or an undo needs rekordbox closed ("rekordbox is open. Quit rekordbox, then try again. Discjockey changes your rekordbox tracks only while rekordbox is closed."; stopped mid-way: "rekordbox was opened, so Discjockey stopped after {done} of {total}. Quit rekordbox and press Resume."). `JobFinished.result` is the stopped `AiffBatchResult` (or the `UndoResult`) when items ran.
 - **`upgrade` block** (`track().upgrade`): `swap_possible` now means "Same track can run now" (the quick answer: a parked upgrade, the file there, a stored alignment `exact`/`shifted`, and for a file that isn't AIFF a rekordbox library Discjockey can open or none); new `swap_how` (`in_place` for an AIFF, `new_aiff`), `why_not` (an eligibility reason key, null when possible), `rekordbox: {state: ready\|none\|unreadable, running}` (cached, see below), `auto_refused` (stage C, see "Auto-upgrade" below). `upgrade_status` says "cues can stay" whenever Same track is possible.
-- **`check_view`** (`check`): gains `person_steps` (issue 39, the command line's): `[{id, say, then}]`, the steps only the person can do in rekordbox. An added file (New track) is `step:relocate_new`, its `say` the check's text ending with the new file's absolute path; a swap, Same track or Convert is `step:reload_tag` while rekordbox's text is still to be reloaded (`reload_tag` true, or a record without it), and `step:look` ("In rekordbox, have a look at {tracks}.") when Discjockey wrote rekordbox's text itself (`reload_tag` false, which every Same track repoint, Convert and clean-name check stores, whether or not rekordbox has the track, and an AIFF swap stores once its write committed: a Reload Tag would replace names the person changed), its `say` the check's text either way (with the USB step for a repointed or converted file rekordbox has tracks of); a batch result's `person_steps` holds one `reload_tag` step and one `look` step at most, each listing its tracks and ending `check done --batch aiff:N`; `then` is `check done <track_id>` (a step with no command of its own, such as quitting rekordbox, has `then: null`: run the same command again); a clean name and a wrong song have none (`words.person_steps`). The window words its own numbered steps and ignores it. Reasons add `repointed`; new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
+- **`check_view`** (`check`): gains `person_steps` (issue 39, the command line's): `[{id, say, then}]`, the steps only the person can do in rekordbox. An added file (New track) is `step:relocate_new`, its `say` the check's text ending with the new file's absolute path; a `placed_missing` check is `step:look`, except a different edit placed under a new name (not repointed, not the same edit), which is `step:relocate_new` with the file's path (a placement's row has no `path`: the song's file now is it); a swap, Same track or Convert is `step:reload_tag` while rekordbox's text is still to be reloaded (`reload_tag` true, or a record without it), and `step:look` ("In rekordbox, have a look at {tracks}.") when Discjockey wrote rekordbox's text itself (`reload_tag` false, which every Same track repoint, Convert and clean-name check stores, whether or not rekordbox has the track, and an AIFF swap stores once its write committed: a Reload Tag would replace names the person changed), its `say` the check's text either way (with the USB step for a repointed or converted file rekordbox has tracks of); a batch result's `person_steps` holds one `reload_tag` step and one `look` step at most, each listing its tracks and ending `check done --batch aiff:N`; `then` is `check done <track_id>` (a step with no command of its own, such as quitting rekordbox, has `then: null`: run the same command again); a clean name and a wrong song have none (`words.person_steps`). The window words its own numbered steps and ignores it. Reasons add `repointed` and `placed_missing` (a better version put in for a missing file, see "Auto-upgrade"); new `reload_tag` (a record without it still asks for Reload Tag: `true`), `batch: {id, size} \| null` (size: that batch's checks still open), `rekordbox: {entries: count, kept: [fields]} \| null`.
 - **`todo()`**: every `upgrade_ready` item carries `same_track` (null, or the reason key); the group carries `all: {n, m, k}` (Same track can run / the edit needs a choice / waits for something else, hidden tracks left out) and `stopped: {batch_id, left} \| null` (the newest stopped batch with tracks left). The open checks of one batch with two or more tracks are one item, `BatchCheckItem` (`key` = `track_id` = `batch:<id>`, `group: "rekordbox_check"`, the first track's row fields, `batch: {id, aiff_id (`aiff:<id>`, the id the command line takes; the window ignores it), size, started, tracks: [check items]}`; `isBatch`), counted once in `chips`; one open check stays a plain item.
 - **Cached rekordbox state**: `HubApi._rekordbox_status()` keyed on master.db's modified time and size plus whether rekordbox runs; one read open per change. A reader takes `rekordbox.lock` shared and without waiting (`rekordbox.lock.reader_lock`); while a writer of any Discjockey process (a batch's session, a restore, a recovery of analysis files) holds it, master.db is never opened and the answer is the last value (`writing`, see `rekordbox_status()`). The same goes for the plan behind To-do's CDJ group and the `aiff_plan` read: with a writer holding the lock they plan on rekordbox's cached state and no lookup. A write job that holds no rekordbox session does not stop the read. Services `rekordbox_running` and `rekordbox_place` are injected (tests and the fake never touch a real library).
 
@@ -2074,12 +2097,12 @@ action.
   per change of master.db; with a writer holding the lock it answers its last value), `running` is asked on every
   call. The Sync page reads it when it opens and when the window gets focus again (no timer); `none`: no rekordbox
   library on this Mac, `unreadable`: one Discjockey cannot open.
-- **`sync_preview().auto_upgrade`** → `{on: true, ready: n} | null`. `n` = the phase's set now: To-do's Upgrade ready
+- **`sync_preview().auto_upgrade`** → `{on: bool, ready: n, places: p, place_notes: {closed, open} | null} | null`. `on` is the Auto-upgrade switch. `n` = the phase's upgrade set now: To-do's Upgrade ready
   list (hidden left out, songs waiting for an answer to "Is this the same song?" left out) filtered by the quick Same
   track answer (the cached rekordbox state; nothing of rekordbox's library is opened), minus the tracks a recorded
   refusal still holds (`auto_refused`): a refusal that only a read of rekordbox's analysis files could tell counts as
   holding, one of `space` or `needs_choice` is checked. It counts the upgrades that would wait for rekordbox too (rekordbox
-  running does not change `n`). null: the switch is off, settings.json can't be read, or `empty` is `no_preview`.
+  running does not change `n`); the placements are not in `n`. `p` = the missing songs whose parked better version the phase would put in (Download again was asked, the file is missing; with the switch off too: `on: false`), those that would wait for rekordbox counted; `place_notes` is `{closed, open}`, the sentence for them (`words.place_plan_line`, rekordbox closed / open: "2 missing songs get their better version at the end of the sync." / "... at the end of the sync, once rekordbox is closed."; with one song the sentence names it: "Artist – Title gets its better version at the end of the sync."), null when `p` is 0. A placement whose rekordbox library can't be read waits too (`rekordbox_unreadable`, no `auto_waits`) and is counted. null: the switch is off and `p` is 0, settings.json can't be read, or `empty` is `no_preview`.
   The Sync page's before-start Hint ("rekordbox is open: quit it before the sync ends, so the sync can put {n} upgrades in
   place.", "1 upgrade" for one) shows when `ready >= 1` and `rekordbox_status().running`.
 - **`upgrade` block** (`track().upgrade`): `auto_refused` is `{reason, message, at} | null` (was always null; type
@@ -2092,24 +2115,71 @@ action.
   "couldn't line it up", `not_analysed` "not analysed in rekordbox", `cloud` "in Cloud Library Sync", `space` "not
   enough free space", `needs_choice` "couldn't compare it"; a `needs_choice` record is dropped once a measurement says
   "a different edit"), else `upgrade_status`. A `BatchCheckItem`'s `batch` gains `started_by`
-  (`aiff_batches.started_by`: `user`, `upgrade_all`, `auto_upgrade`, …; null when unknown) and, for `auto_upgrade`, the
-  item's `detail` is "{date} · Upgraded during your sync" (in place of "{date} · Same track"). The page names the card
-  and its foot from `started_by` ("{n} tracks upgraded", "Undo all from this sync").
+  (`aiff_batches.started_by`: `user`, `upgrade_all`, `auto_upgrade`, `download_again`, …; null when unknown) and, for
+  `auto_upgrade` and `download_again` (the same phase with the switch off, which runs the placements alone: issue 43), the
+  item's `detail` is "{date} · Upgraded during your sync" (in place of "{date} · Same track"). The batch also has
+  `from_sync: bool` (`views.SYNC_STARTERS`: true for `auto_upgrade` and `download_again`): the page names the card and its
+  foot from it ("Undo all from this sync"), so it keeps no list of starters. The engine words the batch, the window prints
+  them as they are: `batch.row_name` ("{n} tracks upgraded"; Convert and mixed batches "{n} tracks"; every check a
+  placement `placed_missing` "{n} better versions put in"; a mix of placements and others "{n} tracks changed"),
+  `batch.row_sub` ("{day} · {how}", the day "today", "yesterday" or "12 Nov"; `how` as the item's `detail` says it, and
+  "Better versions put in during your sync" when every check is a placement), `batch.list_title` ("Upgraded", "Made AIFF",
+  "Clean names", "Better versions put in", "Changed" for a mix) and `batch.card_summary` (the summary of the batch's "In
+  rekordbox" card, every batch has one: "same track, cues kept" / "same tracks, cues kept" by how many of its checks that
+  are no placement have steps to do in rekordbox (a track rekordbox has, no clean name); else "better versions in" when
+  placements are there; null when the card has no steps) and `batch.placed_summary` ("better versions in" when the batch
+  holds a placement, else null: a panel held after an undo that left only placements shows it).
+  The card's steps for a placement are its `check.text`, one step per distinct text. The foot words ("Undo all from this
+  sync") are the window's.
 - **`run(run_id)` / `runs()`** (`RunSummary.auto_upgrade`): the report's `.json` key `auto_upgrade` plus `line`
   (`report.auto_upgrade_line`: "Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed." …; null when
   nothing happened), or null. The block: `{batch: int|null, backup: str|null, done, waiting, refused, failed,
   stopped: bool, dry_run: bool, results: [{track, name, state: "done"|"would"|"waiting"|"refused"|"failed", reason,
-  message, how: "in_place"|"new_aiff"|null}]}`; `waiting` counts `rekordbox_open`, `busy` and `not_reached` results and every skip nothing is recorded for
+  message, how: "in_place"|"new_aiff"|"placed"|null, action: "same_track"|"place"}]}` (`action` and `how: "placed"`: issue 43, below; a report from before it has no `action`: read it as `same_track`); `waiting` counts `rekordbox_open`, `busy` and `not_reached` results and every skip nothing is recorded for
   (`changed`, `unclean`, `other_library`, `rekordbox_unreadable`, …: a waiting row then carries that skip's `reason` and
   its specific `message`, and counts for "your next sync"); `refused` (state and count) only the reasons the phase
   records and To-do shows (`timing`, `not_analysed`, `cloud`, `space`, `needs_choice`).
   `sections` carry `upgraded` (done; counted in `counts.lossless` / `lossy` by `status` like `swapped`, and not a new
-  file for rekordbox) and `upgrade_waits` (waiting, refused, not reached; never an error: a failed item is in `errors`).
+  file for rekordbox), `placed_missing` (a done placement, below; counted in `counts.lossless` the same way) and
+  `upgrade_waits` (waiting, refused, not reached; never an error: a failed item is in `errors`).
+- **Placements for missing songs (issue 43 E4b).** The phase also puts in the parked better version of a song whose file
+  is missing and whose Download again the user asked for (`missing.place_keys`; hidden songs included, a song found in
+  two places or on an away drive left out): a row with `action: "place"` and `how: "placed"`, listed before the upgrades
+  in the one batch. A placement counts in the block's `done` / `waiting` / `refused` / `failed` like any row. It runs with
+  the switch off too, because Download again is its go: the phase then holds the placements alone, and the batch's
+  `started_by` is `download_again` (with the switch on: `auto_upgrade`; no Resume is offered for either). **With the
+  switch off the block, `auto_upgrade_preview()`'s `auto_upgrade` and the report's `auto_upgrade` key are present only
+  when a placement is coming or was done, otherwise null** (nothing is read or written then). rekordbox open: the
+  placement waits (`rekordbox_open`) whether or not rekordbox holds the song, the song stays missing with its mark; its
+  waiting rows say "…its better version goes in at your next sync" in place of "…it is upgraded at your next sync". A
+  refusal the phase records (`space`, `cloud`) goes on the parked upgrade as for an upgrade; the song keeps its mark. A done
+  row's `message` is "Its better version is in, at {name}; rekordbox's track plays it with its cues." (`; check its cues in
+  rekordbox.` when the missing file's timeline was unknown or another edit has its name; no clause when rekordbox's track was
+  left alone) and its result is in section `placed_missing` ("Better versions put in (their files were missing)"). The block's
+  `line` counts placements apart, after the upgrades' clauses: "1 missing song got its better version." / "… waits for its
+  better version until your next sync." / "… couldn't get its better version yet." The dry run's rows say `would`;
+  `auto_upgrade_preview().start_note` adds "{n} missing songs get their better version at the end of the sync[, once rekordbox is
+  closed]." (one song is named: "Artist – Title gets its better version at the end of the sync[, once rekordbox is
+  closed]."; after the upgrades' line; with the switch off it is the only line). `sync_preview().auto_upgrade` still counts
+  upgrades only (`ready`; null with the switch off): a placement is visible in the dry run's block, not in that count.
+- **The check of a placement** (`rekordbox_check.reason: "placed_missing"`, `check_view.reason`; the batch item's `batch` and
+  `started_by` as above): the record holds `match`, `offset_ms`, `aligned` (the new file was rendered lined up with
+  rekordbox's timeline of the missing file; false when that timeline was unknown, or another edit took the missing file's
+  name) and `repointed` (rekordbox's track of the missing file was pointed at the new file), and `reload_tag` false
+  (rekordbox's text columns are never written). `check_view` sends `match`, `offset_ms`, `aligned` and `text`, not
+  `repointed`: the window reads the case from `text` and the row's `detail`.
+  The row's short line (`views.check_status`) and the card's `text` (`report.placed_check_text`), five cases: repointed and
+  aligned "better version in place: play it once"; repointed, not aligned "better version in place: check cues and grid";
+  not repointed, the same edit "better version in place, not in rekordbox"; not repointed, another edit as a new file "add as a
+  new track, set the cues"; not repointed, another edit under the missing file's name "check cues and grid". Its undo puts
+  the song back in Missing files (Download again is asked again).
 - **Events:** a sync job sends `BatchProgress` during its phase, after a `Message` "Upgrading {n} tracks at the end of
-  the sync…" (`done` of `total` handled; `track_id` / `name` the track in work). The phase starts only when the run
+  the sync…" (and, for placements, "Putting in the better version of {n} missing song(s) at the end of the sync…"; when
+  rekordbox is open, "{n} upgrade(s) wait for rekordbox to be closed." and "{n} missing song(s) wait for rekordbox to be closed
+  to get their better version.") (`done` of `total` handled; `track_id` / `name` the track in work). The phase starts only when the run
   reached its end: never after Stop or a crash. A Stop during the phase ends the batch (the rest are
   `skipped` / `not_reached`, no Resume is offered for it) and the sync's `exit_code` is 130.
-- **Fake scenarios:** `sync:auto-done`, `sync:auto-rekordbox-open`, `sync:auto-running`, `todo:auto-waits`,
+- **Fake scenarios:** `missing_files` (the end of its sync holds a done `place` row, `rekordbox` open makes it wait; with the switch off a batch `download_again`), `sync:auto-done`, `sync:auto-rekordbox-open`, `sync:auto-running`, `todo:auto-waits`,
   `todo:auto-refused`, `todo:auto-batch`, `settings:upgrades-on`, `settings:upgrades-off`, `setup:downloads-auto`; the
   dev toolbar's "rekordbox open" toggle sets `rekordbox_status().running`.
 
@@ -2233,3 +2303,142 @@ answer `no_library` without a music folder.
   `upgrade`, `hidden`. On the state: `rekordbox_state`, `rekordbox_running`, `freeBytes` (per drive; default 400 GB),
   `batchSkip` (a run-time skip reason per track), `batchStep`, and `batches` (batches that exist from the start: `kind`,
   `scope`, `state` `stopped`\|`done`, `started_by`, `items [{track, action, state: done\|planned}]`).
+
+## Missing files (issue 43)
+
+A file that one scan doesn't see is never decided: its song waits as missing (`files.missing_since`) with everything it
+has, links back when the file shows up in any watched folder, and To-do lists it. Only the user's word removes an own
+song or downloads a playlist song again. This section is the read side (E3a) and the two actions (`missing_files_preview`,
+`missing_files`, E3b); the Auto-upgrade block's placement rows (E4b) are in "Auto-upgrade" above.
+
+- **`todo()`**: `TodoFilter` and `TodoGroupKey` gain `missing_file`; the group is second, after `rekordbox_check` (label
+  "Missing files", hint "not where they were; put a file back and it links again"; `chips.missing_file`). It lists every
+  song whose file waits as missing, an own song or a song no playlist lists any more included, hidden ones as any item
+  (a hidden song only with `show_hidden`, counted in `hidden_count`). It wins over every group but Check in rekordbox
+  (a song with an open check is in both; `chips.all` counts it once): Upgrade ready, Won't play well on CDJs, Not found,
+  Weak, Good lossy, Fake, Other and the CDJ group never hold a missing song, and `upgrade_ready_keys` (Upgrade all,
+  `upgrade list`, Auto-upgrade's set) leaves it out; its parked upgrade stays. A song for which Download again was asked
+  (`file_gone` set) is in no group: the sync downloads it (or puts its parked version in), unless the sync's phase
+  refused that placement for a held reason (`space`, `cloud`; `auto_refused` on the parked upgrade): then the song stays in
+  Missing files, `why_not` is `place_refused` with the record's own message as `words`, and `next_qobuz_check` is null
+  (amended at FB). A song with no file row and
+  `file_gone` (after `folder remove`) is no Not found either; its Library row says `wait: "waiting"`.
+- **A missing item** is a `TodoItem` (`group: "missing_file"`, `free` false, `file_state` `file_missing`, or `offline` /
+  `folder_missing` when its drive or folder is away) plus `detail` ("Missing since 12 Nov · was in Techno 2019"; in
+  several places: "In 2 places now · keep one and it links again") and `missing: MissingView`: `{since` (ISO day of the
+  first scan that missed it), `place` (where it was, the Folder column's words; `""` without a path), `action`
+  (`download_again` for a song in a playlist, an own key linked to one included; `remove` for any other: the song
+  decides, not a choice), `label` and `tone` (amended at FC: the single song's button, "Download again" with tone
+  `filled`, "Remove from library…" with tone `danger`: the dots because Remove asks first), `why_not` (null, or `not_missing` | `away` | `wrong_action` | `found_twice` | `never` | `check_open` |
+  `place_refused` | `asked`, the first that applies), `words` (the reason's sentence, null when `why_not` is null), `foot_note` (amended at FC: the words to show under a
+  disabled button: `words`, null when `why_not` is null or the note above says them already, which is the case for
+  `found_twice` and `away`: `hint` is those very words), `will` (what the action
+  does for this song: "Downloads again at your next sync", "Gets the better version already waiting for it at your next
+  sync; nothing is downloaded" (Download again with a parked upgrade: the parked version goes in), "Removed from your
+  library"), `upgrade_waiting` (a parked better version waits: the placement above, or Remove's deleting it) and
+  `in_missing_files` (amended at FC: To-do's Missing files group lists the song: true unless Download again was asked
+  and no held refusal keeps it there; one rule, `missing.in_group`, for the group, this field and the Library's)`}`. The
+  window shows these words and decides nothing.
+- **The group carries `all: {download_again: n, remove: m, label}`**: `n` and `m` count the items not hidden whose
+  `missing.why_not` is null, by action: what the commands' `--all` act on. `label` is the head link's words,
+  "Select all · {k}", where `k` counts what Select all selects: every item of the group that is not hidden (a song that
+  can't act now too; the selection panel says why); null when `k` is under 2 (with one, the row's own button does it).
+  The window shows it as it is.
+- **`track()`** gains `missing: MissingDetail | null`: `MissingView` plus `line` ("Missing since 12 Nov. It was in
+  Techno 2019."; in several places "Found in 2 places: Techno 2019 and Old crates."), `hint` (what can be done, by
+  action; with `upgrade_waiting` the placement's or Remove's variant; amended at FC: by `why_not` first, so it never
+  advises what the disabled button under it refuses: `never`, `check_open` and `place_refused` say the first sentence
+  only ("Put the file back in any watched folder and it links again with everything it had."), `away` says its reason's
+  words ("Its drive isn't connected; plug it in to decide."), `asked` the first sentence and "You asked for it already:
+  it happens at your next sync."; in several places "Delete or move away the copies
+  you don't want; the one left links again.") and `hint_library` (the same first sentence, for the Library, whose foot
+  has no such buttons and only opens To-do: "... Or open it in To-do to download it again." / with `upgrade_waiting`
+  "... Or open it in To-do to download it again: the better version already waiting for it goes in, and nothing is
+  downloaded." / "... Or open it in To-do to remove it from your library." (Remove's parked-version sentence follows
+  as in `hint`); the several-places hint is the same in both; amended at FC: for a song already asked for (`asked`, which
+  To-do doesn't list) it is the same as `hint`, the first sentence and "You asked for it already: it happens at your next
+  sync.", never "open it in To-do"). Null when the song's file isn't marked missing (a file gone since the last
+  scan shows `file_state: "file_missing"` from the live check, without `missing`). `next_qobuz_check` is `"next_sync"`
+  for a song whose Download again was asked.
+- **`library()`**: a row's `file_state` may be `file_missing` (the stored mark; `LibraryRow.file_state` is `FileState |
+  "no_file"`); every row carries `in_missing_files` (amended at FC: true only for a row whose file waits as missing and
+  that To-do's Missing files group lists, by `missing.in_group`: false for every other row and for a song whose Download
+  again was asked; the window decides nothing about whether To-do lists a song); `summary.to_do` counts a missing song (own ones too). A `not_found` row's `next_try` is `"next_sync"` after
+  Download again, and a song with no file row and `file_gone` is `waiting`, not `not_found`.
+- **Reasons**: the eight `why_not` keys are `refused` reasons in `hub/outcomes.py` (the command line's result rows use
+  them; `away` keeps the row the rekordbox flows have). Offline wins: a missing song whose drive isn't connected is
+  skipped by both actions (its drive isn't there to tell), checked right after `not_missing`.
+  Words (`wrong_action` names the action the song gets instead): `not_missing` "Its file is back."; `away` "Its drive
+  isn't connected; plug it in to decide."; `wrong_action` "This
+  song gets {Download again | Remove from library} instead."; `found_twice` "Delete or move away the copies you don't
+  want; the one left links again." (the same sentence as the details' hint; refused for both actions, amended at FB: a song
+  whose file is in several places isn't removed, both copies are there); `never` "You chose Never download for it."; `check_open` "Its rekordbox check is still open:
+  finish it first."; `place_refused` "The sync couldn't put its better version in; it tries again when that changes." (the fallback;
+  the item says the refusal record's own message instead, e.g. "Not enough free space on that drive."); `asked` "You asked for it already: it happens at your next sync."
+- **Fake backend**: scenario `missing_files` (`hub-ui/src/lib/bridge/fake/missingFiles.ts`): the plain scenario with eleven
+  songs whose file waits as missing (a playlist song, one with a parked better version, one found in two places, one
+  marked Never download, a hidden one, one whose Download again was asked, one whose Download again was asked and whose
+  better version is parked (the sync's last phase places it: a done `place` row), and four own songs: plain, with a parked
+  version, with an open rekordbox check, on a drive that is away). `todo()`, `track()` and `library()` answer from them as
+  the engine does (the group, `missing`, `all`, `file_state`, `next_qobuz_check`); the engine's words are pinned against
+  `discjockey/missing.py` by `missingFiles.test.ts`. `missing_files_preview` and `missing_files` answer from the same
+  state with the engine's rules and words (`previewMissing`, `runMissing`, `summary`; the summary line's sentences are
+  pinned against `tests/test_missing_actions.py`): Download again sets `fileGone` (the song leaves To-do, its parked
+  version stays), Remove deletes an own song and its parked version, a song the action does not fit is a `skipped` row
+  with its reason, and every song skipped ends the job `changed` with the result kept. An unknown action is `bad_args` in
+  the fake as in the engine (`outcome` and `kind` `bad_args`, `reason` `usage`; the window sends only the two words). The
+  fake's Sync plan lists the download that Download again asks for (group `acquire:redownload` "Download again", rows
+  `acquire` / `redownload`) for a missing playlist song with no parked version and not marked Never download; a song with a
+  parked version plans none, the sync's last phase places it (the fake's `planPhase`: `place` rows first, `placed_missing`
+  section, the batch's `started_by` by the switch).
+
+### The two actions (read: `missing_files_preview`; write job: `missing_files`; both in `LIBRARY_METHODS`)
+
+The action follows the song (`missing.action_for`), never a choice: `download_again` for a song in a playlist, `remove`
+for any other. Both methods take `track_ids` (a non-empty list of song keys, each once; a lone string or an empty list is
+`refused`) and `action` (`download_again` | `remove`; any other word is `bad_args`, "action must be one of
+download_again, remove."). A song the action does not fit is not switched to the other action: it is skipped with its
+reason.
+
+- **`missing_files_preview(track_ids, action)`** (read, the dry run of both commands): `MissingPreview` `{action, items,
+  n, skipped, words, button, confirm}`. One item per song, in the order asked: `{track_id, artist, title, place` (where its file was),
+  `since` (ISO day of the first scan that missed it; null when it is not missing), `will` (the action runs for it now),
+  `reason` (a `why_not` key, null when `will`), `words` (the action's `will` sentence when `will`, else the reason's
+  sentence), `upgrade_waiting}` (a parked better version waits: Download again puts it in instead of a download, Remove
+  deletes it). A key that is no song is an item with `reason: "not_missing"`. `n` counts what will run, `skipped` the
+  rest, `words` is the one line ("2 songs download again at your next sync; 1 is skipped." / "Removes 1 song from your
+  library." / with parked versions among them: "1 song downloads again and 1 gets the better version already waiting
+  for it, at your next sync."). `button` is the selection panel's button over the `n` that run ("Download again · {n}" /
+  "Remove from library · {n}…"; null when `n` is 0) and `confirm` Remove's question for them (`{title, body,
+  confirm_label, tone}`: "Remove from your library?" for one, "Remove {n} songs from your library?" for several, body
+  "Their files aren't in your watched folders. …" (for one song, singular: "Its file isn't in your watched folders.
+  Discjockey forgets this song, your answers about it and any better version waiting for it. If the file comes back
+  later, it is added as a new song."), `confirm_label` "Remove", `tone` "danger"; null for Download again
+  and for `n` 0). The window sends the ids whose item has `will` and shows these words as they are. Reads only: no lock beyond the hub's read, nothing is stored.
+- **`missing_files(track_ids, action)`** (write job, kind `missing_files`; answers `busy`, `console` and `sync_running`
+  as every write method): each song is asked again when the job runs under the library lock, so a song that changed
+  since the click (its file came back, the other action became its own, Never download, an open rekordbox check, Download
+  again asked already) is `skipped` with its reason. `JobFinished.result` is `MissingResult` `{action, results, done,
+  skipped, words, recovered}`: `results` one `{track_id, action, state` (`done` | `skipped`)`, reason` (null when done),
+  `words}` per song (a done song's `will` sentence, a skipped song's reason sentence, `wrong_action` naming the action
+  the song gets instead), `done` / `skipped` the keys, `words` the one line of the preview's grammar in the past for
+  Remove ("Removed 2 songs from your library; 1 is skipped."), `recovered` as every job's. **Every song skipped** ends
+  the job `changed` (`message` = `words`) with the same `MissingResult` kept in `JobFinished.result`. The sync's plan
+  is made again when the job ends, so the Sync page shows the planned download at once (a song with a parked version
+  plans none: the sync's last phase places it).
+  - **Download again** sets `file_gone` and changes nothing else: the file row, the parked upgrade and its file, every
+    answer. The next sync downloads the song, or puts its parked version in.
+  - **Remove from library** is final (no undo; the window asks first): it deletes the song's records (its missing file
+    row, the song, its aliases, the answers naming it) and the parked download in `Upgrades ready/` its song had. It
+    deletes no music file: the song's own file is not there, and a parked record that names a path outside `Upgrades
+    ready/` leaves that file alone. Nothing is removed by a scan, a sync or the preview, only by this call.
+- **Problem kinds**: `bad_args` (unknown action), `refused` (no songs), `changed` (every song skipped), and the write
+  methods' `busy` / `console` / `sync_running` / `no_library`.
+- **Command line** (`discjockey missing list | download | remove`): `missing list [--hidden]` is `todo` with the filter
+  `missing_file`; `missing download` and `missing remove` take songs (a song key, or the path of a missing row's old
+  file) or `--all`, which is this group's `all` split by action (the songs the window's "Select all · n" selects; with
+  none left the command answers `ok`, "No song whose file is missing waits for …", and starts no job; its `--dry-run` answers `ok` too, with
+  the preview's own shape: `items` empty, `n` and `skipped` 0). `--dry-run` is
+  `missing_files_preview`; `missing remove` needs `--yes`. A run with a skipped song ends `partial` (exit 6), a run in
+  which every song was skipped `refused` (exit 7); `data` is the method's answer, its rows `{track_id, action, state,
+  reason, words}`.

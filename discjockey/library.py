@@ -1026,14 +1026,15 @@ def _finish_step(paths: Paths, conn: sqlite3.Connection, op: dict) -> int:
 def _end_step(paths: Paths, conn: sqlite3.Connection, op_id: str, tracks: Mapping[str, dict],
               rekeyed: Collection[str], *, item: tuple[int, int, object] | None = None,
               app_placed: Collection[str] = (), audio: Mapping[str, FileAudio] | None = None,
-              placed_by: Mapping[str, str] | None = None) -> int:
+              placed_by: Mapping[str, str] | None = None, missing: Mapping[str, dict] | None = None) -> int:
     """db.end_step with this library's facts; of `rekeyed`, only files in Library/ (as save_state). `item` and
     `app_placed` go through (an AIFF batch's item done with the step; files Discjockey placed). Returns the new
     generation."""
     from . import db
     indexed = [p for p in rekeyed if p.startswith("Library/")]  # Superseded/ and .tmp/ have no rows
     return db.end_step(conn, op_id, tracks, library=paths.library, facts=file_facts(paths), now=datetime.now(),
-                       rekeyed=indexed, item=item, app_placed=app_placed, audio=audio, placed_by=placed_by)
+                       rekeyed=indexed, item=item, app_placed=app_placed, audio=audio, placed_by=placed_by,
+                       missing=missing)
 
 
 # --- a step that keeps its journal entry in the caller's snapshot while it runs (the upgrade swap and its undo,
@@ -1080,14 +1081,15 @@ def mark_op(paths: Paths, state: dict, op: dict) -> None:
 def end_op(paths: Paths, state: dict, op: dict, entries: Mapping[str, dict], *,
            rekeyed: Collection[str] = (), item: tuple[int, int, object] | None = None,
            app_placed: Collection[str] = (), audio: Mapping[str, FileAudio] | None = None,
-           placed_by: Mapping[str, str] | None = None) -> None:
+           placed_by: Mapping[str, str] | None = None, missing: Mapping[str, dict] | None = None) -> None:
     """Ends a journaled `op`: `entries` (song key -> entry; none for a step that changed no entry) and the files
     `rekeyed` (as save_state's) written with the end of its journal entry, in one transaction (_end_step); then
     `state` takes the entries and loses the op. `item` (AIFF batch, seq, result) is marked done and the files
     `app_placed` become Discjockey's (`placed_by = 'app'`) and the file at each path of `audio` gets its `FileAudio`
     (`files.file_*`, which a changed content key cleared) in that transaction; `placed_by` (path -> who) gives a file
-    its `placed_by` back (a Convert's undo). An op journaled through the snapshot (no `op_id`: by a version
-    before issue 25) is ended the way it was then: the entries into `state`, the op out of its pending, save_state."""
+    its `placed_by` back (a Convert's undo); `missing` (path -> {since, size, mtime_ns, content_key}) makes the
+    file's row a missing one again (the undo of a placement for a missing file, db.end_step). An op journaled through
+    the snapshot (no `op_id`: by a version before issue 25) is ended the way it was then: the entries into `state`, the op out of its pending, save_state."""
     if "op_id" not in op:
         state["tracks"].update(entries)
         state["pending"].remove(op)
@@ -1095,9 +1097,18 @@ def end_op(paths: Paths, state: dict, op: dict, entries: Mapping[str, dict], *,
         return
     with _records(paths) as conn:
         state["generation"] = _end_step(paths, conn, op["op_id"], entries, rekeyed, item=item,
-                                        app_placed=app_placed, audio=audio, placed_by=placed_by)
+                                        app_placed=app_placed, audio=audio, placed_by=placed_by, missing=missing)
     state["tracks"].update(entries)
     _mirror(state, op, keep=False)
+
+
+def row_facts(paths: Paths, file_id: int | None) -> dict | None:
+    """The size, mtime and content key the file row `file_id` holds (db.file_facts_of), or None."""
+    from . import db
+    if file_id is None:
+        return None
+    with _records(paths) as conn:
+        return db.file_facts_of(conn, file_id)
 
 
 def _apply_entries(state: dict, op: dict) -> None:
@@ -1394,7 +1405,9 @@ def recover_pending(paths: Paths, state: dict) -> list[tuple[str, bool]]:
 
 SCANNED = "Checked your Library: {parts}."
 SCAN_PARTS = (("moved", "file you moved", "files you moved"), ("new", "new file", "new files"),
-              ("gone", "file gone", "files gone"), ("replaced", "file changed", "files changed"))
+              ("back", "missing file back", "missing files back"), ("missing", "file missing", "files missing"),
+              ("replaced", "file changed", "files changed"))
+MISSING_WAIT = "Missing files wait in To-do."  # added when the scan found a file missing (issue 43)
 NOT_JUDGED = ("{path} was changed outside Discjockey, but Discjockey couldn't check its sound ({reason}). It keeps "
               "the quality it had and is tried again when it changes or the app's tools are updated.")
 
@@ -1405,7 +1418,8 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
                  shown: Collection[str] = ()) -> ScanSummary:
     """Indexes the watched folders (Library/) against library.db and writes what changed (the caller holds the
     lock; the records are opened, and migrated if needed, first): files moved by hand keep their song, new files
-    are indexed, a file gone marks its song's file gone, and a song's file whose audio was replaced outside
+    are indexed, a file that isn't found waits as missing with everything its song has (it links back when a file
+    with its content key shows up in any watched folder; issue 43), and a song's file whose audio was replaced outside
     Discjockey is judged again the way a bought file is (`analyze`, quality.inspect) and counts as the user's own
     file from now on. The new audio is judged before anything is written and recorded together with its quality;
     a file the check fails on keeps its row as it was and is judged again only when its bytes or the tools change
@@ -1415,7 +1429,7 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
     isn't connected (waits_offline: the scan can't see any of them); a step that holds the scan up because one of
     its files is on a drive that isn't connected says so in W17's words (DRIVE_WAITS), unless one of `shown` (the
     messages the caller has just emitted from recover_pending) said it already: only words already shown are left out. One message, only when something
-    changed (copies count as new files). `recover` as open_records: a dry run passes False, and a state.json with
+    changed (copies count as new files; `gone` index rows of nobody's file are counted, not worded). `recover` as open_records: a dry run passes False, and a state.json with
     steps pending is then neither moved into library.db nor scanned."""
     from . import db, scanner
     from .quality import is_lossless_codec, tools_stamp, verdict
@@ -1463,17 +1477,22 @@ def scan_library(paths: Paths, emit: Emit = no_emit, *,
                 judged[file_id] = (verdict(is_lossless_codec(codec), cutoff), cutoff, codec)
             if failed:  # their rows stay as they are (held), old key included
                 result.replaced = [r for r in result.replaced if r[0] not in failed]
-                result.held = [*result.held, *failed]
+                result.unjudged = [*result.unjudged, *failed]
+            was_missing = {f.id for f in known if f.missing}
             db.apply_scan(conn, result, datetime.now(), judged, stamps)
     except sqlite3.Error as e:
         raise db.unreadable(e) from None
-    summary = ScanSummary(moved=len(result.moved), new=len(result.new), gone=len(result.gone),
-                          replaced=len(result.replaced), copies=len(result.copies), offline=len(result.offline))
-    counts = {"moved": summary.moved, "new": summary.new + summary.copies, "gone": summary.gone,
-              "replaced": summary.replaced}
+    back = set(result.back)
+    summary = ScanSummary(moved=len([i for i, _ in result.moved if i not in back]), new=len(result.new),
+                          gone=len(result.gone), replaced=len(result.replaced), copies=len(result.copies),
+                          offline=len(result.offline), back=len(back),
+                          missing=len([i for i in result.missing if i not in was_missing]))
+    counts = {"moved": summary.moved, "new": summary.new + summary.copies, "back": summary.back,
+              "missing": summary.missing, "replaced": summary.replaced}
     parts = [f"{counts[k]} {one if counts[k] == 1 else many}" for k, one, many in SCAN_PARTS if counts[k]]
     if parts:
-        emit(Message("info", SCANNED.format(parts=", ".join(parts))))
+        message = SCANNED.format(parts=", ".join(parts))
+        emit(Message("info", f"{message} {MISSING_WAIT}" if summary.missing else message))
     return summary
 
 

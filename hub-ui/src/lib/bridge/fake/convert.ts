@@ -140,7 +140,7 @@ export function cdjMembers(s: FakeState, includeHidden = false): Map<string, Cdj
   const found = new Map<string, CdjWhy>();
   const held = decidedSongs(s);
   for (const t of s.tracks) {
-    if (t.upgrade || held.has(t.track_id) || (t.hidden && !includeHidden)) continue;
+    if (t.upgrade || t.missing || held.has(t.track_id) || (t.hidden && !includeHidden)) continue;   // a missing file is in its own group
     const a = storedAudio(t);
     const problem = a && cdjProblem(a, extOfTrack(t, a));
     if (problem) found.set(t.track_id, problem);
@@ -161,7 +161,7 @@ const oldBytesOf = (t: FakeTrack, a: FakeAudio) => Math.round(t.duration_s * (a.
 function judge(s: FakeState, t: FakeTrack | undefined, taken: Set<string>, only: 'rename' | undefined): Judged {
   if (!t) return skipOf('file_missing');
   const path = pathOf(t);
-  if (t.status === 'missing' || !path) return skipOf('file_missing');
+  if (t.status === 'missing' || !path || t.missing) return skipOf('file_missing');
   if (t.away) return skipOf(t.away === 'offline' ? 'away' : 'file_missing');
   if (!isOwn(t)) return skipOf('downloaded');
   if (t.upgrade) return skipOf('upgrade_waits');

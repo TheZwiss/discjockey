@@ -49,7 +49,7 @@ rekordbox write when its file is in rekordbox's library, whatever its format; op
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -71,10 +71,13 @@ __all__ = ["BUSY", "Busy", "BatchResult", "ItemResult", "RekordboxOpen", "Refuse
            "UndoResult", "UndoStopped", "checked", "close_unrun", "end_auto", "present", "recover", "result_of",
            "resume", "run", "start", "tracks_of", "undo"]
 
-RUNNABLE = ("same_track", "convert", "rename")  # the actions a batch can run
-AUTO = "auto_upgrade"  # `started_by` of the sync's Auto-upgrade batch
+RUNNABLE = ("same_track", "convert", "rename", "place")  # the actions a batch can run
+AUTO = "auto_upgrade"  # `started_by` of the sync's Auto-upgrade batch (the switch on)
+DOWNLOAD_AGAIN = "download_again"  # ... with the switch off: only placements, the user's go (issue 43, D9)
+SYNC_STARTED_BY = (AUTO, DOWNLOAD_AGAIN)  # the sync's last phase either way: `end_auto`, `recover` and the no-Resume rule treat alike
 OPERATION = "upgrade_same_track"  # operations.log's name for a Same track item
-OPERATIONS = {"same_track": OPERATION, "convert": "aiff_convert", "rename": "aiff_rename"}  # ... for each action
+# ... for each action (the placement's name starts with `upgrade_` like Same track's: `_finished_order` sorts an undo by it)
+OPERATIONS = {"same_track": OPERATION, "convert": "aiff_convert", "rename": "aiff_rename", "place": "upgrade_place"}
 UNDO_OPERATIONS = {"upgrade": "undo_upgrade", "convert": "undo_convert", "rename": "undo_rename"}
 LOG_PREFIXES = ("upgrade_", "aiff_")  # the log's names of a finished step (`_finished_order`)
 NOTHING_ELIGIBLE = "None of these can be upgraded right now."
@@ -273,7 +276,7 @@ def tracks_of(paths, batch_id: int) -> list[str]:
 def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", scope: str | None = None,
           via: str = "window", now: Callable[[], datetime] = datetime.now) -> int:
     """Records a batch of `items` ((song key, action) pairs, all `planned`) before anything runs; it starts
-    `running`. Returns its id. The batch's kind follows its actions (plan stage D §0.13): `same_track` only →
+    `running`. Returns its id. The batch's kind follows its actions (plan stage D §0.13): `same_track` / `place` only →
     `upgrade`, `convert` / `rename` only → `convert`, both → `mixed`. `via` is where it started: `window` for a batch
     the window starts, `terminal` for one a command starts; `scope` is what was picked (`selection`,
     `library:<view>[:<key>]`, `todo:cdj`). ValueError for no items, an action no batch runs, an unknown starter or
@@ -284,7 +287,8 @@ def start(paths, items: Sequence[tuple[str, str]], *, started_by: str = "user", 
         if action not in RUNNABLE:
             raise ValueError(f"{action!r} is not an action a batch runs")
     actions = {action for _, action in items}
-    kind = "upgrade" if actions == {"same_track"} else "convert" if "same_track" not in actions else "mixed"
+    upgrading = {"same_track", "place"}  # a placement is Same track's shape for a file that is gone: an `upgrade` batch
+    kind = "upgrade" if actions <= upgrading else "convert" if not actions & upgrading else "mixed"
     _close_planned_elsewhere(paths, {track for track, _ in items}, now)
     with db.connect(paths.db_file) as conn:
         return db.start_aiff_batch(conn, kind, started_by, scope, list(items), now(), via)
@@ -531,8 +535,9 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
         _record(paths, batch_id, item, "skipped", reason, message, detail)
         log(track, e, reason, message, operation)
 
-    if action == "same_track":
-        verdict = eligible.same_track_quick(e, session.state, present(paths, e)) if e else Skip("no_upgrade")
+    if action in ("same_track", "place"):
+        quick = eligible.same_track_quick if action == "same_track" else eligible.place_quick
+        verdict = quick(e, session.state, present(paths, e)) if e else Skip("no_upgrade")
         answer = (verdict.reason, None) if isinstance(verdict, Skip) else None
     else:
         answer = _file_answer(paths, state, session, track, e, action)
@@ -544,6 +549,9 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
             result = convert.convert_file(paths, state, track, session=session, now=now, batch=(batch_id, item.seq))
         elif action == "rename":
             result = rename.rename_file(paths, state, track, session=session, now=now, batch=(batch_id, item.seq))
+        elif action == "place":  # Download again with a parked upgrade: the file is gone, nothing is measured (issue 43)
+            result = convert.place_parked(paths, state, track, dict(e["upgrade"]), session=session, now=now,
+                                          batch=(batch_id, item.seq))
         elif upgrades.swap_possible(e):
             result = upgrades.swap(paths, state, track, dict(e["upgrade"]), compare, now, session=session,
                                    batch=(batch_id, item.seq))
@@ -557,10 +565,12 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
     except RekordboxOpened:
         return "rekordbox_open"
     except UpgradeProblem as err:
-        _record(paths, batch_id, item, "failed", None, str(err))
-        log(track, e, "failed", str(err), operation)
+        message = convert.PARKED_GONE if action == "place" and err.forgotten else str(err)  # the song downloads at the next sync
+        _record(paths, batch_id, item, "failed", None, message)
+        log(track, e, "failed", message, operation)
     except Exception as err:  # noqa: BLE001 - one track's surprise must not stop the batch
-        what = {"convert": "convert {name}", "rename": "give {name} its clean name"}.get(action, "upgrade {name}")
+        what = {"convert": "convert {name}", "rename": "give {name} its clean name",
+                "place": "put in the better version of {name}"}.get(action, "upgrade {name}")
         message = f"Could not {what.format(name=_name(e, track))} ({type(err).__name__}: {err}). " \
                   "Nothing more was changed."
         _record(paths, batch_id, item, "failed", None, message)
@@ -568,6 +578,16 @@ def _item(paths, state: dict, session: Session, batch_id: int, item: AiffItemRow
     else:
         log(track, e, "done", result.note, operation)
     return None
+
+
+def progress_words(actions: Collection[str], done: int, total: int) -> tuple[str, str]:
+    """The phase's words for a `BatchProgress` (the window prints them as they are): (lead, count). Only Same track
+    items: "Upgrading", "{done} of {total} upgraded"; only placements of missing songs: "Putting in better versions",
+    "{done} of {total} put in"; any other mix: "Upgrading", "{done} of {total} done"."""
+    kinds = set(actions)
+    if kinds == {"place"}:
+        return "Putting in better versions", f"{done} of {total} put in"
+    return "Upgrading", f"{done} of {total} {'upgraded' if kinds == {'same_track'} else 'done'}"
 
 
 def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None = None,
@@ -590,6 +610,7 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
     planned = [i for i in row.items if i.state == "planned"]
     total = len(row.items)
     handled = total - len(planned)
+    actions = {i.action for i in row.items}
     stop = None
     backup = row.backup
 
@@ -610,7 +631,8 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
                         stop = "rekordbox_open"
                         break
                     emit(BatchProgress(batch_id, handled, total, item.track,
-                                       _name(state["tracks"].get(item.track), item.track)))
+                                       _name(state["tracks"].get(item.track), item.track),
+                                       *progress_words(actions, handled, total)))
                     stop = _item(paths, state, session, batch_id, item, compare, now, log)
                     if stop:
                         break
@@ -641,7 +663,7 @@ def run(paths, batch_id: int, *, emit: Emit = no_emit, token: CancelToken | None
         raise Stopped(result)
     if stop == "rekordbox_open":
         raise RekordboxOpen(result)
-    emit(BatchProgress(batch_id, total, total, None, None))
+    emit(BatchProgress(batch_id, total, total, None, None, *progress_words(actions, total, total)))
     if not result.done and not result.failed and result.skipped:
         raise Refused(result)
     return result
@@ -666,7 +688,7 @@ def end_auto(paths, batch_id: int, reason: str, *, now: Callable[[], datetime] =
     `planned` item is `skipped` with `reason` (an `eligible.REASONS` key: `rekordbox_open`, `not_reached`, `busy`)
     and its words, and the batch is `done` with its backup id kept (unlike `close_unrun`: the done items still need
     it for their undo). No stop reason is stored; the items carry it. The done items are not touched. A batch that
-    is `done` already comes back as it is. ValueError for a batch not started by `auto_upgrade` or one that isn't
+    is `done` already comes back as it is. ValueError for a batch the sync's phase didn't start or one that isn't
     there; `reason` must be an `eligible.REASONS` key."""
     if reason not in eligible.REASONS:
         raise ValueError(f"{reason!r} is not a reason an item is skipped for")
@@ -674,8 +696,8 @@ def end_auto(paths, batch_id: int, reason: str, *, now: Callable[[], datetime] =
         row = db.aiff_batch(conn, batch_id)
         if row is None:
             raise ValueError(f"there is no AIFF batch {batch_id}")
-        if row.started_by != AUTO:
-            raise ValueError(f"AIFF batch {batch_id} was not started by Auto-upgrade")
+        if row.started_by not in SYNC_STARTED_BY:
+            raise ValueError(f"AIFF batch {batch_id} was not started by the sync's last phase (Auto-upgrade)")
         if row.state != "done":
             for item in row.items:
                 if item.state == "planned":
@@ -721,7 +743,7 @@ def recover(paths, *, now: Callable[[], datetime] = datetime.now) -> list[int]:
     with db.connect(paths.db_file) as conn:
         for batch_id in db.unfinished_aiff_batches(conn):
             row = db.aiff_batch(conn, batch_id)
-            if row.started_by == AUTO:
+            if row.started_by in SYNC_STARTED_BY:
                 auto.append(batch_id)
             elif row.state == "running":
                 db.set_aiff_batch(conn, batch_id, state="stopped", stop_reason="crash")

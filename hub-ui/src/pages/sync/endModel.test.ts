@@ -15,7 +15,9 @@ const run = (results: Result[], extra: Partial<RunDetail> = {}): RunDetail => {
     duration_s: 1440, exit_code: 0, counts: { lossless: 0, lossy: 0, problems: 0, moved: 0 }, stopped_after: null,
     auto_upgrade: null, sections, needs_you: results.filter((x) => ['missing', 'errors'].includes(x.section)),
     for_rekordbox: { new_files: 0, folders: [] }, upgrades_ready: 0, report_md: '', queued: 0,
-    folder_order: ['Hard_Bounce', 'Powertrance', 'Bouncy'], ...extra };
+    folder_order: ['Hard_Bounce', 'Powertrance', 'Bouncy'],
+    section_labels: { placed_missing: 'Better versions put in (their files were missing)' },
+    part_labels: { upgraded: 'Upgraded', waiting: 'Still waiting', refused: "Couldn't go in" }, ...extra };
 };
 const RESULTS = [
   r('new_lossless', 'Powertrance', 'p1', { status: 'lossless' }),
@@ -226,5 +228,56 @@ describe('the up-to-date panel waits for the last run\'s details (Task 9C I1)', 
     expect(needsDetail(done('r1'), 'r1')).toBe(false);
     expect(needsDetail(done('r1'), 'r2')).toBe(true);
     expect(needsDetail({ run_id: 'r1', stats: 'failed' }, 'r1')).toBe(true);
+  });
+});
+
+describe('end screen: the missing songs that got their better version (issue 43, plan §7.4a)', () => {
+  const placedRes = (track: string, state: AutoUpgradeResult['state'], reason: string | null = null): AutoUpgradeResult =>
+    ({ track, name: `A – ${track}`, state, reason, message: null, how: 'placed', action: 'place' });
+  const upRes = (track: string): AutoUpgradeResult => ({ track, name: `A – ${track}`, state: 'done', reason: null, message: null,
+    how: 'in_place', action: 'same_track' });
+  const block = (results: AutoUpgradeResult[], line: string | null = null) => ({ batch: 3, backup: null,
+    done: results.filter((x) => x.state === 'done').length, waiting: results.filter((x) => x.state === 'waiting').length,
+    refused: results.filter((x) => x.state === 'refused').length, failed: 0, stopped: false, dry_run: false, results, line });
+  const DONE_NOTE = "Its better version is in, at Library/Hard_Bounce/A - p1.aiff; rekordbox's track plays it with its cues.";
+  const PLACED = r('placed_missing', 'Hard_Bounce', 'p1', { status: 'lossless', note: DONE_NOTE });
+  const UP = r('upgraded', 'Bouncy', 'g1', { status: 'lossless', note: 'Replaced in place.' });
+
+  it('a done placement is its own part with the engine\'s sentence as its second line and tooltip, after the upgrades', () => {
+    const m = endModel(run([UP, PLACED], { auto_upgrade: block([upRes('g1'), placedRes('p1', 'done')],
+      'Upgraded 1 track; your cues stayed. 1 missing song got its better version.') }), null, NOW);
+    expect(m.placed).toEqual([{ r: PLACED, sub: DONE_NOTE, tip: DONE_NOTE }]);
+    expect(m.upgraded.map((x) => x.r.title)).toEqual(['g1']);
+    expect(m.auto.map((p) => `${p.key}:${p.rows.length}`)).toEqual(['upgraded:1', 'placed:1']);
+    expect(m.auto[1].label).toBe('Better versions put in (their files were missing)');
+    expect(m.notes[0].text).toContain('1 missing song got its better version.');   // the engine's line counts it apart
+  });
+  it('with the switch off the phase holds placements alone: the block is present, only the placed part shows', () => {
+    const m = endModel(run([PLACED], { auto_upgrade: block([placedRes('p1', 'done')], '1 missing song got its better version.') }), null, NOW);
+    expect(m.auto.map((p) => p.key)).toEqual(['placed']);
+    expect(m.upgraded).toEqual([]);
+  });
+  it('a placement that waits or was refused is a waiting / refused row like any other, with its own sentence as the tooltip', () => {
+    const w = r('upgrade_waits', 'Hard_Bounce', 'p2', { note: 'Waits for rekordbox to be closed: its better version goes in at your next sync.' });
+    const f = r('upgrade_waits', 'Hard_Bounce', 'p3', { note: 'Not enough free space.' });
+    const m = endModel(run([w, f], { auto_upgrade: block([placedRes('p2', 'waiting', 'rekordbox_open'), placedRes('p3', 'refused', 'space')]) }), null, NOW);
+    expect(m.waiting.map((x) => [x.r.title, x.sub, x.tip])).toEqual([['p2', 'Waits for rekordbox to be closed', w.note]]);
+    expect(m.refused.map((x) => [x.r.title, x.sub])).toEqual([['p3', 'Not enough free space']]);
+    expect(m.placed).toEqual([]);
+  });
+  it('a placement is not a new file, an other change or counted as added; no block, no placed rows', () => {
+    const m = endModel(run([PLACED], { auto_upgrade: block([placedRes('p1', 'done')]) }), null, NOW);
+    expect(m.stats.added).toBe(0);
+    expect(m.added).toEqual([]);
+    expect(m.other).toEqual([]);
+    expect(endModel(run([PLACED]), null, NOW).placed).toEqual([]);
+  });
+  it("the parts' titles are the engine's words from the run's answer, not the window's", () => {
+    const w = r('upgrade_waits', 'Hard_Bounce', 'p2', { note: 'Waits for rekordbox to be closed.' });
+    const f = r('upgrade_waits', 'Hard_Bounce', 'p3', { note: 'Not enough free space.' });
+    const m = endModel(run([UP, PLACED, w, f], {
+      section_labels: { placed_missing: 'T-placed' }, part_labels: { upgraded: 'T-up', waiting: 'T-wait', refused: 'T-no' },
+      auto_upgrade: block([upRes('g1'), placedRes('p1', 'done'), placedRes('p2', 'waiting', 'rekordbox_open'), placedRes('p3', 'refused', 'space')]) }), null, NOW);
+    expect(m.auto.map((p) => p.label)).toEqual(['T-up', 'T-placed', 'T-wait', 'T-no']);
   });
 });

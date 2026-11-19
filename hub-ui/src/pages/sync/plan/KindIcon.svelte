@@ -10,7 +10,7 @@
   const PATHS: Record<KindKey, string> = {
     new: 'M8 2.5v9M4.5 8 8 11.5 11.5 8M3.5 13.5h9',                         // download: arrow onto a line
     retry: 'M12.5 8A4.5 4.5 0 1 1 11 4.6M12.5 2.5v2.75H9.75',                // try again: arrow round
-    redownload: 'M4.5 2.5h4.5l2.5 2.5v8.5h-7zM2.5 13.5l11-11',                // file gone: a page struck through
+    redownload: 'M4.5 2.5h4.5l2.5 2.5v8.5h-7zM2.5 13.5l11-11',                // file missing: a page struck through
     bought: 'M2.5 8.5V2.5h6l5 5-6 6zM5.5 5.5h.01',                           // bought: a price tag
     weekly: 'M13.5 8a5.5 5.5 0 1 1-11 0a5.5 5.5 0 1 1 11 0zM8 5v3l2 1.5',         // weekly check: a clock
   };

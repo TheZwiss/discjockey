@@ -6,7 +6,8 @@ import { api, rekordboxStatus, runJob, type JobOutcome } from '$lib/bridge/clien
 import { onEvent } from '$lib/bridge/events';
 import { waitForJob } from '$lib/stores/jobs';
 import type {
-  AiffBatchResult, AiffPlan, AiffScope, DuplicatePair, JobSnap, JobStart, RekordboxCheckView, RekordboxStatus, Result, TodoItem, UndoResult,
+  AiffBatchResult, AiffPlan, AiffScope, DuplicatePair, JobSnap, JobStart, MissingAction, MissingConfirm, MissingPreview, MissingResult, RekordboxCheckView,
+  RekordboxStatus, Result, TodoItem, UndoResult,
 } from '$lib/bridge/types';
 import { latestOnly } from '$lib/latest';
 import { aiffProblem } from './aiffModel';
@@ -19,6 +20,7 @@ import {
   type BatchEnd,
   type BatchMode, type DuplicatePick, type RunRow, type UndoProblem, type UpgradeWays, type Way,
 } from './decisionModel';
+import { missingEnd, type MissingEnd } from './missingModel';
 
 /** The bridge's name for each way (`upgrade(ids, mode)`): the page's own words stay as they are. */
 const BRIDGE_MODE = { swap: 'same_track', add_new: 'new_track', discard: 'discard' } as const;
@@ -236,6 +238,104 @@ export class ChecksFlow {
     if (n) toasts.show({ tone: 'success', title: out.result?.words || undoneToast(n) });
   }
 }
+/** What the selection panel reads of the engine before a press: `missing_files_preview` once per action over the
+ *  selection (`ids` are the songs asked; null: not read yet). `loading` with an answer is a read again (the selection
+ *  changed): the words stay on screen meanwhile, the buttons wait. */
+export type MissingPreviews = { ids: string[]; download_again: MissingPreview | null; remove: MissingPreview | null;
+  phase: 'loading' | 'ready' | 'error'; message: string };
+
+/** Download again and Remove from library for songs whose file waits as missing (issue 43, plan §7.4): one job per
+ *  press (`missing_files(ids, action)`), shared by To-do's details (one song) and the selection panel (several). The
+ *  panel reads the engine's previews first (`read`: the button words, the songs that run and Remove's question);
+ *  Remove asks first with the engine's `confirm` (the panel hands over the one it read; a single song's press reads
+ *  it then). Nothing is lost by Download again, so it runs at once.
+ *  After the job the songs have left the Missing files group: the page's selection follows as after a Discard (its
+ *  `onact` is called as the job starts, after the confirm, so it keeps the panel). Where the words go depends on
+ *  where it was pressed: from the panel (`panel: true`) they stay as `ended` (the job's words and the skipped songs
+ *  with theirs) until `clear()`; else (the details' button) a toast (the engine's `words`; a skip says why). `busy`
+ *  names the running action. */
+export class MissingFlow {
+  busy = $state<MissingAction | null>(null);
+  ended = $state<MissingEnd | null>(null);
+  previews = $state<MissingPreviews | null>(null);
+  #onact: (() => void) | undefined;
+  #name: (track_id: string) => string;
+  #reads = latestOnly();
+
+  /** `name`: "Artist – Title" of a track id, for the skipped songs of an end */
+  constructor(opts: { onact?: () => void; name?: (track_id: string) => string } = {}) {
+    this.#onact = opts.onact;
+    this.#name = opts.name ?? ((id) => id);
+  }
+
+  /** The panel's Done, or the next pick: the end is put away. */
+  clear(): void {
+    this.ended = null;
+  }
+  /** Reads what both actions would do for `ids`; only the newest read's answer is kept. */
+  async read(ids: string[]): Promise<void> {
+    const ticket = this.#reads.next();
+    const keep = this.previews;
+    this.previews = { ids, download_again: keep?.download_again ?? null, remove: keep?.remove ?? null, phase: 'loading', message: '' };
+    const ask = async (action: MissingAction) => {
+      try { return await api.missing_files_preview(ids, action); } catch { return { ok: false as const, kind: 'crashed' as const, message: '' }; }
+    };
+    const [d, r] = await Promise.all([ask('download_again'), ask('remove')]);
+    if (!this.#reads.isLatest(ticket)) return;
+    if (d.ok && r.ok) { this.previews = { ids, download_again: d, remove: r, phase: 'ready', message: '' }; return; }
+    const bad = d.ok ? r : d;
+    // no stale buttons: the engine's message shows in the Hint instead
+    this.previews = { ids, download_again: null, remove: null, phase: 'error',
+      message: (!bad.ok && bad.message) || problemCopy(!bad.ok ? bad.kind : 'crashed').title };
+  }
+  /** `panel`: pressed in the selection panel (the end stays there), else the words are a toast. */
+  async downloadAgain(ids: string[], opts: { panel?: boolean } = {}): Promise<void> {
+    await this.#run(ids, 'download_again', !!opts.panel);
+  }
+  /** Asks first, with the engine's words: `opts.confirm` is the question the panel read (null: the engine has none to
+   *  ask, so nothing runs); without it the engine is asked for these songs now. */
+  async remove(ids: string[], opts: { panel?: boolean; confirm?: MissingConfirm | null } = {}): Promise<void> {
+    if (!ids.length || this.busy) return;
+    const q = opts.confirm !== undefined ? opts.confirm : await this.#question(ids);
+    if (!q) return;
+    if (!(await confirm({ title: q.title, body: q.body, confirmLabel: q.confirm_label, tone: q.tone }))) return;
+    await this.#run(ids, 'remove', !!opts.panel);
+  }
+  /** Remove's question for `ids`, from the engine's dry run; null when it can't be asked or no song would run (the
+   *  engine's words come as a toast). */
+  async #question(ids: string[]): Promise<MissingConfirm | null> {
+    const r = await api.missing_files_preview(ids, 'remove');
+    if (!r.ok) { toasts.show({ tone: 'problem', title: problemCopy(r.kind).title, body: r.message || undefined }); return null; }
+    if (!r.confirm) toasts.show({ tone: 'problem', title: r.words });
+    return r.confirm;
+  }
+
+  async #run(ids: string[], action: MissingAction, panel: boolean): Promise<void> {
+    if (!ids.length || this.busy) return;
+    this.busy = action;
+    this.ended = null;
+    this.#onact?.();
+    const out = await runJob<MissingResult>(api.missing_files(ids, action), { quiet: true, success: false });
+    this.busy = null;
+    const result = out.result ?? null;
+    // refused before it started (busy, console, a sync running): nothing ran, a toast says why
+    if (!out.ok && out.job_id === null) {
+      toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: out.message || undefined });
+      return;
+    }
+    if (panel) {
+      this.ended = missingEnd(result, this.#name);
+      if (!this.ended && !out.ok) toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: out.message || undefined });
+      return;
+    }
+    // the details' button: the words as a toast; every song skipped (the job ends `changed`) says the song's reason
+    const words = result?.words || (out.ok ? '' : out.message);
+    if (out.ok) { if (words) toasts.show({ tone: 'success', title: words }); return; }
+    const why = result?.results.find((r) => r.state === 'skipped')?.words;
+    toasts.show({ tone: 'problem', title: problemCopy(out.kind).title, body: why || words || undefined });
+  }
+}
+
 /** Which flow follows a batch job the window didn't start (the window was reloaded). `batch_resume` is one kind for
  *  Same track's batches and for Convert's, so the job's `batch_kind` decides: `convert` and `mixed` are the AIFF
  *  batch flow's, `upgrade` the upgrade batch flow's. A resume with no kind (`null` or missing: a hub that doesn't say)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
 from typing import NamedTuple
@@ -269,6 +270,7 @@ class KnownFile:
     content_key: str | None  # None: a migrated file that wasn't on disk
     linked: bool  # linked to a song
     ambiguous: bool  # moved to one of several places; each scan decides again
+    missing: bool = False  # missing_since is set: a linked row whose file an earlier scan didn't find (issue 43)
 
 
 @dataclass(frozen=True)
@@ -286,9 +288,23 @@ NOT_OPENABLE = "The drive lists this file, but it can't be opened."  # W6's reas
 
 @dataclass
 class ScanResult:
-    """How one scan sorted the files (spec library-and-sources §6.3); db.apply_scan writes it.
+    """How one scan sorted the files (spec library-and-sources §6.3; issue 43); db.apply_scan writes it. Nothing a
+    song has is decided by one scan: a linked row whose file isn't seen waits as missing.
 
-    A row whose file is in `retagged`, `replaced` or `moved` is no longer ambiguous. A `moved` target can be a file
+    Rules, per row of the index:
+    - a linked row whose file is at its path is present (`unchanged`, `retagged`, `replaced`); `back` also lists it
+      when it was missing before;
+    - a linked row whose path is gone and whose content key is in exactly one new file or indexed unlinked row is
+      `moved` (`back` too when it was missing); in two or more places it is `ambiguous` (it waits as missing too,
+      apply_scan marks it, but it is not in `missing`);
+    - a linked row whose path is gone and whose key nothing has is `missing`, whatever the walk could not see (an
+      unlistable subfolder, an unreadable file): it waits, and the next scan matches it again;
+    - a linked row under a subfolder that couldn't be listed is left as it was: present stays present, missing
+      stays in `missing`;
+    - an unlinked row whose path is gone is `gone` (an index row of nobody's file: deleted);
+    - rows of an offline folder are kept (`offline`); a migrated row without a key is matched by its file name once.
+    A row whose file is in `retagged`, `replaced` or `moved` is no longer ambiguous, nor is one in `unambiguous` (its
+    candidates are all gone: it waits as plain missing). A `moved` target can be a file
     the index already has as an unlinked row (an earlier scan's ambiguous candidate): that row gives way to the moved
     one. `retagged` also carries an ambiguous row whose file is back at its own path.
     """
@@ -300,9 +316,15 @@ class ScanResult:
     ambiguous: list[tuple[int, list[str]]] = field(default_factory=list)  # file id -> snapshot paths of candidates
     new: list[SeenFile] = field(default_factory=list)  # unknown keys, incl. every ambiguous candidate
     copies: list[SeenFile] = field(default_factory=list)  # the key of a file that is still there
-    gone: list[int] = field(default_factory=list)  # file ids
-    held: list[int] = field(default_factory=list)  # file ids that would be gone, left as they are: the file may be
-    # in a subfolder that couldn't be listed or be a file that couldn't be read (spec §12); decided on a later scan
+    gone: list[int] = field(default_factory=list)  # file ids of unlinked rows whose file is gone (deleted)
+    missing: list[int] = field(default_factory=list)  # linked rows that wait (those missing before included; an
+    # ambiguous row is in `ambiguous`)
+    unambiguous: list[int] = field(default_factory=list)  # rows that were ambiguous and whose candidates are all
+    # gone: they wait as plain missing (they are in `missing` too); apply_scan clears their candidates
+    back: list[int] = field(default_factory=list)  # rows that were missing and are seen again (present, retagged,
+    # replaced or moved)
+    unjudged: list[int] = field(default_factory=list)  # file ids at their path whose audio changed and whose sound
+    # check failed: left as they are and marked held (library.scan_library fills it)
     unreadable: list[tuple[int, str, str]] = field(default_factory=list)  # folder id, rel, reason; tried next scan
     unopenable: list[tuple[int, str]] = field(default_factory=list)  # folder id, rel: listed, but its entry can't be
     # looked at (a broken entry on the drive); db.apply_scan lists a new one in an import folder as unreadable
@@ -311,12 +333,14 @@ class ScanResult:
 @dataclass(frozen=True)
 class ScanSummary:
     """What one scan of the watched folders changed, counted (library.scan_library)."""
-    moved: int = 0
+    moved: int = 0  # files moved by hand (a missing file that came back is `back`, not `moved`)
     new: int = 0
-    gone: int = 0
+    gone: int = 0  # index rows of nobody's file dropped
     replaced: int = 0  # audio replaced outside Discjockey
     copies: int = 0  # new files with the audio of a file that is still there
     offline: int = 0  # watched folders that couldn't be seen
+    missing: int = 0  # linked rows newly missing at this scan (an ambiguous one isn't counted)
+    back: int = 0  # missing rows seen again
 
 
 # --- the move log (spec library-and-sources §5.2, §8.4; plan library stage 2, I3) ---
@@ -379,7 +403,7 @@ class AiffItemRow:
     """An aiff_items row (db.aiff_batch): one track of an AIFF batch."""
     seq: int
     track: str  # the song's key
-    action: str  # "same_track" | "convert" | "rename"
+    action: str  # "same_track" | "convert" | "rename" | "place" (the placement for a missing file)
     state: str  # "planned" | "done" | "skipped" | "failed" | "undone"
     reason: str | None  # a skip reason (rekordbox.eligible.REASONS) or the failure's plain words
     result: object | None  # what the item produced (JSON: a dict, or words), None until it ran
@@ -391,7 +415,8 @@ class AiffBatchRow:
     in a listing (db.aiff_batches)."""
     id: int
     kind: str  # "upgrade" | "convert" | "mixed"
-    started_by: str  # "user" | "upgrade_all" | "make_aiff" | "cdj_all" | "auto_upgrade"
+    started_by: str  # "user" | "upgrade_all" | "make_aiff" | "cdj_all" | "auto_upgrade" | "download_again" (the sync's
+    # last phase with the Auto-upgrade switch off: only placements for songs the user asked to download again)
     scope: str | None
     started: str
     ended: str | None
@@ -483,6 +508,12 @@ def entry_audio(entry: dict) -> FileAudio | None:
     if not codec:
         return None
     return FileAudio(codec, entry.get("file_rate"), entry.get("file_bits"), entry.get("file_kbps"))
+
+
+def file_missing(e: Mapping) -> bool:
+    """Whether the song's file row waits as missing: its folder was read and the file wasn't found (issue 43,
+    `missing_since`). The one name for the check, so a search finds every consumer."""
+    return bool(e.get("missing_since"))
 
 
 # how the player-facing words name a file's codec and container (the Library's format line, the CDJ rule's words)

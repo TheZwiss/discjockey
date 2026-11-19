@@ -6,7 +6,10 @@
   // (issue 33 stage C: one list in up to three parts, split by each track's state in the run's block: "Upgraded" with
   // how each went, "Still waiting" with a short sub ("Waits for rekordbox to be closed" / "Waits for your next sync")
   // and Review →, and "Couldn't go in" with To-do's short reason as the sub, the full sentence as the row's tooltip and
-  // Fix →; an empty part is left out, a run whose switch was off has none) and Other
+  // Fix →; an empty part is left out, a run whose switch was off has none; issue 43 adds a card of its own after that list,
+  // headed by the engine's section label ("Better versions put in (their files were missing)") with its own count: a missing
+  // song whose parked better version went in, with the engine's sentence as its sub (wrapping, never cut) and the
+  // quality it has now as its badge, also in a run whose switch was off) and Other
   // changes, all list Surfaces of ListRows. Every list keeps the action's slot, so the badges share one right edge. The foot holds Done, the one
   // filled button, or Sync the rest → with Done beside it.
   // A failed sync JobFinished shows its ProblemCard (a problem-tone card) in the same frame; Back to the plan in the
@@ -35,6 +38,9 @@
   const newSince = $derived(mine && run_id && runIdFromReport(jobResult?.report) === run_id
     ? jobResult?.new_since_preview ?? null : null);
   const m = $derived(detail ? endModel(detail, newSince) : null);
+  // the Auto-upgrade parts in one list (Upgraded, Still waiting, Couldn't go in); the placed ones have a card of their own
+  const autoMain = $derived(m?.auto.filter((p) => p.key !== 'placed') ?? []);
+  const autoPlaced = $derived(m?.auto.find((p) => p.key === 'placed') ?? null);
   // a failed sync names its outcome like every other end title; the card under it says why
   const title = $derived(failed ? "Sync didn't finish" : m?.title ?? endTitle($run.run_finished?.exit_code));
   const problem = $derived($run.job_finished?.problem ?? 'crashed');
@@ -59,11 +65,11 @@
 </script>
 
 <!-- one result: cover · Artist – Title over its detail line · badge · action slot (Fix → or Review →) -->
-{#snippet row(r: Result, detailLine: string, action: 'fix' | 'review' | 'review-row' | null, shops = false, badged = true, tip = '')}
+{#snippet row(r: Result, detailLine: string, action: 'fix' | 'review' | 'review-row' | null, shops = false, badged = true, tip = '', wrap = false)}
   {@const b = rowBadge(r)}
   {@const fix = action === 'fix' ? fixHref(r) : null}
   {@const reviewRow = action === 'review-row' ? fixHref(r) : null}
-  <ListRow test="end-row" data-section={r.section} title={artistTitle(r.artist, r.title)} height={52}>
+  <ListRow test="end-row" data-section={r.section} title={artistTitle(r.artist, r.title)} height={52} {wrap}>
     {#snippet lead()}<Cover url={r.cover_url ?? null} seed={r.track_id ?? r.title} size={40} />{/snippet}
     {#snippet name()}{artistTitle(r.artist, r.title)}{/snippet}
     {#snippet sub()}
@@ -156,12 +162,12 @@
       </div>
     {/if}
 
-    {#if m.auto.length}
+    {#if autoMain.length}
       <!-- the first part names the list; the others are sections among its rows. No quality badge on the waiting and
            refused rows: they are not files of this sync, the reason is their second line -->
-      <Surface kind="list" label={m.auto[0].label} summary={String(m.auto[0].rows.length)}
-        data-test="sync-auto-upgrade-list" style={COLS}>
-        {#each m.auto as part, k (part.key)}
+      <Surface kind="list" label={autoMain[0].label} summary={String(autoMain[0].rows.length)}
+        summaryTest={`sync-auto-${autoMain[0].key}`} data-test="sync-auto-upgrade-list" style={COLS}>
+        {#each autoMain as part, k (part.key)}
           {#if k > 0}
             <ListSection label={part.label} summary={String(part.rows.length)} test={`sync-auto-${part.key}`} />
           {/if}
@@ -169,6 +175,17 @@
             {@render row(x.r, x.sub, part.key === 'waiting' ? 'review-row' : part.key === 'refused' ? 'fix' : null, false,
               part.key === 'upgraded', x.tip)}
           {/each}
+        {/each}
+      </Surface>
+    {/if}
+
+    {#if autoPlaced}
+      <!-- the missing songs whose parked better version went in: their own card, headed by the engine's section label
+           with the count of the rows it sent; the engine's sentence is the row's sub, whole (it wraps) -->
+      <Surface kind="list" label={autoPlaced.label} summary={String(autoPlaced.rows.length)}
+        summaryTest="sync-auto-placed" data-test="sync-auto-placed-list" style={COLS}>
+        {#each autoPlaced.rows as x, i (x.r.track_id ?? i)}
+          {@render row(x.r, x.sub, null, false, true, x.tip, true)}
         {/each}
       </Surface>
     {/if}

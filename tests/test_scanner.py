@@ -35,13 +35,13 @@ def put(folder: Path, rel: str, text: str, mtime_ns: int | None = None) -> Path:
 
 
 def known(fid: int, wf: WatchedFolder, rel: str, *, linked: bool = True, ambiguous: bool = False,
-          key: str | None = "") -> KnownFile:
+          key: str | None = "", missing: bool = False) -> KnownFile:
     """The row of the file at `rel` as it is on disk now (key "" = its text's key)."""
     p = wf.path / rel
     st = p.stat()
     if key == "":
         key = "k:" + p.read_text()
-    return KnownFile(fid, wf.id, rel, st.st_size, st.st_mtime_ns, key, linked, ambiguous)
+    return KnownFile(fid, wf.id, rel, st.st_size, st.st_mtime_ns, key, linked, ambiguous, missing)
 
 
 def snap(folder: int, rel: str) -> str:
@@ -137,14 +137,60 @@ def test_an_ambiguous_row_found_back_at_its_path_is_retagged(lib):
     assert r.retagged == [(1, seen(lib, "A - One.aiff"))] and r.unchanged == 0
 
 
-def test_gone_when_nothing_has_the_key(lib):
+def test_a_linked_row_is_missing_when_nothing_has_the_key(lib):
     put(lib.path, "A - One.aiff", "one")
     row = known(1, lib, "A - One.aiff")
     (lib.path / "A - One.aiff").unlink()
     put(lib.path, "B - Two.aiff", "two")
     r = run([lib], [row])
-    assert r.gone == [1]
+    assert r.missing == [1] and r.gone == [] and r.back == []
     assert r.new == [seen(lib, "B - Two.aiff")]
+
+
+def test_an_unlinked_row_is_gone_when_nothing_has_the_key(lib):
+    put(lib.path, "A - One.aiff", "one")
+    row = known(1, lib, "A - One.aiff", linked=False)
+    (lib.path / "A - One.aiff").unlink()
+    r = run([lib], [row])
+    assert r.gone == [1] and r.missing == []
+
+
+def test_a_missing_row_stays_missing_at_every_scan_and_links_back_when_its_key_shows_up(lib):
+    put(lib.path, "A - One.aiff", "one")
+    row = known(1, lib, "A - One.aiff", missing=True)
+    (lib.path / "A - One.aiff").unlink()
+    for _ in range(3):  # missing for as long as its path stays empty
+        r = run([lib], [row])
+        assert r.missing == [1] and r.back == [] and r.gone == []
+    put(lib.path, "Crate/renamed.aiff", "one")  # put back anywhere, under any name
+    r = run([lib], [row])
+    assert r.moved == [(1, seen(lib, "Crate/renamed.aiff"))] and r.back == [1]
+    assert r.missing == [] and r.new == [] and r.copies == []
+
+
+def test_a_missing_row_whose_file_is_back_at_its_path_is_back(lib):
+    put(lib.path, "A - One.aiff", "one")
+    row = known(1, lib, "A - One.aiff", missing=True)
+    r = run([lib], [row])
+    assert r.unchanged == 1 and r.back == [1] and r.missing == []
+    put(lib.path, "A - One.aiff", "one", mtime_ns=5_000_000_000)  # same audio, another mtime
+    r = run([lib], [row])
+    assert r.retagged == [(1, seen(lib, "A - One.aiff"))] and r.back == [1]
+    put(lib.path, "A - One.aiff", "other audio")
+    r = run([lib], [row])
+    assert r.replaced == [(1, seen(lib, "A - One.aiff"))] and r.back == [1]
+
+
+def test_a_missing_row_with_two_candidates_is_ambiguous_and_one_left_links_it_back(lib):
+    row = KnownFile(1, lib.id, "A - One.aiff", 3, 4, "k:one", True, False, True)
+    put(lib.path, "X/A - One.aiff", "one")
+    put(lib.path, "Y/A - One.aiff", "one")
+    r = run([lib], [row])
+    assert r.ambiguous == [(1, ["1/X/A - One.aiff", "1/Y/A - One.aiff"])] and r.missing == [] and r.back == []
+    (lib.path / "Y/A - One.aiff").unlink()  # the user deleted the copy they didn't want
+    rows = [KnownFile(1, lib.id, "A - One.aiff", 3, 4, "k:one", True, True, True), known(2, lib, "X/A - One.aiff", linked=False)]
+    r = run([lib], rows)
+    assert r.moved == [(1, seen(lib, "X/A - One.aiff"))] and r.back == [1]
 
 
 def test_copy_of_a_file_that_is_still_there(lib):
@@ -203,14 +249,14 @@ def test_migrated_row_without_key_is_found_by_name(lib):
     assert r.new == [seen(lib, "Other.aiff")]
 
 
-def test_migrated_row_without_key_two_names_is_ambiguous_none_is_gone(lib):
+def test_migrated_row_without_key_two_names_is_ambiguous_none_is_missing(lib):
     rows = [KnownFile(1, lib.id, "A - One.aiff", None, None, None, True, False),
             KnownFile(2, lib.id, "B - Two.aiff", None, None, None, True, False)]
     put(lib.path, "X/A - One.aiff", "one")
     put(lib.path, "Y/A - One.aiff", "one, another take")
     r = run([lib], rows)
     assert r.ambiguous == [(1, ["1/X/A - One.aiff", "1/Y/A - One.aiff"])]
-    assert r.gone == [2]
+    assert r.missing == [2] and r.gone == []
 
 
 def test_migrated_row_without_key_found_at_its_own_path_is_retagged(lib):
@@ -226,7 +272,7 @@ def test_a_name_match_never_takes_a_file_a_key_already_took(lib):
     unkeyed = KnownFile(2, lib.id, "Old/Elsewhere.aiff", None, None, None, True, False)
     r = run([lib], [unkeyed, keyed])
     assert r.moved == [(1, seen(lib, "Elsewhere.aiff"))]
-    assert r.gone == [2]
+    assert r.missing == [2]
 
 
 def test_hidden_excluded_non_audio_and_links_are_skipped(lib, tmp_path):
@@ -364,11 +410,11 @@ def test_missing_inner_folder_holds_rows_recorded_under_the_outer_one(lib):
             KnownFile(2, lib.id, "C.aiff", 3, 4, "k:c", True, False)]
     r = run([lib, inner], rows)
     assert r.offline == [2]
-    assert r.gone == [2]  # only the outer folder's own file
+    assert r.missing == [2] and r.gone == []  # only the outer folder's own file; the inner one's row is kept
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root can list any folder")
-def test_a_file_moved_into_an_unlistable_subfolder_is_held(lib):
+def test_a_file_moved_into_an_unlistable_subfolder_is_missing(lib):
     put(lib.path, "A - One.aiff", "one")
     put(lib.path, "B - Two.aiff", "two")
     rows = [known(1, lib, "A - One.aiff"), known(2, lib, "B - Two.aiff")]
@@ -380,12 +426,25 @@ def test_a_file_moved_into_an_unlistable_subfolder_is_held(lib):
         r = run([lib], rows)
     finally:
         os.chmod(lib.path / "Locked", 0o755)
-    assert r.held == [1] and r.gone == []
+    assert r.missing == [1] and r.gone == []  # waits; the next scan matches it again
     assert r.moved == [(2, seen(lib, "Seen.aiff"))]  # a visible match still moves
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can list any folder")
+def test_a_row_under_an_unlistable_subfolder_stays_as_it_was(lib):
+    put(lib.path, "Locked/A - One.aiff", "one")
+    put(lib.path, "Locked/B - Two.aiff", "two")
+    rows = [known(1, lib, "Locked/A - One.aiff"), known(2, lib, "Locked/B - Two.aiff", missing=True)]
+    os.chmod(lib.path / "Locked", 0)
+    try:
+        r = run([lib], rows)
+    finally:
+        os.chmod(lib.path / "Locked", 0o755)
+    assert r.unchanged == 1 and r.missing == [2] and r.back == [] and r.gone == []  # present stays present
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root can read any file's details")
-def test_a_file_whose_details_cant_be_read_holds_the_folder_s_missing_rows(lib, tmp_path):
+def test_a_file_whose_details_cant_be_read_changes_nothing_for_missing_rows(lib, tmp_path):
     other = WatchedFolder(2, tmp_path / "Other", "import")
     put(lib.path, "A - One.aiff", "one")
     put(other.path, "C.aiff", "c")
@@ -399,11 +458,10 @@ def test_a_file_whose_details_cant_be_read_holds_the_folder_s_missing_rows(lib, 
     finally:
         os.chmod(lib.path / "Shut", 0o755)
     assert [rel for _, rel, _ in r.unreadable] == ["Shut/X.aiff"]
-    assert r.held == [1]
-    assert r.gone == [2]  # another watched folder, seen in full
+    assert sorted(r.missing) == [1, 2] and r.gone == []  # both wait, whatever the walk could not read
 
 
-def test_an_unreadable_file_holds_only_missing_rows_of_its_size(lib):
+def test_an_unreadable_file_of_the_same_size_changes_nothing_for_a_missing_row(lib):
     put(lib.path, "A - One.aiff", "same")
     put(lib.path, "B - Two.aiff", "a longer one")
     rows = [known(1, lib, "A - One.aiff"), known(2, lib, "B - Two.aiff")]
@@ -415,8 +473,8 @@ def test_an_unreadable_file_holds_only_missing_rows_of_its_size(lib):
             raise PermissionError(13, "Permission denied", str(path))
 
     r = run([lib], rows, Keys(on_call=deny))
-    assert r.held == [1]
-    assert r.gone == [2]
+    assert sorted(r.missing) == [1, 2] and r.gone == [] and r.moved == []  # tried again at the next scan
+    assert [rel for _, rel, _ in r.unreadable] == ["Bad.aiff"]
 
 
 def test_default_key_is_the_content_key(lib):
@@ -470,7 +528,7 @@ def test_a_migrated_row_without_key_never_takes_an_indexed_file_by_name(lib):
     rows = [KnownFile(1, lib.id, "A - One.aiff", None, None, None, True, False),
             known(2, lib, "X/A - One.aiff", linked=False)]
     r = run([lib], rows)
-    assert r.gone == [1] and r.moved == []
+    assert r.missing == [1] and r.moved == []
 
 
 def test_a_file_the_drive_lists_but_cannot_open_is_unreadable_not_skipped(lib, monkeypatch):
@@ -518,3 +576,12 @@ def test_a_known_row_whose_entry_cannot_be_opened_is_kept_not_gone(lib, monkeypa
     monkeypatch.setattr(os, "lstat", lstat)
     r = run([lib], [row])
     assert r.gone == [] and r.moved == [] and [rel for _, rel, _ in r.unreadable] == ["A - One.aiff"]
+
+
+def test_an_ambiguous_row_whose_candidates_are_all_gone_waits_as_plain_missing(lib):
+    """Issue 43, FA (F2): both copies were deleted; the row keeps waiting, its old candidates are cleared."""
+    row = KnownFile(1, lib.id, "A - One.aiff", 3, 4, "k:one", True, True, True)
+    r = run([lib], [row])
+    assert r.missing == [1] and r.unambiguous == [1] and r.ambiguous == []
+    plain = KnownFile(2, lib.id, "B - Two.aiff", 3, 4, "k:two", True, False, True)
+    assert run([lib], [plain]).unambiguous == []  # only a row that was ambiguous is listed

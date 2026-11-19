@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { ActionKey, EstimateAccount, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
   chosenOf, everyOff, folderSwitch, memberOn, resolveLegacy, sectionOf,
@@ -6,8 +8,22 @@ import {
   kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, leftOutTitle, startLabel, tagOf, whyOf, toggleScope, waitsWhole, whyColumn,
+  DOWNLOAD_AGAIN, DOWNLOAD_AGAIN_LABEL, KINDS, KIND_SHARE, WHY,
   WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine, startNote, rekordboxOpenLine, autoPlanLine, NOTHING_TODAY, CONSOLE_RUNNING,
 } from './planModel';
+
+// the engine's words for the Download again kind are the report's plan label (discjockey/report.py PLAN_LABELS)
+describe('the Download again words (issue 43)', () => {
+  const report = readFileSync(fileURLToPath(new URL('../../../../discjockey/report.py', import.meta.url)), 'utf8');
+  it('the label of the kind is the engine\'s plan label', () => {
+    expect(report).toContain(`("acquire:redownload", "${DOWNLOAD_AGAIN_LABEL}")`);
+  });
+  it('the strip and the kind list name the kind by it, and no row says its file is gone', () => {
+    expect(KINDS.find((k) => k.key === 'redownload')!.label).toBe(DOWNLOAD_AGAIN);
+    expect(KIND_SHARE.find((k) => k.key === 'redownload')!.label).toBe(DOWNLOAD_AGAIN);
+    expect(Object.values(WHY).join(' ')).not.toMatch(/gone/i);
+  });
+});
 
 describe('the import hints (W9)', () => {
   it('say the songs that wait for an answer, singular for 1, nothing at 0', () => {
@@ -51,7 +67,7 @@ describe('kinds and tags', () => {
   it('says why in words for every kind, a plain new track included (issue 35: the row tooltip)', () => {
     expect(whyOf(act('acquire', 'a'))).toBe('not downloaded yet');
     expect(whyOf(act('acquire', 'a', 'X', { reason: 'retry' }))).toBe('not found last time');
-    expect(whyOf(act('acquire', 'a', 'X', { reason: 'redownload' }))).toBe('file gone');
+    expect(whyOf(act('acquire', 'a', 'X', { reason: 'redownload' }))).toBe('its file is missing');
     expect(whyOf(act('adopt_bought', 'a'))).toBe('bought file');
     expect(whyOf(act('upgrade', 'a'))).toBe('weekly check');
     // the tag is the same words, left out only for the plain new track
@@ -64,7 +80,7 @@ describe("the weekly checks' switches (issues 35, 36)", () => {
   const plan = [act('upgrade', 'a', 'X'), act('upgrade', 'b', 'Y')];
   it('are both always there, also with no rows of their kind or switched off', () => {
     expect(weeklyItems(plan, { off: [], kinds: ['weekly'] })).toEqual([
-      { key: 'retry', label: 'Missing songs', count: 0, on: true },
+      { key: 'retry', label: 'Not found last time', count: 0, on: true },
       { key: 'weekly', label: 'Lossy files', count: 2, on: false }]);
     expect(weeklyItems([], { off: [], kinds: [] }).map((i) => i.key)).toEqual(['retry', 'weekly']);
   });
@@ -556,29 +572,67 @@ describe('playlists and folders in and out of the sync (issue 37)', () => {
 });
 
 describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
-  const idle = { consoleRunning: false, nothingToday: false, auto: { on: true, ready: 4 }, rekordboxRunning: true };
+  const idle = { consoleRunning: false, nothingToday: false, auto: { on: true, ready: 4, places: 0, place_notes: null }, rekordboxRunning: true };
   it('says the sync would put the ready upgrades in place at its end, in rekordbox\'s words (singular for 1)', () => {
     expect(rekordboxOpenLine(4)).toBe('rekordbox is open: quit it before the sync ends, so the sync can put 4 upgrades in place.');
     expect(rekordboxOpenLine(1)).toBe('rekordbox is open: quit it before the sync ends, so the sync can put 1 upgrade in place.');
-    expect(startNote(idle)).toEqual({ kind: 'rekordbox-open', text: rekordboxOpenLine(4) });
+    expect(startNote(idle)).toEqual({ kind: 'rekordbox-open', text: rekordboxOpenLine(4), place: null });
   });
   it('needs the switch on and an upgrade ready; rekordbox running is a warning, closed a plan line, unknown says nothing', () => {
     expect(startNote({ ...idle, auto: null })).toBeNull();                       // switch off (or no preview)
-    expect(startNote({ ...idle, auto: { on: false, ready: 4 } })).toBeNull();
-    expect(startNote({ ...idle, auto: { on: true, ready: 0 } })).toBeNull();
+    expect(startNote({ ...idle, auto: { on: false, ready: 4, places: 0, place_notes: null } })).toBeNull();
+    expect(startNote({ ...idle, auto: { on: true, ready: 0, places: 0, place_notes: null } })).toBeNull();
     expect(startNote({ ...idle, rekordboxRunning: null })).toBeNull();           // the bridge could not say: no claim
-    expect(startNote({ ...idle, rekordboxRunning: false })).toEqual({ kind: 'auto-plan', text: autoPlanLine(4) });
+    expect(startNote({ ...idle, rekordboxRunning: false })).toEqual({ kind: 'auto-plan', text: autoPlanLine(4), place: null });
   });
   it('with rekordbox closed, a one-line Hint says what the sync does at its end (singular for 1)', () => {
     expect(autoPlanLine(4)).toBe('4 upgrades go in at the end; cues stay.');
     expect(autoPlanLine(1)).toBe('1 upgrade goes in at the end; cues stay.');
     expect(autoPlanLine(13).length).toBeLessThan(47);                            // one uncut line in the 280 px of the panel at 1100
-    expect(startNote({ ...idle, rekordboxRunning: false, auto: { on: true, ready: 1 } })?.text).toBe(autoPlanLine(1));
+    expect(startNote({ ...idle, rekordboxRunning: false, auto: { on: true, ready: 1, places: 0, place_notes: null } })?.text).toBe(autoPlanLine(1));
   });
   it('comes after the console-running and nothing-today notes, which are the start\'s own', () => {
-    expect(startNote({ ...idle, consoleRunning: true, nothingToday: true })).toEqual({ kind: 'console', text: CONSOLE_RUNNING });
-    expect(startNote({ ...idle, nothingToday: true })).toEqual({ kind: 'nothing-today', text: NOTHING_TODAY });
+    expect(startNote({ ...idle, consoleRunning: true, nothingToday: true })).toEqual({ kind: 'console', text: CONSOLE_RUNNING, place: null });
+    expect(startNote({ ...idle, nothingToday: true })).toEqual({ kind: 'nothing-today', text: NOTHING_TODAY, place: null });
     expect(startNote({ ...idle, consoleRunning: true, rekordboxRunning: false })?.kind).toBe('console');
     expect(startNote({ ...idle, nothingToday: true, rekordboxRunning: false })?.kind).toBe('nothing-today');
+  });
+});
+
+describe('the placement line under Start sync (issue 43 §7.4a: the engine\'s sentence, verbatim)', () => {
+  const notes = { closed: '2 missing songs get their better version at the end of the sync.',
+    open: '2 missing songs get their better version at the end of the sync, once rekordbox is closed.' };
+  const base = { consoleRunning: false, nothingToday: false, rekordboxRunning: false as boolean | null };
+  const auto = (over: Partial<NonNullable<Parameters<typeof startNote>[0]['auto']>> = {}) =>
+    ({ on: true, ready: 0, places: 2, place_notes: notes, ...over });
+
+  it('the switch off with a placement coming: the block is present and only the placement line shows', () => {
+    expect(startNote({ ...base, auto: auto({ on: false }) })).toEqual({ kind: 'place', text: notes.closed, place: null });
+    expect(startNote({ ...base, rekordboxRunning: true, auto: auto({ on: false }) }))
+      .toEqual({ kind: 'place-open', text: notes.open, place: null });
+  });
+  it('rekordbox unknown claims no state: the closed sentence', () => {
+    expect(startNote({ ...base, rekordboxRunning: null, auto: auto() })).toEqual({ kind: 'place', text: notes.closed, place: null });
+  });
+  it('after the upgrades\' line, in the same note, by rekordbox\'s state', () => {
+    expect(startNote({ ...base, rekordboxRunning: false, auto: auto({ ready: 3 }) }))
+      .toEqual({ kind: 'auto-plan', text: autoPlanLine(3), place: notes.closed });
+    expect(startNote({ ...base, rekordboxRunning: true, auto: auto({ ready: 3 }) }))
+      .toEqual({ kind: 'rekordbox-open', text: rekordboxOpenLine(3), place: notes.open });
+  });
+  it('nothing to place, or no sentence from the engine: no placement line; the start\'s own notes still come first', () => {
+    expect(startNote({ ...base, auto: auto({ places: 0, place_notes: null }) })).toBeNull();
+    expect(startNote({ ...base, auto: auto({ places: 2, place_notes: null }) })).toBeNull();
+    expect(startNote({ ...base, auto: null })).toBeNull();
+    expect(startNote({ ...base, consoleRunning: true, auto: auto() })).toMatchObject({ kind: 'console', place: null });
+    expect(startNote({ ...base, nothingToday: true, auto: auto() })).toMatchObject({ kind: 'nothing-today', place: null });
+  });
+  it('the fake\'s preview carries the sentences the engine wrote (scenario missing_files)', async () => {
+    const { createFakeBridge } = await import('$lib/bridge/fake/bridge');
+    const r = await createFakeBridge('missing_files').sync_preview();
+    if (!r.ok) throw new Error('preview failed');
+    expect(r.auto_upgrade).toMatchObject({ places: 1 });
+    expect(startNote({ ...base, auto: r.auto_upgrade })?.place).toBe(r.auto_upgrade!.place_notes!.closed);
+    expect(startNote({ ...base, auto: { ...r.auto_upgrade!, on: false, ready: 0 } })?.text).toBe(r.auto_upgrade!.place_notes!.closed);
   });
 });

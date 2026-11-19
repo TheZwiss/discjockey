@@ -10,7 +10,7 @@ import { NOT_IN_PLAYLIST, QUALITIES } from '../types';
 import { foldText } from '../../format';
 import { needsSetting } from './liked';
 import {
-  SERVICE_NAME, byQuality, dateOnly, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, trackRow, type FakeState,
+  SERVICE_NAME, byQuality, dateOnly, isoLocal, pathOf, playlistRef, serviceOfLink, todoGroup, inMissingGroup, trackRow, type FakeState,
   type FakeTrack,
 } from './data';
 
@@ -205,6 +205,10 @@ function placeOf(sites: Sites, path: string): string {
   if (crate) return `${crate[0]} › ${crate[1]}`;
   return sites.roots.get(folder) || base(folder) || folder;
 }
+/** The place words of any path (Sites.place): where a file was or is, for the missing files' lines. */
+export function placeAt(s: FakeState, path: string): string {
+  return placeOf(sitesOf(s), path);
+}
 /** `track()`'s `place`: where the song's file sits; null without a file */
 export function trackPlace(s: FakeState, t: FakeTrack): string | null {
   const path = t.status === 'missing' ? null : pathOf(t);
@@ -222,7 +226,9 @@ function folderState(s: FakeState, path: string): FolderState {
 /** a row's `file_state`, from its watched folder as the engine reads it (never from the file itself: a file that went
  *  since the last scan still reads `here` in the list); a Library file is always `here` */
 function pathState(s: FakeState, t: FakeTrack): LibraryRow['file_state'] {
-  return folderState(s, nfc(pathOf(t)!));
+  const away = folderState(s, nfc(pathOf(t)!));
+  // views.file_state: an away drive or folder can't tell; else the stored mark of a file that waits as missing (issue 43)
+  return away === 'here' && t.missing ? 'file_missing' : away;
 }
 
 // ---------- the sidebar (views.sidebar) ----------
@@ -332,7 +338,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   const mk = (t: FakeTrack, over: Partial<LibraryRow> = {}): Entry => ({ t, row: {
     ...trackRow(t), sound_checked: !t.unchecked, file_state: pathState(s, t), wait: null, next_try: null, position: null,
     place: placeOf(sites, pathOf(t)!), subfolder: null, playlists: held.get(t.track_id) ?? [], track_link: fakeLink(t),
-    ...over } });
+    in_missing_files: !!t.missing && inMissingGroup(t), ...over } });
 
   let entries: Entry[] = [];
   let also: Entry[] | null = null;
@@ -380,7 +386,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
         const notFound = h.t !== null && todoGroup(h.t) === 'not_found';
         entries.push({ t: null, row: { ...trackRow(missing), sound_checked: true, file_state: 'no_file',
           wait: notFound ? 'not_found' : 'waiting', next_try: notFound ? nextTry(h.t!.next_try_days) : null, position, place: null,
-          subfolder: null, playlists: held.get(h.key) ?? [line.folder], track_link: fakeLink(missing) } });
+          subfolder: null, playlists: held.get(h.key) ?? [line.folder], track_link: fakeLink(missing), in_missing_files: false } });
       }
       also = files.filter((t) => !heldKeys.has(t.track_id) && fold(libraryFolder(pathOf(t)!) ?? '') === fold(line.folder))
         .map((t) => mk(t, { place: null }));
@@ -422,7 +428,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
   const summary = { tracks: have.length, lossless_share: counted ? Math.round((by.lossless / counted) * 10000) / 10000 : null,
     by_quality: by, upgrades_ready: have.filter((e) => e.row.upgrade_ready).length,
     not_lossless: by.good_lossy + by.weak + by.fake,
-    to_do: have.filter((e) => e.t!.in_playlists && !e.t!.hidden && todoGroup(e.t!)).length };
+    to_do: have.filter((e) => (e.t!.in_playlists || e.t!.missing) && !e.t!.hidden && todoGroup(e.t!)).length };
   // the search ignores case and accents (names.search_fold, as the engine's library search and `track find`)
   const q = searchFold(query ?? '').trim();
   const search = (list: Entry[]): Entry[] => (q ? list.filter((e) => searchFold(`${e.row.artist} ${e.row.title}`).includes(q)) : list);

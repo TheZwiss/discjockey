@@ -1,8 +1,12 @@
 // Auto-upgrade in the fake backend: the same answers as the engine (tests/test_hub_auto_upgrade.py).
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createFakeBridge } from './bridge';
+import { PART_LABELS, SECTION_LABELS } from './data';
 import type { HubEvent } from '../events';
-import { AUTO_REFUSED_SHORT as FAKE_SHORT, autoLine, planPhase, phaseEvents, readyTracks } from './auto';
+import { AUTO_REFUSED_SHORT as FAKE_SHORT, autoLine, placedWords, placePlanLine, planPhase, phaseEvents, readyTracks } from './auto';
+import { missingSet } from './missingFiles';
 import { AUTO_REFUSED_SHORT } from '$lib/decisions/decisionModel';
 import { isBatch } from '../types';
 import type { Fail, RekordboxStatus, RunDetail, SetupStatus, SyncPreview, Todo, TodoItem } from '../types';
@@ -83,7 +87,7 @@ describe('fake sync: the Auto-upgrade phase', () => {
   it('sync:auto-done: 9 go in as one batch, rekordbox opens after the 10th (3 wait), 1 is refused', async () => {
     const m = make('sync:auto-done');
     const p = await preview(m.f);
-    expect(p.auto_upgrade).toEqual({ on: true, ready: 13 });
+    expect(p.auto_upgrade).toEqual({ on: true, ready: 13, places: 0, place_notes: null });
     const run = await syncRun(m);
     const msgs = m.evs.filter((e): e is Ev<'Message'> => e.type === 'Message').map((e) => e.text);
     expect(msgs).toContain('Upgrading 13 tracks at the end of the sync...');
@@ -115,7 +119,7 @@ describe('fake sync: the Auto-upgrade phase', () => {
     expect(isBatch(checks) && checks.batch).toMatchObject({ size: 9, started_by: 'auto_upgrade' });
     expect(checks.detail).toMatch(/Upgraded during your sync$/);
     // the preview counts what is left to do (the refused one is held out; the 3 that wait are still ready)
-    expect((await m.f.sync_preview() as SyncPreview & { ok: true }).auto_upgrade).toEqual({ on: true, ready: 3 });
+    expect((await m.f.sync_preview() as SyncPreview & { ok: true }).auto_upgrade).toEqual({ on: true, ready: 3, places: 0, place_notes: null });
   });
 
   it('sync:auto-done mirrors the engine: one row per track, en dash names, how on every row, the batch closed done', async () => {
@@ -173,7 +177,7 @@ describe('fake sync: the Auto-upgrade phase', () => {
 
   it('sync:auto-rekordbox-open: 4 ready, rekordbox open: no batch, all 4 wait and are marked', async () => {
     const m = make('sync:auto-rekordbox-open');
-    expect((await preview(m.f)).auto_upgrade).toEqual({ on: true, ready: 4 });
+    expect((await preview(m.f)).auto_upgrade).toEqual({ on: true, ready: 4, places: 0, place_notes: null });
     expect(await m.f.rekordbox_status()).toMatchObject({ running: true });
     const run = await syncRun(m);
     expect(m.evs.some((e) => e.type === 'BatchProgress')).toBe(false);
@@ -186,7 +190,7 @@ describe('fake sync: the Auto-upgrade phase', () => {
     expect(details.filter((d) => d === 'Waits for rekordbox to be closed')).toHaveLength(4);
     expect(details).toHaveLength(5);                    // and the edit that needs a choice (a base row)
     // a waiting upgrade still counts as ready for the next sync
-    expect((await m.f.sync_preview() as SyncPreview & { ok: true }).auto_upgrade).toEqual({ on: true, ready: 4 });
+    expect((await m.f.sync_preview() as SyncPreview & { ok: true }).auto_upgrade).toEqual({ on: true, ready: 4, places: 0, place_notes: null });
   });
 
   it('the toolbar toggle (rekordbox open) is the state the phase meets at its start', async () => {
@@ -335,5 +339,129 @@ describe('fake To-do, Settings and Setup: the Auto-upgrade states', () => {
     expect((await make('settings:upgrades-off').status()).auto_upgrade).toBe(false);
     const setup = await make('setup:downloads-auto').status();
     expect(setup).toMatchObject({ auto_upgrade: true, qobuz: true, next_step: 'playlists', complete: false });   // as setup:downloads-all: open #/setup/downloads
+  });
+});
+
+// ---------- the placements for missing songs (issue 43, plan §4.5.4; discjockey: tests/test_place_phase.py) ----------
+describe('fake sync: the placements for missing songs', () => {
+  it('missing_files: the song whose Download again was asked and whose better version is parked is placed first, with the switch on', async () => {
+    const m = make('missing_files');
+    const set = missingSet(m.f._ctx.s)!;
+    const plan = planPhase(m.f._ctx.s, 1)!;
+    expect(plan.rows[0]).toMatchObject({ track: set.askedParked, state: 'done', action: 'place', how: 'placed', reason: null });
+    expect(plan.rows[0].message).toMatch(/^Its better version is in, at .+\.aiff; rekordbox's track plays it with its cues\.$/);
+    expect(plan.order[0]).toBe(set.askedParked);
+    expect(plan.rows.filter((r) => r.action === 'place')).toHaveLength(1);   // the parked song nobody asked for is not placed
+    const run = await syncRun(m);
+    const a = run.auto_upgrade!;
+    expect(a.results.find((r) => r.track === set.askedParked)).toMatchObject({ state: 'done', action: 'place', how: 'placed' });
+    expect(a.results.filter((r) => r.action !== 'place').every((r) => r.action === 'same_track')).toBe(true);
+    expect(a.line).toContain('1 missing song got its better version.');
+    expect(run.sections.placed_missing).toHaveLength(1);
+    expect(run.sections.placed_missing[0]).toMatchObject({ track_id: set.askedParked, status: 'lossless' });
+    expect(run.sections.upgraded ?? []).toHaveLength(a.done - 1);
+    expect(run.counts.lossless).toBeGreaterThanOrEqual(a.done);
+    // the song is not missing any more, its check says what to look at, and it is no longer in the Sync plan
+    const t = (await m.f.track(set.askedParked)) as { ok: true; track: { missing: unknown; upgrade: unknown } };
+    expect(t.track).toMatchObject({ missing: null, upgrade: null });
+    const checks = (await todo(m.f, 'rekordbox_check')).groups.find((g) => g.key === 'rekordbox_check')!.items;
+    const row = checks.flatMap((i) => (isBatch(i) ? i.batch.tracks : [i])).find((i) => i.track_id === set.askedParked)!;
+    expect(row.detail).toBe('better version in place: play it once');
+    expect(row.check).toMatchObject({ reason: 'placed_missing', aligned: true });
+    expect(row.check!.text).toContain('Its file was missing, so its better version took its place.');
+  });
+
+  it('with the switch off only the placements run, in a batch started by download_again', async () => {
+    const m = make('missing_files');
+    const s = m.f._ctx.s;
+    const set = missingSet(s)!;
+    s.tracks.find((t) => t.track_id === set.parked)!.fileGone = true;   // Download again for the second parked song
+    await m.run(m.f.set_auto_upgrade(false));
+    // the page says before the start that two placements are coming; no upgrades are (the switch is off)
+    expect(((await preview(m.f)).auto_upgrade)).toEqual({ on: false, ready: 0, places: 2,
+      place_notes: { closed: placePlanLine(2, false), open: placePlanLine(2, true) } });
+    const run = await syncRun(m);
+    const a = run.auto_upgrade!;
+    expect(a.results.map((r) => [r.action, r.how, r.state])).toEqual([['place', 'placed', 'done'], ['place', 'placed', 'done']]);
+    expect(a).toMatchObject({ done: 2, waiting: 0, refused: 0, line: '2 missing songs got their better version.' });
+    expect(m.evs.filter((e): e is Ev<'Message'> => e.type === 'Message').map((e) => e.text))
+      .toContain('Putting in the better version of 2 missing songs at the end of the sync...');
+    expect(run.sections.upgraded).toBeUndefined();
+    const checks = (await todo(m.f, 'rekordbox_check')).groups.find((g) => g.key === 'rekordbox_check')!.items;
+    const card = checks.find((i): i is TodoItem => isBatch(i))!;
+    expect(card.batch).toMatchObject({ size: 2, started_by: 'download_again', kind: 'upgrade' });
+    expect(card.detail).toMatch(/ · Better versions put in during your sync$/);
+    expect(card.batch).toMatchObject({ row_name: '2 better versions put in', list_title: 'Better versions put in',
+      card_summary: 'better versions in' });
+    expect(card.batch!.row_sub).toMatch(/^today · Better versions put in during your sync$/);
+    const words = m.evs.filter((e): e is Ev<'BatchProgress'> => e.type === 'BatchProgress').map((e) => [e.lead, e.count]);
+    expect(words.at(-1)).toEqual(['Putting in better versions', '2 of 2 put in']);
+  });
+
+  it('rekordbox open: the placement waits with its own words and the song stays missing', async () => {
+    const m = make('missing_files');
+    const s = m.f._ctx.s;
+    const set = missingSet(s)!;
+    s.rekordbox_running = true;
+    const plan = planPhase(s, 1)!;
+    expect(plan.batch).toBeNull();
+    expect(plan.rows[0]).toMatchObject({ track: set.askedParked, state: 'waiting', reason: 'rekordbox_open', action: 'place', how: 'placed',
+      message: 'Waits for rekordbox to be closed: its better version goes in at your next sync.' });
+    expect(phaseEvents(plan).map((e) => (e as Ev<'Message'>).text)).toEqual(   // the upgrade's line, then the placement's
+      ['1 upgrade waits for rekordbox to be closed.', '1 missing song waits for rekordbox to be closed to get its better version.']);
+    const run = await syncRun(m);
+    expect(run.auto_upgrade).toMatchObject({ batch: null, done: 0, waiting: 2,
+      line: '1 upgrade waits for rekordbox to be closed. 1 missing song waits for its better version until your next sync.' });
+    expect(run.sections.upgrade_waits).toHaveLength(2);
+    const t = (await m.f.track(set.askedParked)) as { ok: true; track: { missing: unknown } };
+    expect(t.track.missing).not.toBeNull();
+  });
+
+  it('the preview counts the placements apart from the upgrades, with the switch on, and says them in the engine\'s words', async () => {
+    const m = make('missing_files');
+    const set = missingSet(m.f._ctx.s)!;
+    expect(set.askedParked).toBeTruthy();
+    const song = m.f._ctx.s.tracks.find((t: { track_id: string }) => t.track_id === set.askedParked)!;
+    const name = `${song.artist} \u2013 ${song.title}`;   // one song: the sentence names it
+    const ready = readyTracks(m.f._ctx.s).length;
+    expect((await preview(m.f)).auto_upgrade).toEqual({ on: true, ready, places: 1,
+      place_notes: { closed: `${name} gets its better version at the end of the sync.`,
+        open: `${name} gets its better version at the end of the sync, once rekordbox is closed.` } });
+  });
+
+  it('with the switch off and nothing to place there is no phase', async () => {
+    const m = make('missing_files');
+    const s = m.f._ctx.s;
+    await m.run(m.f.set_auto_upgrade(false));
+    s.tracks.find((t) => t.track_id === missingSet(s)!.askedParked)!.fileGone = false;
+    expect(planPhase(s, 1)).toBeNull();
+    expect((await preview(m.f)).auto_upgrade).toBeNull();
+    expect((await syncRun(m)).auto_upgrade).toBeNull();
+  });
+
+  it('autoLine and the words of the placements are the engine\'s (report.auto_upgrade_line, words.py)', () => {
+    const r = (state: string, action: 'place' | 'same_track', reason: string | null = null) =>
+      ({ track: 'x', name: 'x', state, reason, message: null, how: action === 'place' ? 'placed' : null, action }) as never;
+    expect(autoLine({ done: 1, refused: 0, results: [r('done', 'place')] })).toBe('1 missing song got its better version.');
+    expect(autoLine({ done: 3, refused: 0, results: [r('done', 'place'), r('done', 'place'), r('done', 'same_track')] }))
+      .toBe('Upgraded 1 track; your cues stayed. 2 missing songs got their better version.');
+    expect(autoLine({ done: 0, refused: 1, results: [r('waiting', 'place', 'rekordbox_open'), r('refused', 'place', 'space'),
+      r('waiting', 'same_track', 'rekordbox_open')] }))
+      .toBe("1 upgrade waits for rekordbox to be closed. 1 missing song waits for its better version until your next sync. "
+        + "1 missing song couldn't get its better version yet.");
+    expect(placePlanLine(1)).toBe('1 missing song gets its better version at the end of the sync.');
+    expect(placePlanLine(1, false, 'Ana \u2013 Song')).toBe('Ana \u2013 Song gets its better version at the end of the sync.');
+    expect(placePlanLine(2, false, 'Ana \u2013 Song')).toBe('2 missing songs get their better version at the end of the sync.');
+    expect(placePlanLine(2, true)).toBe('2 missing songs get their better version at the end of the sync, once rekordbox is closed.');
+    expect(placedWords('A.aiff', false, true)).toBe('Its better version is in, at A.aiff.');
+    expect(placedWords('A.aiff', true, false)).toBe('Its better version is in, at A.aiff; check its cues in rekordbox.');
+  });
+});
+
+describe('the fake\'s labels and words are the engine\'s', () => {
+  const py = readFileSync(fileURLToPath(new URL('../../../../../discjockey/report.py', import.meta.url)), 'utf8');
+  it('section_labels and part_labels of a run (report.SECTIONS, report.PART_LABELS)', () => {
+    for (const [key, label] of Object.entries(SECTION_LABELS)) expect(py).toContain(`("${key}", "${label}")`);
+    for (const [key, label] of Object.entries(PART_LABELS)) expect(py).toContain(`"${key}": ${JSON.stringify(label)}`);
   });
 });

@@ -173,6 +173,11 @@ def _selection(entry: Entry, args: Mapping, flags: Flags, command: str, api) -> 
         return {}, envelope.from_answer(command, answer)
     if not answer["ids"] and command in catalog.AIFF:  # no song to convert or rename: done, the dry run says so too
         return {}, envelope.envelope(command, "ok", message=answer.get("message") or select.NO_ROWS, data=NOTHING_LEFT)
+    if not answer["ids"] and command in catalog.MISSING:  # no song waits for the action: done, the dry run says so too
+        message = answer.get("message") or select.NO_ROWS
+        nothing = {"action": entry.fixed["action"], "items": [], "n": 0, "skipped": 0, "words": message,
+                   "button": None, "confirm": None}  # a dry run keeps its own shape
+        return {}, envelope.envelope(command, "ok", message=message, data=nothing if flags.dry_run else NOTHING_LEFT)
     if not answer["ids"] and answer.get("message") and not flags.dry_run:  # a verb's "all" with nothing left is done (R29)
         return {}, envelope.envelope(command, "ok", message=answer["message"], data=NOTHING_LEFT)
     return {**args, "track_ids": answer["ids"]}, None

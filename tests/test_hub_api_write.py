@@ -94,11 +94,11 @@ def test_rescan_library_runs_a_scan_job_and_counts_what_it_found(root, monkeypat
 
     def fake_scan(paths, emit):
         seen["paths"] = paths
-        return ScanSummary(moved=1, new=2, gone=3, replaced=4, copies=5, offline=1)
+        return ScanSummary(moved=1, new=2, gone=3, replaced=4, copies=5, offline=1, missing=6, back=7)
     monkeypatch.setattr(library, "scan_library", fake_scan)
     f = wait_job(api, rec, api.rescan_library())
     assert f.ok and f.kind == "scan" and seen["paths"] == root
-    assert f.result == {"moved": 1, "new": 2, "gone": 3, "changed": 4, "copies": 5}
+    assert f.result == {"moved": 1, "new": 2, "gone": 3, "missing": 6, "back": 7, "changed": 4, "copies": 5}
 
 
 def test_a_scan_that_changed_something_plans_the_preview_again_without_reading_spotify(root, monkeypatch):
@@ -115,6 +115,12 @@ def test_a_scan_that_changed_something_plans_the_preview_again_without_reading_s
     assert wait_job(api, rec, api.rescan_library()).ok
     assert replans == [before] and api._store.prep is not before
     assert api._store.prep.fetched is before.fetched and api._store.read_at == read_at
+    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(missing=1))  # a song's file went:
+    assert wait_job(api, rec, api.rescan_library()).ok  # the plan is made again, so the song isn't downloaded
+    assert len(replans) == 2
+    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(back=1))
+    assert wait_job(api, rec, api.rescan_library()).ok
+    assert len(replans) == 3
 
 
 def test_a_scan_without_a_preview_plans_nothing(root, monkeypatch):
@@ -127,7 +133,7 @@ def test_a_scan_without_a_preview_plans_nothing(root, monkeypatch):
 def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):
     api, rec = make_api(root)
     f = wait_job(api, rec, api.rescan_library())
-    assert f.ok and set(f.result) == {"moved", "new", "gone", "changed", "copies"}
+    assert f.ok and set(f.result) == {"moved", "new", "gone", "missing", "back", "changed", "copies"}
     assert all(isinstance(n, int) for n in f.result.values())
 
 

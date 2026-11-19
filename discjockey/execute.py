@@ -141,19 +141,20 @@ class Executor:
         e = self._entry(a)
         artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
         rejected = set(e.get("rejected_sources") or []) if e else set()
-        extra: list[str] = []
-        if a.reason == "redownload" and e:
-            if e.get("path"):  # the old file is gone, so its name may be reused (a scan already dropped it otherwise)
-                self.names.release(e["path"])
-            if e.get("source") in FALLBACK_SOURCES and e.get("source_id"):
-                extra.append(f"{e['source']}:{e['source_id']}")
+        released = None
+        if a.reason == "redownload" and e and e.get("path"):
+            # its file isn't there (it waits as missing, issue 43), so its name may be reused: the row moves to the
+            # new file. The source the lost file came from stays as it was: a file that went missing says nothing
+            # against it (a song found nowhere else would never come back otherwise)
+            released = e["path"]
+            self.names.release(released)
         workdir = self.paths.tmp / a.track_id
         workdir.mkdir(parents=True, exist_ok=True)
         tracker = Tracker(self.emit, self.token, a.track_id)
         try:
-            res = self.acquirer.acquire(a.track, rejected | set(extra), workdir, False, tracker,
+            res = self.acquirer.acquire(a.track, rejected, workdir, False, tracker,
                                         exact=a.qobuz_id, upload=a.upload)
-            rejected_now = tuple(extra) + tuple(res.rejected)
+            rejected_now = tuple(res.rejected)
             found = None if res.free_downloads is None else tuple(res.free_downloads)
             if res.kind == "queued":
                 if e is not None and rejected_now:  # keep what was learned (e.g. a preview) for next time
@@ -167,13 +168,15 @@ class Executor:
                 placed = Placed(dst, r.status, r.source, r.source_id, r.source_format, r.cutoff_hz, r.kbps, r.how or None)
                 entry = apply_outcome(e, a, Outcome("placed", placed, rejected_now, free_downloads=found), self.now())
                 run_op(self.paths, self.state, a.track_id, [(self._rel(r.path), dst)], entry)
+                released = None  # the row moved to the new file; the old name is free
                 self._drop_stale_upgrade(e)
                 section = "redownloaded" if a.reason == "redownload" else NEW_SECTION[r.status]
                 return self._placed_result(a, section, r.comment)
             if res.kind == "missing":
-                self._set_entry(a.track_id, apply_outcome(e, a, Outcome("missing", rejected=rejected_now,
-                                                                        free_downloads=found), self.now()))
-                self._drop_stale_upgrade(e)
+                entry = apply_outcome(e, a, Outcome("missing", rejected=rejected_now, free_downloads=found), self.now())
+                self._set_entry(a.track_id, entry)
+                if not entry.get("upgrade"):  # (a redownload of a missing row keeps its parked upgrade, D8)
+                    self._drop_stale_upgrade(e)
                 return self._result(a, "missing", f"{buy_links(artist, title)} · a bought copy goes to "
                                                   f"Library/{a.folder}/{expected_stem(artist, title)}.wav",
                                     status="missing", error_kind="not_found")
@@ -182,6 +185,8 @@ class Executor:
                                                                     message=message), self.now()))
             return self._result(a, "errors", message, error_kind=error_kind(res.errors))
         finally:
+            if released is not None:  # nothing was placed: the row still waits at that name, so no other song takes it
+                self.names.taken.add(fold(released))
             shutil.rmtree(workdir, ignore_errors=True)
 
     def _park(self, a: Action, e: dict, res, tracker: Tracker) -> Result:

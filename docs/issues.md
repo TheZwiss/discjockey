@@ -11,29 +11,6 @@ fail in teardown with "a hub job thread outlived its test: hub-refresh-job". The
 for 5 s, so a slow refresh under load is the likely cause. Fix: find what starts the refresh in these tests and stop
 or join it in the test itself, so the check stays strict; not by raising the wait.
 
-## 43. A file away for one scan loses its song for good (live test B, 2026-11-17) — data loss, before phase 2
-
-Reproduced on made-up data (2026-11-17): an imported click MP3 in a watched folder with a parked upgrade; the file
-moved out, `library scan` → `Gone 1`; moved back, `library scan` → `New 1`. The song (local:2) was deleted with its
-parked upgrade, and the To-do said nothing. The returned file waited as an unlinked import; importing it made a new
-song (local:3) without the upgrade. Cause: spec library-and-sources §6.3 "Gone" + `db.apply_scan`: one scan that
-doesn't see a file deletes its row; an own song with no file left is deleted with its answers
-(`_drop_fileless_own`, `_drop_dead_decisions`); a playlist song gets `file_gone` and the next sync downloads it again
-(from the code; not run). Nothing remembers the content key, so a file put back is never matched again. A scan runs at
-every sync and dry run, when the window opens and when it comes back to the front after a minute, so moving a file
-aside for a minute (tidying, a rekordbox Relocate test, a file opened in another app that saves elsewhere) is enough.
-Present since library stage 1 (2026-10-24): v1.1.0, v1.2.0, v1.2.1. The user's real library shows no loss so far
-(read-only 2026-11-17: no `file_gone`, own ids 889–905 without gaps, no unlinked files). Issue 40's audit asks the
-same question for "out of every watched folder".
-
-**Decided (user, 2026-11-17):** a missing file is never decided by one scan. Its row waits as missing (the song keeps
-everything; nothing deleted, nothing downloaded again, as an offline folder's rows); a file with its content key seen
-again anywhere in the watched folders is linked back as Moved; To-do lists the missing songs with their last place.
-"Remove from library" (one, a selection, all) removes an own song only on the user's word; a playlist song waits in
-To-do with "Download again" instead of the sync downloading it by itself. Fix before phase 2 of issue 39.
-A playlist song with a better version already waiting in `Upgrades ready/` gets that version placed by "Download
-again" instead of a new download (user, 2026-11-18).
-
 ## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
 
 Lock order is support, library, `rekordbox.lock` (CLAUDE.md). Every settings write follows it now (`_settings_job`,
@@ -64,7 +41,7 @@ Needs its own short design round (where the queue shows, what an undo of the mov
 **Not for moves the user makes by hand** in Finder: those stay with rekordbox's own (Auto) Relocate. Instead, an
 audit of what Discjockey itself does, written down and pinned by tests, then said in plain words in the README: a file
 moved or renamed inside one watched folder, between watched folders, to another drive, out of every watched folder
-(gone: is the song downloaded again at the next sync?), copied instead of moved (a duplicate), and a whole watched
+(waits as missing in To-do, never downloaded by itself: issue 43, README "Missing files"), copied instead of moved (a duplicate), and a whole watched
 folder moved or renamed (today it waits as "Folder not found"). Today's behaviour: inside `Library/` and the watched
 folders a file is found again by its content key, with no new download or import (README, `scanner.py`).
 

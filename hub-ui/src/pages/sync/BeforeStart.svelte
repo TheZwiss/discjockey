@@ -324,15 +324,21 @@
     <!-- a NoteCard, not a Hint: the sentence runs over three lines in the 360 px panel (a Hint is one cut line) and warns
          that something waits (design language §6). Above Start, not under it: the foot grows upward, so a note under
          the button moves it when rekordbox quits (stage review B7) -->
-    <NoteCard tone="warn" data-test="sync-rekordbox-open">{note.text}</NoteCard>
+    <NoteCard tone="warn" data-test="sync-rekordbox-open">{note.text}{#if note.place}<span class="place"
+      data-test="sync-place-open">{note.place}</span>{/if}</NoteCard>
+  {:else if note?.kind === 'place-open'}
+    <!-- the missing songs' better versions wait for rekordbox as the upgrades do: the same warn note, above Start -->
+    <NoteCard tone="warn" data-test="sync-place-open">{note.text}</NoteCard>
   {/if}
   <WriteButton variant="filled" wide onclick={start} busy={starting} busyLabel="Starting…"
     disabled={chosen.length === 0 || nothingToday || $hub.console_running} title={startTitle} data-test="start-sync">
     {startLabel(chosen.length, totals.downloads, totals.uses)}</WriteButton>
   {#if note?.kind === 'console'}<Hint text={note.text} data-test="sync-console" />
   {:else if note?.kind === 'nothing-today'}<Hint text={note.text} data-test="sync-nothing-today" />
-  {:else if note?.kind === 'auto-plan'}<Hint text={note.text} data-test="sync-auto-plan" />
-  {:else if note?.kind === 'rekordbox-open'}<span class="slot" aria-hidden="true"></span>
+  {:else if note?.kind === 'auto-plan'}<Hint text={note.text} wrap balance={false} data-test="sync-auto-plan" />
+    {#if note.place}<Hint text={note.place} wrap balance={false} data-test="sync-place" />{/if}
+  {:else if note?.kind === 'place'}<Hint text={note.text} wrap balance={false} data-test="sync-place" />
+  {:else if note?.kind === 'rekordbox-open' || note?.kind === 'place-open'}<span class="slot" aria-hidden="true"></span>
   {/if}
   {#if startProblem}<ProblemCard kind={startProblem.kind} message={startProblem.message} sync compact alert />{/if}
 {/snippet}
@@ -359,6 +365,8 @@
   /* the line the plan Hint takes under Start while rekordbox is closed, kept free while the warning stands above: the
      button stays where it is when rekordbox quits */
   .slot { height: calc(var(--fs-small) * 1.4); }
+  /* the placement's sentence after the upgrades' in the one warn note: its own line, the note's text */
+  .place { display: block; margin-top: var(--s-1); }
   .search { display: flex; }
   .search :global(.sf) { flex: 1; }
   .found { display: flex; align-items: center; gap: var(--s-3); color: var(--text-muted); font-size: var(--fs-small); }

@@ -1,14 +1,15 @@
 """library.scan_library and db.apply_scan end to end, on tmp_path libraries with real small AIFFs (plan library
 stage 1, tasks 3.2 and 3.6)."""
+import os
 import shutil
-from datetime import date, datetime
+from datetime import datetime
 
 import pytest
 
 from audio_helpers import music, write_aiff
 from discjockey import content_key, db, library, quality
 from discjockey.library import Paths, empty_state, load_state, save_state, scan_library
-from discjockey.models import ScanResult, SeenFile
+from discjockey.models import OwnFacts, ScanResult, SeenFile
 
 
 @pytest.fixture
@@ -57,13 +58,18 @@ def test_a_file_moved_by_hand_keeps_its_song(paths):
     assert load_state(paths)["files"] == ["Library/Mine/A - X.aiff"]
 
 
-def test_a_deleted_file_marks_its_song(paths):
+def test_a_deleted_file_makes_its_song_wait(paths):
     rel = song(paths)
     (paths.root / rel).unlink()
     summary, messages = scan(paths)
-    e = load_state(paths)["tracks"]["t1"]
-    assert (e["path"], e["status"], e["file_gone"]) == (None, "missing", date.today().isoformat())
-    assert summary.gone == 1 and messages == ["Checked your Library: 1 file gone."]
+    state = load_state(paths)
+    e = state["tracks"]["t1"]
+    assert (e["path"], e["status"], e.get("file_gone")) == (rel, "not_lossless", None)  # kept, nothing downloaded
+    assert e["missing_since"] is not None and state["files"] == []
+    assert summary.missing == 1 and summary.gone == 0
+    assert messages == ["Checked your Library: 1 file missing. Missing files wait in To-do."]
+    summary, messages = scan(paths)  # the next scans find it as missing again and say nothing more
+    assert summary == library.ScanSummary() and messages == []
 
 
 def test_a_copy_indexed_before_the_original_was_deleted_keeps_the_song(paths):
@@ -75,7 +81,7 @@ def test_a_copy_indexed_before_the_original_was_deleted_keeps_the_song(paths):
     e = load_state(paths)["tracks"]["t1"]
     assert (e["path"], e["status"], e.get("file_gone"), e["placed_by"]) == (
         "Library/Copy.aiff", "not_lossless", None, "user")
-    assert summary.moved == 1 and summary.gone == 0
+    assert summary.moved == 1 and summary.gone == 0 and summary.missing == 0
 
 
 def test_a_file_put_back_from_the_trash_after_a_scan_changes_nothing(paths):
@@ -89,7 +95,7 @@ def test_a_file_put_back_from_the_trash_after_a_scan_changes_nothing(paths):
     summary, _ = scan(paths)
     e = load_state(paths)["tracks"]["t1"]
     assert (e["path"], e.get("file_gone")) == ("Library/Copy.aiff", None)
-    assert summary.gone == 0 and sorted(load_state(paths)["files"]) == ["Library/Copy.aiff", rel]
+    assert summary.missing == 0 and summary.gone == 0 and sorted(load_state(paths)["files"]) == ["Library/Copy.aiff", rel]
 
 
 def test_a_file_replaced_outside_discjockey_is_judged_again(paths):
@@ -154,13 +160,28 @@ def test_new_files_are_indexed_and_counted(paths):
 
 def test_the_words_list_every_kind_of_change_in_order(paths):
     moved = song(paths)
-    gone = song(paths, "t2", "Library/F/A - Y.aiff", seed=1)
+    back = song(paths, "t4", "Library/F/A - W.aiff", seed=3)
+    lost = song(paths, "t2", "Library/F/A - Y.aiff", seed=1)
     changed = song(paths, "t3", "Library/F/A - Z.aiff", seed=2)
+    (paths.root / back).rename(paths.root.parent / "W.aiff")
+    scan(paths)  # t4 waits as missing
     shutil.move(paths.root / moved, paths.library / "A - X.aiff")
-    (paths.root / gone).unlink()
+    shutil.move(paths.root.parent / "W.aiff", paths.library / "A - W.aiff")  # put back under the same name elsewhere
+    (paths.root / lost).unlink()
     write_aiff(paths.root / changed, music(1, seed=9))
     write_aiff(paths.library / "F" / "B - New.aiff", music(1, seed=5))
-    assert scan(paths)[1] == ["Checked your Library: 1 file you moved, 1 new file, 1 file gone, 1 file changed."]
+    assert scan(paths)[1] == ["Checked your Library: 1 file you moved, 1 new file, 1 missing file back, "
+                              "1 file missing, 1 file changed. Missing files wait in To-do."]
+
+
+def test_the_words_of_a_scan_with_only_files_back_have_no_second_sentence(paths):
+    rel = song(paths)
+    (paths.root / rel).rename(paths.root.parent / "away.aiff")
+    scan(paths)
+    (paths.root.parent / "away.aiff").rename(paths.root / rel)
+    summary, messages = scan(paths)
+    assert (summary.back, summary.moved, summary.missing) == (1, 0, 0)
+    assert messages == ["Checked your Library: 1 missing file back."]
 
 
 def test_files_outside_library_and_non_audio_are_never_indexed(paths):
@@ -224,13 +245,13 @@ def test_a_moved_file_takes_the_place_of_an_earlier_candidate(paths):
     assert load_state(paths)["ambiguous"] == {}
 
 
-def test_a_held_file_is_left_as_it_is_but_marked_held_until_it_is_seen(paths):
+def test_an_unjudged_file_is_left_as_it_is_but_marked_held_until_it_is_seen(paths):
     song(paths)
     before = rows(paths)
     with db.connect(paths.db_file) as conn:
         (linked,) = conn.execute("SELECT id FROM files").fetchone()
         (seen_before,) = conn.execute("SELECT last_seen FROM files").fetchone()
-        db.apply_scan(conn, ScanResult(held=[linked]), datetime(2030, 1, 1))
+        db.apply_scan(conn, ScanResult(unjudged=[linked]), datetime(2030, 1, 1))
         (seen_after,) = conn.execute("SELECT last_seen FROM files").fetchone()
     assert rows(paths) == before and seen_after == seen_before
     state = load_state(paths)
@@ -241,19 +262,34 @@ def test_a_held_file_is_left_as_it_is_but_marked_held_until_it_is_seen(paths):
     assert state["tracks"]["t1"]["held"] is False and state["files"] == ["Library/F/A - X.aiff"]
 
 
-def test_a_file_moved_into_a_folder_the_scan_cant_list_is_held(paths):
+def test_a_file_moved_into_a_folder_the_scan_cant_list_waits_and_links_back_once_it_is_listable(paths):
     rel = song(paths)
     locked = paths.library / "Locked"
     locked.mkdir()
     shutil.move(paths.root / rel, locked / "A - X.aiff")
     locked.chmod(0)
     try:
-        scan(paths)
+        summary, _ = scan(paths)
     finally:
         locked.chmod(0o755)
-    state = load_state(paths)
-    assert state["tracks"]["t1"]["held"] is True and state["tracks"]["t1"]["path"] == rel
-    assert state["tracks"]["t1"].get("file_gone") is None
+    e = load_state(paths)["tracks"]["t1"]
+    assert (e["path"], e["held"], e.get("file_gone")) == (rel, False, None)
+    assert e["missing_since"] is not None and summary.missing == 1
+    summary, messages = scan(paths)  # listable now: the file is found by its key and the song links back
+    e = load_state(paths)["tracks"]["t1"]
+    assert (e["path"], e["missing_since"]) == ("Library/Locked/A - X.aiff", None)
+    assert (summary.back, summary.moved) == (1, 0) and messages == ["Checked your Library: 1 missing file back."]
+
+
+def test_a_song_whose_audio_failed_the_sound_check_is_held_not_missing(paths):
+    rel = song(paths)
+    write_aiff(paths.root / rel, music(1, seed=7))
+
+    def broken(path):
+        raise RuntimeError("no audio stream")
+    scan(paths, analyze=broken)
+    e = load_state(paths)["tracks"]["t1"]
+    assert (e["held"], e["missing_since"], e["path"]) == (True, None, rel)  # it is there; it just can't be judged
 
 
 def test_an_unchanged_scan_writes_only_its_folders_last_scan(paths):
@@ -339,3 +375,220 @@ def test_the_scan_waits_while_a_step_is_pending(paths):
     summary, messages = scan(paths, key_of=key_of)  # its files are between two places
     assert summary == library.ScanSummary() and messages == [] and calls == []
     assert load_state(paths)["tracks"]["t1"]["path"] == rel
+
+
+# --- issue 43: a file a scan doesn't see waits as missing; it links back when a file with its key shows up ---
+
+UPGRADE = {"file": "Upgrades ready/Own - Song.aiff", "source": "qobuz", "status": "lossless", "kbps": None,
+           "cutoff_hz": 22000, "found": "2026-11-01"}
+
+
+@pytest.fixture
+def mine(tmp_path):
+    """A music folder with an import folder `crate` and a second one `more` next to it, and an own song (a file the
+    import read) in `crate` with a better version parked for it."""
+    p = Paths(tmp_path / "music", support=tmp_path / ".support")
+    (p.library / "F").mkdir(parents=True)
+    p.data.mkdir()
+    for name in ("crate", "more", "away"):
+        (tmp_path / name).mkdir()
+    write_aiff(tmp_path / "crate" / "Own - Song.aiff", music(1, seed=11))
+    library.open_records(p)
+    with db.connect(p.db_file) as conn:
+        db.add_watched_folder(conn, tmp_path / "crate", datetime(2026, 11, 1))
+        db.add_watched_folder(conn, tmp_path / "more", datetime(2026, 11, 1))
+    scan(p)
+    with db.connect(p.db_file) as conn:
+        (file_id,) = conn.execute("SELECT id FROM files WHERE path = 'Own - Song.aiff'").fetchone()
+        key = db.add_own_song(conn, file_id, OwnFacts("Own", "Song", None, None, 200000, "aiff", "lossless"))
+    state = load_state(p)
+    state["tracks"][key]["upgrade"] = dict(UPGRADE)
+    save_state(p, state)
+    return p
+
+
+def things(paths):
+    """The import folders of `mine`, the folder outside them, the own song's key and its file row's id."""
+    top = paths.root.parent
+    with db.connect(paths.db_file) as conn:
+        (file_id,) = conn.execute("SELECT f.id FROM files f JOIN songs s ON s.id = f.song WHERE s.key LIKE 'local:%'"
+                                  ).fetchone()
+    return {"crate": top / "crate", "more": top / "more", "away": top / "away", "key": "local:1", "file_id": file_id}
+
+
+def file_row(paths, file_id):
+    with db.connect(paths.db_file) as conn:
+        return conn.execute("SELECT id, song, folder, path, placed_by, missing_since, ambiguous FROM files "
+                            "WHERE id = ?", (file_id,)).fetchone()
+
+
+def unlinked(paths):
+    with db.connect(paths.db_file) as conn:
+        return conn.execute("SELECT path FROM files WHERE song IS NULL").fetchall(), db.import_waiting(conn)
+
+
+def test_an_own_song_whose_file_leaves_every_watched_folder_waits_and_links_back_at_its_path(mine):
+    x = things(mine)
+    key, file_id = x["key"], x["file_id"]
+    song_before = load_state(mine)["tracks"][key]
+    with db.connect(mine.db_file) as conn:  # an answer naming the own song
+        db.set_decision(conn, "same_song", "sp9", key, "not_same", datetime(2026, 11, 2))
+        (song_id,) = conn.execute("SELECT id FROM songs WHERE key = ?", (key,)).fetchone()
+    shutil.move(x["crate"] / "Own - Song.aiff", x["away"] / "Own - Song.aiff")
+    summary, messages = scan(mine)
+    assert (summary.missing, summary.gone, summary.back) == (1, 0, 0)
+    assert messages == ["Checked your Library: 1 file missing. Missing files wait in To-do."]
+    state = load_state(mine)
+    e = state["tracks"][key]
+    assert e["upgrade"] == UPGRADE and e["file_id"] == file_id and e["missing_since"] is not None
+    assert e["path"].endswith("/crate/Own - Song.aiff") and e.get("file_gone") is None
+    assert all(not f.endswith("Own - Song.aiff") for f in state["files"])  # not a file that is there
+    since = file_row(mine, file_id)[5]
+    shutil.move(x["away"] / "Own - Song.aiff", x["crate"] / "Own - Song.aiff")
+    summary, messages = scan(mine)
+    assert (summary.back, summary.missing, summary.moved, summary.new) == (1, 0, 0, 0)
+    assert messages == ["Checked your Library: 1 missing file back."]
+    state = load_state(mine)
+    e = state["tracks"][key]
+    assert e["upgrade"] == UPGRADE and e["file_id"] == file_id and e["missing_since"] is None
+    assert {k: e[k] for k in ("artist", "title", "path", "placed_by")} == {
+        k: song_before[k] for k in ("artist", "title", "path", "placed_by")}
+    row = file_row(mine, file_id)
+    assert (row[0], row[3], row[4], row[5]) == (file_id, "Own - Song.aiff", "import", None) and since is not None
+    assert unlinked(mine) == ([], [])  # no unlinked import row, nothing waiting to import
+    assert any(f.endswith("Own - Song.aiff") for f in state["files"])
+    assert sorted(state["tracks"]) == [key]  # still the same one song
+    with db.connect(mine.db_file) as conn:
+        assert conn.execute("SELECT id FROM songs WHERE key = ?", (key,)).fetchall() == [(song_id,)]
+        assert conn.execute("SELECT count(*) FROM songs").fetchone() == (1,)
+        assert db.decisions(conn)["same_song"] == [["sp9", key, "not_same"]]  # the answer was there all along
+
+
+def test_the_file_put_back_under_another_name_in_another_watched_folder_links_to_the_same_song(mine):
+    x = things(mine)
+    key, file_id = x["key"], x["file_id"]
+    shutil.move(x["crate"] / "Own - Song.aiff", x["away"] / "Own - Song.aiff")
+    scan(mine)
+    shutil.move(x["away"] / "Own - Song.aiff", x["more"] / "Renamed.aiff")
+    summary, messages = scan(mine)
+    assert (summary.back, summary.moved, summary.missing) == (1, 0, 0)
+    assert messages == ["Checked your Library: 1 missing file back."]
+    e = load_state(mine)["tracks"][key]
+    assert e["file_id"] == file_id and e["upgrade"] == UPGRADE and e["missing_since"] is None
+    assert e["path"].endswith("/more/Renamed.aiff") and e["placed_by"] == "user"
+    assert unlinked(mine) == ([], [])
+
+
+def test_a_song_missing_for_three_scans_keeps_the_first_scans_date_and_is_counted_once(mine, monkeypatch):
+    x = things(mine)
+
+    class Clock(datetime):
+        now_is = datetime(2026, 11, 10, 9, 0, 0)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.now_is
+    monkeypatch.setattr(library, "datetime", Clock)
+    shutil.move(x["crate"] / "Own - Song.aiff", x["away"] / "Own - Song.aiff")
+    summaries = []
+    for day in (10, 11, 12):
+        Clock.now_is = datetime(2026, 11, day, 9, 0, 0)
+        summaries.append(scan(mine))
+    assert [s.missing for s, _ in summaries] == [1, 0, 0]
+    assert [m for _, m in summaries[1:]] == [[], []]  # only the first scan says it
+    assert file_row(mine, x["file_id"])[5] == "2026-11-10T09:00:00"
+    shutil.move(x["away"] / "Own - Song.aiff", x["crate"] / "Own - Song.aiff")
+    Clock.now_is = datetime(2026, 11, 13, 9, 0, 0)
+    assert scan(mine)[0].back == 1
+    assert file_row(mine, x["file_id"])[5] is None
+
+
+def test_two_copies_make_the_missing_file_ambiguous_and_one_deleted_links_it_back(mine):
+    x = things(mine)
+    key, file_id = x["key"], x["file_id"]
+    shutil.move(x["crate"] / "Own - Song.aiff", x["away"] / "Own - Song.aiff")
+    scan(mine)
+    since = file_row(mine, file_id)[5]
+    shutil.copy(x["away"] / "Own - Song.aiff", x["crate"] / "Copy 1.aiff")
+    shutil.copy(x["away"] / "Own - Song.aiff", x["more"] / "Copy 2.aiff")
+    summary, messages = scan(mine)
+    assert (summary.missing, summary.moved, summary.back) == (0, 0, 0)  # an ambiguous row isn't counted
+    row = file_row(mine, file_id)
+    assert row[5] == since and row[6] is not None  # still missing, its first date kept
+    assert key in load_state(mine)["ambiguous"]
+    (x["more"] / "Copy 2.aiff").unlink()
+    summary, messages = scan(mine)
+    assert (summary.back, summary.moved) == (1, 0) and messages == ["Checked your Library: 1 missing file back."]
+    row = file_row(mine, file_id)
+    assert row[5] is None and row[6] is None and row[3] == "Copy 1.aiff"
+    assert load_state(mine)["tracks"][key]["upgrade"] == UPGRADE
+
+
+def test_an_ambiguous_row_whose_copies_are_all_deleted_waits_as_plain_missing(mine):
+    """Issue 43, FA (F2): its old candidates must not stay (To-do would ask about places that hold nothing)."""
+    x = things(mine)
+    key, file_id = x["key"], x["file_id"]
+    shutil.move(x["crate"] / "Own - Song.aiff", x["away"] / "Own - Song.aiff")
+    scan(mine)
+    since = file_row(mine, file_id)[5]
+    shutil.copy(x["away"] / "Own - Song.aiff", x["crate"] / "Copy 1.aiff")
+    shutil.copy(x["away"] / "Own - Song.aiff", x["more"] / "Copy 2.aiff")
+    scan(mine)
+    assert file_row(mine, file_id)[6] is not None and key in load_state(mine)["ambiguous"]
+    (x["crate"] / "Copy 1.aiff").unlink()
+    (x["more"] / "Copy 2.aiff").unlink()
+    scan(mine)
+    row = file_row(mine, file_id)
+    assert row[5] == since and row[6] is None  # still missing, its first date kept, no candidates
+    assert key not in load_state(mine)["ambiguous"]
+    assert load_state(mine)["tracks"][key]["missing_since"] == since
+
+
+def test_an_unlinked_row_whose_file_goes_is_deleted_with_the_keep_both_answer_naming_it(mine):
+    x = things(mine)
+    shutil.copy(x["crate"] / "Own - Song.aiff", x["more"] / "Second.aiff")
+    scan(mine)
+    with db.connect(mine.db_file) as conn:
+        (group,) = db.duplicate_groups(conn)
+        db.set_decision(conn, "keep_both", group.id, "", "keep", datetime(2026, 11, 2))
+    (x["more"] / "Second.aiff").unlink()
+    summary, messages = scan(mine)
+    assert (summary.gone, summary.missing) == (1, 0) and messages == []  # an index row of nobody's file: not worded
+    with db.connect(mine.db_file) as conn:
+        assert [r[0] for r in conn.execute("SELECT path FROM files ORDER BY id")] == ["Own - Song.aiff"]
+        assert db.decisions(conn)["keep_both"] == []
+    assert load_state(mine)["tracks"][x["key"]]["upgrade"] == UPGRADE  # the song and what it has are untouched
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can list any folder")
+def test_rows_under_an_unlistable_subfolder_stay_as_they_were(mine):
+    x = things(mine)
+    (x["crate"] / "Locked").mkdir()
+    shutil.move(x["crate"] / "Own - Song.aiff", x["crate"] / "Locked" / "Own - Song.aiff")
+    scan(mine)  # found by its key under Locked/
+    file_id = x["file_id"]
+    assert file_row(mine, file_id)[3] == "Locked/Own - Song.aiff"
+    (x["crate"] / "Locked").chmod(0)
+    try:
+        summary, _ = scan(mine)  # present stays present
+        assert summary == library.ScanSummary() and file_row(mine, file_id)[5] is None
+        with db.connect(mine.db_file) as conn:  # a missing one stays missing
+            conn.execute("UPDATE files SET missing_since = '2026-11-01T10:00:00' WHERE id = ?", (file_id,))
+        summary, _ = scan(mine)
+        assert summary == library.ScanSummary() and file_row(mine, file_id)[5] == "2026-11-01T10:00:00"
+    finally:
+        (x["crate"] / "Locked").chmod(0o755)
+    summary, _ = scan(mine)  # listable again, and the file is there at its own path
+    assert summary.back == 1 and file_row(mine, file_id)[5] is None
+
+
+def test_a_file_that_comes_back_cancels_a_download_again_the_sync_hasnt_done(mine):
+    x = things(mine)
+    shutil.move(x["crate"] / "Own - Song.aiff", x["away"] / "Own - Song.aiff")
+    scan(mine)
+    with db.connect(mine.db_file) as conn:  # what the user's Download again sets
+        conn.execute("UPDATE songs SET file_gone = '2026-11-12' WHERE key = ?", (x["key"],))
+    assert load_state(mine)["tracks"][x["key"]]["file_gone"] == "2026-11-12"
+    shutil.move(x["away"] / "Own - Song.aiff", x["crate"] / "Own - Song.aiff")
+    scan(mine)
+    assert load_state(mine)["tracks"][x["key"]].get("file_gone") is None

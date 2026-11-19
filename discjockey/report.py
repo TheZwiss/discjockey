@@ -21,6 +21,7 @@ SECTIONS = [
     ("fake", "Fake lossless (the Qobuz file is really lossy)"),
     ("upgrade_ready", "Better version found, waiting for you (run discjockey upgrade list)"),
     ("swapped", "Swapped in the better version (cue points stay)"),
+    ("placed_missing", "Better versions put in (their files were missing)"),
     ("added_new", "Better version added as a new file"),
     ("upgraded", "Upgraded (your cues stayed)"),
     ("upgrade_waits", "Upgrades still waiting"),
@@ -33,7 +34,7 @@ SECTIONS = [
     ("rejected", "Marked as the wrong song (searched again next run)"),
     ("hidden", "Hidden from the to-do list"),
     ("unhidden", "Back on the to-do list"),
-    ("redownloaded", "Downloaded again (the file was gone)"),
+    ("redownloaded", "Downloaded again (its file was missing)"),
     ("dropped", "No longer in any playlist (the files stay where they are)"),
     ("missing", "Not found anywhere"),
     ("queued", "Waiting for the next run"),
@@ -43,6 +44,9 @@ SECTIONS = [
     ("recovered", "Finished from an interrupted run"),
     ("errors", "Errors (tried again next run)"),
 ]
+# The titles of the end screen's Auto-upgrade parts that hold rows of more than one section (a placement that waits
+# is "still waiting" like an upgrade that waits): the window shows them as they come.
+PART_LABELS = {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}
 REKORDBOX_CHECK = {
     "wrong_song": "This track now plays the right song. In rekordbox: analyse it again and delete the old cues (they "
                   "belong to the wrong song).",
@@ -81,6 +85,15 @@ RELOAD_TAG_STEP = ("In rekordbox's Collection, select the tracks listed here (�
 # design §8, result 3 (the live test of 2026-11-17 settled it: a plain rekordbox USB sync after an upgrade keeps the
 # old files and the old title on the stick, so the rebuild advice stands)
 USB_STEP = "On a USB stick? The stick still plays the old file. Rebuild the stick in rekordbox before your next gig."
+# issue 43, D9 (plan §5.4, binding): Download again put the parked better version in for a file that was missing
+PLACED_CHECK = "Its file was missing, so its better version took its place."
+PLACED_LINED_CHECK = PLACED_CHECK + " rekordbox's track plays it with its cues and grid: play it once to check."
+PLACED_UNMEASURED_CHECK = (PLACED_CHECK + " Discjockey couldn't measure where rekordbox's timeline sat for the missing "
+                           "file: check that its cues and grid sit on the beat.")
+PLACED_NEW_FILE_CHECK = (PLACED_CHECK[:-1] + ", as a new file to rekordbox (a different edit: your old track's cues "
+                         "don't fit it).")
+PLACED_SAME_NAME_CHECK = (PLACED_CHECK[:-1] + " under the missing file's name, so rekordbox's track at that name plays "
+                          "it now (a different edit): check that its cues and grid sit on the beat.")
 ALIGNED_EDIT_CHECK = ("This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your "
                       "old track to the new file (right-click › Relocate); its cues fit exactly.")
 SAME_EDIT_CHECK = "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
@@ -98,7 +111,7 @@ STATUS_TEXT = {"not_lossless": "not lossless", "fake_lossless": "fake lossless",
 PLAN_LABELS = [
     ("acquire:new", "Download (new)"),
     ("acquire:retry", "Try again (not found last time)"),
-    ("acquire:redownload", "Download again (the file is gone)"),
+    ("acquire:redownload", "Download again (its file is missing)"),
     ("adopt_bought", "Add a bought file"),
     ("upgrade", "Look for a better version"),
 ]
@@ -236,6 +249,8 @@ def check_text(check: dict) -> str:
         return SWAPPED_MOVED_CHECK if check.get("moved") else SWAPPED_CHECK
     if check.get("reason") == "repointed":
         return REPOINTED_CHECK if check.get("rekordbox") else REPOINTED_NO_TRACK_CHECK
+    if check.get("reason") == "placed_missing":
+        return placed_check_text(check)
     if check.get("reason") == "converted":
         return CONVERTED_CHECK if check.get("rekordbox") else CONVERTED_NO_TRACK_CHECK
     if check.get("reason") == "renamed":
@@ -250,6 +265,18 @@ def check_text(check: dict) -> str:
             return (SHIFTED_EDIT_CHECK if relocate else NO_RELOCATE_SHIFTED).format(
                 ms=abs(check.get("offset_ms") or 0))
     return REKORDBOX_CHECK.get(check.get("reason"), "Check this track in rekordbox.")
+
+
+def placed_check_text(check: dict) -> str:
+    """The check of a placement for a missing file (`convert.place_parked`: `aligned`, `repointed`, `match`). Pointed at
+    the new file: lined up, or its timeline unknown (`aligned` false). Not pointed: the same edit with no rekordbox
+    track of the file (nothing to say beyond the first sentence), or another edit, which has the missing file's name
+    (rekordbox's track at that name plays it now) or another one (a new file to rekordbox)."""
+    if check.get("repointed"):
+        return PLACED_LINED_CHECK if check.get("aligned", True) else PLACED_UNMEASURED_CHECK
+    if check.get("match") in ("exact", "shifted"):
+        return PLACED_CHECK
+    return PLACED_NEW_FILE_CHECK if check.get("aligned", True) else PLACED_SAME_NAME_CHECK
 
 
 def usb_step(check: dict | None) -> str | None:
@@ -297,16 +324,23 @@ def _plural(n: int, one: str, many: str) -> str:
 
 def auto_upgrade_line(block: dict | None) -> str | None:
     """The run's one-line account of its Auto-upgrade phase (plan stage C §3; the console's summary, the report and
-    the end screen). `block` is `auto_upgrade.Outcome.to_dict()`; None when the switch was off or there was nothing to
-    say. Clauses: upgraded; waiting for rekordbox; waiting for the next sync (Stop, another window); refused."""
+    the end screen). `block` is `auto_upgrade.Outcome.to_dict()`; None when nothing ran or was left to say. Clauses:
+    upgraded; waiting for rekordbox; waiting for the next sync (Stop, another window); refused. The placements for
+    missing files (issue 43, D9: a row with `action` `place`) are counted apart, after the upgrades' clauses: put in,
+    waiting, couldn't go in."""
     if not block:
         return None
     results = block.get("results") or []
-    n = block.get("done") or 0
-    m = sum(1 for r in results if r.get("state") == "waiting" and r.get("reason") == "rekordbox_open")
-    j = sum(1 for r in results if r.get("state") == "waiting" and r.get("reason") != "rekordbox_open")
-    k = block.get("refused") or 0
-    if not (n or m or j or k):
+    placed = [r for r in results if r.get("action") == "place"]
+    rest = [r for r in results if r.get("action") != "place"]
+    p = sum(1 for r in placed if r.get("state") == "done")
+    n = (block.get("done") or 0) - p
+    m = sum(1 for r in rest if r.get("state") == "waiting" and r.get("reason") == "rekordbox_open")
+    j = sum(1 for r in rest if r.get("state") == "waiting" and r.get("reason") != "rekordbox_open")
+    k = (block.get("refused") or 0) - sum(1 for r in placed if r.get("state") == "refused")
+    pw = sum(1 for r in placed if r.get("state") == "waiting")
+    pr = sum(1 for r in placed if r.get("state") == "refused")
+    if not (n or m or j or k or p or pw or pr):
         return None
     if n:
         out = [f"Upgraded {_plural(n, 'track', 'tracks')}; your cues stayed."]
@@ -316,14 +350,22 @@ def auto_upgrade_line(block: dict | None) -> str | None:
             out.append(f"{j} {'waits' if j == 1 else 'wait'} for your next sync.")
         if k:
             out.append(f"{k} couldn't go in; To-do says why.")
-        return " ".join(out)
-    out = []
-    if m:
-        out.append(f"{_plural(m, 'upgrade waits', 'upgrades wait')} for rekordbox to be closed.")
-    if j:
-        out.append(f"{_plural(j, 'upgrade waits', 'upgrades wait')} for your next sync.")
-    if k:
-        out.append(f"{_plural(k, 'upgrade', 'upgrades')} couldn't go in; To-do says why.")
+    else:
+        out = []
+        if m:
+            out.append(f"{_plural(m, 'upgrade waits', 'upgrades wait')} for rekordbox to be closed.")
+        if j:
+            out.append(f"{_plural(j, 'upgrade waits', 'upgrades wait')} for your next sync.")
+        if k:
+            out.append(f"{_plural(k, 'upgrade', 'upgrades')} couldn't go in; To-do says why.")
+    if p:
+        out.append(f"{_plural(p, 'missing song got', 'missing songs got')} {'its' if p == 1 else 'their'} better version.")
+    if pw:
+        out.append(f"{_plural(pw, 'missing song waits', 'missing songs wait')} for {'its' if pw == 1 else 'their'} "
+                   "better version until your next sync.")
+    if pr:
+        out.append(f"{_plural(pr, 'missing song', 'missing songs')} couldn't get {'its' if pr == 1 else 'their'} "
+                   "better version yet.")
     return " ".join(out)
 
 

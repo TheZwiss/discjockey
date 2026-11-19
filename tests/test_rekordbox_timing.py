@@ -419,3 +419,55 @@ def rekordbox_for_audio(tmp_path, f, audio):
     make_anlz(dat, [pqtz_tag(40)])
     make_anlz(dat.with_suffix(".EXT"), [pwv3_tag(pwv3_from(audio, SR, 0))])
     return place
+
+
+# --- timeline_offset(codec=…): the file is gone and is never opened (issue 43, the placement for a missing file) ---
+
+def gone(codec):
+    """`codec` given and every way to open the file forbidden."""
+    return {"codec": codec, "probe_audio": pytest.fail, "decode": pytest.fail, "trim": pytest.fail,
+            "running": lambda: False}
+
+
+@pytest.mark.parametrize("codec, tracks, want", [
+    ("mp3", [("a.mp3", 3, 1105, True)], (None, "missing_file")),                  # cues, a lossy format: unknown
+    ("aac", [("a.mp3", 0, 1024, True)], (None, "missing_file")),                  # a grid alone cares too
+    ("mp3", [("a.mp3", 2, None, False)], (None, "missing_file")),                 # not analysed: same answer, no file
+    ("mp3", [("a.mp3", 0, None, False)], (0, "no_cues")),                         # nothing on the timeline to keep
+    ("mp3", [("other.mp3", 2, None, False)], (0, "not_in_rekordbox")),
+    ("pcm_s16be", [("a.mp3", 3, 1105, True)], (0, "format")),                     # only 0 is possible: never measured
+    ("flac", [("a.mp3", 3, None, True)], (0, "format")),
+    ("alac", [("a.mp3", 3, 1105, True)], (0, "format")),
+    ("mp3", [("a.mp3", 3, 1105, True), ("a.mp3", 0, None, False)], (None, "missing_file")),
+])
+def test_a_codec_given_never_opens_the_file(tmp_path, tracks, codec, want):
+    f = tmp_path / "a.mp3"
+    place = rekordbox(tmp_path, [(tmp_path / name, *rest) for name, *rest in tracks])
+    got = timeline_offset(f, place=place, **gone(codec))
+    assert (got.samples, got.why) == want
+    assert len(got.entries) == sum(1 for name, *_ in tracks if name == "a.mp3")
+
+
+def test_a_codec_given_with_no_rekordbox_or_a_view_or_an_unreadable_library(tmp_path, monkeypatch):
+    f = tmp_path / "a.mp3"
+    got = timeline_offset(f, **gone("mp3"))  # conftest: an empty DISCJOCKEY_REKORDBOX
+    assert (got.samples, got.why) == (0, "no_rekordbox")
+    place = rekordbox(tmp_path, [(f, 2, 1105, True)])
+    with view_of(place) as view:
+        got = timeline_offset(f, view=view, **gone("mp3"))
+        assert (got.samples, got.why) == (None, "missing_file")
+        assert timeline_offset(f, view=view, **gone("pcm_s16le")).samples == 0
+
+    def damaged(self, path):
+        raise sqlcipher3.DatabaseError("database disk image is malformed")
+    monkeypatch.setattr(master.Master, "entries_for", damaged)
+    assert timeline_offset(f, place=place, **gone("mp3")).why == "unreadable"
+    assert timeline_offset(f, place=place, **gone("pcm_s16le")).why == "format"
+
+
+def test_the_extension_tells_the_codec_of_a_file_that_is_gone():
+    from discjockey.rekordbox.offset import codec_by_extension
+    from discjockey.rekordbox.timing import zero_only
+    assert [zero_only(codec_by_extension(n)) for n in ("a.AIFF", "a.aif", "b.wav", "c.flac")] == [True] * 4
+    assert [zero_only(codec_by_extension(n)) for n in ("a.mp3", "a.m4a", "a.ogg", "a.opus", "a", "a.xyz")] == [False] * 6
+    assert codec_by_extension("Library/A/x.mp3") == "mp3"

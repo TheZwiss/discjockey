@@ -11,6 +11,12 @@
   // (lib/decisions: UpgradeCards + UpgradeFoot, CheckCards + CheckFoot, one UpgradeFlow), as in the Library's details.
   // A file in the CDJ group (issue 33 stage D §6.3) shows the Library's AIFF card, with its warn note of what the CDJs
   // refuse, and "Convert to AIFF" as the foot's filled button (AiffCard + AiffFoot, one AiffFlow); Hide stays at the title's end.
+  // A song in Missing files (issue 43 §7.2): the engine's line and hint as a warn NoteCard first, then the facts of the
+  // file it last had (no spectrum or player: there is nothing to play; an offline drive keeps its picture, which says to
+  // connect it), the drop zone for a playlist song, and the foot's one button from the engine's `missing.action`:
+  // "Download again" (filled) or "Remove from library…" (danger, it confirms first), off with the engine's reason as its
+  // tip and a Hint under it. After the job the song leaves the group and the page's selection moves on (MissingFlow,
+  // no hold: there is nothing left to decide here); one song's words come as a toast.
   import { untrack } from 'svelte';
   import type { Spectrum as Spec, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
@@ -20,11 +26,15 @@
   import { NOT_WHILE_SYNC, sourceHowWords } from '$lib/copy';
   import { artistTitle, fileAway, fileAwayWords, qualityWords } from '$lib/format';
   import {
-    Badge, Button, ExternalLink, Hint, KeyValue, MiniPlayer, NoteCard, QualityBadge, Spectrum, StatCard, Surface,
+    Badge, Button, ExternalLink, Hint, KeyValue, MiddleText, MiniPlayer, NoteCard, QualityBadge, Spectrum, StatCard, Surface,
     TrackHead, WriteButton, envelope,
   } from '$lib/components';
-  import { AiffCard, AiffFlow, AiffFoot, CheckCards, CheckFoot, UpgradeCards, UpgradeFlow, UpgradeFoot } from '$lib/decisions';
+  import {
+    AiffCard, AiffFlow, AiffFoot, CheckCards, CheckFoot, MissingFlow, UpgradeCards, UpgradeFlow, UpgradeFoot,
+  } from '$lib/decisions';
   import { aiffShown } from '$lib/decisions/aiffModel';
+  import { PUT_BACK_TITLE } from '$lib/decisions/missingModel';
+  import { fileName } from '$lib/decisions/decisionModel';
   import { Panel } from '$lib/frames';
   import { actionsFor, cutoffStat, dropDecision, freeHint, qobuzText, upgradeWays } from './todoModel';
   import BoughtFile from './BoughtFile.svelte';
@@ -43,12 +53,17 @@
 
   const act = $derived(actionsFor(track, item?.group ?? null));
   const qobuz = $derived(qobuzText(track.next_qobuz_check));
-  const cutoff = $derived(track.upgrade ? null : cutoffStat(track));
+  // a song whose file waits as missing: its note and foot (actionsFor().missing); its parked better version is no
+  // decision here (there is no file to swap: Download again puts it in), and there is no file to measure
+  const gone = $derived(act.missing);
+  const cutoff = $derived(track.upgrade || gone ? null : cutoffStat(track));
   const hasFile = $derived(track.status !== 'missing');
   // the file isn't there (drive away, folder or file not found): no spectrum to ask for, the pictures say why, the
   // player stays off
   const driveAway = $derived(fileAway(track));
   const awayWords = $derived(fileAwayWords(track));
+  // the note already says the file is missing; only a drive or folder that is away has a picture of its own to add
+  const goneAway = $derived(gone && track.file_state !== 'file_missing' ? awayWords : null);
 
   // spectra: current (when there is a file) and upgrade; re-fetched when the file changes (audio_url carries ?v=)
   let current = $state<Spec | null>(null);
@@ -72,7 +87,7 @@
     const id = track.track_id;
     const [c, u] = await Promise.all([
       hasFile && !driveAway ? api.spectrum(id, 'current') : Promise.resolve(null),
-      track.upgrade ? api.spectrum(id, 'upgrade') : Promise.resolve(null),
+      track.upgrade && !gone ? api.spectrum(id, 'upgrade') : Promise.resolve(null),
     ]);
     if (my !== seq) return;
     specLoading = false;
@@ -108,6 +123,19 @@
   }));
 
   function finder() { void api.show_in_finder(track.track_id, 'current'); }
+
+  // Download again / Remove from library… for this song; the button spins only for the song it was pressed for
+  const missingFlow = new MissingFlow();
+  let missingFor = $state<string | null>(null);
+  async function missingAct() {
+    const foot = act.missing?.foot;
+    if (!foot || foot.disabled) return;
+    const id = track.track_id;
+    missingFor = id;
+    await (foot.action === 'remove' ? missingFlow.remove([id]) : missingFlow.downloadAgain([id]));
+    if (missingFor === id) missingFor = null;
+  }
+  const missingBusy = $derived(!!missingFlow.busy && missingFor === track.track_id);
   const offline = $derived($networkReadsAllowed ? undefined : NOT_WHILE_SYNC);
 </script>
 
@@ -128,13 +156,16 @@
       </TrackHead>
     </Surface>
 
+    {#if gone}
+      <NoteCard tone="warn" title={gone.note.title} data-test="missing-note">{gone.note.text}</NoteCard>
+    {/if}
     {#if aiff}<AiffCard {aiff} rekordbox={aiffFlow.rekordbox} problem={aiffFlow.problem} />{/if}
     {#if act.rekordboxDone && item}<CheckCards {item} />{/if}
     {#if item?.group === 'other'}
       <NoteCard data-test="other">{item.detail}</NoteCard>
     {/if}
 
-    {#if track.upgrade}
+    {#if track.upgrade && !gone}
       <UpgradeCards {track} {current} upgrade={upSpec} loading={specLoading} swap={!!act.upgrade?.swap} {way}
         onway={(w) => (flow.picked = w)} busy={flow.busy !== null} />
     {/if}
@@ -155,7 +186,23 @@
       </StatCard>
     {/if}
 
-    {#if hasFile && !track.upgrade}
+    {#if gone}
+      <!-- the file it last had: what it was and its name, to look for it; no player (nothing to play) and no Wrong song?
+           (no file to be wrong) -->
+      <Surface kind="card" label="Last known file" data-test="current-file">
+        {#if goneAway}<Spectrum spectrum={null} height={64} away={goneAway} />{/if}
+        <div class="facts">
+          {#if track.format_line}<KeyValue keyWidth={76} k="Format" v={track.format_line} />{/if}
+          {#if track.source_full || track.source_url}
+            <KeyValue keyWidth={76} k="Source" sub={sourceHowWords(track.source_how)}>
+              {#if track.source_url}<ExternalLink href={track.source_url} label={track.source_full ?? track.source_url} />
+              {:else}{track.source_full}{/if}{#if track.source_format_line}{' · '}<span class="fmt">{track.source_format_line}</span>{/if}
+            </KeyValue>
+          {/if}
+          <KeyValue keyWidth={76} k="File">{#if track.path}<MiddleText text={fileName(track.path)} />{:else}–{/if}</KeyValue>
+        </div>
+      </Surface>
+    {:else if hasFile && !track.upgrade}
       <Surface kind="card" label="Current file" data-test="current-file">
         {#snippet header()}
           <Button variant="link" size="sm" disabled={!!offline} title={offline} onclick={() => onversions(track)}
@@ -185,7 +232,7 @@
     {/if}
 
     {#if act.buy || act.dropZone}
-      <Surface kind="card" label="Get a lossless file" data-test="get-better">
+      <Surface kind="card" label={gone ? PUT_BACK_TITLE : 'Get a lossless file'} data-test="get-better">
         {#if act.buy && track.free_downloads.length}
           <div class="frees" data-test="free-downloads">
             {#each track.free_downloads as f (f.url)}
@@ -212,7 +259,12 @@
 {/snippet}
 
 {#snippet foot()}
-  {#if (act.main === 'swap' || act.main === 'add_new') && track.upgrade}
+  {#if gone}
+    {@const f = gone.foot}
+    <WriteButton variant={f.variant} wide busy={missingBusy} disabled={f.disabled} title={f.tip ?? undefined}
+      onclick={missingAct} data-test="missing-action" data-action={f.action}>{f.label}</WriteButton>
+    {#if f.hint}<div class="reason"><Hint text={f.hint} wrap data-test="missing-why" /></div>{/if}
+  {:else if (act.main === 'swap' || act.main === 'add_new') && track.upgrade}
     <UpgradeFoot track_id={track.track_id} upgrade={track.upgrade} {way} {flow} />
   {:else if act.main === 'rekordbox' && item}
     <CheckFoot {item} {flow} />
@@ -238,4 +290,5 @@
   .fline { display: flex; align-items: center; gap: var(--s-2); }
   .buy { display: flex; align-items: baseline; gap: var(--s-3); flex-wrap: wrap; font-size: var(--fs-small); }
   .label { color: var(--text-label); }
+  .reason :global(.hint) { text-align: center; }
 </style>

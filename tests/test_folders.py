@@ -445,8 +445,11 @@ def test_a_same_song_group_moves_while_it_still_is_one(paths, tmp_path):
 @needs_ffmpeg
 def test_a_same_song_group_whose_file_id_was_given_out_again_is_refused(paths, tmp_path):
     drive, sp1, own = same_song_setup(paths, tmp_path)
-    (drive / "Example Artist - Kept.aiff").unlink()  # the own file shown goes...
-    do_import(paths)
+    with db.connect(paths.db_file) as conn:
+        (fid,) = [f.id for f in db.watched_folders(conn) if f.kind == "import"]
+    folders.remove(paths, fid)  # the own song shown goes with its folder (a scan never deletes a song)...
+    (drive / "Example Artist - Kept.aiff").unlink()
+    folders.add(paths, drive, NOW)
     write_aiff(drive / "Example Artist - Other.aiff", music(1, seed=8))  # ...and a new file may get its id
     do_import(paths)
     tracks = load_state(paths)["tracks"]

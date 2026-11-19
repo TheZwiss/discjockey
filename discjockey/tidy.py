@@ -19,7 +19,7 @@ from pathlib import Path, PurePosixPath
 from . import config, db, library, playlists_file as pf
 from .events import Cancelled, CancelToken, Emit, Message, MovesProgress, no_emit
 from .library import Paths
-from .models import BatchResult, MoveRow, PlannedMove, SaveChoice
+from .models import BatchResult, MoveRow, PlannedMove, SaveChoice, file_missing
 from .names import fold
 from .planner import tidy_rows
 
@@ -347,7 +347,7 @@ def _file_undo_skip(paths: Paths, m: MoveRow, e: dict | None, taken: set[str],
         return "failed"
     if not e.get("online", True) or not library.online(paths.root / m.src, roots):  # here, or where it goes back to
         return "offline"
-    if fold(m.now_path) != fold(m.dst) or m.now_key != m.content_key or e.get("held"):
+    if fold(m.now_path) != fold(m.dst) or m.now_key != m.content_key or e.get("held") or file_missing(e):
         return "moved_on"
     if fold(m.src) in taken or (paths.root / m.src).exists():
         return "place_taken"

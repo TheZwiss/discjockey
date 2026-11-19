@@ -122,17 +122,18 @@ describe('runFromSnapshot', () => {
 
 describe('the sync\'s Auto-upgrade phase (issue 33 stage C)', () => {
   const batch = (done: number, total: number, name: string | null): HubEvent =>
-    ({ type: 'BatchProgress', batch_id: 4, done, total, track_id: name ? 't1' : null, name });
+    ({ type: 'BatchProgress', batch_id: 4, done, total, track_id: name ? 't1' : null, name,
+      lead: 'Upgrading', count: `${done} of ${total} upgraded` });
   // the recorded sync up to its last ActionFinished: the run's actions are over, the phase starts
   const afterActions = sync.slice(0, sync.findIndex((e) => e.type === 'RunFinished'));
 
   it('goes upgrading with where the batch is, and stays there until the run ends', () => {
     const s = feed([...afterActions, batch(0, 3, 'Artist - One')]);
     expect(s.phase).toBe('upgrading');
-    expect(s.upgrade).toEqual({ batch_id: 4, done: 0, total: 3, name: 'Artist - One' });
+    expect(s.upgrade).toEqual({ batch_id: 4, done: 0, total: 3, name: 'Artist - One', lead: 'Upgrading', count: '0 of 3 upgraded' });
     const last = reduceRun(reduceRun(s, batch(3, 3, null), 2000), sync.find((e) => e.type === 'RunFinished')!, 3000);
     expect(last.phase).toBe('upgrading');
-    expect(last.upgrade).toEqual({ batch_id: 4, done: 3, total: 3, name: null });
+    expect(last.upgrade).toEqual({ batch_id: 4, done: 3, total: 3, name: null, lead: 'Upgrading', count: '3 of 3 upgraded' });
     const done = reduceRun(last, sync.find((e) => e.type === 'JobFinished' && e.kind === 'sync')!, 4000);
     expect(done.phase).toBe('finished');
   });
@@ -154,6 +155,6 @@ describe('the sync\'s Auto-upgrade phase (issue 33 stage C)', () => {
     for (const e of evs.slice(evs.indexOf(start))) rec.record(e);
     const again = runFromSnapshot(rec.snapshot(), 1000);
     expect(again.phase).toBe('upgrading');
-    expect(again.upgrade).toEqual({ batch_id: 4, done: 1, total: 3, name: 'Artist - Two' });
+    expect(again.upgrade).toEqual({ batch_id: 4, done: 1, total: 3, name: 'Artist - Two', lead: 'Upgrading', count: '1 of 3 upgraded' });
   });
 });

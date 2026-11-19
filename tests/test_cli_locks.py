@@ -331,6 +331,8 @@ DRIVERS = {
     "set_auto_upgrade": lambda api, rec: wait_job(api, rec, api.set_auto_upgrade(False)),
     "add_watched_folder": lambda api, rec: _watch(api, rec),
     "removal_preview": lambda api, rec: api.removal_preview(_watched_id(api, rec)),
+    "missing_files": lambda api, rec: wait_job(api, rec, api.missing_files(["t3"], "download_again")),  # a skipped song: the job still takes its lock
+    "missing_files_preview": lambda api, rec: api.missing_files_preview(["t2"], "download_again"),
     "remove_watched_folder": lambda api, rec: wait_job(api, rec, api.remove_watched_folder(_watched_id(api, rec))),
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }

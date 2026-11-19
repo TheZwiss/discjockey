@@ -145,7 +145,7 @@ def test_the_preview_counts_what_the_phase_would_upgrade_and_opens_nothing_of_re
     real = auto_upgrade.master.open_read
     monkeypatch.setattr(auto_upgrade.master, "open_read", lambda *a, **k: opened.append(1) or real(*a, **k))
     out = preview(api, lib)["auto_upgrade"]
-    assert out == {"on": True, "ready": 3}                              # the mp3, the aiff, the free mp3 (not the stale)
+    assert out == {"on": True, "ready": 3, "places": 0, "place_notes": None}  # the mp3, the aiff, the free mp3 (not the stale)
     assert group(api)["all"]["n"] == out["ready"]                       # Upgrade all's own count
     planned = auto_upgrade.plan(lib.paths, load_state(lib.paths), set(), Settings(), running=lambda: False,
                                 place=lib.place)
@@ -156,16 +156,48 @@ def test_the_preview_counts_what_the_phase_would_upgrade_and_opens_nothing_of_re
 @needs_ffmpeg
 def test_the_preview_counts_the_upgrades_that_wait_for_rekordbox_too(hub):
     lib, rb, api, rec = hub(["mp3", "aiff"], running=True)
-    assert preview(api, lib)["auto_upgrade"] == {"on": True, "ready": 2}
+    assert preview(api, lib)["auto_upgrade"] == {"on": True, "ready": 2, "places": 0, "place_notes": None}
     rb.running = False
-    assert api.sync_preview()["auto_upgrade"] == {"on": True, "ready": 2}
+    assert api.sync_preview()["auto_upgrade"] == {"on": True, "ready": 2, "places": 0, "place_notes": None}
+
+
+@needs_ffmpeg
+def test_the_preview_counts_a_placement_apart_from_the_upgrades_and_says_it_with_the_switch_off_too(hub):
+    from test_place_phase import mark_missing
+    lib, rb, api, rec = hub(["aiff", "mp3"])
+    mark_missing(lib, 1)                                                # Download again was pressed; its better version is parked
+    notes = {"closed": "Artist – Song 1 gets its better version at the end of the sync.",
+             "open": "Artist – Song 1 gets its better version at the end of the sync, once rekordbox is closed."}
+    assert preview(api, lib)["auto_upgrade"] == {"on": True, "ready": 1, "places": 1, "place_notes": notes}  # the aiff is the upgrade
+    rb.running = True                                                   # waiting for rekordbox changes neither count
+    assert api.sync_preview()["auto_upgrade"] == {"on": True, "ready": 1, "places": 1, "place_notes": notes}
+    save_settings(lib.paths.settings_file, Settings(auto_upgrade=False))
+    assert api.sync_preview()["auto_upgrade"] == {"on": False, "ready": 0, "places": 1, "place_notes": notes}
+
+
+@needs_ffmpeg
+def test_the_preview_says_the_plural_of_the_placements_and_is_null_with_the_switch_off_and_none_to_place(hub):
+    from test_place_phase import mark_missing
+    lib, rb, api, rec = hub(["aiff", "mp3", "mp3"])
+    mark_missing(lib, 1)
+    mark_missing(lib, 2)
+    save_settings(lib.paths.settings_file, Settings(auto_upgrade=False))
+    out = preview(api, lib)["auto_upgrade"]
+    assert (out["on"], out["ready"], out["places"]) == (False, 0, 2)
+    assert out["place_notes"] == {"closed": "2 missing songs get their better version at the end of the sync.",
+                                  "open": "2 missing songs get their better version at the end of the sync, once rekordbox is closed."}
+    state = load_state(lib.paths)
+    for i in (1, 2):
+        state["tracks"][lib.tracks[i]]["file_gone"] = None              # the mark is gone: nothing to place
+    save_state(lib.paths, state)
+    assert api.sync_preview()["auto_upgrade"] is None
 
 
 @needs_ffmpeg
 def test_the_preview_is_null_when_the_switch_is_off_or_there_is_no_preview(hub):
     lib, rb, api, rec = hub(["mp3"])
     assert api.sync_preview()["auto_upgrade"] is None and api.sync_preview()["empty"] == "no_preview"
-    assert preview(api, lib)["auto_upgrade"] == {"on": True, "ready": 1}
+    assert preview(api, lib)["auto_upgrade"] == {"on": True, "ready": 1, "places": 0, "place_notes": None}
     save_settings(lib.paths.settings_file, Settings(auto_upgrade=False))
     assert api.sync_preview()["auto_upgrade"] is None
     lib.paths.settings_file.write_text('{"auto_upgrade": 7}')          # a file the sync would refuse
@@ -294,6 +326,7 @@ def test_the_checks_of_an_auto_upgrade_batch_are_named_for_the_sync(hub):
     assert items == {f"batch:{mine}": items[f"batch:{mine}"]}
     item = items[f"batch:{mine}"]
     assert item["batch"]["started_by"] == "auto_upgrade" and item["batch"]["size"] == 2
+    assert item["batch"]["from_sync"] is True
     assert item["detail"].endswith(" · Upgraded during your sync") and "Same track" not in item["detail"]
     single = next(i for i in group(api, "rekordbox_check")["items"] if i["track_id"] == lib.tracks[2])
     assert "batch" not in single or single.get("batch") is None
@@ -305,7 +338,8 @@ def test_the_checks_of_a_batch_started_by_hand_still_say_same_track(hub):
     f = wait_job(api, rec, api.upgrade(lib.tracks, "same_track"))
     assert f.ok
     item = next(i for i in group(api, "rekordbox_check")["items"] if i.get("batch"))
-    assert item["batch"]["started_by"] == "user" and item["detail"].endswith(" · Same track")
+    assert item["batch"]["started_by"] == "user" and item["batch"]["from_sync"] is False
+    assert item["detail"].endswith(" · Same track")
 
 
 # --- the end screen ---
@@ -416,3 +450,14 @@ def test_stop_reaches_the_phase_of_a_sync_that_had_nothing_else_to_do(synced):
     assert group(api)["all"]["n"] == 1
     assert library.load_state(lib.paths)["tracks"][lib.tracks[1]]["upgrade"]
     assert group(api)["stopped"] is None                                            # no Resume offered for the batch
+
+
+@needs_ffmpeg
+def test_the_checks_of_a_download_again_batch_are_the_syncs_too(hub):
+    lib, rb, api, rec = hub(["mp3", "aiff"])
+    options = {"running": lambda: False, "place": lib.place, "compare": lambda a, b: EXACT, "now": lambda: NOW}
+    mine = batches.start(lib.paths, [(t, "same_track") for t in lib.tracks], started_by="download_again", scope="sync")
+    batches.run(lib.paths, mine, state=load_state(lib.paths), **options)
+    item = next(i for i in group(api, "rekordbox_check")["items"] if i.get("batch"))
+    assert (item["batch"]["started_by"], item["batch"]["from_sync"]) == ("download_again", True)
+    assert item["detail"].endswith(" · Upgraded during your sync")

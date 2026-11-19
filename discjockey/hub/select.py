@@ -29,7 +29,9 @@ SOURCES = ("library", "todo")
 UPGRADE_ALL = "upgrade_all"  # Upgrade all: Same track for every parked upgrade To-do shows as possible
 CHECK_DONE = "check_done"    # "Done, checked" for every check To-do lists
 RENAME_ALL = "rename_all"    # Give it its clean name for every own clean AIFF whose name isn't clean, in a collection
-VERB_ALL = (UPGRADE_ALL, CHECK_DONE, RENAME_ALL)
+DOWNLOAD_AGAIN = "download_again"    # Download again for every playlist song whose file is missing and gets it (issue 43)
+REMOVE_MISSING = "remove_missing"    # Remove from library for every other song whose file is missing and gets it (issue 43)
+VERB_ALL = (UPGRADE_ALL, CHECK_DONE, RENAME_ALL, DOWNLOAD_AGAIN, REMOVE_MISSING)
 NO_ROWS = "No song is in that list, so there is nothing to do."
 
 CONFLICT = "conflicting_flags"
@@ -153,3 +155,21 @@ def upgrade_all_ids(answer: Mapping) -> list[str]:
 def check_done_ids(answer: Mapping) -> list[str]:
     """What "Done, checked" for every check closes: the songs of the Check in rekordbox group, a batch's tracks."""
     return _once(t for i in _group(answer, "rekordbox_check") for t in _tracks(i))
+
+
+def _missing_ids(answer: Mapping, action: str) -> list[str]:
+    return _once(i["track_id"] for i in _group(answer, "missing_file")
+                 if i["missing"]["action"] == action and i["missing"]["why_not"] is None)
+
+
+def download_again_ids(answer: Mapping) -> list[str]:
+    """What the "Select all" of the Missing files group asks Download again for: the group's songs whose action is
+    Download again and that nothing keeps from it (`missing.why_not` is None), as the group's `all.download_again`
+    counts them. `answer` is To-do's, without the hidden ones."""
+    return _missing_ids(answer, "download_again")
+
+
+def remove_missing_ids(answer: Mapping) -> list[str]:
+    """What the "Select all" of the Missing files group asks Remove from library for (`all.remove`): as
+    `download_again_ids`, for the songs whose action is Remove."""
+    return _missing_ids(answer, "remove")

@@ -502,16 +502,74 @@ def test_a_file_moved_by_hand_is_not_downloaded_again(paths):
     assert "Checked your Library: 1 file you moved." in [m.text for m in events if isinstance(m, Message)]
 
 
+def acquires(prep, key="t1"):
+    return [(a.track.id, a.reason) for a in prep.plan.actions if a.kind == "acquire" and a.track.id == key]
+
+
+def song_row(paths, key="t1"):
+    with db.connect(paths.db_file) as conn:
+        return conn.execute("SELECT f.id, f.path, f.missing_since, s.file_gone FROM songs s JOIN files f ON f.song = s.id "
+                            "WHERE s.key = ?", (key,)).fetchall()
+
+
+def test_a_playlist_song_whose_file_is_missing_is_neither_downloaded_nor_deleted_and_links_back(paths):
+    """The user's repro (issue 43): the sync plans nothing for it, keeps its row, and relinks when the file is back."""
+    rel = placed(paths)
+    (file_id, *_), = song_row(paths)
+    aside = paths.root / "aside.aiff"
+    (paths.root / rel).rename(aside)
+    prep = run.prepare(paths)
+    assert acquires(prep) == [] and [a.track.id for a in prep.plan.actions] == ["t2", "t3"]
+    [(fid, path, since, gone)] = song_row(paths)
+    assert fid == file_id and since is not None and gone is None
+    assert library.load_state(paths)["tracks"]["t1"]["path"] == rel and not prep.plan.dropped
+    aside.rename(paths.root / rel)  # put back
+    prep = run.prepare(paths)
+    assert acquires(prep) == []
+    assert song_row(paths) == [(file_id, rel.removeprefix("Library/"), None, None)]
+
+
+def test_download_again_on_a_missing_playlist_song_plans_a_redownload_unless_the_file_is_back(paths):
+    rel = placed(paths)
+    (paths.root / rel).rename(paths.root / "aside.aiff")
+    run.prepare(paths)
+    with db.connect(paths.db_file) as conn:  # what the user's Download again sets
+        conn.execute("UPDATE songs SET file_gone = '2026-11-18' WHERE key = 't1'")
+    prep = run.prepare(paths)
+    assert acquires(prep) == [("t1", "redownload")]
+    (paths.root / "aside.aiff").rename(paths.root / rel)  # back before the download: the scan cancels it
+    prep = run.prepare(paths)
+    assert acquires(prep) == []
+    assert song_row(paths)[0][2:] == (None, None)
+
+
+def test_download_again_on_a_missing_playlist_song_with_a_parked_upgrade_plans_no_download(paths):
+    rel = placed(paths)
+    (paths.root / rel).rename(paths.root / "aside.aiff")
+    (paths.root / "Upgrades ready/Hard_Bounce").mkdir(parents=True)
+    write_aiff(paths.root / "Upgrades ready/Hard_Bounce/Artist - Song 1.aiff", music(2))
+    state = library.load_state(paths)  # Download again on a song with a parked upgrade
+    state["tracks"]["t1"].update(file_gone="2026-11-18", upgrade={
+        "file": "Upgrades ready/Hard_Bounce/Artist - Song 1.aiff", "source": "qobuz", "source_id": "q9",
+        "source_format": "flac", "found": "2026-11-01", "alignment": {"result": "exact"}})
+    save_state(paths, state)
+    prep = run.prepare(paths)
+    assert acquires(prep) == [] and [a.kind for a in prep.plan.actions if a.track.id == "t1"] == []
+    e = library.load_state(paths)["tracks"]["t1"]
+    assert e["upgrade"] is not None and e["file_gone"] == "2026-11-18" and e["missing_since"] is not None
+
+
 def test_a_dry_run_stores_no_scan_unless_asked_to(paths):
     rel = placed(paths)
     (paths.root / rel).unlink()
     prep = run.prepare(paths, dry_run=True)  # the command line's: it plans on the last scan (issue 39 design §7.1)
     assert library.load_state(paths)["tracks"]["t1"]["file_gone"] is None
     assert prep.state["tracks"]["t1"]["path"] == rel
+    assert library.load_state(paths)["tracks"]["t1"]["missing_since"] is None
     prep = run.prepare(paths, dry_run=True, scan=True)  # the window's refresh asks for the scan
-    assert library.load_state(paths)["tracks"]["t1"]["file_gone"] == date.today().isoformat()
-    assert prep.state["tracks"]["t1"]["path"] is None  # the plan works on the files as they are
-    assert "t1" in [a.track.id for a in prep.plan.actions if a.kind == "acquire"]
+    stored = library.load_state(paths)["tracks"]["t1"]
+    assert stored["missing_since"] is not None and stored["file_gone"] is None  # it waits: nothing is decided
+    assert prep.state["tracks"]["t1"]["path"] == rel and prep.state["tracks"]["t1"]["missing_since"] is not None
 
 
 def test_without_the_lock_the_plan_reads_the_last_scan_and_writes_nothing(paths):
@@ -1342,3 +1400,15 @@ def test_a_dry_run_with_extra_plans_with_it_but_saves_nothing(paths):
     assert room(prep) == room(base) + 20  # but its plan counts the extra
     run.prepare(paths, extra=20)  # a real run still saves it
     assert paths.settings_file.read_bytes() != before
+
+
+def test_fill_kbps_does_not_look_up_a_missing_or_offline_file():
+    """Nothing to learn about a file that isn't there; the write would also reach its row (issue 43, FA)."""
+    state = {"tracks": {
+        "a": _lossy("a"), "m": _lossy("m", missing_since="2026-11-01T09:00:00"),
+        "o": _lossy("o", online=False),
+    }}
+    fb = KbpsFallback({"a": 131})
+    assert run.fill_kbps(state, fb, lambda e: None) == 1
+    assert fb.asked == ["a"]
+    assert not state["tracks"]["m"].get("source_kbps") and not state["tracks"]["o"].get("source_kbps")

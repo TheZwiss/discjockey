@@ -56,6 +56,7 @@ REASON_WORDS = {
     "later_batch": "it was planned again in a later batch",
     "not_reached": "the sync stopped before it got to this one; it is tried again at your next sync",
     "upgrade_waits": "a better version is waiting: Same track makes it an AIFF",
+    "not_missing": "its file is back, so there is nothing to put in its place",
     "relocated": "this track was moved or removed in rekordbox since the replace, so Discjockey can't put it back safely",
 }
 

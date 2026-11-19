@@ -32,7 +32,7 @@ export type LibraryFilter = 'all' | 'lossless' | 'good_lossy' | 'weak' | 'fake' 
 /** `order` is a playlist's own order (its read record's); the engine's default there, and `artist` elsewhere. */
 export type LibrarySort = `${'' | '-'}${'title' | 'artist' | 'length' | 'source' | 'quality' | 'added' | 'folder' | 'order'}`;
 // The contract adds `rekordbox_check` (the plan's list predates it) and the import's `same_song` and `duplicate`.
-export type TodoFilter = 'all' | 'rekordbox_check' | 'same_song' | 'duplicate' | 'upgrade_ready' | 'cdj' | 'not_found'
+export type TodoFilter = 'all' | 'rekordbox_check' | 'missing_file' | 'same_song' | 'duplicate' | 'upgrade_ready' | 'cdj' | 'not_found'
   | 'weak' | 'good_lossy' | 'fake' | 'other';
 export type Which = 'current' | 'upgrade';
 export type PlaylistLine = { folder: string; link: string; enabled: boolean };
@@ -57,11 +57,14 @@ export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
 /** `free`: the artist gives it away (see TrackDetail.free_downloads). `pair`: only the import's two groups
  *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. `can_undo`: only `rekordbox_check`
  *  items have it; true when the check belongs to a swap or an added file `undo_upgrade` can still put back. */
-/** `file_state` (as a Library row's): whether the item's file is there now, decided per watched folder; `no_file`: the
+/** `file_state` (as a Library row's): whether the item's file is there now, decided per watched folder and, for a
+ *  song whose file waits as missing, by the stored mark (`file_missing`; `offline` wins when its drive is away); `no_file`: the
  *  song has none (Not found). A same-song item is about the user's own file, a duplicate group is only listed while
  *  every file of it is there. */
 export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: boolean;
-  file_state: Exclude<FileState, 'file_missing'> | 'no_file';
+  file_state: FileState | 'no_file';
+  /** `missing_file` items (issue 43): the song's waiting file, with its action and the engine's words */
+  missing?: MissingView;
   pair?: QuestionPair | DuplicatePair; can_undo?: boolean; check?: RekordboxCheckView;
   /** `upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can */
   same_track?: string | null;
@@ -75,15 +78,70 @@ export type TodoItem = TrackRow & { group: TodoGroupKey; detail: string; free: b
 export type CdjWhy = { reason: 'format' | 'bitrate' | 'bits' | 'rate_high' | 'rate_low'; short: string; words: string };
 /** The `cdj` of `track().aiff` and of an `AiffPlanItem`: the same words without the reason key. */
 export type CdjWords = { short: string; words: string };
+/** What the user can do for a song whose file waits as missing: Download again for a song in a playlist, Remove from
+ *  library for any other (the song decides, `missing.action_for`). */
+export type MissingAction = 'download_again' | 'remove';
+/** Why the action can't run for the song now (`missing.why_not`), the first that applies. */
+export type MissingReason = 'not_missing' | 'away' | 'wrong_action' | 'found_twice' | 'never' | 'check_open' | 'place_refused' | 'asked';
+/** A `missing_file` item's `missing` (`missing.view`): `since` the ISO day of the first scan that missed the file,
+ *  `place` where it was (the Folder column's words; '' without a path), `label` and `tone` the single song's button
+ *  ("Download again" filled / "Remove from library…" danger), `why_not` null when `action` can run and `words` its
+ *  reason's sentence, `foot_note` the words to show under a disabled button (`words`, null when nothing holds the action
+ *  back or the note above says them already: found in several places, its drive away), `will` what the action does for
+ *  this song ("Downloads again at your next sync" / "Gets the better version already waiting for it at your next sync;
+ *  nothing is downloaded" / "Removed from your library"), `upgrade_waiting` a parked better version waits (Download
+ *  again puts it in, Remove deletes it), `in_missing_files` To-do's Missing files group lists the song (false once
+ *  Download again is asked, unless the sync refused its placement). */
+export type MissingView = { since: string; place: string; action: MissingAction; label: string; tone: 'filled' | 'danger';
+  why_not: MissingReason | null; words: string | null; foot_note: string | null; will: string; upgrade_waiting: boolean;
+  in_missing_files: boolean };
+/** `track().missing`: the item's fields plus `line` ("Missing since 12 Nov. It was in Techno 2019."), `hint` (what can
+ *  be done, by action and by `why_not`: the To-do panel's, with its buttons; a disabled button's action isn't advised)
+ *  and `hint_library` (the same for the Library, whose foot only opens To-do; the same text when the song was found in
+ *  several places; for a song already asked for, both say it happens at the next sync). Null when the song's file isn't
+ *  marked missing. */
+export type MissingDetail = MissingView & { line: string; hint: string; hint_library: string };
+/** One song of `missing_files_preview` (`missing.preview`): `will` says whether the action runs for it now, `reason` and
+ *  `words` why not otherwise (`words` is the action's `will` sentence when it does), `since` the ISO day its file was
+ *  first missed (null when it is not missing), `upgrade_waiting` a parked better version waits (Download again puts it
+ *  in, Remove deletes it). */
+export type MissingPreviewItem = { track_id: string; artist: string; title: string; place: string; since: string | null;
+  will: boolean; reason: MissingReason | null; words: string; upgrade_waiting: boolean };
+/** Remove's question as the engine words it (`missing.confirm_for`): the plural for several songs; `confirm_label`
+ *  "Remove", `tone` "danger". */
+export type MissingConfirm = { title: string; body: string; confirm_label: string; tone: 'danger' };
+/** `missing_files_preview`: what Download again or Remove would do for these songs. `n` counts what will run, `skipped`
+ *  the rest, `words` is the one line ("2 songs download again at your next sync; 1 is skipped."), `button` the selection
+ *  panel's button over the `n` ("Download again · 2" / "Remove from library · 2…"; null when none runs) and `confirm`
+ *  Remove's question for them (null for Download again and for none). */
+export type MissingPreview = { action: MissingAction; items: MissingPreviewItem[]; n: number; skipped: number; words: string;
+  button: string | null; confirm: MissingConfirm | null };
+/** One song of a finished `missing_files` job: `done`, or `skipped` with its reason's key and sentence. */
+export type MissingItemResult = { track_id: string; action: MissingAction; state: 'done' | 'skipped'; reason: MissingReason | null;
+  words: string | null };
+/** JobFinished.result of `missing_files` (every song skipped ends the job `changed` with this result kept). */
+export type MissingResult = { action: MissingAction; results: MissingItemResult[]; done: string[]; skipped: string[];
+  words: string; recovered: [string, boolean][] };
 /** A `BatchCheckItem`'s batch: `size` open checks, `started` the earliest check's date, `tracks` them as single items. */
 export type BatchCheck = { id: number; size: number; started: string | null;
   /** `aiff:<id>`, the id the command line takes for this batch (the window ignores it) */
   aiff_id?: string;
   /** who started the batch (`aiff_batches.started_by`): `auto_upgrade` is the sync's Auto-upgrade phase (its item says
-   *  "Upgraded during your sync" and its foot "Undo all from this sync"); null when unknown */
-  started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all' | 'auto_upgrade' | (string & {}) | null;
+   *  "Upgraded during your sync"); `download_again` is the same phase with the switch off (issue 43: it puts in the
+   *  parked better version of a missing song the user asked to download again); null when unknown. Only the item's
+   *  `detail` is engine text; the foot words are the window's, chosen by `from_sync` */
+  started_by: 'user' | 'upgrade_all' | 'make_aiff' | 'cdj_all' | 'auto_upgrade' | 'download_again' | (string & {}) | null;
+  /** the sync's last phase made the batch (`started_by` `auto_upgrade` or `download_again`, the engine's list): it reads
+   *  as "Upgraded during your sync", not as a manual Same track */
+  from_sync: boolean;
   /** the batch's own kind (`aiff_batches.kind`): a Convert batch says "Made AIFF"; null when unknown */
   kind: 'upgrade' | 'convert' | 'mixed' | null;
+  /** the engine's words for the batch (`views._batch_item`), printed as they are: the To-do row's name ("3 tracks
+   *  upgraded", "3 better versions put in", "3 tracks changed") and sub ("today · Same track"), the title of the batch's
+   *  list, and the "In rekordbox" card's summary (`card_summary`: "same track(s), cues kept" for the upgrades with steps to do,
+   *  "better versions in" with only placements; null when the card has no steps) and `placed_summary` ("better versions
+   *  in" when the batch holds a placement, else null: a panel held after an undo that left only placements) */
+  row_name: string; row_sub: string; list_title: string; card_summary: string | null; placed_summary: string | null;
   tracks: TodoItem[] };
 export type BatchCheckItem = TodoItem & { group: 'rekordbox_check'; key: string; batch: BatchCheck };
 export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekordbox_check' && !!i.batch;
@@ -93,7 +151,7 @@ export const isBatch = (i: TodoItem): i is BatchCheckItem => i.group === 'rekord
  *  false for a swap and in records from before it), `text` the whole instruction and
  *  `old_path` where the old file (added) or the copy of the old audio (swap) is now (null without an undo record).
  *  The item's `detail` is the row's short line. */
-export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed' | string;
+export type RekordboxCheckView = { reason: 'wrong_song' | 'added_as_new' | 'swapped' | 'repointed' | 'converted' | 'renamed' | 'placed_missing' | string;
   since: string | null;
   match: string | null; offset_ms: number | null; moved: boolean; aligned: boolean; text: string; old_path: string | null;
   /** an added file: the old file is an AIFF, so rekordbox's Relocate takes the new file; false for any other old file
@@ -220,11 +278,16 @@ export type Budget = { used: number; allowance: number; limit: number; carry_ove
   remaining: number };
 export type RunCounts = { lossless: number; lossy: number; problems: number; moved: number };
 /** One track of the sync's Auto-upgrade phase (auto_upgrade.py). `state` `would` only in a dry run; `reason` a waiting
- *  row's `rekordbox_open` | `busy` | `not_reached`, a refused row's `EligibleReason` key; `how` the way Same track goes. */
+ *  row's `rekordbox_open` | `busy` | `not_reached`, a refused row's `EligibleReason` key; `how` the way Same track goes,
+ *  or `placed` for a placement (issue 43: Download again put the parked better version in for a song whose file is
+ *  missing). `action` is `same_track` or `place`; absent in a report from before issue 43 (read it as `same_track`). */
 export type AutoUpgradeResult = { track: string; name: string; state: 'done' | 'would' | 'waiting' | 'refused' | 'failed';
-  reason: string | null; message: string | null; how: 'in_place' | 'new_aiff' | null };
+  reason: string | null; message: string | null; how: 'in_place' | 'new_aiff' | 'placed' | null;
+  action?: 'same_track' | 'place' };
 /** A run's Auto-upgrade block (the report's `.json` key `auto_upgrade`, contract "Auto-upgrade"): `batch` null when no
- *  batch ran, `waiting` = rekordbox open + busy + not reached. */
+ *  batch ran, `waiting` = rekordbox open + busy + not reached. Placements are rows like the others (`action: 'place'`) and
+ *  count in `done` / `waiting` / `refused`; with the switch off the block is there only when a placement is coming or
+ *  was done (the sync's `auto_upgrade` is null otherwise). */
 export type AutoUpgradeBlock = { batch: number | null; backup: string | null; done: number; waiting: number;
   refused: number; failed: number; stopped: boolean; dry_run: boolean; results: AutoUpgradeResult[] };
 export type RunSummary = {
@@ -251,6 +314,10 @@ export type RunDetail = RunSummary & {
   sections: Record<string, Result[]>; needs_you: Result[];
   for_rekordbox: { new_files: number; folders: string[] }; upgrades_ready: number; report_md: string;
   queued: number; folder_order: string[];   // tracks waiting for the next sync; playlist folders in their order
+  /** the report's own title of every section (`report.SECTIONS`; the end part of the placements reads
+   *  `placed_missing`) and the titles of the Auto-upgrade parts that hold rows of more than one section
+   *  (`report.PART_LABELS`): the window prints them as they are */
+  section_labels: Record<string, string>; part_labels: { upgraded: string; waiting: string; refused: string };
 };
 
 export type PlanCounts = { new: number; retries: number; redownloads: number; bought: number; weekly_checks: number };
@@ -349,7 +416,10 @@ export type SyncPreview = {
   collections: Record<string, string>;
   /** Auto-upgrade before a start: `ready` = the upgrades the sync's last phase would put in place (those that would wait
    *  for rekordbox included; nothing of rekordbox's library is opened for it). null: the switch is off, or no preview */
-  auto_upgrade: { on: boolean; ready: number } | null;
+  /** `on`: the Auto-upgrade switch; `ready`: the upgrades the last phase would do; `places`: the missing songs it would
+   *  put their parked better version in (with the switch off too), `place_notes` the engine's sentence for them (rekordbox
+   *  closed / open; null with none); null: the switch is off and nothing is to be placed */
+  auto_upgrade: { on: boolean; ready: number; places: number; place_notes: { closed: string; open: string } | null } | null;
 };
 
 export type PlannedAction = { kind: string; track_id: string; title: string; artist: string; image_url?: string | null };
@@ -374,20 +444,23 @@ export type JobStatus = { job: JobSnap | null; refresh_running: boolean; console
   sign_in?: JobSnap | null };
 
 /** `sound_checked` false: an imported file whose sound isn't judged yet, its quality is the codec's guess for now.
- *  `file_state`: whether the row's file is there now, decided per watched folder (never `file_missing`, which only
- *  `track()` checks); a row that isn't `here` doesn't play. `no_file`: a playlist song that has no file yet (only in a
+ *  `file_state`: whether the row's file is there now, decided per watched folder; `file_missing` is the stored mark of
+ *  a file that waits as missing (issue 43; `track()` also checks the disk live); a row that isn't `here` doesn't play. `no_file`: a playlist song that has no file yet (only in a
  *  playlist view): `wait` says why, `path` is null.
  *  `place`: the folder the file sits in, in the Folder column's words (null: no file, or the playlist view's rows inside
  *  the playlist's own Library folder). `subfolder`: folder views only: a watched folder's rows carry their crate's label
  *  ("" for a file directly in it), a crate's the folders below it ("2019" or "A › B"); null elsewhere. `position`: the
  *  place in the playlist's read (playlist view only). `playlists`: the playlists whose read holds the song, in
  *  playlists.txt order. */
-export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: Exclude<FileState, 'file_missing'> | 'no_file';
+export type LibraryRow = TrackRow & { sound_checked: boolean; file_state: FileState | 'no_file';
   wait: 'waiting' | 'not_found' | null;
   /** a `not_found` row: the day the sync looks again (ISO; due on and after it) or 'next_sync' (never looked yet);
    *  null on every other row (views.next_due) */
   next_try: string | null; position: number | null; place: string | null; subfolder: string | null;
   playlists: string[];
+  /** To-do's Missing files group lists the song: true only for a row whose file waits as missing and that the group
+   *  lists (views.library; false for every other row, and for a song whose Download again is asked) */
+  in_missing_files: boolean;
   /** the song's page on its service, for the row menu's "Open in {Service}" (null: no page known; the item is absent) */
   track_link: TrackLink | null };
 export type LibraryView = 'all' | 'unlisted' | 'playlist' | 'folder';
@@ -475,6 +548,8 @@ export type TrackDetail = TrackRow & {
   /** what Convert and "Give it its clean name" can do for this file (issue 33 stage D); null: no file, a download
    *  or a parked upgrade (the upgrade decision stands) */
   aiff: TrackAiff | null;
+  /** issue 43: the song's file waits as missing (null otherwise) */
+  missing: MissingDetail | null;
 };
 /** `track().aiff`: `kind` (an `AiffKind`), `from` the file's format line ("FLAC · 24-bit · 96 kHz"), `to` what a Convert
  *  makes ("AIFF · 16-bit · 44.1 kHz"; null for a rename), `new_name` the file's name when done (equal to `name_now` for a
@@ -487,16 +562,31 @@ export type TrackDetail = TrackRow & {
 export type TrackAiff = { action: 'convert' | 'rename' | null; why_not: string | null; kind: string | null;
   from: string | null; to: string | null; name_now: string; new_name: string | null; bytes: number; lossy: boolean;
   cdj: CdjWords | null };
+/** The `missing_file` group's `all`: `download_again` and `remove` count the items not hidden whose action can run now, by
+ *  action (what `--all` acts on); `label` is the head link's words, "Select all · {k}" over the group's items that are
+ *  not hidden (what Select all selects), null under two. */
+export type MissingAll = { download_again: number; remove: number; label: string | null };
+type TodoGroupHead = { label: string; hint: string; items: TodoItem[];
+  /** the newest stopped batch with items left (`upgrade_ready`, `cdj`) */
+  stopped?: { batch_id: number; left: number } | null };
+/** `missing_file` (issue 43): `all` counts by action what the head link and the commands' `--all` act on. */
+export type MissingGroup = TodoGroupHead & { key: 'missing_file'; all?: MissingAll };
+/** Every other group. `upgrade_ready`: `all` is Upgrade all's counts (Same track can run / the edit needs a choice /
+ *  waits for something else) and `stopped` the newest stopped Same track batch with items left. `cdj` (stage D):
+ *  `all` is `{n, k}` (what Convert all can do now / what waits; no `m`) and `stopped` the newest stopped `todo:*` batch
+ *  with items left. */
+export type CountedGroup = TodoGroupHead & { key: Exclude<TodoGroupKey, 'missing_file'>;
+  all?: { n: number; m?: number; k: number } };
+export type TodoGroup = MissingGroup | CountedGroup;
 export type Todo = {
   chips: Record<TodoFilter, number>;
   /** the tracks with an open check in rekordbox, whatever the filter: `chips.rekordbox_check` counts items (a batch is
    *  one), this counts tracks (a batch counts its `size`), the page header's number */
   check_tracks: number; hidden_count: number; show_hidden: boolean;
-  groups: { key: TodoGroupKey; label: string; hint: string; items: TodoItem[];
-    /** `upgrade_ready`: Upgrade all's counts (Same track can run / the edit needs a choice / waits for something
-     *  else) and the newest stopped Same track batch with items left. `cdj` (stage D): `all` is `{n, k}` (what Convert
-     *  all can do now / what waits; no `m`) and `stopped` the newest stopped `todo:*` batch with items left */
-    all?: { n: number; m?: number; k: number }; stopped?: { batch_id: number; left: number } | null }[];
+  /** the page header's second line, as parts in order of importance ("3 tracks are not lossless yet", "2 songs are
+   *  missing their file"; ["Nothing to do"] when none): the engine words it (views.todo_sub) */
+  sub: string[];
+  groups: TodoGroup[];
   empty: EmptyKind | null;
   /** `empty`'s words for the command line ("Everything is lossless."), null for no state or one the engine has no
    *  words for; the window keeps its own copy (copy.ts EMPTY) until phase 6 */
@@ -756,6 +846,10 @@ export type CheckedResult = { results: Result[]; checked: string[]; not_checked:
 
 // JobFinished.result per job kind (a crashed sync carries its SyncResult too: exit_code 1, report = the crash note)
 export type SyncResult = { exit_code: number; report: string; actions: number; new_since_preview: number };
+/** What one library scan found (`rescan_library`, `library scan --json`; issue 43): a file the scan doesn't see waits as
+ *  missing, never decided by one scan. `gone`: index rows of nobody's file dropped; `missing`: songs whose file wasn't
+ *  found at this scan; `back`: missing files seen again; `changed`: audio replaced outside Discjockey. */
+export type ScanResult = { moved: number; new: number; gone: number; missing: number; back: number; changed: number; copies: number };
 export type JobResults = {
   import: ImportResult; folders: { name: string; files: number; redownload: number };
   answer: Record<string, never>; supersede: { result: Result; recovered: [string, boolean][] };
@@ -771,7 +865,7 @@ export type JobResults = {
   qobuz_check_login: Record<string, never>; spotify_sign_out: Record<string, never>;
   setup_forget_account: { service: Service };
   never_download: { track_id: string; never: boolean };
-  scan: { moved: number; new: number; gone: number; changed: number; copies: number };
+  scan: ScanResult; missing_files: MissingResult;
   hide: OpResult; unhide: OpResult; add_bought_file: OpResult; use_candidate: OpResult; use_link: OpResult;
   reject_current: OpResult; rekordbox_checked: CheckedResult; upgrade_batch: AiffBatchResult; aiff_batch: AiffBatchResult; batch_resume: AiffBatchResult;
   upgrade_add_new: AiffBatchResult; upgrade_discard: AiffBatchResult; batch_undo: UndoResult; undo_upgrade: UndoResult; setup_save_client_id: Record<string, never>; setup_spotify_login: { user: string };

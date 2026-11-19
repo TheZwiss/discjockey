@@ -3,11 +3,12 @@
 import type { SegOption } from '$lib/components/segmentedModel';
 import type {
   FileSide, FreeDownload, Quality, QuestionPair, QuestionWhy, Todo, TodoFilter,
-  TodoGroupKey, TodoItem, TrackDetail,
+  BatchCheck, CountedGroup, MissingGroup, TodoGroupKey, TodoItem, TrackDetail,
 } from '$lib/bridge/types';
 import { isBatch, isDuplicate, isQuestion } from '$lib/bridge/types';
 import { dayMonth, duration, fileAway, rowAway } from '$lib/format';
 import { canSwap, defaultWay, fileName } from '$lib/decisions/decisionModel';
+import { missingFoot, missingNote, type MissingFoot, type MissingNote } from '$lib/decisions/missingModel';
 import { heldRow, putAt } from '$lib/decisions/hold';
 import { fitPath } from '$lib/components/watchedFoldersModel';
 import { keep as keepSelected, type Selection } from '$lib/components/selectionModel';
@@ -15,11 +16,11 @@ import { keep as keepSelected, type Selection } from '$lib/components/selectionM
 /** Filter order = the contract's group order (= the list's section order), All first. The import's two groups come
  *  right after rekordbox: they hold downloads back until they are answered (plan library stage 4 D4), and the strip
  *  reads in the order the sections do. With every group present, the later ones go under More (FILTER_MAX). */
-export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'same_song', 'duplicate', 'upgrade_ready',
+export const FILTER_ORDER: TodoFilter[] = ['all', 'rekordbox_check', 'missing_file', 'same_song', 'duplicate', 'upgrade_ready',
   'cdj', 'not_found', 'weak', 'good_lossy', 'fake', 'other'];
 /** Short, so the strip holds five and More on one line at 1100 (the section heads carry the full names). */
 const FILTER_LABEL: Record<TodoFilter, string> = {
-  all: 'All', rekordbox_check: 'rekordbox', same_song: 'Same song?', duplicate: 'Duplicates', upgrade_ready: 'Upgrades',
+  all: 'All', rekordbox_check: 'rekordbox', missing_file: 'Missing', same_song: 'Same song?', duplicate: 'Duplicates', upgrade_ready: 'Upgrades',
   // the strip's short form of "Won't play well on CDJs" (plan §3): short as its neighbours, and the acronym is how a DJ says it
   cdj: 'CDJs', not_found: 'Not found', weak: 'Weak', good_lossy: 'Good lossy', fake: 'Fake lossless', other: 'Other',
 };
@@ -41,34 +42,6 @@ export function isFilter(v: unknown): v is TodoFilter {
 /** `?filter=` wins over the remembered filter. */
 export function filterFrom(query: string | null, saved: string): TodoFilter {
   return isFilter(query) ? query : isFilter(saved) ? saved : 'all';
-}
-
-/** The page's second line, as `PageHeader` parts in order of importance (issue 30): one line beside the title at every
- *  width, so the header keeps its height between the filters (as one string it wrapped under the title at 1100). The
- *  first part never drops; the others drop whole where they don't fit (the strip's counts say them too) and stay in the
- *  tooltip. Every number counts tracks, as its words say (F5):
- *  - "not lossless yet" is the groups of tracks whose file is below lossless: Upgrade ready (the engine parks an
- *    upgrade only for a lossy file, so its current file is not lossless yet), Not found, Weak, Good lossy, Fake lossless
- *    and Other. It is the sum of those chips, not `chips.all` minus the rest: `chips.all` counts a track once however
- *    many groups it is in, so a track with a check that is also Weak would be taken off twice.
- *  - the questions (Same song, Duplicates) are about the user's own files, often lossless ones.
- *  - the checks are tracks just upgraded and lossless: `check_tracks`, because `chips.rekordbox_check` counts items
- *    and a batch of checks is one item there.
- *  - the CDJ group's files (`chips.cdj`) are named last: they can be lossless, so they are no part of "not lossless yet".
- *  Nothing left in any of them: "Nothing to do". */
-export function headerSub(t: { chips: Record<TodoFilter, number>; check_tracks: number }): string[] {
-  const { chips } = t;
-  const questions = chips.same_song + chips.duplicate;
-  const tracks = chips.upgrade_ready + chips.not_found + chips.weak + chips.good_lossy + chips.fake + chips.other;
-  const checks = t.check_tracks;
-  const cdj = chips.cdj ?? 0;
-  const parts = [
-    tracks ? (tracks === 1 ? '1 track is not lossless yet' : `${tracks} tracks are not lossless yet`) : null,
-    questions ? `${questions} ${questions === 1 ? 'question' : 'questions'} about your files` : null,
-    checks ? `${checks} ${checks === 1 ? 'track' : 'tracks'} to check in rekordbox` : null,
-    cdj ? `${cdj} ${cdj === 1 ? 'file' : 'files'} won't play well on CDJs` : null,
-  ].filter((p): p is string => p !== null);
-  return parts.length ? parts : ['Nothing to do'];
 }
 
 // ---------- navigation ----------
@@ -123,9 +96,28 @@ export function keepSelection(key: string | null, before: TodoItem[], after: Tod
 
 // ---------- multi-select (issue 33 stage B §6.1) ----------
 /** The groups whose items can be selected several at once (their actions run on a selection): Upgrade ready,
- *  Check in rekordbox (a batch item among single checks: Done and Undo for all their tracks, stage B §6.4) and the CDJ
- *  group (Convert for several, stage D §6.3); the other groups' actions are one track's. */
-export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready', 'rekordbox_check', 'cdj'];
+ *  Check in rekordbox (a batch item among single checks: Done and Undo for all their tracks, stage B §6.4), the CDJ
+ *  group (Convert for several, stage D §6.3) and Missing files (Download again / Remove for several, issue 43 §7.4);
+ *  the other groups' actions are one track's. */
+export const MULTI_GROUPS: TodoGroupKey[] = ['upgrade_ready', 'rekordbox_check', 'cdj', 'missing_file'];
+/** Two or more items selected, all of the Missing files group: its selection panel (MissingSelection). */
+export function multiMissing(selected: TodoItem[]): boolean {
+  return selected.length > 1 && selected.every((i) => i.group === 'missing_file');
+}
+/** The Missing files group of an answer (its `all.label` is the head's link: the engine's words, null under two songs),
+ *  null when it has none. */
+export function missingGroup(t: Todo | null): MissingGroup | null {
+  return t?.groups.find((g): g is MissingGroup => g.key === 'missing_file') ?? null;
+}
+/** What "Select all" selects: the group's items that are not hidden (also with Show hidden on), in list order. A song
+ *  that can't act now is selected too: the panel lists it dimmed with the reason's words and the buttons skip it. */
+export function missingAllKeys(group: { items: TodoItem[] } | null): string[] {
+  return group ? group.items.filter((i) => !i.hidden).map(itemKey) : [];
+}
+/** A list row's second line: "folder · detail" (the Missing files item's detail says since when and where it was). */
+export function rowSub(i: TodoItem): string {
+  return [i.folder, i.detail].filter(Boolean).join(' · ');
+}
 /** Two or more items selected, all of the CDJ group: the AIFF batch panel for them. */
 export function multiCdj(selected: TodoItem[]): boolean {
   return selected.length > 1 && selected.every((i) => i.group === 'cdj');
@@ -143,8 +135,18 @@ export function multiScope(items: TodoItem[]): (key: string) => string | null {
   };
 }
 /** The checks a batch card or a selection of checks acted on (Done, Undo all, Undo this one): the page keeps them in
- *  its panel until the next pick, whatever shape the list gives them now. `batch`: the panel was that batch's card. */
-export type CheckHold = { ids: string[]; batch: { id: number; started: string | null } | null };
+ *  its panel until the next pick, whatever shape the list gives them now. `batch`: the panel was that batch's card (its
+ *  id only: its words are read from the list again, `heldBatch`). */
+export type CheckHold = { ids: string[]; batch: { id: number } | null };
+/** The held batch as the list says it now: its words (`card_summary`, `list_title`, `placed_summary`) change as checks
+ *  are undone, so they are never kept from the first read. Null when the hold was no batch, or one check is left (the
+ *  engine's item is a plain check now: the panel then shows its single mode). */
+export function heldBatch(items: TodoItem[], h: CheckHold | null): BatchCheck | null {
+  if (!h?.batch) return null;
+  const id = h.batch.id;
+  const found = items.find((i) => isBatch(i) && i.batch.id === id);
+  return found && isBatch(found) ? found.batch : null;
+}
 /** The open checks of a hold in `items` (a batch item gives its tracks), in the list's order, with the keys of the
  *  rows that hold them; null when none is left (all done or undone). */
 export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; tracks: TodoItem[] } | null {
@@ -160,13 +162,13 @@ export function heldChecks(items: TodoItem[], h: CheckHold): { keys: string[]; t
   return tracks.length ? { keys, tracks } : null;
 }
 /** The Upgrade ready group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
-export function upgradeGroup(t: Todo | null): Todo['groups'][number] | null {
-  return t?.groups.find((g) => g.key === 'upgrade_ready') ?? null;
+export function upgradeGroup(t: Todo | null): CountedGroup | null {
+  return t?.groups.find((g): g is CountedGroup => g.key === 'upgrade_ready') ?? null;
 }
 
 /** The CDJ group of an answer (its `all` and `stopped` drive the head's link), null when it has none. */
-export function cdjGroup(t: Todo | null): Todo['groups'][number] | null {
-  return t?.groups.find((g) => g.key === 'cdj') ?? null;
+export function cdjGroup(t: Todo | null): CountedGroup | null {
+  return t?.groups.find((g): g is CountedGroup => g.key === 'cdj') ?? null;
 }
 
 /** "Upgrade all · n": the group's items that Upgrade all can reach. A hidden item is left out (the hub's `upgrade_all`
@@ -305,20 +307,30 @@ export function selectAfterHide(items: TodoItem[], key: string): string | null {
 /** Whether a row is dimmed ("not in your playlists", for the older kinds). A same-song question and a duplicate
  *  group are never dimmed: they are about the user's own files, which no playlist holds. Neither are the files of the
  *  `cdj` and `rekordbox_check` groups: they are asked about because of the file or rekordbox's library, whichever
- *  playlists hold the track. */
-export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists && i.group !== 'cdj' && i.group !== 'rekordbox_check';
+ *  playlists hold the track. Nor are the rows of Missing files, whose head already says why they are there (an own song
+ *  is in no playlist by nature). */
+export const rowOff = (i: TodoItem): boolean => !i.pair && !i.in_playlists && i.group !== 'cdj' && i.group !== 'rekordbox_check'
+  && i.group !== 'missing_file';
 /** A CDJ row whose Convert can't run now (its `aiff` says why: its panel does): dimmed like a row that is away. */
 export const rowWaits = (i: TodoItem): boolean => i.group === 'cdj' && !!i.aiff;
 /** The row's lead is dimmed: a track no playlist holds (`rowOff`), a file that is away (`rowAway`: offline, its
- *  folder not found), as in Library's table, or a CDJ file that waits (`rowWaits`). The trailing column tells the
+ *  folder not found: what its tag says, `rowAwayTag`; the missing file of Missing files is no tag), or a CDJ file that waits (`rowWaits`). The trailing column tells the
  *  first two apart: the quality badge, or the `AwayTag` in its place, which says why the file can't play. */
-export const rowDim = (i: TodoItem): boolean => !isBatch(i) && (rowOff(i) || rowAway(i) !== null || rowWaits(i));
+export const rowDim = (i: TodoItem): boolean => !isBatch(i) && (rowOff(i) || rowAwayTag(i) !== null || rowWaits(i));
 
 /** The rows ▶ in a track's details plays through as the to-do queue. The import's items are left out: a question's
  *  song has no file yet and a duplicate group is several files, so neither is a track the queue could ask for. */
 export function queueRows(items: TodoItem[]): TodoItem[] {
   // a batch's row is its tracks, each one in the queue in the batch's order
   return items.filter((i) => !i.pair).flatMap((i) => (isBatch(i) ? i.batch.tracks : [i]));
+}
+
+/** The away tag a row shows in the badge slot: its file's state (`rowAway`), except in Missing files, whose head already
+ *  says the file is missing: those rows keep their quality badge (LOSSLESS / lossy); an offline drive or a folder not
+ *  found is still said by its tag. */
+export function rowAwayTag(i: TodoItem): ReturnType<typeof rowAway> {
+  const a = rowAway(i);
+  return i.group === 'missing_file' && a === 'file_missing' ? null : a;
 }
 
 /** The badge a row shows: a question shows the quality of the user's file it asks about (the playlist song waits
@@ -396,7 +408,10 @@ export type Actions = {
   rekordboxDone: boolean;                   // "Check in rekordbox" items
   /** the panel foot's one filled button: the to-do's own action; null when it has none in the app (a lossy file
    *  is bought and dropped: its buy links and drop zone are its actions) */
-  main: 'swap' | 'add_new' | 'rekordbox' | 'find' | 'finder' | null;
+  main: 'swap' | 'add_new' | 'rekordbox' | 'find' | 'finder' | 'download_again' | 'remove' | null;
+  /** a `missing_file` item (issue 43): the foot's one button (Download again filled, Remove from library… danger,
+   *  disabled with the engine's reason as tip and Hint) and the note on top of the body (line + hint); null otherwise */
+  missing: { foot: MissingFoot; note: MissingNote } | null;
 };
 
 const IMPROVABLE = ['missing', 'not_lossless', 'fake_lossless'];
@@ -412,6 +427,19 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
   const finder = group === 'other' && !!track.path && !fileAway(track);   // nothing to show when the file isn't there
   // a lossless version is ready: the upgrade decision is the way to it, so no "Get a lossless file" (buy, drop) under it
   const getBetter = improvable && !(up && up.what === 'lossless version');
+  // a song whose file waits as missing (issue 43): its action is the foot; no parked-upgrade decision (the file isn't
+  // there to swap), no buy links; the bought file's drop zone stays for a Download again song the engine takes a file
+  // for (add_bought_file with the current file missing is pinned: tests/test_ops.py, nothing goes to Superseded; it
+  // refuses a song that is lossless already, so a lossless song has no drop zone: its file is put back by hand)
+  const gone = group === 'missing_file' && !!track.missing;
+  if (gone) {
+    const foot = missingFoot(track)!;
+    return {
+      listen: !!track.audio_url || fileAway(track), versions: 'wrong_song', noneOfThese: true, buy: false,
+      dropZone: foot.action === 'download_again' && improvable, hide: track.hidden ? 'unhide' : 'hide', upgrade: null,
+      showInFinder: false, rekordboxDone: false, main: foot.action, missing: { foot, note: missingNote(track)! },
+    };
+  }
   return {
     listen: !!track.audio_url || fileAway(track),   // away: the player stays, switched off, as in the Library
     versions: missing ? 'find' : 'wrong_song',
@@ -423,6 +451,7 @@ export function actionsFor(track: TrackDetail, group: TodoGroupKey | null = null
     showInFinder: finder,
     rekordboxDone: check,
     main: check ? 'rekordbox' : upgrade ? upgrade.primary : missing ? 'find' : finder ? 'finder' : null,
+    missing: null,
   };
 }
 

@@ -18,7 +18,7 @@ const side = (file_id: number, song_key: string | null, path: string): FileSide 
 const dup = (files: FileSide[]): DuplicateItem => ({ ...item('dup:1-2', { group: 'duplicate' }), group: 'duplicate',
   pair: { group_id: 'dup:1-2', why: 'same_audio', files, recommended: null, recommended_why: null } });
 const up = { swap_safe: true, swap_possible: true } as Upgrade;
-const track = (id: string, extra: { path?: string | null; upgrade?: Upgrade | null } = {}) =>
+const track = (id: string, extra: { path?: string | null; upgrade?: Upgrade | null; missing?: TrackDetail['missing'] } = {}) =>
   ({ track_id: id, path: `Library/Hard_Bounce/A - ${id}.aiff`, upgrade: null, ...extra });
 
 describe('the decision a track waits for', () => {
@@ -35,6 +35,15 @@ describe('the decision a track waits for', () => {
   it('the upgrade from the details, also for a track the to-do list does not show', () => {
     expect(decisionFor([], track('t2', { upgrade: up }))).toEqual({ kind: 'upgrade' });
     expect(decisionFor([item('t2', { group: 'upgrade_ready' })], track('t2', { upgrade: up }))).toEqual({ kind: 'upgrade' });
+  });
+  it('a song whose file waits as missing has no upgrade decision (Download again puts the parked version in); check and duplicate still win', () => {
+    const missing = { action: 'download_again' } as NonNullable<TrackDetail['missing']>;
+    expect(decisionFor([], track('t2', { upgrade: up, missing }))).toBeNull();
+    expect(decisionFor([item('t2', { group: 'upgrade_ready' })], track('t2', { upgrade: up, missing }))).toBeNull();
+    const check = item('t2', { group: 'rekordbox_check', can_undo: true });
+    expect(decisionFor([check], track('t2', { upgrade: up, missing }))).toEqual({ kind: 'check', item: check });
+    const g = dup([side(1, 't2', 'a.aiff'), side(2, null, 'b.aiff')]);
+    expect(decisionFor([g], track('t2', { upgrade: up, missing }))?.kind).toBe('duplicate');
   });
   it('in the to-do list\'s order: the check and the duplicates before the upgrade; nothing else is a decision', () => {
     const g = dup([side(1, 't2', 'a.aiff'), side(2, null, 'b.aiff')]);

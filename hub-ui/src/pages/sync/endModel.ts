@@ -21,8 +21,9 @@ export type EndNote = { text: string; test: string; review?: boolean };
 
 /** One row of the sync's Auto-upgrade list: the result, its second line, and the full sentence as the row's tooltip. */
 export type AutoRow = { r: Result; sub: string; tip: string };
-/** A part of that list, in the order shown: the tracks put in place, the ones that wait, the ones the phase refused. */
-export type AutoPart = { key: 'upgraded' | 'waiting' | 'refused'; label: string; rows: AutoRow[] };
+/** A part of that list, in the order shown: the tracks put in place, the missing songs that got their better version
+ *  (issue 43), the ones that wait, the ones the phase refused. */
+export type AutoPart = { key: 'upgraded' | 'placed' | 'waiting' | 'refused'; label: string; rows: AutoRow[] };
 
 export type EndModel = {
   title: string; sub: string; stats: LastSyncStats; notes: EndNote[];
@@ -30,8 +31,11 @@ export type EndModel = {
   /** the sync's Auto-upgrade phase (issue 33 stage C), split by each track's state in the run's block, as the summary
    *  line counts them: `upgraded` (put in place), `waiting` (rekordbox was open, or anything that is tried again at the
    *  next sync: no record) and `refused` (a refusal To-do shows, with its short reason). All empty for a run whose
-   *  switch was off; `auto` is the non-empty parts in order, and the screen leaves an empty part out. */
-  upgraded: AutoRow[]; waiting: AutoRow[]; refused: AutoRow[]; auto: AutoPart[];
+   *  switch was off; `auto` is the non-empty parts in order, and the screen leaves an empty part out. `placed`: the
+   *  missing songs whose parked better version went in (`action: 'place'`, `how: 'placed'`, the run log's section
+   *  `placed_missing`; issue 43): with the switch off the phase holds these alone. A placement that waits or was refused is
+   *  a row of `waiting` / `refused` as any other, with the engine's words as its tooltip. */
+  upgraded: AutoRow[]; placed: AutoRow[]; waiting: AutoRow[]; refused: AutoRow[]; auto: AutoPart[];
 };
 
 export type LastSyncStats = { added: number; moved: number; needs: number; byQuality: ByQuality | null };
@@ -105,16 +109,21 @@ export function upgradedDetail(note: string, how: AutoUpgradeResult['how'] | und
   // a second line carries no full stop (the other rows' lines have none); the engine's sentence keeps its own
   const extras = NOTE_EXTRAS.map((re) => re.exec(note)?.[0]?.replace(/\.$/, '')).filter((x): x is string => !!x);
   if (extras.length) return extras.join(' · ');
-  return how ? HOW_WORDS[how] : '';
+  return how && how !== 'placed' ? HOW_WORDS[how] : '';   // a placement's words are the engine's (its own section: U1)
 }
 
 /** The Auto-upgrade rows of a run by the block's state per track (a track without a result there waits). */
-function autoRows(run: RunDetail): Pick<EndModel, 'upgraded' | 'waiting' | 'refused'> {
+function autoRows(run: RunDetail): Pick<EndModel, 'upgraded' | 'placed' | 'waiting' | 'refused'> {
   const by = new Map((run.auto_upgrade?.results ?? []).map((x) => [x.track, x]));
-  const out: Pick<EndModel, 'upgraded' | 'waiting' | 'refused'> = { upgraded: [], waiting: [], refused: [] };
+  const out: Pick<EndModel, 'upgraded' | 'placed' | 'waiting' | 'refused'> = { upgraded: [], placed: [], waiting: [], refused: [] };
   if (!run.auto_upgrade) return out;
   for (const r of run.sections.upgraded ?? []) {
     if (r.track_id) out.upgraded.push({ r, sub: upgradedDetail(r.note, by.get(r.track_id)?.how), tip: r.note });
+  }
+  // a placement says what happened in the engine's own sentence (its `note`: "Its better version is in, at {name}; …"),
+  // as the row's second line and its tooltip; the quality the song now has is the badge's
+  for (const r of run.sections.placed_missing ?? []) {
+    if (r.track_id) out.placed.push({ r, sub: r.note, tip: r.note });
   }
   for (const r of run.sections.upgrade_waits ?? []) {
     if (!r.track_id) continue;
@@ -197,9 +206,10 @@ export function endModel(run: RunDetail, newSincePreview: number | null = null, 
     notes: notes.filter((x): x is EndNote => !!x),
     needs: run.needs_you.filter(isProblem), added: groupByFolder(added, run.folder_order ?? []), other,
     ...rows, auto: [
-      { key: 'upgraded' as const, label: 'Upgraded', rows: rows.upgraded },
-      { key: 'waiting' as const, label: 'Still waiting', rows: rows.waiting },
-      { key: 'refused' as const, label: "Couldn't go in", rows: rows.refused },
+      { key: 'upgraded' as const, label: run.part_labels.upgraded, rows: rows.upgraded },
+      { key: 'placed' as const, label: run.section_labels.placed_missing, rows: rows.placed },
+      { key: 'waiting' as const, label: run.part_labels.waiting, rows: rows.waiting },
+      { key: 'refused' as const, label: run.part_labels.refused, rows: rows.refused },
     ].filter((part) => part.rows.length),
     syncRest: stoppedRun && queued > 0,
   };

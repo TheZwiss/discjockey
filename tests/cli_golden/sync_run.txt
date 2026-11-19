@@ -16,7 +16,7 @@ Stopped  no
 Dry run  no
 
 Auto upgrade › Results
-Track      Name             State  Reason  Message                                                                                                        How
-t0aaaaaaa  Artist – Song 0  done   none    new file Library/A/Artist - Song 0.aiff, lined up with rekordbox; the old one moved to Superseded/A/Old 0.mp3  new_aiff
-t1aaaaaaa  Artist – Song 1  done   none    matches exactly; the lossy file is kept as Superseded/A/Artist - Song 1 (lossy).aiff                           in_place
+Track      Name             State  Reason  Message                                                                                                        How       Action
+t0aaaaaaa  Artist – Song 0  done   none    new file Library/A/Artist - Song 0.aiff, lined up with rekordbox; the old one moved to Superseded/A/Old 0.mp3  new_aiff  same_track
+t1aaaaaaa  Artist – Song 1  done   none    matches exactly; the lossy file is kept as Superseded/A/Artist - Song 1 (lossy).aiff                           in_place  same_track
 2 of 2 shown
