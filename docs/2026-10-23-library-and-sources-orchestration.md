@@ -1141,6 +1141,14 @@ Results:
         Left: a move the records refuse (NOT_RECORDED) is not listed; its words say "Moved to …, but". pytest
         6311/4 skipped. Merged db786fc9, pushed. V2.5 group total: 214 + 271 + 180 + 110 = 775k.
         Later briefs got "Landed in V2.5". V2.3a dispatched (cli2-11, exp. 200k).
+      - V2.3a done (Sonnet; cut once by the 5-hour limit, resumed after 23:00): logged 282k (exp. 200k, 1.41x), 123
+        calls, cache 22.0M, fresh in 481k (cold re-read on resume), out 86k, advisor 0k. Commits edce4728 (one commit:
+        engine+shapes+generated+doc+fake+client+window start()) + 011ae849 static; pytest 6331/4 skipped, vitest
+        1732, npm check 0, timing set 5x. Merged 47bc9d60, pushed. FOR PHASE REVIEW (half A): only non-download
+        actions in scope → one "All" preset; job_status now reads the registry (≤100 state.json) on every poll
+        (brief's decision: check the cost); sync_preview writes <support>/plans/ (doc notes it); generation from
+        the preview's state; `sync plan` CLI not built (V4.1: add "command": "sync run" to the plan's extra).
+        Notes to V2.3b.md. V2.3b dispatched (cli2-12, exp. 175k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
