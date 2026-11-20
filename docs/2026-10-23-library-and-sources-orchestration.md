@@ -970,6 +970,12 @@ Results:
         test_missing_* ts_type reads types.gen.ts): all additive, noted in E7b-E7e "Landed in E7a". Merged 2a148971.
         Advisor tag still in message metadata after a 2nd `/advisor off` (03:02); rule: prompts say never call it,
         agent-cost advisor must stay 0k.
+      - E7b done (Sonnet): logged 295.5k (est. 210k, 1.4x), 120 calls, cache reads 23.5M, fresh in 282k, out 107k,
+        advisor 0k. Commit 2166665b; pytest 6097/4 skipped, npm check 0/0, NO_SAMPLE empty. Over plan cause: the E7a
+        fake harness could not run real samples (>300 s), rebuilt (one fake per scenario, ~48 s). It ran one pgrep
+        waiter in a Monitor briefly (stopped; ps clean). FOR PHASE REVIEW: generated TS shows `own` required on
+        TodoItemBase though the engine omits it on duplicate items (NotRequired override not carried into TS);
+        harness vitest time ~48 s. Notes added to E7c-E7e. Merged 52a49962.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
