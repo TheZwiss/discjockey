@@ -1586,8 +1586,8 @@ export type ReadStatus = {
   problem_service: PlaylistService | null;
   /** The services the switched-on lines of playlists.txt use, in line order. */
   services: ReadStatusService[];
-  /** The data shown is older than the playlists file. */
-  stale: boolean;
+  /** playlists.txt changed since this read: the plan below is from the old lines. */
+  lines_changed: boolean;
   /** A read is running now. */
   reading: boolean;
   /** The last read found no network (`problem` is `offline`). */
@@ -2152,6 +2152,8 @@ export type SyncPreview = {
    * be read, or there is no preview).
    */
   auto_upgrade: SyncPreviewAutoUpgrade | null;
+  /** The stored read the plan is derived from (`read:<n>`); null before the first read. */
+  read_id: string | null;
 };
 /** One planned action of a running job, copied from `RunStarted.actions`. */
 export type PlannedAction = {

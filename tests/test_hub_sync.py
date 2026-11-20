@@ -13,7 +13,7 @@ from discjockey.acquire import AcquireResult, Ready
 from discjockey.events import RunFinished
 from discjockey.hub import jobs
 from discjockey.hub import views
-from discjockey.hub.jobs import Jobs, PreviewStore
+from discjockey.hub.jobs import Jobs
 from discjockey.library import Paths, empty_state, load_state, save_state
 from discjockey.settings import load_settings
 from discjockey.models import FetchedPlaylist, PlaylistInfo, SourceTrack
@@ -70,30 +70,51 @@ def env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: logins.append(1) or FakeQobuz()))
     rec = Recorder()
-    return paths, Jobs(paths.lock, rec, keep_awake=no_awake), PreviewStore(), rec, acq, logins, tracks
+    return paths, Jobs(paths.lock, rec, keep_awake=no_awake), lambda: derived(paths), rec, acq, logins, tracks
 
 
-def refresh(js, paths, store):
-    job = js.start_refresh(jobs.refresh_work(paths, store))
+def derived(paths):
+    """The plan `HubApi._plan` derives from the stored read (no cache); None before a good read."""
+    if not paths.db_file.exists():
+        return None
+    with db.connect(paths.db_file, read_only=True) as conn:
+        loaded = db.load_read(conn)
+    return None if loaded is None else run.prepared_from_read(paths, loaded)
+
+
+def head(paths):
+    """The stored read's head (`db.read_head`): its problem, service and words are what the window shows."""
+    with db.connect(paths.db_file, read_only=True) as conn:
+        return db.read_head(conn)
+
+
+def plan_keys(plan):
+    """The action keys of the plan now (what a sync's `previewed` is)."""
+    prep = plan()
+    return {run.action_key(a) for a in prep.plan.actions} if prep else set()
+
+
+def refresh(js, paths):
+    job = js.start_refresh(jobs.refresh_work(paths))
     assert job.done.wait(5)
 
 
 def test_refresh_reads_spotify_and_keeps_the_preview(env):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     save_state(paths, empty_state())
     before = load_state(paths)
-    refresh(js, paths, store)
+    refresh(js, paths)
     assert rec.finished().ok and rec.finished().result == {"actions": 3, "read_id": "read:1"}
-    assert [a.track_id for a in store.prep.plan.actions] == ["t1", "t2", "t3"] and store.read_at is not None
+    assert [a.track_id for a in plan().plan.actions] == ["t1", "t2", "t3"] and head(paths).read_at is not None
     assert load_state(paths) == before  # read-only
     assert not (paths.data / "reports").exists()
 
 
 def test_the_windows_read_keeps_the_playlists_records(env):
     """Plan library stage 5, D1: the read the window shows is also what its playlist views show later, offline."""
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     save_state(paths, empty_state())
-    refresh(js, paths, store)
+    refresh(js, paths)
     assert rec.finished().ok
     with db.connect(paths.db_file) as conn:
         records = db.playlist_records(conn)
@@ -103,49 +124,50 @@ def test_the_windows_read_keeps_the_playlists_records(env):
 
 
 def test_a_failed_refresh_keeps_the_last_known_preview(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
-    first = store.prep
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
+    first = [a.track_id for a in plan().plan.actions]
 
     def offline(s, line):
         raise spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
 
     monkeypatch.setattr(spotify, "fetch_playlist", offline)
-    refresh(js, paths, store)
+    refresh(js, paths)
     assert (rec.finished().ok, rec.finished().problem) == (False, "offline")
-    assert store.prep is first and store.problem == "offline" and "Cannot reach" in store.message
+    assert [a.track_id for a in plan().plan.actions] == first  # the last good read's plan stays
+    assert head(paths).problem == "offline" and "Cannot reach" in head(paths).message
 
 
 def test_a_refresh_names_the_read_it_stored(env):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     save_state(paths, empty_state())
-    refresh(js, paths, store)
+    refresh(js, paths)
     assert rec.finished().result["read_id"] == "read:1"
-    refresh(js, paths, store)
+    refresh(js, paths)
     assert rec.finished().result["read_id"] == "read:2"
     with db.connect(paths.db_file, read_only=True) as conn:
         assert db.load_read(conn).id == 2 and db.read_head(conn).problem is None
 
 
 def test_a_failed_refresh_stores_its_problem_beside_the_last_good_tracks(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     save_state(paths, empty_state())
-    refresh(js, paths, store)
+    refresh(js, paths)
 
     def offline(s, line):
         raise spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
 
     monkeypatch.setattr(spotify, "fetch_playlist", offline)
-    refresh(js, paths, store)
+    refresh(js, paths)
     with db.connect(paths.db_file, read_only=True) as conn:
         loaded = db.load_read(conn)
     assert loaded.id == 1 and [t.id for t in loaded.fetched[0].tracks] == ["t1", "t2", "t3"]
-    assert (loaded.problem, loaded.problem_service, loaded.message) == ("offline", store.problem_service, store.message)
+    assert (loaded.problem, loaded.problem_service, loaded.message) == ("offline", "spotify", head(paths).message)
     assert "Cannot reach" in loaded.message
 
 
 def test_a_stopped_refresh_stores_no_problem(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     save_state(paths, empty_state())
 
     def stopped_then_failing(s, line):
@@ -153,33 +175,35 @@ def test_a_stopped_refresh_stores_no_problem(env, monkeypatch):
         raise spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
 
     monkeypatch.setattr(spotify, "fetch_playlist", stopped_then_failing)
-    job = js.start_refresh(jobs.refresh_work(paths, store))
+    job = js.start_refresh(jobs.refresh_work(paths))
     assert job.done.wait(5)
     with db.connect(paths.db_file, read_only=True) as conn:
-        assert db.read_head(conn) is None and store.problem is None
+        assert db.read_head(conn) is None
 
 
 def test_the_refresh_stores_the_playlists_infos_it_found(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     save_state(paths, empty_state())
     page = PlaylistInfo("spotify", "0DiscjockeyExampleList", "Hard Bounce", "me", "Me", False, None, 3, True, True)
     monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: page)
     monkeypatch.setattr(spotify, "current_user", lambda s: ("me", "Me"))
     infos = {}
-    job = js.start_refresh(jobs.refresh_work(paths, store, infos=infos))
+    job = js.start_refresh(jobs.refresh_work(paths, infos=infos))
     assert job.done.wait(5) and rec.finished().ok
     with db.connect(paths.db_file, read_only=True) as conn:
         assert db.stored_infos(conn) == infos and list(infos) == ["0DiscjockeyExampleList"]
 
 
 def test_a_missing_qobuz_login_files_the_problem_under_qobuz(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     paths.playlists_file.write_text(PLAYLISTS + "Example_Playlist = https://open.qobuz.com/playlist/900000001\n")
     monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", qobuz_source.NOT_SET_UP))
-    refresh(js, paths, store)
+    refresh(js, paths)
     assert (rec.finished().ok, rec.finished().problem) == (False, "not_set_up")
-    assert (store.problem, store.problem_service) == ("not_set_up", "qobuz") and "Qobuz" in store.message
-    status = views.read_status(store, datetime(2026, 10, 20, 21, 47), False,
+    read = head(paths)
+    assert (read.problem, read.problem_service) == ("not_set_up", "qobuz") and "Qobuz" in read.message
+    status = views.read_status(views.ReadView(problem=read.problem, problem_service=read.problem_service,
+                                              message=read.message), datetime(2026, 10, 20, 21, 47), False,
                                [("spotify", True), ("qobuz", False)])
     assert status["problem_service"] == "qobuz"
     assert status["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
@@ -187,49 +211,49 @@ def test_a_missing_qobuz_login_files_the_problem_under_qobuz(env, monkeypatch):
 
 
 def test_a_spotify_problem_names_spotify_and_a_good_read_clears_it(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
 
     def expired(s, line):
         raise spotify.SpotifyError("Your Spotify login has expired.", "login_expired")
 
     monkeypatch.setattr(spotify, "fetch_playlist", expired)
-    refresh(js, paths, store)
-    assert (store.problem, store.problem_service) == ("login_expired", "spotify")
+    refresh(js, paths)
+    assert (head(paths).problem, head(paths).problem_service) == ("login_expired", "spotify")
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
-    refresh(js, paths, store)
-    assert (store.problem, store.problem_service) == (None, None)
+    refresh(js, paths)
+    assert (head(paths).problem, head(paths).problem_service) == (None, None)
 
 
-def sync(js, paths, store, ticked):
-    job = js.start("sync", jobs.sync_work(paths, store, ticked))
+def sync(js, paths, plan, ticked):
+    job = js.start("sync", jobs.sync_work(paths, plan, ticked))
     assert job.done.wait(10)
 
 
 def test_sync_runs_only_ticked_actions(env):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
-    keys = store.keys()
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
+    keys = plan_keys(plan)
     ticked = {k for k in keys if k[1] != "t2"}
-    sync(js, paths, store, ticked)
+    sync(js, paths, plan, ticked)
     assert acq.tracks == ["t1", "t3"] and logins == [1]
     finished = rec.finished()
     assert finished.ok and finished.result["exit_code"] == 0 and finished.result["actions"] == 2
     report = json.loads(open(finished.result["report"].replace(".md", ".json")).read())
     assert {r["track_id"]: r["note"] for r in report["results"] if r["section"] == "queued"} == {
         "t2": "left out of this run by you"}
-    # the plan is worked out again from the run's own Spotify read and the library as the run left it (issue 20)
-    assert [a.track_id for a in store.prep.plan.actions] == ["t2"] and not store.stale
+    # the plan is derived from the run's own stored read and the library as the run left it (issue 20)
+    assert [a.track_id for a in plan().plan.actions] == ["t2"]
 
 
 def test_after_a_full_sync_the_preview_is_up_to_date_without_another_read(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
     reads = []
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: reads.append(1) or FetchedPlaylist(line, list(tracks), []))
-    sync(js, paths, store, store.keys())
+    sync(js, paths, plan, plan_keys(plan))
     assert reads == [1]  # only the sync's own read
-    assert store.prep.plan.actions == [] and not store.stale and store.read_at is not None
-    preview = views.sync_preview(store, load_state(paths), load_settings(paths.settings_file),
+    assert plan().plan.actions == [] and head(paths).read_at is not None
+    preview = views.sync_preview(views.ReadView(plan(), head(paths).read_at), load_state(paths), load_settings(paths.settings_file),
                                  date.today(), datetime.now(), False)
     assert preview["empty"] == "up_to_date" and preview["counts"] is not None
 
@@ -250,10 +274,10 @@ def main_text(md: str) -> str:
 
 
 def test_a_crash_during_the_run_files_a_crash_note_as_the_runs_report(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
     crash_on("t2", monkeypatch)
-    sync(js, paths, store, store.keys())
+    sync(js, paths, plan, plan_keys(plan))
     finished = rec.finished()
     assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     result = finished.result
@@ -267,18 +291,19 @@ def test_a_crash_during_the_run_files_a_crash_note_as_the_runs_report(env, monke
     assert data["exit_code"] == 1 and "Song 2" in data["crashed"]
     assert [r["track_id"] for r in data["results"] if r["section"] == "new_lossless"] == ["t1"]
     assert [(e.exit_code, e.report_path) for e in rec.events if isinstance(e, RunFinished)] == [(1, result["report"])]
-    assert [a.track_id for a in store.prep.plan.actions] == ["t3"]  # t2 was in place before the crash: saved state
+    assert [a.track_id for a in plan().plan.actions] == ["t3"]  # t2 was in place before the crash: saved state
 
 
 def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
 
     def broken(*a, **k):
         raise RuntimeError("bad plan")
 
+    ticked = plan_keys(plan)
     monkeypatch.setattr(run.planner, "plan", broken)
-    sync(js, paths, store, store.keys())
+    sync(js, paths, plan, ticked)
     finished = rec.finished()
     assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     note = main_text(open(finished.result["report"], encoding="utf-8").read())
@@ -288,28 +313,28 @@ def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
 
 
 def test_a_setup_problem_writes_no_crash_note(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
     monkeypatch.setattr(run, "open_qobuz", lambda prep: (_ for _ in ()).throw(run.SetupProblem("x", "not_set_up")))
-    sync(js, paths, store, store.keys())
+    sync(js, paths, plan, plan_keys(plan))
     assert rec.finished().problem == "not_set_up" and rec.finished().result is None
     assert not (paths.data / "reports").exists()
 
 
 def test_actions_new_since_the_preview_wait_for_the_next_run(env):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
-    ticked = store.keys()
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
+    ticked = plan_keys(plan)
     tracks.append(SourceTrack("t4", "Song 4", ("Artist",), "Al", None, 180000, None))  # added in Spotify meanwhile
-    sync(js, paths, store, ticked)
+    sync(js, paths, plan, ticked)
     assert acq.tracks == ["t1", "t2", "t3"]
     assert rec.finished().result["new_since_preview"] == 1
 
 
 def test_nothing_ticked_finishes_quietly_without_qobuz(env):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
-    sync(js, paths, store, set())
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
+    sync(js, paths, plan, set())
     assert acq.tracks == [] and logins == []  # filtered before open_qobuz: no login for nothing
     assert rec.finished().ok and rec.finished().result["actions"] == 0
     assert any(isinstance(e, RunFinished) for e in rec.events)  # the end screen works the same way
@@ -317,27 +342,27 @@ def test_nothing_ticked_finishes_quietly_without_qobuz(env):
 
 
 def test_sync_without_a_preview_is_refused(env):
-    paths, js, store, rec, acq, logins, tracks = env
-    sync(js, paths, store, set())
+    paths, js, plan, rec, acq, logins, tracks = env
+    sync(js, paths, plan, set())
     assert (rec.finished().ok, rec.finished().problem) == (False, "refused")
     assert "Read your playlists first" in rec.finished().message
 
 
 def test_a_setup_problem_ends_the_sync_with_its_kind(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
 
     def expired(s, line):
         raise spotify.SpotifyError("Your Spotify login has expired.", "login_expired")
 
     monkeypatch.setattr(spotify, "fetch_playlist", expired)
-    sync(js, paths, store, store.keys())
+    sync(js, paths, plan, plan_keys(plan))
     assert (rec.finished().ok, rec.finished().problem) == (False, "login_expired")
 
 
 def test_stop_during_the_sync(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
 
     def stop_on_second(track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
         if track.id == "t2":
@@ -346,7 +371,7 @@ def test_stop_during_the_sync(env, monkeypatch):
         return FakeAcquirer.acquire(acq, track, rejected, workdir, lossless_only, tracker)
 
     monkeypatch.setattr(acq, "acquire", stop_on_second)
-    sync(js, paths, store, store.keys())
+    sync(js, paths, plan, plan_keys(plan))
     finished = rec.finished()
     assert finished.ok and finished.result["exit_code"] == 130  # stopped safely: a normal end of a run
     assert [e.exit_code for e in rec.events if isinstance(e, RunFinished)] == [130]
@@ -358,7 +383,7 @@ REAL_FETCH = spotify.fetch_playlist  # the env fixture replaces it
 def test_stop_ends_a_read_stuck_in_one_slow_request_and_its_late_result_is_dropped(env, monkeypatch):
     """Stop while the only playlist's request hangs (no token check inside a request): the job ends within ~2 s as
     stopped; when the request answers later, its plan is not stored and no second JobFinished follows."""
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     entered, release = threading.Event(), threading.Event()
     page = {"items": [{"track": {"id": "t9", "name": "Late", "artists": [{"name": "A"}], "album": {},
                                  "duration_ms": 180000}}], "next": None}
@@ -373,7 +398,7 @@ def test_stop_ends_a_read_stuck_in_one_slow_request_and_its_late_result_is_dropp
     monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
     monkeypatch.setattr(spotify, "fetch_playlist", REAL_FETCH)
     monkeypatch.setattr(spotify, "_http", slow_http)
-    job = js.start_refresh(jobs.refresh_work(paths, store))
+    job = js.start_refresh(jobs.refresh_work(paths))
     assert entered.wait(5)
     t0 = time.monotonic()
     assert js.stop_refresh()
@@ -384,7 +409,7 @@ def test_stop_ends_a_read_stuck_in_one_slow_request_and_its_late_result_is_dropp
     worker = next(t for t in threading.enumerate() if t.name == f"hub-refresh-{job.id}")
     worker.join(5)
     assert not worker.is_alive()
-    assert store.prep is None and store.read_at is None and store.problem is None  # the late plan was dropped
+    assert plan() is None  # the late plan was dropped
     assert len([e for e in rec.events if isinstance(e, jobs.JobFinished)]) == 1
 
 
@@ -393,52 +418,38 @@ CONSOLE_TEXT = "Your playlists include a Qobuz playlist, but Qobuz isn't set up 
 
 
 def test_a_missing_login_reads_as_connect_first_and_names_its_service(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     paths.playlists_file.write_text(QOBUZ_PLAYLISTS)
     monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", CONSOLE_TEXT))
-    refresh(js, paths, store)
+    refresh(js, paths)
     done = rec.finished()
     assert (done.ok, done.problem, done.service, done.message) == (False, "not_set_up", "qobuz", "Connect Qobuz first.")
-    assert (store.problem, store.problem_service, store.message) == ("not_set_up", "qobuz", "Connect Qobuz first.")
+    read = head(paths)
+    assert (read.problem, read.problem_service, read.message) == ("not_set_up", "qobuz", "Connect Qobuz first.")
     assert "discjockey setup" not in done.message
 
 
 def test_a_sync_that_fails_while_reading_keeps_the_service_and_the_hub_words(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
     paths.playlists_file.write_text(PLAYLISTS + QOBUZ_PLAYLISTS.replace("Hard_Bounce", "Deep_Cuts"))
     monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", CONSOLE_TEXT))
-    sync(js, paths, store, store.keys())
+    sync(js, paths, plan, plan_keys(plan))
     done = rec.finished()
     assert (done.ok, done.problem, done.service) == (False, "not_set_up", "qobuz")
     assert done.message == "Connect Qobuz first." and not logins  # nothing was downloaded or logged in to
 
 
 def test_a_job_that_is_not_about_a_service_finishes_without_one(env):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
     assert rec.finished().service is None
-    sync(js, paths, store, set())
+    sync(js, paths, plan, set())
     assert rec.finished().service is None
-
-
-def test_clear_service_drops_only_that_services_stored_problem(env):
-    paths, js, store, rec, acq, logins, tracks = env
-    refresh(js, paths, store)
-    prep = store.prep
-    store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
-    store.clear_service("spotify")  # another service's login changes nothing
-    assert (store.problem, store.problem_service) == ("not_set_up", "qobuz")
-    store.clear_service("qobuz")
-    assert (store.problem, store.problem_service, store.message) == (None, None, "")
-    assert store.prep is prep  # the plan stays
-    store.failed("offline", "No connection.")  # a problem that is no service's stays
-    store.clear_service("qobuz")
-    assert store.problem == "offline"
 
 
 def test_a_hub_read_logs_in_to_qobuz_once_and_takes_the_playlist_page_from_the_tracks(env, monkeypatch):
-    paths, js, store, rec, acq, logins, tracks = env
+    paths, js, plan, rec, acq, logins, tracks = env
     paths.playlists_file.write_text(QOBUZ_PLAYLISTS)
     monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("ok"))
     page = PlaylistInfo("qobuz", "900000001", "Example Playlist", "7", "Example Curator", False, None, 1, False, True)
@@ -461,10 +472,127 @@ def test_a_hub_read_logs_in_to_qobuz_once_and_takes_the_playlist_page_from_the_t
 
     monkeypatch.setattr(qobuz_source, "open", lambda p, t: opened.append(1) or OneLoginReader())
     infos = {}
-    job = js.start_refresh(jobs.refresh_work(paths, store, infos=infos))
+    job = js.start_refresh(jobs.refresh_work(paths, infos=infos))
     assert job.done.wait(5) and rec.finished().ok
     assert opened == [1] and infos == {"qobuz:900000001": page}
     # a read without the page (the console's sync, a plan after a run) doesn't ask for it
     opened.clear()
-    job = js.start_refresh(jobs.refresh_work(paths, store))
+    job = js.start_refresh(jobs.refresh_work(paths))
     assert job.done.wait(5) and opened == [1]
+
+
+# --- the plan is derived from the stored read, in any process (issue 39 phase 2, V2.2b) ---
+
+from hub_helpers import (ID1, fake_import, fake_spotify, import_folder, make_api, make_root, music_root, refreshed,
+                         store_sync_read, wait_job)
+from discjockey.models import PlaylistLine, StoredRead
+from discjockey.settings import Settings, save_settings
+
+
+def rows_of_reads(paths):
+    """Everything the reads keep in library.db, to compare before and after."""
+    with db.connect(paths.db_file, read_only=True) as conn:
+        return [conn.execute(f"SELECT * FROM {table} ORDER BY 1, 2").fetchall()
+                for table in ("reads", "playlist_reads", "playlist_tracks", "playlist_infos")]
+
+
+def jobs_folder(paths):
+    folder = paths.support / "jobs"
+    return sorted(p.name for p in folder.iterdir()) if folder.is_dir() else []
+
+
+def test_another_process_has_the_plan_a_read_made_and_asking_writes_nothing(tmp_path, monkeypatch):
+    fake_spotify(monkeypatch)
+    fakes = fake_import(monkeypatch)
+    paths = music_root(tmp_path, upgrade=True)
+    folder = import_folder(tmp_path, 3)
+    a, rec = make_api(paths)
+    refreshed(a, rec)
+    fakes.tags["Example Artist - Song 1.aiff"] = {"artist": "Other Artist", "title": "AEIOU"}
+    fakes.seconds["Example Artist - Song 1.aiff"] = 180.0
+    wait_job(a, rec, a.add_watched_folder(str(folder)))
+    shown = a.sync_preview()
+    questions = {i["track_id"] for g in a.todo()["groups"] if g["key"] == "same_song" for i in g["items"]}
+    assert shown["groups"] and shown["read_id"] == "read:1" and questions
+    before = (rows_of_reads(paths), jobs_folder(paths))
+    b, _ = make_api(paths)  # a second window / the command line: no memory of A's read
+    again = b.sync_preview()
+    assert again["read_id"] == shown["read_id"] and again["groups"] == shown["groups"]
+    assert again["read_status"]["read_at"] == shown["read_status"]["read_at"]
+    assert b.dashboard()["ready"] is not None and b.dashboard()["ready"] == a.dashboard()["ready"]
+    assert {i["track_id"] for g in b.todo()["groups"] if g["key"] == "same_song" for i in g["items"]} == questions
+    assert (rows_of_reads(paths), jobs_folder(paths)) == before  # S3: the plan is derived, asking writes nothing
+
+
+@pytest.fixture
+def hub(tmp_path, monkeypatch):
+    fake_spotify(monkeypatch)
+    paths = make_root(tmp_path)
+    derived, loads = [], []
+    real_plan, real_load = run.prepared_from_read, db.load_read
+    monkeypatch.setattr(run, "prepared_from_read", lambda p, loaded: derived.append(loaded.id) or real_plan(p, loaded))
+    monkeypatch.setattr(db, "load_read", lambda conn: loads.append(1) or real_load(conn))
+    api, rec = make_api(paths)
+    return api, rec, paths, derived, loads
+
+
+def test_the_plan_is_derived_once_per_read_records_settings_and_day(hub):
+    api, rec, paths, derived, loads = hub
+    refreshed(api, rec)
+    api.sync_preview()
+    api.sync_preview()
+    api.todo()
+    assert (len(derived), len(loads)) == (1, 1)  # the second ask is the cached plan: no read loaded, nothing planned
+    check = StoredRead("check", datetime.now(), [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), list(TRACKS), [])])
+    with db.connect(paths.db_file) as conn:
+        db.store_read(conn, check, None)  # a check read may replace a record the plan's songs come from
+    api.sync_preview()
+    assert len(derived) == 2 and derived[-1] == 1  # still the sync read the plan is from
+    refreshed(api, rec)  # a new stored read
+    api.sync_preview()
+    assert len(derived) == 3 and derived[-1] == 3
+    wait_job(api, rec, api.hide("t2", True))  # a write of the records bumps their generation
+    api.sync_preview()
+    assert len(derived) == 4
+    save_settings(paths.settings_file, Settings(daily_qobuz_limit=50))  # a changed settings.json
+    api.sync_preview()
+    assert len(derived) == 5
+    api._svc.now = lambda: datetime(2026, 10, 21, 8, 0)  # the day moves on: today's budgets and first checks changed
+    api.sync_preview()
+    assert len(derived) == 6
+    api.sync_preview()
+    assert len(derived) == 6
+    assert len(loads) == len(derived)
+
+
+def test_a_hub_sync_makes_its_own_read_the_plan_and_needs_a_stored_read_to_start(hub):
+    api, rec, paths, derived, loads = hub
+    f = wait_job(api, rec, api.start_sync([]))
+    assert (f.ok, f.problem) == (False, "refused") and "Read your playlists first" in f.message
+    refreshed(api, rec)
+    assert api.sync_preview()["read_id"] == "read:1"
+    keys = [a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]]
+    assert keys
+    f = wait_job(api, rec, api.start_sync([]))  # nothing ticked: a quiet sync, which still reads and stores itself
+    assert f.ok and f.result["new_since_preview"] == 0 and f.result["actions"] == 0
+    assert api.sync_preview()["read_id"] == "read:2"  # the run's own read is the newest: the plan is derived from it
+
+
+def test_a_failed_first_read_shows_its_problem_in_a_new_window_with_no_plan(hub):
+    api, rec, paths, derived, loads = hub
+    store_sync_read(paths, failed=("not_set_up", "qobuz", "Connect Qobuz first."))
+    b, _ = make_api(paths)
+    status = b.job_status()["read_status"]
+    assert (status["problem"], status["problem_service"], status["message"]) == ("not_set_up", "qobuz", "Connect Qobuz first.")
+    assert status["read_at"] is None and status["lines_changed"] is False
+    preview = b.sync_preview()
+    assert preview["empty"] == "no_preview" and preview["read_id"] is None and preview["read_status"]["problem"] == "not_set_up"
+    assert derived == []
+
+
+def test_the_automatic_read_is_refused_the_second_time(hub):
+    api, rec, paths, derived, loads = hub
+    assert wait_job(api, rec, api.refresh(auto=True)).ok
+    again = api.refresh(auto=True)
+    assert (again["ok"], again["kind"]) == (False, "refused") and api.job_status()["read_status"]["auto_read"] is True
+    assert make_api(paths)[0].job_status()["read_status"]["auto_read"] is False  # the window's own, not stored

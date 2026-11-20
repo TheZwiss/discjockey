@@ -138,6 +138,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     finally:
         if signs:
             state = record_signs(paths, state, signs, lock, dry_run)
+    token.check()  # a read stopped meanwhile (a slow request answered late) stores nothing
     read_id = store_read(paths, StoredRead("sync", read_started, fetched, lines, [line.ref for line in unread]),
                          keep=_listed_refs(paths))
     for fp in fetched:

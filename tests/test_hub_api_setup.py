@@ -66,14 +66,14 @@ def test_connecting_a_service_clears_its_stored_read_problem(root, monkeypatch):
     monkeypatch.setattr(spotify, "current_user", lambda s: ("dj1", "DJ One"))
     monkeypatch.setattr(qobuz, "password_login", lambda p, e, pw: None)
     api, rec = make_api(root)
-    api._store.failed("not_set_up", "Connect Spotify first.", "spotify")
+    store_failed_read(root, "not_set_up", "spotify", "Connect Spotify first.")
     assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
-    assert api._store.problem_service == "spotify"  # Qobuz's login says nothing about Spotify's problem
+    assert stored_problem(root) == ("not_set_up", "spotify", "Connect Spotify first.")  # Qobuz's login says nothing about it
     assert wait_job(api, rec, api.setup_spotify_login()).ok
-    assert (api._store.problem, api._store.problem_service) == (None, None)
-    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
+    assert stored_problem(root) == (None, None, "")  # a new window shows no problem: the stored read's is cleared
+    store_failed_read(root, "not_set_up", "qobuz", "Connect Qobuz first.")
     assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
-    assert api._store.problem is None
+    assert stored_problem(root) == (None, None, "")
     assert api.dashboard()["read_status"]["problem"] is None  # the page unblocks without a restart
 
 
@@ -86,34 +86,10 @@ def store_failed_read(paths, problem, service, message):
 
 
 def stored_problem(paths):
-    from discjockey import db
-    with db.connect(paths.db_file, read_only=True) as conn:
-        head = db.read_head(conn)
-        return (head.problem, head.problem_service, head.message)
-
-
-def test_connecting_a_service_clears_the_stored_read_problem_in_library_db_too(root, monkeypatch):
-    monkeypatch.setattr(qobuz, "password_login", lambda p, e, pw: None)
-    api, rec = make_api(root)
-    store_failed_read(root, "not_set_up", "spotify", "Connect Spotify first.")
-    assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
-    assert stored_problem(root) == ("not_set_up", "spotify", "Connect Spotify first.")  # another service's stays
-    store_failed_read(root, "not_set_up", "qobuz", "Connect Qobuz first.")
-    assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
-    assert stored_problem(root) == (None, None, "")
-
-
-def test_a_saved_soundcloud_login_clears_the_stored_problem_by_the_same_rules(root):
-    api, rec = make_api(root, fallback=CheckingFallback)
-    store_failed_read(root, "offline", "soundcloud", "SoundCloud is not responding.")
-    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
-    assert stored_problem(root)[0] == "offline"  # a login cannot cure it
-    store_failed_read(root, "playlist_unreadable", "soundcloud", soundcloud.UNREADABLE_SET)
-    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
-    assert stored_problem(root)[0] == "playlist_unreadable"  # a private set's words stay
-    store_failed_read(root, "playlist_unreadable", "soundcloud", soundcloud.LIKES_HINT)
-    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
-    assert stored_problem(root) == (None, None, "")
+    """What a new window shows of the stored read's problem: (kind, service, words), as a new hub answers them."""
+    api, _ = make_api(paths)
+    status = api.job_status()["read_status"]
+    return status["problem"], status["problem_service"], status["message"]
 
 
 def test_spotify_login_can_be_cancelled(root, monkeypatch):
@@ -402,32 +378,32 @@ def test_a_saved_soundcloud_login_clears_a_stored_soundcloud_read_problem(root):
     """A you/likes line whose login SoundCloud did not accept blocks the read (login_expired, service soundcloud) until
     the user signs in again in Settings; saving that login makes the stored problem out of date."""
     api, rec = make_api(root, fallback=CheckingFallback)
-    api._store.failed("login_expired", "SoundCloud didn't accept the login from Chrome.", "soundcloud")
+    store_failed_read(root, "login_expired", "soundcloud", "SoundCloud didn't accept the login from Chrome.")
     assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
-    assert api._store.problem is None
-    api._store.failed("login_expired", "Qobuz is not accepted.", "qobuz")  # another service's problem stays
+    assert stored_problem(root)[0] is None
+    store_failed_read(root, "login_expired", "qobuz", "Qobuz is not accepted.")  # another service's problem stays
     assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
-    assert api._store.problem == "login_expired"
+    assert stored_problem(root)[0] == "login_expired"
 
 
 def test_a_saved_soundcloud_login_leaves_an_offline_problem(root):
     """A login cannot cure SoundCloud not answering: only login_expired and the likes hint are cleared."""
     api, rec = make_api(root, fallback=CheckingFallback)
-    api._store.failed("offline", "SoundCloud is not responding.", "soundcloud")
+    store_failed_read(root, "offline", "soundcloud", "SoundCloud is not responding.")
     assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
-    assert (api._store.problem, api._store.problem_service) == ("offline", "soundcloud")
+    assert stored_problem(root)[:2] == ("offline", "soundcloud")
 
 
 def test_a_saved_soundcloud_login_clears_the_likes_hint_only(root):
     """W8 (a likes link without the account) is cured by the login; W4/W5 (a private or removed set) are not."""
     api, rec = make_api(root, fallback=CheckingFallback)
-    api._store.failed("playlist_unreadable", soundcloud.LIKES_HINT, "soundcloud")
+    store_failed_read(root, "playlist_unreadable", "soundcloud", soundcloud.LIKES_HINT)
     assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
-    assert api._store.problem is None
+    assert stored_problem(root)[0] is None
     for words in (soundcloud.UNREADABLE_SET, soundcloud.UNREADABLE_HINT):
-        api._store.failed("playlist_unreadable", words, "soundcloud")
+        store_failed_read(root, "playlist_unreadable", "soundcloud", words)
         assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
-        assert (api._store.problem, api._store.message) == ("playlist_unreadable", words)
+        assert (stored_problem(root)[0], stored_problem(root)[2]) == ("playlist_unreadable", words)
 
 
 def test_a_youtube_login_without_premium_is_saved_for_liked_music_only(root):
@@ -658,18 +634,18 @@ def test_qobuz_check_login_records_the_outcome(root):
     api, rec = make_api(root, open_qobuz=lambda p: QobuzCheckSource(["hit"]))
     assert wait_job(api, rec, api.qobuz_check_login()).ok
     assert load_settings(root.settings_file).qobuz_last_check["ok"] is True
-    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")  # a good check clears the stored read problem...
-    assert wait_job(api, rec, api.qobuz_check_login()).ok and api._store.problem is None
+    store_failed_read(root, "not_set_up", "qobuz", "Connect Qobuz first.")  # a good check clears the stored read problem...
+    assert wait_job(api, rec, api.qobuz_check_login()).ok and stored_problem(root)[0] is None
 
     def refuse(p):
         raise qobuz.QobuzLoginRejected("Qobuz did not accept your login. Run: discjockey setup")
 
     api, rec = make_api(root, open_qobuz=refuse)
-    api._store.failed("not_set_up", "Connect Qobuz first.", "qobuz")
+    store_failed_read(root, "not_set_up", "qobuz", "Connect Qobuz first.")
     done = wait_job(api, rec, api.qobuz_check_login())
     assert not done.ok and done.message == "Qobuz did not accept your login. Run: discjockey setup"
     assert load_settings(root.settings_file).qobuz_last_check["problem"] == "login_failed"
-    assert api._store.problem == "not_set_up"  # ...a refused one doesn't
+    assert stored_problem(root)[0] == "not_set_up"  # ...a refused one doesn't
 
 
 def test_qobuz_check_login_logged_in_but_the_search_finds_nothing(root):

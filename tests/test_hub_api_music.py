@@ -3,7 +3,7 @@ import json
 import threading
 
 import pytest
-from hub_helpers import make_api, make_root, make_unbound_api, services, wait_job
+from hub_helpers import make_api, make_root, make_unbound_api, services, store_sync_read, wait_job
 
 from discjockey import library, tools
 from discjockey.hub import api as api_mod
@@ -217,23 +217,18 @@ def test_attach_refuses_a_library_of_another_support_folder(tmp_path):
         api._attach(Paths(tmp_path, support=tmp_path / "b"))
 
 
-def test_binding_a_library_lets_its_first_plan_in_whatever_the_stored_ones_generation(tmp_path):
-    from datetime import datetime
-    from discjockey.models import Plan
-    from discjockey.run import Prepared
-    from discjockey.settings import Settings
-
-    def prep(generation):
-        st = {"version": 2, "tracks": {}, "generation": generation}
-        return Prepared(None, st, Settings(), Plan(st, [], [], []), None)
-
-    paths = make_root(tmp_path)
+def test_binding_another_library_derives_its_own_plan_not_the_cached_one(tmp_path):
+    paths = make_root(tmp_path / "one")
+    store_sync_read(paths)
     api, _ = make_api(paths)
-    api._store.ready(prep(5), datetime(2026, 10, 25, 12, 0))
-    api._attach(paths)  # the records are opened again: they count their generation from 0
-    fresh = prep(0)
-    api._store.ready(fresh, datetime(2026, 10, 25, 12, 1))
-    assert api._store.prep is fresh
+    first = api._plan()
+    assert first is not None and api._plan() is first  # cached for the same read, records and settings
+    other = make_root(tmp_path / "two")
+    other = Paths(other.root, support=paths.support)  # the same support folder, another music folder
+    api._attach(other)  # the records are opened again: they may count their generation and reads from 0
+    assert api._plan() is None  # its library.db holds no read: nothing of the other library's plan is shown
+    store_sync_read(other)
+    assert api._plan() is not None and api._plan() is not first
 
 
 def test_a_music_folder_that_vanishes_while_open_is_missing_not_empty(tmp_path):

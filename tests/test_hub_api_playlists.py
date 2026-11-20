@@ -353,11 +353,22 @@ def test_save_refuses_invalid_rows_and_waits_for_the_console(root):
     assert root.playlists_file.read_text() == PLAYLISTS
 
 
-def test_saving_makes_the_preview_stale(root):
+def test_saving_a_changed_list_marks_the_plan_as_from_the_old_lines_until_the_next_read(root):
     api, rec = make_api(root)
     refreshed(api, rec)
+    assert api.sync_preview()["read_status"]["lines_changed"] is False
     wait_job(api, rec, api.save_playlists(lines(POWER, HARD), api.playlists()["version"]))
-    assert api.sync_preview()["read_status"]["stale"] is True
+    assert api.sync_preview()["read_status"]["lines_changed"] is True
+    assert make_api(root)[0].job_status()["read_status"]["lines_changed"] is True  # any window: it is derived
+    refreshed(api, rec)
+    assert api.sync_preview()["read_status"]["lines_changed"] is False
+
+
+def test_a_comment_line_does_not_change_the_lines(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    root.playlists_file.write_text("# a new comment shifts every line number\n" + root.playlists_file.read_text())
+    assert api.sync_preview()["read_status"]["lines_changed"] is False
 
 
 @pytest.mark.parametrize("name,folder", [("Hard Bounce 2026", "Hard_Bounce_2026"), ("POWERTRANCE 🔥", "POWERTRANCE"),

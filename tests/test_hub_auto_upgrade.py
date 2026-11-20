@@ -12,14 +12,14 @@ import pytest
 
 from batch_helpers import make_lib, needs_ffmpeg, prepared
 from convert_helpers import EXACT
-from discjockey import auto_upgrade, batches, library, report
+from discjockey import auto_upgrade, batches, library, report, run
 from discjockey.events import BatchProgress
 from discjockey.hub import views
 from discjockey.library import load_state, save_state
 from discjockey.models import Question, SourceTrack
 from discjockey.rekordbox.locate import Place
 from discjockey.settings import Settings, load_settings, save_settings
-from hub_helpers import window, fake_spotify, make_api, make_root, make_unbound_api, wait_job
+from hub_helpers import window, fake_spotify, make_api, make_root, make_unbound_api, store_sync_read, wait_job
 
 NOW = datetime(2026, 11, 9, 21, 4)
 
@@ -61,9 +61,12 @@ def mark(lib, i, **fields):
 
 
 def preview(api, lib, questions=()):
-    """The Sync page has a preview: the library's records as the plan state, without a playlist read."""
-    api._store.ready(prepared(lib, questions=questions), NOW)
-    return api.sync_preview()
+    """The Sync page has a plan: a stored read of no playlist, and the plan derived from it is the library's records as
+    the plan state (`prepared`: with `questions`, which the planner makes from files only a real import has)."""
+    store_sync_read(lib.paths)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(run, "prepared_from_read", lambda paths, loaded: prepared(lib, questions=questions))
+        return api.sync_preview()
 
 
 # --- the switch ---
@@ -201,7 +204,9 @@ def test_the_preview_is_null_when_the_switch_is_off_or_there_is_no_preview(hub):
     save_settings(lib.paths.settings_file, Settings(auto_upgrade=False))
     assert api.sync_preview()["auto_upgrade"] is None
     lib.paths.settings_file.write_text('{"auto_upgrade": 7}')          # a file the sync would refuse
-    assert api.sync_preview()["auto_upgrade"] is None
+    refused = api.sync_preview()  # the plan is derived with the settings: a read's own SettingsError, as a sync's
+    assert refused["ok"] is False and "settings.json" in refused["message"]
+    assert api._auto_upgrade_on() is False
 
 
 @needs_ffmpeg

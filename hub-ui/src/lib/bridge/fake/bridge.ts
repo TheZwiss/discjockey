@@ -133,7 +133,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   const speed = opts.speed ?? 1;
   const emitRaw = opts.emit ?? (() => {});
   let nextJob = 1;
-  let nextRead = 1;                            // the stored read ids a refresh names (`read:<n>`, rising)
+  let lastRead = s.previewRead ? 1 : 0;        // the newest stored read (`read:<n>`): a refresh and a sync's own read raise it
+  const readId = (): string | null => (s.previewRead ? `read:${lastRead}` : null);
   const newJobId = (): string => `job:${(nextJob++).toString(16).padStart(8, '0')}`; // the same form the engine's ids have
   let job: JobRecord | null = null;
   let refreshJob: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -593,13 +594,14 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     rp.start();
     return { ok: true, job_id: id };
   }
-  /** After a replayed sync: its run is in the reports, and the plan is worked out again from the sync's own read
-   *  and what the run left (like jobs.preview_after_run, issue 20), so what the run did is not offered again. */
+  /** After a replayed sync: its run is in the reports, and the plan is derived from the sync's own stored read and
+   *  what the run left (`HubApi._plan`), so what the run did is not offered again. */
   function afterSync(rid: string, rec: JobRecord, plan: PhasePlan | null = null, phaseReached = false) {
     const results = rec.results.map((e) => e.result as Result);
     const done = new Set(results.filter((r) => r.track_id && r.section !== 'queued' && r.section !== 'errors')
       .map((r) => r.track_id));
-    s.read_status = { ...s.read_status, stale: false, read_at: rec.started, minutes_ago: 0 };
+    s.read_status = { ...s.read_status, lines_changed: false, read_at: rec.started, minutes_ago: 0 };
+    lastRead += 1;
     s.newTracks = s.newTracks.filter((t) => t.track_id === 't5' || !done.has(t.track_id));
     const run = rec.last.RunFinished;
     if (!run) return;
@@ -766,7 +768,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const p = preview();
       if (!s.previewRead) return ok({ read_status: readStatus(s), counts: null, groups: [], estimate: null, never: [],
         folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [], waiting_answers: 0, deferred_checks: 0,
-        empty: 'no_preview' as const, collections: {}, auto_upgrade: null });  // like views.sync_preview: never not_set_up
+        empty: 'no_preview' as const, collections: {}, auto_upgrade: null, read_id: null });  // like views.sync_preview: never not_set_up
       // each row's collections, as views._members gives them (issue 37)
       const m = membersOf(s, sidebarOf(s, 0, false));
       for (const a of [...p.groups.flatMap((g) => g.actions), ...p.never]) a.in = m.of(a);
@@ -775,7 +777,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
         auto_upgrade: autoPreview(s, autoReady(), placeTracks(s)),
-        empty: p.actions ? null : 'up_to_date' as const });
+        empty: p.actions ? null : 'up_to_date' as const, read_id: readId() });
     },
     async refresh(auto = false) {
       if (auto && s.read_status.auto_read) {
@@ -807,8 +809,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           return;
         }
         s.read_status = { ...readOk(0), auto_read: s.read_status.auto_read }; s.previewRead = true;
+        lastRead += 1;
         emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: true, problem: null, message: '',
-          result: { actions: preview().actions, read_id: `read:${nextRead++}` }, service: null });
+          result: { actions: preview().actions, read_id: readId() }, service: null });
       }, 2500 / speed) };
       return ok({ job_id: id });
     },
@@ -1090,7 +1093,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           s.version++;
           // as the real setup_status, which reads playlists.txt: a saved list counts as "playlists added"
           s.setup = { ...s.setup, playlists: s.playlists.length > 0 };
-          s.read_status = { ...s.read_status, stale: true };
+          s.read_status = { ...s.read_status, lines_changed: true };
           if (!choice) return finish(true, { version: versionHash(), batches: [] });
           // the songs get their new folder; their files stay until moved, and a file left in place is the user's own
           for (const t of s.tracks) {
@@ -1519,7 +1522,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             image_url: null, track_count: 312, hint: hintOf('youtube_music') } }];
         s.version++;
         s.setup = { ...s.setup, playlists: true };
-        s.read_status = { ...s.read_status, stale: true };
+        s.read_status = { ...s.read_status, lines_changed: true };
         finish(true, { folder });
       }, 300 / speed));
     },

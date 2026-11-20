@@ -9030,6 +9030,11 @@
           "type": "boolean",
           "x-shown": true
         },
+        "lines_changed": {
+          "description": "playlists.txt changed since this read: the plan below is from the old lines.",
+          "type": "boolean",
+          "x-shown": true
+        },
         "message": {
           "description": "The problem in words; empty when there is none.",
           "type": "string",
@@ -9100,11 +9105,6 @@
           },
           "type": "array",
           "x-shown": true
-        },
-        "stale": {
-          "description": "The data shown is older than the playlists file.",
-          "type": "boolean",
-          "x-shown": true
         }
       },
       "required": [
@@ -9114,7 +9114,7 @@
         "message",
         "problem_service",
         "services",
-        "stale",
+        "lines_changed",
         "reading",
         "offline",
         "auto_read"
@@ -12641,6 +12641,18 @@
           "type": "array",
           "x-shown": true
         },
+        "read_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The stored read the plan is derived from (`read:<n>`); null before the first read.",
+          "x-shown": false
+        },
         "read_status": {
           "$ref": "#/$defs/ReadStatus",
           "description": "How the last playlists read went.",
@@ -12667,7 +12679,8 @@
         "notes",
         "empty",
         "collections",
-        "auto_upgrade"
+        "auto_upgrade",
+        "read_id"
       ],
       "type": "object"
     },

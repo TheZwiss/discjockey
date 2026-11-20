@@ -180,33 +180,35 @@ def test_rescan_library_runs_a_scan_job_and_counts_what_it_found(root, monkeypat
     assert f.result == {"moved": 1, "new": 2, "gone": 3, "missing": 6, "back": 7, "changed": 4, "copies": 5}
 
 
-def test_a_scan_that_changed_something_plans_the_preview_again_without_reading_spotify(root, monkeypatch):
+def derivations(monkeypatch):
+    """How often the plan is derived from the stored read (`run.prepared_from_read`)."""
+    derived, real = [], run.prepared_from_read
+    monkeypatch.setattr(run, "prepared_from_read", lambda paths, loaded: derived.append(loaded.id) or real(paths, loaded))
+    return derived
+
+
+def test_a_scan_that_changed_something_shows_in_the_derived_plan_without_reading_spotify(root, monkeypatch):
     api, rec = make_api(root)
     refreshed(api, rec)
-    before, read_at = api._store.prep, api._store.read_at
     monkeypatch.setattr(spotify, "fetch_playlist", lambda *a, **k: pytest.fail("the scan read Spotify"))
-    replans, real = [], run.replan
-    monkeypatch.setattr(run, "replan", lambda prep: replans.append(prep) or real(prep))
-    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary())
-    assert wait_job(api, rec, api.rescan_library()).ok
-    assert replans == [] and api._store.prep is before  # nothing changed: the preview stays as it is
-    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(gone=1))
-    assert wait_job(api, rec, api.rescan_library()).ok
-    assert replans == [before] and api._store.prep is not before
-    assert api._store.prep.fetched is before.fetched and api._store.read_at == read_at
-    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(missing=1))  # a song's file went:
-    assert wait_job(api, rec, api.rescan_library()).ok  # the plan is made again, so the song isn't downloaded
-    assert len(replans) == 2
-    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(back=1))
-    assert wait_job(api, rec, api.rescan_library()).ok
-    assert len(replans) == 3
+    derived = derivations(monkeypatch)
+    before = api._plan()
+    assert derived == [1]
+    assert wait_job(api, rec, api.rescan_library()).ok  # nothing changed: the plan is the one derived already
+    assert api._plan() is before and derived == [1]
+    (root.root / LOSSY).unlink()  # a song's file went: the scan finds it, so the song isn't taken for downloaded
+    f = wait_job(api, rec, api.rescan_library())
+    assert f.ok and f.result["missing"] == 1
+    after = api._plan()  # no re-plan hook: the next ask derives from the same read on the records as they are
+    assert after is not before and derived == [1, 1] and after.read_id == before.read_id == 1
+    assert after.fetched == before.fetched
 
 
-def test_a_scan_without_a_preview_plans_nothing(root, monkeypatch):
+def test_a_scan_without_a_stored_read_derives_nothing(root, monkeypatch):
     api, rec = make_api(root)
-    monkeypatch.setattr(run, "replan", lambda prep: pytest.fail("nothing to plan again"))
+    derived = derivations(monkeypatch)
     monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(gone=1))
-    assert wait_job(api, rec, api.rescan_library()).ok and api._store.prep is None
+    assert wait_job(api, rec, api.rescan_library()).ok and api._plan() is None and derived == []
 
 
 def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):
@@ -996,7 +998,7 @@ def test_answering_yes_links_the_file_and_no_releases_the_download(lib):
     assert (yes.ok, yes.kind, yes.result) == (True, "answer", {})
     no = wait_job(api, rec, api.answer_same_song("t5", pairs["t5"]["own_key"], False))
     assert no.ok
-    planned = api._store.prep.plan.state["tracks"]  # the next plan: saved by the next sync or import
+    planned = api._plan().plan.state["tracks"]  # the next plan: saved by the next sync or import
     linked = planned[pairs["t4"]["own_key"]]  # "Yes": the file's own song is the playlist song now
     assert (linked["aliases"], linked["in_playlists"]) == (["t4"], True)
     assert linked["path"].endswith("Example Artist - Song 1.aiff")
@@ -1170,16 +1172,16 @@ def test_a_stop_while_the_import_reads_the_playlists_to_link_ends_it_stopped(lib
 
 
 
-def test_a_stopped_or_failed_import_plans_the_preview_again(lib, monkeypatch):
+def test_the_plan_after_a_stopped_or_failed_import_shows_the_files_it_imported(lib, monkeypatch):
     paths, folder, fakes = lib
     api, rec = make_api(paths)
-    refreshed(api, rec)  # the window's read: the preview exists
-    planned = []
-    real = jobs.preview_after_run
-    monkeypatch.setattr(jobs, "preview_after_run", lambda store, prep, at: planned.append(prep) or real(store, prep, at))
+    refreshed(api, rec)  # the window's read: the plan exists
+    derived = derivations(monkeypatch)
     fakes.on_probe = lambda n: api.stop() if n == 2 else None
     f = wait_job(api, rec, api.add_watched_folder(str(folder)))
-    assert f.problem == "stopped" and len(planned) == 1  # the files imported before the stop show in To-do and Sync
+    assert f.problem == "stopped"
+    imported = own_songs(paths)
+    assert imported and set(imported) <= set(api._plan().state["tracks"])  # the files imported before the stop show
     fakes.on_probe = None
 
     def broken(*a, **kw):
@@ -1187,7 +1189,7 @@ def test_a_stopped_or_failed_import_plans_the_preview_again(lib, monkeypatch):
 
     monkeypatch.setattr(importer, "run_import", broken)
     f = wait_job(api, rec, api.start_import())
-    assert (f.ok, f.problem) == (False, "crashed") and len(planned) == 2
+    assert (f.ok, f.problem) == (False, "crashed") and derived  # derived again from the records as they are
 
 
 def test_a_folder_refused_inside_the_job_shows_the_w5_words():
