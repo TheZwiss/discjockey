@@ -48,6 +48,16 @@ async function batchId(b: Bridge): Promise<number> {
   const todo = (await b.todo('rekordbox_check', true)) as { groups?: { items?: { batch?: { id: number } | null }[] }[] };
   return todo.groups?.flatMap((g) => g.items ?? []).find((i) => i.batch)?.batch?.id ?? 1;
 }
+/** The first track the sync plan holds (the fake refuses `never_download` for one it does not plan), or 't2'. */
+async function planned(b: Bridge): Promise<string> {
+  const p = (await b.sync_preview()) as { groups?: { actions?: { track_id: string }[] }[]; never?: { track_id: string }[] };
+  return p.groups?.flatMap((g) => g.actions ?? [])[0]?.track_id ?? p.never?.[0]?.track_id ?? 't2';
+}
+/** `t2` with a bought file dropped on it (the window's drop sets this; the fake refuses `add_bought_file` without it). */
+async function dropped(b: Bridge): Promise<string[]> {
+  (b as unknown as { _ctx: { s: { dropped: { track_id: string; name: string } | null } } })._ctx.s.dropped = { track_id: 't2', name: 'Armin Hermann - Get Naughty.wav' };
+  return ['t2'];
+}
 const SAMPLE_ARGS: Record<string, Args> = {
   dashboard: [], sidebar: [], library: ['all', null, '', 'all', null], sync_preview: [], job_status: [], playlists: [],
   limits: ['qobuz'], limits_what_if: ['qobuz', 60, 0], runs: [], run: ['last'], spectrum: ['t1', 'current'],
@@ -57,9 +67,9 @@ const SAMPLE_ARGS: Record<string, Args> = {
   stop_refresh: [], stop: [], stop_sign_in: [], refresh: [false], start_sync: [[]], save_limits: ['qobuz', 60, 0],
   mark_warnings_seen: ['qobuz'], rescan_library: [],
   todo: ['all', true], track: ['t2'], missing_files_preview: [['t1', 't2'], 'download_again'],
-  hide: ['t2', true], never_download: ['t2', true], upgrade: [['t2'], 'same_track'], undo_upgrade: [['t2']],
+  hide: ['t2', true], never_download: async (b) => [await planned(b), true], upgrade: [['t2'], 'same_track'], undo_upgrade: [['t2']],
   upgrade_all: [], rekordbox_checked: [['t2']], missing_files: [['t1', 't2'], 'download_again'],
-  add_bought_file: ['t2'], use_candidate: ['t2', CANDIDATE],
+  add_bought_file: dropped, use_candidate: ['t2', CANDIDATE],
   use_link: ['t2', 'https://www.youtube.com/watch?v=abcdefghijk'], reject_current: ['t2'],
   // E7d: setup, settings, the music folder, watched folders and the import, tidy-up, reads with network, AIFF
   setup_status: [], check_music_folder: ['/Users/you/Music/Discjockey'], retry_music_folder: [], rekordbox_status: [],
@@ -91,6 +101,8 @@ const SAMPLE_ARGS: Record<string, Args> = {
 };
 /** Why a mapped method cannot be called with fixed arguments. */
 const NO_SAMPLE: Record<string, string> = {};
+/** Sampled methods the fake refuses in every scenario, with why (the last resort: fix the sample first). */
+const ONLY_REFUSED: Record<string, string> = {};
 
 /** A scenario that holds one answer back for ever, to show the page's loading state (the fake's own, by design). */
 const HELD: Record<string, string[]> = {
@@ -144,9 +156,14 @@ function openFake(scenario: string): Fake {
 
 type Maps = { answers: Record<string, string>; results: Record<string, string> };
 
+/** What one call found: `bad` is the problems ("" when the answer fits) and `checked` is true when the answer was a
+ *  real answer (an ok read or a finished job) rather than a refusal; a refusal is checked against `Fail` too. */
+type Found = { bad: string; checked: boolean };
+
 /** Calls `method` on a fake of `scenario`; the problems of its answer against `maps.answers[method]`, or, for a job,
- *  of its result (ok or not) against `maps.results[kind]` ("" for a problem answer, which is the Fail shape's). */
-async function fakeProblems(method: string, how: Args, fake: Fake, maps: Maps): Promise<string> {
+ *  of its result (ok or not) against `maps.results[kind]`; a refusal (`ok: false`) against `Fail` (`CliFail` for a
+ *  `bad_args`), which does not count as the method being checked. */
+async function fakeProblems(method: string, how: Args, fake: Fake, maps: Maps): Promise<Found> {
   const { bridge, events } = fake;
   const args = typeof how === 'function' ? await how(bridge) : how;
   const promise = bridge[method](...args);
@@ -154,20 +171,20 @@ async function fakeProblems(method: string, how: Args, fake: Fake, maps: Maps): 
   void promise.then((v) => { first = v; });
   // Step the clock until the answer is there (a call does not run the fake's idle timers for ten virtual minutes).
   for (let t = 0; t < STEPS && !first; t++) await vi.advanceTimersByTimeAsync(STEP_MS);
-  if (!first) return `${method}: no answer`;
+  if (!first) return { bad: `${method}: no answer`, checked: false };
   const { ok, ...answer } = first;
-  if (ok !== true) return '';
+  if (ok !== true) return { bad: problems(first.kind === 'bad_args' ? 'CliFail' : 'Fail', first), checked: false };
   const keys = Object.keys(answer);
   if (keys.length === 1 && keys[0] === 'job_id') {   // a J method: follow the job to its JobFinished
     const finished = () => events.find((e) => e.type === 'JobFinished' && e.job_id === answer.job_id);
     for (let t = 0; t < STEPS && !finished(); t++) await vi.advanceTimersByTimeAsync(STEP_MS);
     const done = finished();
-    if (done?.type !== 'JobFinished') return `${method}: the job never finished`;
-    if (done.result == null) return '';
+    if (done?.type !== 'JobFinished') return { bad: `${method}: the job never finished`, checked: false };
+    if (done.result == null) return { bad: '', checked: true };
     const name = maps.results[done.kind];
-    return name ? problems(name, done.result) : `job kind ${done.kind} has no result shape`;
+    return { bad: name ? problems(name, done.result) : `job kind ${done.kind} has no result shape`, checked: true };
   }
-  return problems(maps.answers[method], answer);
+  return { bad: problems(maps.answers[method], answer), checked: true };
 }
 
 describe('the fake bridge answers fit their schemas', () => {
@@ -177,21 +194,41 @@ describe('the fake bridge answers fit their schemas', () => {
   it('every mapped method with a sample, in every scenario', async () => {
     const sampled = Object.keys(SAMPLE_ARGS).filter((m) => mapped.includes(m));
     const found: string[] = [];
+    const checked = new Set<string>();
     for (const scenario of scenarios()) {
       const fake = openFake(scenario);
       for (const method of sampled.filter((m) => !HELD[scenario]?.includes(m))) {
-        const bad = await fakeProblems(method, SAMPLE_ARGS[method], fake, { answers, results });
-        if (bad) found.push(`${method} in ${scenario}: ${bad}`);
+        const one = await fakeProblems(method, SAMPLE_ARGS[method], fake, { answers, results });
+        if (one.bad) found.push(`${method} in ${scenario}: ${one.bad}`);
+        if (one.checked) checked.add(method);
       }
     }
     expect(found).toEqual([]);
+    // a method the fake refuses in every scenario was never checked against its answer shape: fix its sample
+    expect(sampled.filter((m) => !checked.has(m) && !(m in ONLY_REFUSED)), 'sampled but only ever refused').toEqual([]);
+    expect(Object.keys(ONLY_REFUSED).filter((m) => checked.has(m) || !sampled.includes(m)), 'ONLY_REFUSED holds a stranger').toEqual([]);
   }, 300_000);
 
   it('finds the mismatch of a wrong shape for a read and for a job (the loop works)', async () => {
     const wrong = { answers: { library: 'Empty' }, results: { hide: 'Freshness' } };
-    expect(await fakeProblems('library', ['all', null, '', 'all', 'artist'], openFake('normal'), wrong)).not.toBe('');
+    const read = await fakeProblems('library', ['all', null, '', 'all', 'artist'], openFake('normal'), wrong);
+    expect(read.bad).not.toBe('');
+    expect(read.checked).toBe(true);
     const job = await fakeProblems('hide', ['t2', true], openFake('normal'), wrong);   // the job's result is not a Freshness
-    expect(job).not.toBe('');
-    expect(job).not.toMatch(/never finished|no result shape/);
+    expect(job.bad).not.toBe('');
+    expect(job.bad).not.toMatch(/never finished|no result shape/);
+  });
+
+  it('checks a refusal against Fail and does not count it as checked (a broken Fail is found)', async () => {
+    const stub = (answer: Record<string, unknown>): Fake => ({ bridge: { probe: async () => answer } as unknown as Bridge, events: [] });
+    const maps = { answers: { probe: 'Empty' }, results: {} };
+    const good = await fakeProblems('probe', [], stub({ ok: false, kind: 'refused', message: 'm' }), maps);
+    expect(good).toEqual({ bad: '', checked: false });
+    const cli = await fakeProblems('probe', [], stub({ ok: false, kind: 'bad_args', message: 'm', outcome: 'bad_args', reason: 'usage' }), maps);
+    expect(cli.bad).toBe('');
+    const broken = await fakeProblems('probe', [], stub({ ok: false, kind: 'nope', message: 'm' }), maps);
+    expect(broken.bad).not.toBe('');
+    // a refusal the window never sees: `bad_args` fails the window's `Fail` and fits `CliFail`
+    expect(problems('Fail', { ok: false, kind: 'bad_args', message: 'm' })).not.toBe('');
   });
 });
