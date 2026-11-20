@@ -1,6 +1,7 @@
 import pytest
 
 from discjockey import candidates, fallback
+from discjockey.events import Cancelled
 from discjockey.candidates import parse_link, score
 from discjockey.library import Paths
 from discjockey.models import Candidate, SourceTrack
@@ -93,6 +94,16 @@ def test_search_waits_for_its_slot_before_each_qobuz_request():
 
     candidates.search(T, entry(), Ordered({}), FakeFallback([]), pace=lambda: order.append("slot"))
     assert order == ["slot", "request"] * len(order[::2]) and len(order) >= 2
+
+
+@pytest.mark.parametrize("error", [Cancelled(), OSError("pace.json is locked")])
+def test_a_pacer_that_raises_is_not_a_failed_qobuz_search(error):
+    def pace():
+        raise error
+
+    with pytest.raises(type(error)) as raised:
+        candidates.search(T, entry(), FakeQobuz({}), FakeFallback([]), pace=pace)
+    assert raised.value is error
 
 
 @pytest.mark.parametrize("url,expected", [

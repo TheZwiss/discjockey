@@ -342,6 +342,21 @@ def test_a_qobuz_wait_that_is_stopped_leaves_no_claim_to_end(tmp_path):
     assert pacer.calls == []
 
 
+def test_a_pacer_that_cannot_write_is_not_a_failed_qobuz_search(tmp_path):
+    class Broken(NoPacer):
+        def before_qobuz_search(self):
+            raise OSError("pace.json is locked")
+
+    q = FakeQobuz({ISRC_Q: [qc("1")]})
+    searched = []
+    q.search = lambda *a, **k: searched.append(a) or []
+    a, state = acquirer(q, pacer=Broken())
+    with pytest.raises(OSError):
+        a.acquire(T, set(), tmp_path, lossless_only=False)
+    assert a.budget.failures_in_a_row == 0 and searched == []
+    assert state["qobuz_usage"]["signals"] == []
+
+
 def test_steps_are_reported(tmp_path):
     events = []
     tracker = Tracker(events.append, CancelToken(), "t1", min_interval=0)
@@ -363,7 +378,7 @@ def test_auto_stop_after_three_failed_qobuz_downloads(tmp_path):
     assert third.kind == "queued" and "paused" in third.note
     assert [s["kind"] for s in state["qobuz_usage"]["signals"]][-1] == "auto_stop"
     warnings = [e for e in events if getattr(e, "level", "") == "warning"]
-    assert len(warnings) == 1 and "paused" in warnings[0].text
+    assert len(warnings) == 1 and "until the next sync starts" in warnings[0].text
 
 
 def test_qobuz_trouble_does_not_fill_the_library_from_youtube(tmp_path):

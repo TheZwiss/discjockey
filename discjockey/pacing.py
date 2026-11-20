@@ -7,6 +7,7 @@ import json
 import math
 import os
 import random
+import secrets
 import time
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -192,7 +193,7 @@ class SharedPacer:
     this Mac (design §7.5): one `<support>/pace.json`, read and written under an exclusive `flock` of `<support>/pace.lock`
     that is held only for that, never while waiting. Per service the file holds the time of its last request
     (Qobuz searches), the end of its last download, the download that has been claimed and not yet ended
-    (`in_flight`: the process's pid and the time) and the count toward the next break.
+    (`in_flight`: the claimant's pid, the time and which pacer of that process) and the count toward the next break.
 
     A search takes a slot 2-5 s after the previous Qobuz request. A download of Qobuz, YouTube Premium or SoundCloud Go+
     is claimed (`between_*`) once the gap since the previous download's end has passed, 20-60 s, or a 2-5 minute break
@@ -211,6 +212,7 @@ class SharedPacer:
         self.support = Path(support)
         self.emit, self.token, self.sleep, self.clock = emit, token or CancelToken(), sleep, clock
         self.rng = rng or random.Random()
+        self._id = secrets.token_hex(4)  # names this instance in its claims: two in one process are two claimants
 
     # --- the file ---
 
@@ -247,8 +249,9 @@ class SharedPacer:
         entry = entry if isinstance(entry, dict) else {}
         flight = entry.get("in_flight")
         pid, since = (flight.get("pid"), _number(flight.get("since"))) if isinstance(flight, dict) else (None, None)
-        held = {"pid": pid, "since": since} if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 \
-            and since is not None else None
+        by = flight.get("by") if isinstance(flight, dict) else None
+        held = {"pid": pid, "since": since, "by": by if isinstance(by, str) else None} \
+            if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 and since is not None else None
         count, due = entry.get("since_break"), entry.get("next_break")
         return {"last_request_at": _number(entry.get("last_request_at")),
                 "last_download_end_at": _number(entry.get("last_download_end_at")),
@@ -263,8 +266,10 @@ class SharedPacer:
         return services[name]
 
     def _blocked_by(self, flight: dict | None, now: float) -> bool:
-        """Whether `flight` is a download of another process that is still going on."""
-        if flight is None or flight["pid"] == os.getpid() or now - flight["since"] >= IN_FLIGHT_STALE_S:
+        """Whether `flight` is a download of another claimant (another process, or another pacer of this one) that is
+        still going on. A claim stamped ahead of the clock by more than the skew is not believed."""
+        if flight is None or flight["by"] == self._id or now - flight["since"] >= IN_FLIGHT_STALE_S \
+                or flight["since"] > now + CLOCK_SKEW_S:
             return False
         try:
             os.kill(flight["pid"], 0)
@@ -309,20 +314,15 @@ class SharedPacer:
         with self._locked() as services:
             s = self._service(services, service)
             s["last_download_end_at"] = self.clock()
-            if s["in_flight"] is not None and s["in_flight"]["pid"] == os.getpid():
+            flight = s["in_flight"]
+            if flight is not None and (flight["by"] == self._id or (flight["by"] is None and flight["pid"] == os.getpid())):
                 s["in_flight"] = None
 
     def _claim(self, service: str, label: str, break_label: str) -> None:
-        """Waits until the download may start, then claims it (`in_flight`). The gap is drawn once, here; a break is
-        due (and is the gap) when this claim would be the 10th-15th since the last one."""
-        with self._locked() as services:
-            s = self._service(services, service)
-            end = s["last_download_end_at"]
-            if end is not None and self.clock() - end > IDLE_RESTARTS_COUNT_S:
-                s["since_break"] = 0  # ten minutes without a download count as the break
-            due = s["since_break"] + 1 >= s["next_break"]
-        kind, label = ("break", break_label) if due else ("between", label)
-        gap = self.rng.uniform(*(BREAK_GAP if due else DOWNLOAD_GAP))
+        """Waits until the download may start, then claims it (`in_flight`). A break is due (and is the gap) when this
+        claim would be the 10th-15th since the last one; that is looked at again on every pass, since another process
+        may have claimed meanwhile. One gap is drawn per kind, the first time that kind is due."""
+        gaps: dict[bool, float] = {}
         waited = False
         while True:
             self.token.check()
@@ -330,6 +330,14 @@ class SharedPacer:
             with self._locked() as services:
                 now = self.clock()
                 s = self._service(services, service)
+                end = s["last_download_end_at"]
+                if end is not None and now - end > IDLE_RESTARTS_COUNT_S:
+                    s["since_break"] = 0  # ten minutes without a download count as the break
+                due = s["since_break"] + 1 >= s["next_break"]
+                if due not in gaps:
+                    gaps[due] = self.rng.uniform(*(BREAK_GAP if due else DOWNLOAD_GAP))
+                gap = gaps[due]
+                kind, shown = ("break", break_label) if due else ("between", label)
                 if self._blocked_by(s["in_flight"], now):
                     wait, left = WATCH_STEP_S, gap
                 else:
@@ -338,7 +346,7 @@ class SharedPacer:
                     if left > 0:
                         wait = min(WATCH_STEP_S, left)
                     else:
-                        s["in_flight"] = {"pid": os.getpid(), "since": now}
+                        s["in_flight"] = {"pid": os.getpid(), "since": now, "by": self._id}
                         s["since_break"] += 1
                         if s["since_break"] >= s["next_break"]:
                             s["since_break"], s["next_break"] = 0, self.rng.randint(*BREAK_EVERY)
@@ -346,10 +354,10 @@ class SharedPacer:
                             s["last_request_at"] = max(now, s["last_request_at"] or now)
             if wait is None:
                 if waited:
-                    self.emit(Waiting(kind, label, 0.0, gap, service))
+                    self.emit(Waiting(kind, shown, 0.0, gap, service))
                 return
             waited = True
-            self.emit(Waiting(kind, label, left, gap, service))
+            self.emit(Waiting(kind, shown, left, gap, service))
             self.sleep(wait)
 
     # --- waiting ---

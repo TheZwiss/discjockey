@@ -340,13 +340,54 @@ def test_a_download_still_going_in_another_process_is_waited_for_with_the_gap_un
 
 
 def test_a_claim_of_a_dead_process_an_old_one_and_our_own_are_ignored(tmp_path):
+    clock = FakeClock()
+    pacer = make_pacer(tmp_path, clock=clock)
     for flight in ({"pid": dead_pid(), "since": 1_000_000.0}, {"pid": os.getppid(), "since": 1_000_000.0 - 1801},
-                   {"pid": os.getpid(), "since": 1_000_000.0}):
-        clock = FakeClock()
+                   {"pid": os.getpid(), "since": 1_000_000.0, "by": pacer._id}):
         put(tmp_path, "qobuz", in_flight=flight, last_download_end_at=clock.now - 1000)
-        make_pacer(tmp_path, clock=clock).between_qobuz_downloads()
+        pacer.between_qobuz_downloads()
         assert clock.slept == [], flight
-        assert seen(make_pacer(tmp_path))["qobuz"]["in_flight"]["pid"] == os.getpid()
+        assert seen(pacer)["qobuz"]["in_flight"]["by"] == pacer._id
+
+
+def test_a_claim_stamped_in_the_future_is_not_believed_unless_it_is_within_the_skew(tmp_path):
+    clock = FakeClock()
+    put(tmp_path, "qobuz", in_flight={"pid": os.getppid(), "since": clock.now + 3600}, last_download_end_at=clock.now - 1000)
+    make_pacer(tmp_path, clock=clock).between_qobuz_downloads()
+    assert clock.slept == []  # an hour ahead: a skewed clock or a corrupt value, ignored
+    put(tmp_path, "qobuz", in_flight={"pid": os.getppid(), "since": clock.now + 30}, last_download_end_at=clock.now - 1000)
+    events = []
+    p = SharedPacer(tmp_path, events.append, sleep=lambda s: (clock.sleep(s), put(tmp_path, "qobuz", in_flight=None)),
+                    clock=clock.time, rng=random.Random(1))
+    p.between_qobuz_downloads()
+    assert events and events[0].remaining == events[0].total  # 30 s ahead still blocks: the gap is unknown
+
+
+def test_two_pacers_of_one_process_see_each_others_claim(tmp_path):
+    clock, events = FakeClock(), []
+    a = make_pacer(tmp_path, clock=clock)
+
+    def sleep(seconds):
+        clock.sleep(seconds)
+        if len(clock.slept) == 3:  # A's download ends
+            a.downloaded("qobuz")
+
+    b = SharedPacer(tmp_path, events.append, sleep=sleep, clock=clock.time, rng=random.Random(2))
+    a.between_qobuz_downloads()  # claims, and has not ended
+    b.between_qobuz_downloads()
+    assert len([e for e in events if e.remaining == e.total]) >= 3  # B watched A's claim until A's downloaded()
+    assert 20 <= clock.now - 1_000_003.0 <= 60
+    assert seen(b)["qobuz"]["in_flight"]["by"] == b._id
+
+
+def test_one_pacers_downloaded_does_not_clear_the_claim_of_another_in_its_process(tmp_path):
+    clock = FakeClock()
+    a, b = make_pacer(tmp_path, clock=clock), make_pacer(tmp_path, clock=clock)
+    a.between_account_downloads("youtube")
+    b.downloaded("youtube")
+    assert seen(a)["youtube"]["in_flight"]["by"] == a._id
+    a.downloaded("youtube")
+    assert seen(a)["youtube"]["in_flight"] is None
 
 
 def test_downloaded_lets_go_of_our_claim_only(tmp_path):
@@ -375,6 +416,23 @@ def test_a_long_break_after_ten_to_fifteen_downloads(tmp_path):
     breaks = [e for e in events if e.kind == "break" and e.remaining == 0]
     assert len(breaks) == 1 and breaks[0].label == "Longer break so the account looks less like a bot"
     assert 10 <= totals.index(max(totals)) + 1 <= 15  # the 10th to 15th claim is the break
+
+
+@pytest.mark.parametrize("before, after, kind", [(3, 11, "break"), (11, 0, "between")])
+def test_a_break_is_asked_again_when_another_process_changes_the_count_during_the_wait(tmp_path, before, after, kind):
+    clock, events = FakeClock(), []
+    put(tmp_path, "qobuz", last_download_end_at=clock.now, since_break=before, next_break=12)
+
+    def sleep(seconds):
+        clock.sleep(seconds)
+        if len(clock.slept) == 2:  # another process claims (or a break ends)
+            put(tmp_path, "qobuz", last_download_end_at=clock.now - 1, since_break=after, next_break=12)
+
+    p = SharedPacer(tmp_path, events.append, sleep=sleep, clock=clock.time, rng=random.Random(4))
+    p.between_qobuz_downloads()
+    assert events[0].kind == ("break" if kind == "between" else "between")  # what it was due for when it began
+    assert events[-1].kind == kind and events[-1].remaining == 0  # the final claim follows the new state
+    assert (events[-1].total >= 120) == (kind == "break")
 
 
 def test_ten_idle_minutes_count_as_the_break(tmp_path):
