@@ -6,13 +6,13 @@
   // ones too, keeps the banner, so a view never loses the warning (final review I1).
   import { hub, readBlock } from '../stores/hub';
   import { bannersSaidInBody } from '../stores/shell';
-  import { BANNER, problemCopy } from '../copy';
+  import { consoleBanner, problemCopy } from '../copy';
   import Banner from '../components/Banner.svelte';
   // one wording and one link per state on every page: the same copy Sync's card shows
   const readCopy = $derived($readBlock ? problemCopy($readBlock.kind, { service: $readBlock.service }) : null);
 </script>
 
-{#if $hub.console && !$bannersSaidInBody.console}<div data-test="banner-console"><Banner tone="warn" text={`${$hub.console.text}. ${BANNER.console_tail}`} /></div>{/if}
+{#if $hub.console && !$bannersSaidInBody.console}<div data-test="banner-console"><Banner tone="warn" text={consoleBanner($hub.console.text)} /></div>{/if}
 {#if readCopy && !$bannersSaidInBody.readStatus}
   <div data-test="banner-read-status"><Banner tone="info" text={readCopy.title}
     action={readCopy.action?.href ? { label: readCopy.action.label, href: readCopy.action.href } : undefined} /></div>

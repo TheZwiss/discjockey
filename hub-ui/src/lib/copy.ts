@@ -134,10 +134,16 @@ export const WRITE_BLOCKED = {
 } as const;
 
 /** The banner while another process holds the library says the engine's words for the holder (`HubState.console.text`),
- *  then this. */
+ *  then a tail: the shell's, or Setup's (its steps wait, nothing to look around at). */
 export const BANNER = {
   console_tail: "You can look around; changes wait until it's finished.",
+  console_tail_setup: 'You can go on with setup when it has finished.',
+  /** Setup, `console_running` with no holder words yet (the state's first read, before the engine named it) */
+  console_setup_unnamed: 'A Discjockey run in the terminal is busy',
 } as const;
+
+/** The holder's words (engine text), then the tail: the one composition both console banners use. */
+export const consoleBanner = (holderText: string, tail: string = BANNER.console_tail): string => `${holderText}. ${tail}`;
 
 export const DROP_BLOCKED = "macOS didn't let Discjockey read this file. Move it to Downloads, or allow access in "
   + 'System Settings → Privacy & Security → Files and Folders.';
