@@ -986,6 +986,123 @@ def test_a_registry_that_cannot_be_pruned_does_not_stop_a_write(watched, monkeyp
     assert job.done.wait(5) and rec.of(jobs.JobFinished)[-1].ok
 
 
+def _a_job_that_waits(g, seen):
+    """A hide whose work waits for `release` (looking at its token the while); `seen` is set once it has looked."""
+    def hide(self, track_id: str, hidden: bool):
+        def work(ctx):
+            g.running.set()
+            while not g.release.wait(0.02):
+                if ctx.token.cancelled:
+                    seen.set()
+            return {"track_id": track_id}
+        return {"job_id": self._jobs.start("hide", work, track_id=track_id).id}
+    return hide
+
+
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
+def test_a_stopped_window_job_shows_stopping_until_it_ends(hub, monkeypatch):
+    api, paths, reg = hub
+    seen = threading.Event()
+    g = Gated(monkeypatch, "hide", lambda g: _a_job_that_waits(g, seen))
+    answer = api.hide("t1", True)
+    assert g.running.wait(10)
+    job = api._jobs.current
+    files = reg.get(answer["job_id"])
+    assert files.state()["status"] == "running"
+    assert api.stop()["ok"]
+    assert wait_for(lambda: files.state()["status"] == "stopping")  # while the work still waits
+    g.release.set()
+    wait_ended(job, files)
+    assert files.state()["status"] == "done"  # a late `stopping` never overwrites `done`
+
+
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
+def test_a_stop_file_on_a_window_job_shows_stopping_once_the_work_looks(hub, monkeypatch):
+    api, paths, reg = hub
+    seen = threading.Event()
+    g = Gated(monkeypatch, "hide", lambda g: _a_job_that_waits(g, seen))
+    answer = api.hide("t1", True)
+    assert g.running.wait(10)
+    job = api._jobs.current
+    files = reg.get(answer["job_id"])
+    files.request_stop()
+    assert seen.wait(5) and wait_for(lambda: files.state()["status"] == "stopping")
+    g.release.set()
+    wait_ended(job, files)
+    assert files.state()["status"] == "done"
+
+
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
+def test_a_stop_asked_after_the_job_is_done_leaves_done(hub, monkeypatch):
+    api, paths, reg = hub
+    g = Gated(monkeypatch, "hide", a_write)
+    answer = api.hide("t1", True)
+    assert g.running.wait(10)
+    job = api._jobs.current
+    files = reg.get(answer["job_id"])
+    g.release.set()
+    wait_ended(job, files)
+    job.token.cancel()  # too late
+    assert files.state()["status"] == "done"
+
+
+def test_a_cancel_token_tells_its_callback_once_and_survives_it_failing(tmp_path):
+    told = []
+    token = ev.CancelToken(tmp_path / "stop", on_cancel=lambda: (told.append(1), 1 / 0))
+    assert not token.cancelled and told == []
+    token.cancel()
+    token.cancel()
+    assert token.cancelled and told == [1]
+    seen = []
+    by_file = ev.CancelToken(tmp_path / "stop", on_cancel=lambda: seen.append(1))
+    (tmp_path / "stop").write_text("")
+    assert by_file.cancelled and by_file.cancelled
+    by_file.cancel()
+    assert seen == [1]
+
+
+def test_the_watch_reads_a_settled_foreign_job_only_once(watched, monkeypatch):
+    paths, js, rec, reg = watched
+    done = []
+    for _ in range(30):
+        other = Foreign(paths, reg)
+        other.end()
+        done.append(other.id)
+    ending = Foreign(paths, reg)
+    js._look()
+    read = []
+    state = registry.JobFiles.state
+
+    def counting(self):
+        read.append(self.id)
+        return state(self)
+
+    monkeypatch.setattr(registry.JobFiles, "state", counting)
+    js._look()
+    assert not set(done) & set(read) and ending.id in read  # the 30 ended ones are not read again
+    read.clear()
+    ending.end()
+    js._look()
+    assert [e.job_id for e in rec.of(jobs.JobFinished)] == [ending.id]  # a foreign job that ends is still reported once
+    read.clear()
+    js._look()
+    assert ending.id not in read and [e.job_id for e in rec.of(jobs.JobFinished)] == [ending.id]
+
+
+def test_close_ends_a_running_read_and_a_waiting_sign_in_as_stopped(watched):
+    paths, js, rec, reg = watched
+    read = js.start_refresh(lambda ctx: ctx.token.sleep(30))
+    sign_in = js.start_sign_in("account_sign_in", lambda ctx: ctx.token.sleep(30))
+    assert wait_for(lambda: reg.get(read.id).state()["status"] == "running"
+                    and reg.get(sign_in.id).state()["status"] == "running")
+    js.close()
+    for job in (read, sign_in):
+        assert job.done.is_set()
+        assert wait_for(lambda: not reg.get(job.id).is_alive())
+        assert reg.get(job.id).state()["status"] == "done"
+        assert reg.get(job.id).result()["outcome"] == "stopped"
+
+
 def test_close_ends_the_registry_watch(watched):
     paths, js, rec, reg = watched
     js.watch_registry(interval=0.05)

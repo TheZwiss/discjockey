@@ -37,7 +37,7 @@ import shutil
 import threading
 import time
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta
@@ -377,6 +377,18 @@ class JobFiles:
             if status_changed or "person_steps" in fields or time.monotonic() - self._written >= STATE_WRITE_S:
                 self._write_locked()
 
+    def update_if(self, statuses: tuple, **fields) -> bool:
+        """Like `update`, but only while the status is one of `statuses` (loaded as `update` loads it); written at once.
+        So a late `stopping` can never overwrite `done`. True when it wrote."""
+        with self._lock:
+            if self._mine is None:
+                self._mine = _read_json(self.state_path) or {"id": self.id}
+            if self._mine.get("status") not in statuses:
+                return False
+            self._mine.update(fields)
+            self._write_locked()
+            return True
+
     def flush(self) -> None:
         with self._lock:
             if self._dirty:
@@ -532,10 +544,13 @@ class Registry:
         except OSError:
             return []
 
-    def list(self, music: Path | str | None = None, all: bool = False) -> list[dict]:
-        """The states of the jobs of the music folder `music` and of those with none (unless `all`), newest first."""
+    def list(self, music: Path | str | None = None, all: bool = False, skip: Collection[str] = ()) -> list[dict]:
+        """The states of the jobs of the music folder `music` and of those with none (unless `all`), newest first.
+        Folders named in `skip` are not read at all (the watch's settled jobs)."""
         found = []
         for directory in self._folders():
+            if directory.name in skip:
+                continue
             state = JobFiles(directory).state()
             if "kind" not in state:
                 continue
