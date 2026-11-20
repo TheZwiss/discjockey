@@ -1180,9 +1180,10 @@ def test_an_unexpected_error_between_the_moves_of_keep_file_still_lists_what_mov
     monkeypatch.setattr(report_mod, "write_not_lossless", second_crashes)
     done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
     assert not done.ok and done.problem == "crashed"
-    assert len(done.result["results"]) == 1 and done.result["kept_track"] is None
-    assert (paths.root / done.result["results"][0]["path"]).is_file()
-    assert not Path(pair["files"][0]["path"]).exists()
+    # both moved files are listed: the first, and the second whose report write failed after it had moved
+    assert len(done.result["results"]) == 2 and done.result["kept_track"] is None
+    assert all((paths.root / r["path"]).is_file() for r in done.result["results"])
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, False, True]
 
 
 def test_supersede_duplicate_is_no_bridge_method_any_more(lib):

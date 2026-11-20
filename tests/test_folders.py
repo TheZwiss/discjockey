@@ -386,7 +386,8 @@ def test_keep_file_reports_the_moves_made_when_an_unexpected_error_ends_it(paths
     done: list = []
     with pytest.raises(sqlite3.OperationalError):
         folders.keep_file(paths, gid, files[2].file_id, seen(paths, gid), now=lambda: NOW, moved_out=done)
-    assert [i for i, _ in done] == [files[0].file_id]  # the first move is listed; the second moved too (its report failed)
+    assert [i for i, _ in done] == [files[0].file_id, files[1].file_id]  # the second is listed though its report failed
+    assert all((paths.root / dst).is_file() for _, dst in done)
 
 
 @needs_ffmpeg
