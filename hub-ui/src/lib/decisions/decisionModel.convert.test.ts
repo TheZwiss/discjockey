@@ -14,7 +14,7 @@ const view = (extra: Partial<RekordboxCheckView> = {}): RekordboxCheckView => ({
 const check = (id: string, c: Partial<RekordboxCheckView> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
   quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false,
-  hidden: false, upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null,
+  hidden: false, upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null, rev: null,
   group: 'rekordbox_check', detail: 'an AIFF now: nothing to redo', free: false, file_state: 'here', can_undo: true, check: view(c) });
 const name = (i: TodoItem) => `A – ${i.title}`;
 const words = (s: { parts: { text: string }[]; note?: string }) => s.parts.map((p) => p.text).join('') + (s.note ? ` ${s.note}` : '');

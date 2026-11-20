@@ -1247,7 +1247,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { service, seen_until: f.seen });
       }, 300 / speed));
     },
-    async hide(track_id: string, hidden: boolean) {
+    async hide(track_id: string, hidden: boolean, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       return startJob(hidden ? 'hide' : 'unhide', track_id, (finish) => setTimeout(() => {
@@ -1270,7 +1270,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { moved: 0, new: 0, gone: 0, missing: 0, back: 0, changed: 0, copies: 0 });
       }, 50 / speed));
     },
-    async add_bought_file(track_id: string) {
+    async add_bought_file(track_id: string, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       if (s.dropped?.track_id !== track_id) return fail('refused', 'Drop the bought file on this track first.');
@@ -1282,7 +1282,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, opResult(t, 'bought', `bought file ${name}`));
       }, 1500 / speed));
     },
-    async use_candidate(track_id: string, candidate: Candidate) {
+    async use_candidate(track_id: string, candidate: Candidate, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       if (!candidate || typeof candidate !== 'object' || !candidate.id) return fail('refused', 'That is not a version from the list.');
@@ -1290,7 +1290,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startJob('use_candidate', track_id, (finish) => syntheticDownload(t, String(candidate.source), candidate.title,
         () => finishReplace(t, String(candidate.source), finish)));
     },
-    async use_link(track_id: string, url: string) {
+    async use_link(track_id: string, url: string, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       const source = /qobuz\.com/.test(url) ? 'qobuz' : /music\.youtube/.test(url) ? 'youtube_music'
@@ -1299,7 +1299,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startJob('use_link', track_id, (finish) => syntheticDownload(t, source, t.title,
         () => finishReplace(t, source, finish)));
     },
-    async reject_current(track_id: string) {
+    async reject_current(track_id: string, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       return startJob('reject_current', track_id, (finish) => setTimeout(() => {
@@ -1324,7 +1324,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { results, checked: have, not_checked: ids.filter((id) => !have.includes(id)), recovered: [] });
       }, 300 / speed));
     },
-    async upgrade(track_ids: string[], way: 'same_track' | 'new_track' | 'discard') {
+    async upgrade(track_ids: string[], way: 'same_track' | 'new_track' | 'discard', _plan_id?: string | null, _expect?: string | null) {
       const ids = listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
       if (!['same_track', 'new_track', 'discard'].includes(way)) return fail('refused', 'Pick Same track, New track or discard.');
@@ -1636,7 +1636,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             const kind = record?.kind ?? (tracks.some((x) => ['converted', 'renamed'].includes(x.check!.reason)) ? 'convert' : 'upgrade');
             const from_sync = started_by === 'auto_upgrade' || started_by === 'download_again';   // views.SYNC_STARTERS
             const w = batchWords(tracks.map((x) => x.check!), kind, from_sync, started, s.now);
-            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${w.how}`,
+            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, rev: null, detail: `${started ?? ''} · ${w.how}`,
               batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, from_sync, kind, tracks,
                 row_name: w.row_name, row_sub: w.row_sub, list_title: w.list_title, card_summary: w.card_summary,
                 placed_summary: w.placed_summary } });

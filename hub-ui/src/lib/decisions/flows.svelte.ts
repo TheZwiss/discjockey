@@ -56,13 +56,14 @@ export class UpgradeFlow {
   }
   /** Replace with lossless (swap / add_new) or Discard (spec §6.6). A replace needs no confirm: it can be undone until
    *  Done (the hint under it says so); Discard deletes the new version, so it asks. "changed": runJob shows "This
-   *  track changed in the meantime."; the finished job re-fetches the page. */
-  async upgrade(track_id: string, mode: Way | 'discard'): Promise<void> {
+   *  track changed in the meantime."; the finished job re-fetches the page. `rev`: the one the card was read with: the
+   *  write is refused `changed` when the song's record is not at that rev any more. */
+  async upgrade(track_id: string, mode: Way | 'discard', rev: string | null = null): Promise<void> {
     if (mode === 'discard' && !(await confirm({ title: 'Throw away the new version?',
       body: 'Your current file stays. This version is not offered again.', confirmLabel: 'Discard', tone: 'danger' }))) return;
     this.busy = mode;
     this.#onact?.();
-    await runJob(api.upgrade([track_id], BRIDGE_MODE[mode]));
+    await runJob(api.upgrade([track_id], BRIDGE_MODE[mode], null, rev));
     this.busy = null;
   }
   /** "Done, checked in rekordbox". */
@@ -379,7 +380,9 @@ export class UpgradeBatchFlow {
     if (mode === 'discard' && !(await confirm(discardConfirm(items.length)))) return;
     const ids = items.map((i) => i.track_id);
     this.know(items.map((i) => [i.track_id, name(i)]));
-    const call = () => mode === 'swap' && all ? api.upgrade_all() : api.upgrade(ids, BRIDGE_MODE[mode]);
+    // a rev is the check of one song's record: only a one-song list sends it
+    const call = () => mode === 'swap' && all ? api.upgrade_all()
+      : ids.length === 1 ? api.upgrade(ids, BRIDGE_MODE[mode], null, items[0].rev) : api.upgrade(ids, BRIDGE_MODE[mode], null);
     await this.#run(mode, ids, items.map((i) => runRow(i, name(i))), call);
   }
   /** Resume · k left: the stopped batch's planned tracks (their rows come with its progress). */

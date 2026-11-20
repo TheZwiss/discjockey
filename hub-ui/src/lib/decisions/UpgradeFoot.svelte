@@ -8,13 +8,13 @@
   import { AUTO_WAITS_HINT, autoNotes, replaceLabel, type Way } from './decisionModel';
   import type { UpgradeFlow } from './flows.svelte';
 
-  let { track_id, upgrade, way, flow }: { track_id: string; upgrade: Upgrade; way: Way; flow: UpgradeFlow } = $props();
+  let { track_id, rev, upgrade, way, flow }: { track_id: string; rev: string | null; upgrade: Upgrade; way: Way; flow: UpgradeFlow } = $props();
 </script>
 
 <WriteButton variant="filled" wide busy={flow.busy === way} disabled={flow.busy !== null && flow.busy !== way}
-  onclick={() => flow.upgrade(track_id, way)} data-test="upgrade-replace" data-mode={way}>{replaceLabel(upgrade)}</WriteButton>
+  onclick={() => flow.upgrade(track_id, way, rev)} data-test="upgrade-replace" data-mode={way}>{replaceLabel(upgrade)}</WriteButton>
 <WriteButton wide busy={flow.busy === 'discard'} disabled={flow.busy !== null && flow.busy !== 'discard'}
-  onclick={() => flow.upgrade(track_id, 'discard')} title="Deletes the new version; it isn't offered again"
+  onclick={() => flow.upgrade(track_id, 'discard', rev)} title="Deletes the new version; it isn't offered again"
   data-test="upgrade-discard">Discard the new version</WriteButton>
 <div class="centered">
   {#if autoNotes(upgrade).waits}<Hint text={AUTO_WAITS_HINT} wrap data-test="auto-waits" />{/if}

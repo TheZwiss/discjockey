@@ -5,7 +5,7 @@ take is a usage error, never ignored. `route` decides whether a line belongs to 
 `legacy.py`, which keep their words until their replacements are built. The command line's own words (`help`, `where`,
 `app open`, `call`) are parsed here too but run no entry.
 
-Not offered in phase 1: `--sandbox`, `--if-rev`, `--if-version`; `--jsonl`, `--wait`, `--detach` and `--wait-busy` are
+Not offered in phase 1: `--sandbox`, `--if-version`; `--jsonl`, `--wait`, `--detach` and `--wait-busy` are
 read here; only job commands take them, a command that answers at once refuses them (`call.refuse_job_flags`)."""
 from __future__ import annotations
 

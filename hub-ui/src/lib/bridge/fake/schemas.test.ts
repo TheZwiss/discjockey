@@ -108,6 +108,7 @@ describe('the schema checker', () => {
     track_id: 't1', artist: 'A', title: 'T', folder: 'House', duration_s: 268, status: 'lossless', quality: 'lossless',
     quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false,
     hidden: false, upgrade_ready: false, path: null, added: '2026-10-13T22:15:00', cover_url: null,
+    rev: '0123456789',
   };
   it('accepts a TrackRow and fails a broken one', () => {
     expect(problems('TrackRow', row)).toBe('');

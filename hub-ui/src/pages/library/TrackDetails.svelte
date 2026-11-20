@@ -172,7 +172,7 @@
 
 {#snippet foot()}
   {#if action === 'upgrade' && t?.upgrade}
-    <UpgradeFoot track_id={t.track_id} upgrade={t.upgrade} {way} flow={upFlow} />
+    <UpgradeFoot track_id={t.track_id} rev={t.rev} upgrade={t.upgrade} {way} flow={upFlow} />
   {:else if action === 'check' && check}
     <CheckFoot item={check} flow={upFlow} />
   {:else if action === 'duplicate' && dup}

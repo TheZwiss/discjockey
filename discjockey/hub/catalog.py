@@ -465,7 +465,7 @@ def generated_arg(name: str, parameter: inspect.Parameter) -> Arg:
         return Arg(positional=True, type="list", many=True, resolve=resolve)
     if parameter.default is inspect.Parameter.empty:
         return Arg(positional=True, type=type_, resolve=resolve)
-    word = name[:-3] if name.endswith("_id") and len(name) > 3 else name
+    word = "if-rev" if name == "expect" else name[:-3] if name.endswith("_id") and len(name) > 3 else name
     return Arg(flag="--" + word.replace("_", "-"), type=type_, resolve=resolve)
 
 

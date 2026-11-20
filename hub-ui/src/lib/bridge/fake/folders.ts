@@ -5,7 +5,7 @@ import type {
   DuplicateItem, Fail, FileSide, ImportFolderCheck, ImportFolderProblem, ImportPhase, ImportResult, JobStart,
   QuestionItem, QuestionWhy, RemovalPreview, Result, TrackRow, WatchedFolderRow, WatchedFolders,
 } from '../types';
-import { FAKE_MUSIC, pathOf, type FakeDuplicate, type FakeFolder, type FakeQuestion, type FakeState, type FakeTrack } from './data';
+import { FAKE_MUSIC, pathOf, recordRev, type FakeDuplicate, type FakeFolder, type FakeQuestion, type FakeState, type FakeTrack } from './data';
 import { ownSongs } from './own';
 import type { FakeContext, Finish } from './bridge';
 import { toneUrl } from './audio';
@@ -111,12 +111,13 @@ const row = (id: string, artist: string, title: string, folder: string, duration
   track_id: id, artist, title, folder, duration_s, status: side?.quality === 'lossless' ? 'lossless' : side ? 'not_lossless' : 'missing',
   quality: side?.quality ?? 'missing', quality_label: side?.quality_label ?? 'NOT FOUND', cutoff_hz: null, source: null,
   source_name: null, in_playlists: inPlaylists, own, hidden: false, upgrade_ready: false, path: side?.path ?? null, added: null,
-  cover_url: null });
+  cover_url: null, rev: null });  // a question's or a duplicate group's row: its rev is the song's, set below
 const byName = (a: TrackRow, b: TrackRow) => `${a.folder}\u0000${a.artist}\u0000${a.title}`
   .localeCompare(`${b.folder}\u0000${b.artist}\u0000${b.title}`);
 export function questionItems(s: FakeState): QuestionItem[] {
   return s.imp.questions.map((q): QuestionItem => ({
     ...row(q.song_key, q.track.artist, q.track.title, q.track.folder, q.track.duration_s, null, true),
+    rev: recordRev('missing', null, null),
     group: 'same_song', detail: QUESTION_WORDS(q.why, q.delta_s), free: false, file_state: q.file.online ? 'here' : 'offline',
     pair: { song_key: q.song_key, own_key: q.own_key, why: q.why, delta_s: q.delta_s, track: { ...q.track },
       file: { ...q.file } } })).sort(byName);

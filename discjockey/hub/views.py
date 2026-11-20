@@ -23,7 +23,7 @@ from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold, search_fold
 from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
                       AiffBatchRow, BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
-                      PlaylistRecord, Question, WatchedFolder, file_missing, is_own, split_token, track_link as key_link)
+                      PlaylistRecord, Question, WatchedFolder, file_missing, is_own, rev as record_rev, split_token, track_link as key_link)
 from ..pacing import KEEP_SIGNALS, Budget
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
@@ -541,7 +541,7 @@ def track_row(track_id: str, e: dict, cover: Url | None = None) -> dict:
             "source_name": (SHORT_OWN if is_own_file(e) else SHORT_SOURCE.get(source)) if source else None,
             "in_playlists": bool(e.get("in_playlists")), "own": is_own_file(e), "hidden": bool(e.get("hidden")),
             "upgrade_ready": bool(e.get("upgrade")), "path": e.get("path"), "added": added,
-            "cover_url": cover(track_id, e) if cover else None}
+            "cover_url": cover(track_id, e) if cover else None, "rev": record_rev(e)}
 
 
 def cue_text(alignment: dict | None, can_swap: bool = True) -> str:
@@ -1150,7 +1150,7 @@ def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, wit
                 # the song's own length, else the one the playlist gives
                 "duration_ms": (e or {}).get("duration_ms") or t.duration_ms,
                 "status": "missing", "path": None, "source": None, "cutoff_hz": None, "upgrade": None}
-        rows.append({**track_row(k, base, cover), "sound_checked": True, "file_state": "no_file",
+        rows.append({**track_row(k, base, cover), "rev": None, "sound_checked": True, "file_state": "no_file",
                      "in_missing_files": False,
                      "wait": "not_found" if e is not None and _group(e) == "not_found" else "waiting",
                      # when a song nothing usable was found for is looked for again (To-do's next-try line)
@@ -1750,7 +1750,7 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
            "cutoff_hz": (e or {}).get("cutoff_hz"), "source": None, "source_name": None,
            "in_playlists": any(s["in_playlist"] for s in sides), "hidden": False, "upgrade_ready": False, "path": first["path"],
            "added": None, "cover_url": cover(first["song_key"], {"path": first["path"]}) if cover and first["song_key"]
-           else None}
+           else None, "rev": None}  # a group of files, not one record
     n = len(sides)
     keep, why = recommend(files)
     return {**row, "group": "duplicate", "file_state": "here", "detail": (DUPLICATE_AUDIO if g.why == "same_audio" else DUPLICATE_SONG).format(n=n),
@@ -1880,7 +1880,7 @@ def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None
     how = _batch_how(started_by, kind, tracks)
     placed = _placed(tracks)
     day = _day_words(started, today)
-    return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
+    return {**tracks[0], "track_id": key, "key": key, "rev": None, "group": "rekordbox_check",  # a batch has no record
             "detail": f"{started or ''} · {how}".strip(" ·"),
             "batch": {"id": batch_id, "aiff_id": f"aiff:{batch_id}", "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
                       "from_sync": started_by in SYNC_STARTERS, "tracks": tracks,

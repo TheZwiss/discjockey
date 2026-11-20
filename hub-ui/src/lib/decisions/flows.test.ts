@@ -65,7 +65,7 @@ describe('UpgradeBatchFlow', () => {
     const items = await ready();
     const flow = new UpgradeBatchFlow();
     flow.know(items.map((i) => [i.track_id, name(i)]));
-    const start = await f.upgrade(items.map((i) => i.track_id), 'same_track');
+    const start = await f.upgrade(items.map((i) => i.track_id), 'same_track', null);
     const job_id = (start as { job_id: string }).job_id;
     const last = { batch_id: 1, done: 1, total: items.length, track_id: items[1].track_id, name: `${items[1].artist} - ${items[1].title}` };
     // a job for one track (track_id set) is that track's own panel's; a sync is no batch; neither is adopted
@@ -225,7 +225,7 @@ describe('ChecksFlow', () => {
   async function withChecks() {
     const env = setup();
     const items = (await env.ready()).slice(0, 2);
-    const done = await env.f.upgrade(items.map((i) => i.track_id), 'same_track');
+    const done = await env.f.upgrade(items.map((i) => i.track_id), 'same_track', null);
     await waitForJob((done as { job_id: string }).job_id);
     const checks = (await env.group('rekordbox_check'))!.items.flatMap((i) => (i as any).batch?.tracks ?? [i]) as TodoItem[];
     return { ...env, checks };
@@ -494,7 +494,7 @@ describe('a resumed batch is followed by its batch kind after a reload', () => {
     let id: string;
     if (scenario === 'upgrade-multi') {
       const ids = (await ready()).map((i) => i.track_id).slice(0, 3);
-      const start = (await f.upgrade(ids, 'same_track')) as { job_id: string };
+      const start = (await f.upgrade(ids, 'same_track', null)) as { job_id: string };
       let progressed = false;
       const off = onEvent((e) => { if (e.type === 'BatchProgress') progressed = true; });
       await until(() => progressed);
@@ -592,12 +592,28 @@ describe('UpgradeFlow', () => {
     const [a, b] = await ready();
     const spy = vi.spyOn(api, 'upgrade');
     await new UpgradeFlow().upgrade(a.track_id, 'swap');
-    expect(spy).toHaveBeenLastCalledWith([a.track_id], 'same_track');
+    expect(spy).toHaveBeenLastCalledWith([a.track_id], 'same_track', null, null);
     expect(get(toasts)).toMatchObject([{ tone: 'success' }]);
     toasts.clear();
     await new UpgradeFlow().upgrade(b.track_id, 'add_new');
-    expect(spy).toHaveBeenLastCalledWith([b.track_id], 'new_track');
+    expect(spy).toHaveBeenLastCalledWith([b.track_id], 'new_track', null, null);
     expect(get(toasts)).toMatchObject([{ tone: 'success' }]);
+  });
+});
+
+describe('the writes send the rev of the row they act on', () => {
+  it("a one-track upgrade's arguments are exactly [[id], mode, null, rev]; a two-track one sends no rev", async () => {
+    const { ready } = setup();
+    const [a, b] = await ready();
+    expect(a.rev).toMatch(/^[0-9a-f]{10}$/);
+    const spy = vi.spyOn(api, 'upgrade');
+    await new UpgradeFlow().upgrade(a.track_id, 'swap', a.rev);
+    expect(spy.mock.lastCall).toEqual([[a.track_id], 'same_track', null, a.rev]);
+    spy.mockResolvedValue({ ok: false, kind: 'refused', message: 'Not now.' } as never);  // the batch flow's own run is not under test
+    await new UpgradeBatchFlow().start('swap', [b], false, name);
+    expect(spy.mock.lastCall).toEqual([[b.track_id], 'same_track', null, b.rev]);
+    await new UpgradeBatchFlow().start('swap', [a, b], false, name);
+    expect(spy.mock.lastCall).toEqual([[a.track_id, b.track_id], 'same_track', null]);
   });
 });
 

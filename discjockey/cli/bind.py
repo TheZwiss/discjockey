@@ -1,7 +1,6 @@
 """The headless `HubApi` (issue 39, design §8.1): the same engine the window uses, bound without a window. Nothing
 starts: no console watch, no playlists watch, no drives watch, no media server. No music folder is not an error here:
-a method that needs one answers `refused` / `no_library` (`LIBRARY_METHODS`). A write acts on the record as it is now
-(`remember=False`): no page showed the person anything to check against."""
+a method that needs one answers `refused` / `no_library` (`LIBRARY_METHODS`)."""
 from __future__ import annotations
 
 import os
@@ -22,7 +21,7 @@ def headless(resolved: library.Resolved, *, events=None, job: JobFiles | None = 
     """`events`: where the engine's events go (a job worker's writer of `events.jsonl`); none for a short command.
     `job`: the job folder of a worker process: its `Jobs` runs inline, as that one job (`Jobs.adopt`), and leaves the
     Mac's staying awake to the worker's `caffeinate`."""
-    api = CliApi(resolved.support, events=events, remember=False)
+    api = CliApi(resolved.support, events=events)
     if job is not None:
         api._jobs.adopt(job)
         api._jobs.keep_awake = lambda reason: nullcontext()
