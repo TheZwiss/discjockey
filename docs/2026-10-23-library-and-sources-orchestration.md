@@ -1157,6 +1157,11 @@ Results:
         default_how_many leaves ticks as they were (Start still filters by scope); live view pickedOf (last_sync +
         one sync_preview): check it computes no state. Merged 58e5820a, pushed. V2.3 total 282 + 155 = 437k.
         Later briefs got "Landed in V2.3". V2.6 dispatched (cli2-15, exp. 215k).
+      - V2.6 done (Sonnet): logged 244k (exp. 215k, 1.13x), 95 calls, cache 15.7M, fresh in 230k, out 85k, advisor 0k.
+        Commits 69841703 + b22a029d (WRITE_SITES); pytest 6366/4 skipped, timing set 5x, test_pacing_processes 5x.
+        7 deliberate deviations + notes appended to review-V2.6.md; the bug it saw (Cancelled inside the Qobuz
+        worker's except Exception, latent) DECIDED as a finding for the V2.6 fix round. Merged 66635561, pushed.
+        Review V2.6 (Sonnet) dispatched: BASE 58e5820a, HEAD 66635561, diff 29k tokens, exp. ~150k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
