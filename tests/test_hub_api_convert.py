@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import threading
 from datetime import datetime
-from pathlib import Path
 
 import pytest
 
@@ -415,7 +414,7 @@ def test_a_stopped_convert_batch_resumes_through_the_hub_with_the_batch_result_a
     started = [e for e in rec.events if type(e).__name__ == "JobStarted" and e.kind == "batch_resume"]
     assert [e.batch_kind for e in started] == ["convert"]               # the live event says it too (A10)
     done = wait_job(api, rec, answer)
-    assert done.ok and set(done.result) == keys("batch_result") and set(done.result["results"][0]) == keys("item_result")
+    assert done.ok
     assert (done.result["batch"], done.result["state"], done.result["done"]) == (f.result["batch"], "done", 3)
     assert api.job_status()["job"]["kind"] == "batch_resume" and api.job_status()["job"]["batch_kind"] == "convert"
     assert batch_row(lib, f.result["batch"]).state == "done"
@@ -482,49 +481,12 @@ def test_one_song_alone_that_meets_an_open_rekordbox_leaves_no_resume(hub):
     assert api.batch_resume(f.result["batch"])["kind"] == "refused"
 
 
-# --- the shapes, pinned against the fixture the fake backend's test reads too ---
-
-SHAPES = json.loads((Path(__file__).parent / "fixtures" / "hub_convert_shapes.json").read_text())
+# --- the shapes are pinned by discjockey/hub/shapes/ (tests/test_hub_shapes.py and the suite's test mode) ---
 
 
-def keys(name):
-    return set(SHAPES[name])
-
-
-def test_every_shape_stage_d_adds_has_the_fixtures_keys(hub):
-    lib, box, api, rec = hub()
-    set_kbps(lib, 0, 400)
-    (lib.paths.root / lib.olds[1]).unlink()                   # a song whose file is gone: it waits
-    aiff = api.track(lib.tracks[0])["track"]["aiff"]
-    assert set(aiff) == keys("track_aiff") and set(aiff["cdj"]) == keys("cdj_words")
-    plan = api.aiff_plan({"kind": "tracks", "tracks": [lib.tracks[0], lib.tracks[1], lib.tracks[4]]})["plan"]
-    assert set(plan) == keys("plan") and set(plan["rekordbox"]) == keys("plan_rekordbox")
-    assert set(plan["items"][0]) == keys("plan_item") and set(plan["items"][0]["cdj"]) == keys("cdj_words")
-    assert set(plan["skipped"][0]) == keys("plan_left") and set(plan["waiting"][0]) == keys("plan_waiting")
-    assert set(plan["kinds"][0]) == keys("plan_kind") and set(plan["space"][0]) == keys("plan_space")
-    cdj = cdj_group(api)
-    assert set(cdj["all"]) == keys("cdj_group_all")
-    assert set(cdj["items"][0]) >= keys("cdj_item_extra") and set(cdj["items"][0]["cdj"]) == keys("cdj_why")
-    f = wait_job(api, rec, api.convert([lib.tracks[0], lib.tracks[2]]))
-    assert set(f.result) == keys("batch_result") and set(f.result["results"][0]) == keys("item_result")
-    item = group(api, "rekordbox_check")["items"][0]
-    assert set(item["batch"]) == keys("batch") and set(item["batch"]["tracks"][0]["check"]) == keys("check_view")
-    assert set(wait_job(api, rec, api.batch_undo(f.result["batch"])).result) == keys("undo_result_success")
-
-
-def test_the_answers_the_command_line_reads_have_the_fixtures_keys_the_fake_carries_too(hub):
-    """Every key an ok answer always carries is in types.ts and in the fake (hub-ui fake/convert.test.ts reads the same
-    fixture): `rekordbox_status`, `set_auto_upgrade`'s result and `track().cutoff_text`."""
-    lib, box, api, rec = hub(["mp3"])
-    assert set(api.rekordbox_status()) - {"ok", "writing", "as_of"} == keys("rekordbox_status")
-    f = wait_job(api, rec, api.set_auto_upgrade(False))
-    assert f.ok and set(f.result) == keys("set_auto_upgrade_result")
-    assert "cutoff_text" in api.track(lib.tracks[0])["track"]
-
-
-def test_a_stopped_batch_has_the_fixtures_keys_in_the_library_and_in_to_do(tmp_path, monkeypatch):
+def test_a_stopped_make_aiff_batch_is_the_librarys_stopped_batch(tmp_path, monkeypatch):
     lib = make_own_lib(tmp_path, monkeypatch, ["mp3", "clean"])
     box = Box(lib, running=True)
     api, rec = make_api(lib.paths, **box.services())
     assert not wait_job(api, rec, api.make_aiff({"kind": "lossless", "view": "all"})).ok
-    assert set(api.library()["aiff_stopped"]) == keys("stopped")
+    assert api.library()["aiff_stopped"] is not None

@@ -774,3 +774,75 @@ def test_a_limits_answer_fits_its_shape_for_every_service(read_hub):
     for service in ("youtube", "soundcloud"):
         assert fits("limits", api.limits(service))["usage"] is None  # not set up: only the cards
     fits("limits_what_if", api.limits_what_if("qobuz", 90, 20))
+
+
+# --- setup, settings, watched folders, tidy-up and the AIFF plan (E7d): a fixture answer fits its shape ---
+
+def test_a_setup_status_answer_fits_its_shape_with_accounts_and_a_check(tmp_path, monkeypatch):
+    from discjockey.hub import shapes
+    from discjockey.settings import Account, Settings, save_settings
+    from hub_helpers import fake_spotify, make_api, make_root
+
+    fake_spotify(monkeypatch)
+    root = make_root(tmp_path)
+    checked = {"ok": False, "problem": "no_premium", "kbps": 128, "at": "2026-10-22T10:00:00"}
+    save_settings(root.settings_file, Settings(
+        accounts={"youtube": Account("chrome", 30, profile="Profile 2", last_check=checked)}, import_skipped=True))
+    api, _ = make_api(root)
+    out = fits("setup_status", api.setup_status())
+    assert out["accounts"]["youtube"]["last_check"] == checked and out["accounts"]["soundcloud"] is None
+    assert (out["import_skipped"], out["existing"], out["music"]["state"]) == (True, True, "ok")
+    assert shapes.validate({k: v for k, v in out.items() if k != "qobuz_last_check"}, "SetupStatus")  # a key is gone
+
+
+def test_a_watched_folders_answer_fits_its_shape_with_an_import_folder_and_an_unreadable_file(tmp_path, monkeypatch):
+    from discjockey import db, importer
+    from test_hub_api_music import watched
+
+    paths, folder, api, rec = watched(tmp_path, monkeypatch)
+    with db.connect(paths.db_file) as conn:
+        fid = conn.execute("SELECT id FROM files WHERE import_state = 'done' ORDER BY id").fetchone()[0]
+        db.set_unreadable(conn, fid, importer.NO_ACCESS)
+    out = fits("watched_folders", api.watched_folders())
+    assert [f["kind"] for f in out["folders"]] == ["library", "import"] and len(out["unreadable"]) == 1
+    fits("check_import_folder", api.check_import_folder(str(folder)))
+    fits("removal_preview", api.removal_preview(out["folders"][1]["id"]))
+
+
+def test_a_tidy_preview_answer_fits_its_shape_with_a_file_out_of_place(tmp_path, monkeypatch):
+    from hub_helpers import TRACKS, fake_spotify, make_api, make_root
+    from test_hub_api_tidy import place_t2_elsewhere
+
+    fake_spotify(monkeypatch, TRACKS)
+    root = make_root(tmp_path)
+    place_t2_elsewhere(root)
+    api, _ = make_api(root)
+    out = fits("tidy_preview", api.tidy_preview())
+    assert [r["track_id"] for r in out["rows"]] == ["t2"] and out["rows"][0]["skip"] is None
+    assert fits("move_batches", api.move_batches()) == {"batches": [], "total": 0}
+
+
+def test_an_aiff_plan_answer_fits_its_shape_in_every_kind_of_scope(tmp_path, monkeypatch):
+    from batch_helpers import make_own_lib
+    from hub_helpers import make_api
+
+    lib = make_own_lib(tmp_path, monkeypatch, ["mp3", "clean"])
+    api, _ = make_api(lib.paths)
+    everything = fits("aiff_plan", api.aiff_plan({"kind": "lossless", "view": "all"}))["plan"]
+    assert everything["scope"]["label"] and everything["total"] == len(everything["items"])
+    chosen = fits("aiff_plan", api.aiff_plan({"kind": "tracks", "tracks": lib.tracks}))["plan"]
+    assert chosen["scope"]["kind"] == "tracks" and chosen["scope"]["tracks"] == lib.tracks
+    assert fits("aiff_plan", api.aiff_plan({"kind": "cdj"}))["plan"]["scope"] == {"kind": "cdj", "label": "Won't play well on CDJs"}
+
+
+def test_a_downloads_view_answer_fits_its_shape_with_an_account_and_a_check(tmp_path, monkeypatch):
+    from discjockey.settings import Account, Settings, save_settings
+    from hub_helpers import fake_spotify, make_api, make_root
+
+    fake_spotify(monkeypatch)
+    root = make_root(tmp_path)
+    save_settings(root.settings_file, Settings(accounts={"soundcloud": Account(
+        "chrome", 30, profile="Profile 2", last_check={"ok": True, "problem": None, "kbps": 256, "at": "2026-10-22T10:00:00"})}))
+    api, _ = make_api(root)
+    out = fits("downloads_view", api.downloads_view())["downloads"]
+    assert out["soundcloud"]["last_check"]["kbps"] == 256 and out["youtube"]["browser"] is None

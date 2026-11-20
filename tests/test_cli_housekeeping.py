@@ -62,12 +62,12 @@ def test_a_command_with_a_mapped_shape_names_it_and_help_of_it_carries_the_schem
 
 
 def test_help_of_one_command_has_null_schemas_while_none_is_mapped(capsys):
-    code, env = run_json(["help", "rekordbox", "status"], capsys)
+    code, env = run_json(["help", "rekordbox", "backups"], capsys)
     row = env["data"]["commands"][0]
     assert code == 0 and (row["schema"], row["data_schema"], row["dry_run_schema"]) == (None, None, None)
     code, env = run_json(["help", "where"], capsys)
     assert env["data"]["commands"][0]["data_schema"] is None
-    code = cli.main(["help", "rekordbox", "status"])  # the text page shows no schema
+    code = cli.main(["help", "rekordbox", "backups"])  # the text page shows no schema
     assert code == 0 and "schema" not in capsys.readouterr().out
 
 

@@ -368,6 +368,7 @@ def test_a_batch_the_window_starts_says_window(lib):
         ("window", "user"), ("window", "upgrade_all")]
 
 
+@pytest.mark.shapes_unchecked  # the stub work under the real kind `aiff_batch` answers {}
 def test_a_convert_selection_is_selection_from_a_command_and_origin_selection_from_the_window(lib, monkeypatch):
     import hub_helpers
     found = lib(["mp3"])

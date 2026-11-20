@@ -852,7 +852,7 @@ export function setupComplete(): SetupStatus {
   return { music: { state: 'ok', path: FAKE_MUSIC, suggested: FAKE_MUSIC }, tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
     playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false,
     spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
-    accounts: { youtube: null, soundcloud: null },
+    qobuz_last_check: null, spotify_user: null, accounts: { youtube: null, soundcloud: null },
     youtube_music: { liked_music: false, can_turn_on: false, listed: false }, auto_upgrade: true };
 }
 export function nextStep(s: SetupStatus): SetupStatus {
