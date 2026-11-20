@@ -201,7 +201,10 @@ export type TrackRow = {
  * `events.Result`.
  */
 export type Result = {
-  /** The report section the line belongs to (`report.SECTIONS`). */
+  /**
+   * The report section the line belongs to (`report.SECTIONS`). `moved`, `adopted` and `conflicts` are no
+   * longer written by new runs; they stay in the list because past runs' reports have them.
+   */
   section: string;
   /** The playlist folder. */
   folder: string;
@@ -1024,7 +1027,7 @@ export type OpResult = {
   /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
   recovered: [string, boolean][];
 };
-/** The result of `never_download`. */
+/** The result of `never_download`: it saves `state.never` and rewrites not_lossless.md. */
 export type NeverDownloadResult = {
   /** The song's key. */
   track_id: string;
@@ -1124,7 +1127,10 @@ export type CheckedResult = {
   not_checked: string[];
   /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
   recovered: [string, boolean][];
-  /** Only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`). */
+  /**
+   * Only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`); a batch whose tracks
+   * were all checked already is a finished job with nothing in it.
+   */
   batch?: number;
   /**
    * Only with `batch`: the songs of the batch whose check a later batch took, each with that batch's id
@@ -1528,7 +1534,11 @@ export type ReadStatus = {
   problem: ProblemKind | null;
   /** The problem in words; empty when there is none. */
   message: string;
-  /** The playlist service `problem` is about; null when no service's problem (a good read clears it). */
+  /**
+   * The playlist service `problem` is about; null when no service's problem. A good read clears it, and so
+   * does a login made for that service (a good Setup or Settings login, or a good Check again): the page never
+   * waits for a restart.
+   */
   problem_service: PlaylistService | null;
   /** The services the switched-on lines of playlists.txt use, in line order. */
   services: ReadStatusService[];
@@ -1589,7 +1599,7 @@ export type RunSummary = {
   finished: string | null;
   /** How long it ran, in seconds; null when start or finish is not known. */
   duration_s: number | null;
-  /** How it ended: 0 well, 130 stopped. */
+  /** How it ended: 0 well, 1 some failed, 130 stopped. */
   exit_code: number;
   /** What it did. */
   counts: RunCounts;
@@ -3305,7 +3315,11 @@ export type SkippedMove = {
   to: string;
   /** The code. */
   reason: string;
-  /** The plain words. */
+  /**
+   * The plain words: those of `tidy_preview`'s and `undo_preview`'s `skip`, plus `changed` "Changed since the
+   * list was shown", `failed` "Couldn't move it: {why}" and `stopped` "Not moved: the moves were stopped
+   * first".
+   */
   text: string;
 };
 /**
@@ -3317,9 +3331,12 @@ export type BatchResult = {
   batch_id: number | null;
   /** The batch's title. */
   title: string;
-  /** How many files moved. */
+  /** How many files moved (a folder rename counts the files it carried). */
   moved: number;
-  /** The sentence to show. */
+  /**
+   * The sentence to show: "Moved {n} files." / "Moved 1 file." (an undo: "... back."), plus " {k} not moved:"
+   * when some were skipped.
+   */
   headline: string;
   /** The moves not made. */
   skipped: SkippedMove[];
@@ -3685,4 +3702,262 @@ export type AiffPlan = {
 export type AiffPlanAnswer = {
   /** The plan. */
   plan: AiffPlan;
+};
+/** A one-time extra for one day (settings.json `extra_today`). */
+export type ExtraDay = {
+  /** The day, an ISO date. */
+  date: string;
+  /** How many extra downloads that day. */
+  amount: number;
+};
+/** A YouTube or SoundCloud login that is set up. */
+export type SettingsAccount = {
+  /** The browser the login is read from. */
+  browser: Browser;
+  /** The browser's name. */
+  browser_name: string;
+  /** The browser profile's folder; null: the default one. */
+  profile: string | null;
+  /** The profile's display name; null for the default profile. */
+  profile_name: string | null;
+  /** How many downloads a day the account may make. */
+  daily_limit: number;
+  /** The one-time extra, null when none is set. */
+  extra: ExtraDay | null;
+  /** The last login check; null when never checked since it was saved. */
+  last_check: LastCheck | null;
+  /** A free YouTube login: used only for Liked music. */
+  liked_only: boolean;
+};
+/** The page's names of the two switches. */
+export type SettingsLabels = {
+  /** The Auto-upgrade switch's name. */
+  auto_upgrade: string;
+  /** The Liked music switch's name. */
+  read_liked_music: string;
+};
+/**
+ * `settings show`: what Settings holds, in the window's words where it has them. It needs no music folder (the
+ * settings file is the support folder's). A file that cannot be read is `config_invalid`.
+ */
+export type SettingsView = {
+  /** The chosen music folder; null when none is chosen yet. */
+  music_folder: string | null;
+  /** "Upgrade automatically when I sync". */
+  auto_upgrade: boolean;
+  /** The Liked music switch as the page shows it (on only with a YouTube login). */
+  read_liked_music: boolean;
+  /** How many downloads a day Qobuz may make. */
+  daily_qobuz_limit: number;
+  /** "I don't have Qobuz" was chosen. */
+  qobuz_skipped: boolean;
+  /** "I don't use Spotify" was chosen. */
+  spotify_skipped: boolean;
+  /** Skip was pressed on "Your existing music". */
+  import_skipped: boolean;
+  /** The last Qobuz login check, null when none. */
+  qobuz_last_check: LastCheck | null;
+  /** Qobuz's one-time extra, null when none is set. */
+  extra: ExtraDay | null;
+  /** Per service, the time its warning signs were last seen ("Got it"), an ISO time. */
+  warnings_seen: Record<string, string>;
+  /** The YouTube and SoundCloud logins that are set up, by service; a service without one is absent. */
+  accounts: Record<string, SettingsAccount>;
+  /** The page's names of the two switches. */
+  labels: SettingsLabels;
+};
+/** One copy of rekordbox's library Discjockey made. */
+export type RekordboxBackup = {
+  /** The name `rekordbox restore` takes. */
+  id: string;
+  /** When it was made, an ISO time; empty when the copy does not say. */
+  created: string;
+  /** The AIFF batches (ids) that wrote under it. */
+  batches: number[];
+  /** How many tracks' analysis files it holds. */
+  tracks: number;
+  /** Its size in bytes. */
+  size: number;
+};
+/**
+ * The copies of rekordbox's library Discjockey made, newest first (each batch that wrote rekordbox keeps one;
+ * a restore saves the library it replaced as one). Reads only the backups' own folders: rekordbox's library is
+ * never opened.
+ */
+export type RekordboxBackups = {
+  /** The copies, newest first. */
+  backups: RekordboxBackup[];
+};
+/** A track that would point (or now points) at a file that is not there. */
+export type RestoredTrack = {
+  /** The track's id in rekordbox's library. */
+  id: string;
+  /** What the track points at after the restore. */
+  path: string;
+  /** What it pointed at before. */
+  was: string;
+};
+/** rekordbox's state for a restore preview. */
+export type RestorePreviewRekordbox = {
+  /** Whether rekordbox is open. */
+  running: boolean;
+  /** A restore only runs with rekordbox quit. */
+  needs_rekordbox_closed: boolean;
+  /** Another Discjockey process is writing rekordbox's library: it was not opened, `missing_after` is null. */
+  writing?: boolean;
+  /** The current library can't be read (it is what a restore can repair): `missing_after` is null. */
+  unreadable?: boolean;
+};
+/** What `rekordbox restore` of a backup would leave behind, before it runs. Nothing is saved or changed. */
+export type RestorePreview = {
+  /** The backup asked for. */
+  backup: string;
+  /** The tracks that would point at a file that is not there; null when that is not known (see `rekordbox`). */
+  missing_after: RestoredTrack[] | null;
+  /** rekordbox's state. */
+  rekordbox: RestorePreviewRekordbox;
+};
+/** The result of `rekordbox_restore`: rekordbox's whole library is back as the backup holds it. */
+export type RestoreResult = {
+  /** The backup put back. */
+  restored: string;
+  /** The id of the backup that holds the library the restore replaced. */
+  saved_current: string;
+  /** The tracks that now point at a file that is not there (Discjockey moved it to `Superseded/` since). */
+  missing_after: RestoredTrack[];
+  /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
+  recovered: [string, boolean][];
+};
+/**
+ * One batch Discjockey made, an AIFF batch (Same track, Convert, Rename) or a move batch (a tidy-up, a save, a
+ * folder rename, an undo); `batches` lists them in one list, newest first.
+ */
+export type BatchRow = {
+  /** The typed id every other command takes: `aiff:12` or `moves:12`. */
+  id: string;
+  /** Which kind of batch. */
+  kind: 'aiff' | 'moves';
+  /** The id inside its kind. */
+  batch: number;
+  /** An AIFF batch's `upgrade`, `convert` or `mixed`; a move batch's title. */
+  what: string;
+  /**
+   * Who started it (an AIFF batch: `user`, `upgrade_all`, `make_aiff`, `cdj_all`, `auto_upgrade`,
+   * `download_again`; a move batch: `tidy`, `save`, `rename`, `undo`).
+   */
+  started_by: string;
+  /** How far it got. */
+  state: 'running' | 'stopped' | 'done';
+  /** Why it stopped; null when it did not (always null for a move batch). */
+  stop_reason: 'stop' | 'rekordbox_open' | 'busy' | 'crash' | null;
+  /** When it started, an ISO time. */
+  started: string;
+  /** When it ended; null while it runs or never did. */
+  ended: string | null;
+  /** How many items it holds. */
+  total: number;
+  /** Items done (for a move batch: the files moved). */
+  done: number;
+  /** Items skipped. */
+  skipped: number;
+  /** Items that failed (always 0 for a move batch). */
+  failed: number;
+  /** Items still planned. */
+  planned: number;
+  /** Items undone (always 0 for a move batch: an undo is a batch of its own). */
+  undone: number;
+  /** The rekordbox backup an AIFF batch made; null for a move batch. */
+  backup: string | null;
+  /** For a move batch the typed id of the batch that undid it; null otherwise. */
+  undone_by: string | null;
+  /** Where it started. */
+  via: 'window' | 'terminal';
+  /**
+   * What was picked for an AIFF batch (`selection`, `library:<view>[:<key>]`, `todo:cdj`, ...); null for a
+   * move batch.
+   */
+  scope: string | null;
+};
+/** The batches Discjockey made, newest first. */
+export type Batches = {
+  /** The newest batches (`--limit`). */
+  batches: BatchRow[];
+  /** How many batches there are of the kinds asked for. */
+  total: number;
+};
+/** One track of an AIFF batch, with its name. */
+export type BatchItem = ItemResult & {
+  /** The song as `Artist - Title`; its key when it is not in the library any more. */
+  name: string;
+};
+/** One move of a move batch as the records keep it. */
+export type BatchMove = {
+  /** Its place in the batch; an undo goes in reverse. */
+  seq: number;
+  /** A file or a folder rename. */
+  kind: 'file' | 'folder';
+  /** The file's or folder's name. */
+  label: string;
+  /** Where it was. */
+  src: string;
+  /** Where it went, or would have gone. */
+  dst: string;
+  /** What became of it. */
+  state: 'planned' | 'done' | 'skipped';
+  /** A skip's reason code. */
+  reason: string | null;
+  /** A skip's own detail (a failure's words). */
+  detail: string | null;
+  /** For a folder move how many files it carried; null otherwise. */
+  files: number | null;
+  /** Why a move that was not made was not, in plain words; null for the others. */
+  text: string | null;
+};
+/** One batch by its typed id: its row as `batches` lists it, and by kind its items or its moves. */
+export type BatchDetail = BatchRow & {
+  /** An AIFF batch's items, one per track. */
+  results?: BatchItem[];
+  /** A move batch's moves, in order. */
+  moves?: BatchMove[];
+};
+/**
+ * What `batch undo` of an AIFF batch would do, before it runs: one item per `done` song, newest first (the
+ * order an undo goes). Whether the files changed since is only known when the undo runs.
+ */
+export type BatchUndoPreview = UndoUpgradePreviewAnswer & {
+  /** The batch, `aiff:<n>`. */
+  batch: string;
+};
+/** The dry run of `library facts`: nothing is stored. */
+export type FactsPreview = {
+  /** How many own files lack stored facts. */
+  total: number;
+};
+/**
+ * The result of `fill_facts` (`library facts`): the audio facts read for the files that had none (codec, rate,
+ * bit depth, bitrate). A second run finds none.
+ */
+export type FactsResult = {
+  /** The files that lacked facts. */
+  total: number;
+  /** The files whose facts were read. */
+  filled: number;
+  /** The files ffprobe found no sound in: marked and left out until they change. */
+  unreadable: number;
+};
+/**
+ * The result of `auto_upgrade_run` (`sync run --auto-upgrade-only`): the sync's last phase alone. A job that
+ * is stopped or crashed carries it too.
+ */
+export type AutoUpgradeRunResult = {
+  /** How it ended: 0 well, 130 stopped, 1 crashed. */
+  exit_code: number;
+  /** The run's report id (`report:<stamp>`); null when no report was written. */
+  report: string | null;
+  /** The phase's block; null when Settings' switch is off and no placement was coming. */
+  auto_upgrade: AutoUpgradeBlock | null;
+  /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
+  recovered: [string, boolean][];
+  /** A run with `--plan`: the songs that are new since the plan, left out. */
+  new_since_plan?: string[];
 };

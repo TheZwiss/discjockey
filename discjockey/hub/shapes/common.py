@@ -121,7 +121,9 @@ class TrackRow(TypedDict):
 class Result(TypedDict):
     """One report line (also `ActionFinished.result`, run sections and op results): the payload copy of
     `events.Result`."""
-    section: Annotated[str, F("The report section the line belongs to (`report.SECTIONS`).")]
+    section: Annotated[str, F("The report section the line belongs to (`report.SECTIONS`). `moved`, `adopted` and "
+                                      "`conflicts` are no longer written by new runs; they stay in the list because "
+                                      "past runs' reports have them.")]
     folder: Annotated[str, F("The playlist folder.")]
     artist: Annotated[str, F("The artist.")]
     title: Annotated[str, F("The title.")]

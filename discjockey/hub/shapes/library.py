@@ -66,7 +66,10 @@ class ReadStatus(TypedDict):
                                              "when it went well.")]
     message: Annotated[str, F("The problem in words; empty when there is none.")]
     problem_service: Annotated[PlaylistService | None, F("The playlist service `problem` is about; null when no "
-                                                         "service's problem (a good read clears it).")]
+                                                         "service's problem. A good read clears it, and so does a "
+                                                         "login made for that service (a good Setup or Settings "
+                                                         "login, or a good Check again): the page never waits for "
+                                                         "a restart.")]
     services: Annotated[list[ReadStatusService], F("The services the switched-on lines of playlists.txt use, in line "
                                                    "order.")]
     stale: Annotated[bool, F("The data shown is older than the playlists file.")]
@@ -112,7 +115,7 @@ class RunSummary(TypedDict):
     started: Annotated[str, F("When the run started, an ISO time.")]
     finished: Annotated[str | None, F("When it finished; null while it never did.")]
     duration_s: Annotated[int | None, F("How long it ran, in seconds; null when start or finish is not known.")]
-    exit_code: Annotated[int, F("How it ended: 0 well, 130 stopped.")]
+    exit_code: Annotated[int, F("How it ended: 0 well, 1 some failed, 130 stopped.")]
     counts: Annotated[RunCounts, F("What it did.")]
     stopped_after: Annotated[int | None, F("For a stopped run: how many songs it had done; null otherwise.")]
     kind: Annotated[Literal["sync", "auto_upgrade_only"], F(
