@@ -1016,6 +1016,18 @@ Results:
         (mostly declarations + doc deletions), jobs/identity ~63k. Review: two Opus halves, briefs in
         .claude/issue39/phase2/review/ (common.md, review-shapes.md, review-jobs.md), ~180k each, run on the main
         checkout at feat/cli-2-foundations. V2.3's share of the planned phase review moves to wave 2's review.
+      - REVIEW half 1 shapes (Opus): logged 216k, 80 calls, cache 10.0M, advisor 0k: 0 Critical, 4 Important (S1 no
+        Fail answer ever validated + bad_args missing in Fail.kind; S2 CLI `data` vs help schema; S3 fake harness
+        counts a refused call as passing; S4 not-ok job results never validated), 7 Minor. Subagents cannot write
+        report files (harness): findings returned as text, saved by me to review/findings-shapes.md.
+      - REVIEW half 2 jobs (Opus): logged 256k, 87 calls, cache 13.4M, advisor 0k: 1 CRITICAL (C1 rev misses
+        source/source_id and the parked version's identity: stale --if-rev passes after use_candidate), 3 Important
+        (I1 queued job counts as holder, two terminal writes refuse each other; I2 watch can report the window's own
+        new job failed; I3 window jobs never `stopping`), 8 Minor; PLANNED V4.7 (login --password-stdin args through
+        public_args), E9 (job_status lacks the terminal job's name on reload). review/findings-jobs.md.
+      - FIX ROUNDS (Sonnet fix-round, sequential, each from the phase branch): FR3 (C1 M1 I1 I2 M3 M4 M8) → FR1 (S1 S4
+        T1 T2 K1-3 D1 D2) → FR4 (I3 M2 M5 M6 M7) → FR2 (S3 S2). Briefs review/FR*.md + fix-common.md. Four, not the
+        planned one: 23 stated findings incl. 1 Critical, split by area so each stays ~150-200k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
