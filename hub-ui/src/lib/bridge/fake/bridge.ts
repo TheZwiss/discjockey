@@ -133,6 +133,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   const speed = opts.speed ?? 1;
   const emitRaw = opts.emit ?? (() => {});
   let nextJob = 1;
+  let nextRead = 1;                            // the stored read ids a refresh names (`read:<n>`, rising)
   const newJobId = (): string => `job:${(nextJob++).toString(16).padStart(8, '0')}`; // the same form the engine's ids have
   let job: JobRecord | null = null;
   let refreshJob: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
@@ -807,7 +808,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         }
         s.read_status = { ...readOk(0), auto_read: s.read_status.auto_read }; s.previewRead = true;
         emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: true, problem: null, message: '',
-          result: { actions: preview().actions }, service: null });
+          result: { actions: preview().actions, read_id: `read:${nextRead++}` }, service: null });
       }, 2500 / speed) };
       return ok({ job_id: id });
     },

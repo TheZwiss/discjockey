@@ -9156,10 +9156,23 @@
           "description": "How many actions the new plan has.",
           "type": "integer",
           "x-shown": true
+        },
+        "read_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The read this stored (`read:<n>`); null when it could not be stored (no library.db yet).",
+          "x-shown": true
         }
       },
       "required": [
-        "actions"
+        "actions",
+        "read_id"
       ],
       "type": "object"
     },
