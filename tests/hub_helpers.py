@@ -64,6 +64,21 @@ def stored(paths):
         return db.stored_tracks(conn), db.stored_infos(conn)
 
 
+def store_sync_read(paths, fetched=(), lines=None, failed=None, when=None):
+    """Stores a sync read in library.db as a real one leaves it (`db.store_read`), without reading any playlist:
+    `fetched` (FetchedPlaylist list) with `lines` (default: their lines), or a failed read, `failed` = (problem kind,
+    service, words), which carries no lines. Returns the stored read's id."""
+    from datetime import datetime
+    from discjockey.models import StoredRead
+    when = when or datetime.now()
+    with db.connect(paths.db_file) as conn:
+        if failed is not None:
+            problem, service, message = failed
+            return db.store_read(conn, StoredRead("sync", when, [], None, [], problem, service, message), None, now=when)
+        lines = lines if lines is not None else [fp.line for fp in fetched]
+        return db.store_read(conn, StoredRead("sync", when, list(fetched), lines, []), None, now=when)
+
+
 def make_root(tmp_path, upgrade=False):
     paths = Paths(tmp_path, support=tmp_path / ".support")
     paths.data.mkdir(parents=True, exist_ok=True)

@@ -496,54 +496,6 @@ def test_a_job_can_word_its_own_success(env):
     assert rec.of(jobs.JobFinished)[-1].message == ""  # no words unless the work sets them
 
 
-def _prep_of(generation):
-    from discjockey.models import Plan
-    from discjockey.run import Prepared
-    from discjockey.settings import Settings
-    st = {"version": 2, "tracks": {}, "generation": generation}
-    return Prepared(None, st, Settings(), Plan(st, [], [], []), None)
-
-
-def test_a_plan_from_rebuilt_records_is_stored_though_its_generation_starts_again_at_0():
-    from datetime import datetime
-    from discjockey.hub.jobs import PreviewStore
-    store = PreviewStore()
-    store.ready(_prep_of(5), datetime(2026, 10, 25, 12, 0))
-    store.ready(_prep_of(0), datetime(2026, 10, 25, 12, 1))
-    assert store.prep.state["generation"] == 5  # without the rebuild it is an older plan, dropped
-    store.records_reopened()
-    fresh = _prep_of(0)
-    store.ready(fresh, datetime(2026, 10, 25, 12, 2))
-    assert store.prep is fresh
-    store.ready(_prep_of(0), datetime(2026, 10, 25, 12, 3))  # from here on the new records' generation counts
-    store.ready(_prep_of(3), datetime(2026, 10, 25, 12, 4))
-    older = store.prep
-    store.ready(_prep_of(2), datetime(2026, 10, 25, 12, 5))
-    assert store.prep is older and older.state["generation"] == 3
-
-
-def test_an_older_plan_arriving_late_leaves_the_newer_preview():
-    from datetime import datetime
-    from discjockey.hub.jobs import PreviewStore
-    from discjockey.models import Plan
-    from discjockey.run import Prepared
-    from discjockey.settings import Settings
-
-    def prep(generation):
-        st = {"version": 2, "tracks": {}, "generation": generation}
-        return Prepared(None, st, Settings(), Plan(st, [], [], []), None)
-
-    store = PreviewStore()
-    newer, older = prep(5), prep(3)
-    store.ready(newer, datetime(2026, 10, 25, 12, 0))
-    store.ready(older, datetime(2026, 10, 25, 12, 5))  # the opening scan's slow read finishes last
-    assert store.prep is newer and store.read_at == datetime(2026, 10, 25, 12, 0)
-    store.ready(prep(5), datetime(2026, 10, 25, 12, 6))  # the same records planned again is taken
-    assert store.read_at == datetime(2026, 10, 25, 12, 6)
-    store.ready(prep(7), datetime(2026, 10, 25, 12, 7))
-    assert store.prep.state["generation"] == 7
-
-
 # --- the window's jobs in the registry (issue 39 phase 2, V2.1a) ---
 
 from hub_helpers import make_api, make_root  # noqa: E402

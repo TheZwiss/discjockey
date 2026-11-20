@@ -813,79 +813,16 @@ class Jobs:
 
 # --- the preview and the sync (spec 6.3) ---
 
-def _generation_of(prep: run.Prepared | None) -> int | None:
-    """The generation of the records `prep` was planned on (None: no plan, or a state that carries none)."""
-    state = getattr(prep, "state", None)
-    gen = state.get("generation") if isinstance(state, dict) else None
-    return gen if isinstance(gen, int) else None
-
-
 class PreviewStore:
-    """The last read-only plan (what the Sync screen shows and the user ticks). Keeps the last good one when a later
-    read fails (e.g. offline), with the problem next to it."""
+    """What only the window remembers of the playlists' reads: that it has started its one automatic read of this
+    session (claim_auto_read; `HubApi._auto_lock` guards it). The read itself, its problem and the plan live in
+    library.db (the stored read) and in `HubApi._plan`'s derivation of it."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self.prep: run.Prepared | None = None
-        self.read_at: datetime | None = None
-        self.problem: str | None = None
-        self.problem_service: str | None = None  # the playlist service `problem` is about (None: not a service's)
-        self.message = ""
-        self.stale = False  # a sync ran since: the plan is out of date
-        self.auto_read = False  # the hub has started its one automatic read of this session (claim_auto_read)
-        self._reopened = False  # the records were rebuilt or reopened: the stored plan's generation no longer counts
-
-    def records_reopened(self) -> None:
-        """The hub learned that its records are another database (a library was bound: _attach): a new one counts
-        its generation from 0 again, so the stored plan's generation says nothing about the next read; the next
-        plan is stored whatever its generation, and the stored one's counts again from then on."""
-        with self._lock:
-            self._reopened = True
-
-    def ready(self, prep: run.Prepared, at: datetime, token: CancelToken | None = None) -> None:
-        """`token`: a read that was stopped meanwhile (its request answered late) stores nothing. A plan carries the
-        records' generation it was planned on (`prep.state["generation"]`): one older than the stored plan's was
-        slow to finish (the window's opening read, while an import linked and planned again) and is dropped, so it
-        never overwrites the fresher preview (unless the records were reopened since: records_reopened)."""
-        with self._lock:
-            if token is not None and token.cancelled:
-                return
-            new, old = _generation_of(prep), None if self._reopened else _generation_of(self.prep)
-            if new is not None and old is not None and new < old:
-                return
-            self.prep, self.read_at, self.problem, self.problem_service, self.message, self.stale = (
-                prep, at, None, None, "", False)
-            self._reopened = False
-
-    def failed(self, problem: str, message: str, service: str | None = None,
-               token: CancelToken | None = None) -> None:
-        """`service`: the playlist service the problem is about (SetupProblem.service), if it is one's."""
-        with self._lock:
-            if token is not None and token.cancelled:
-                return
-            self.problem, self.message, self.problem_service = problem, message, service
-
-    def clear_service(self, service: str, kinds: frozenset[str] | None = None, message: str | None = None) -> None:
-        """A login for `service` was just made: a stored read problem that is about it (not set up, login failed...)
-        is out of date, so the page stops waiting for a restart. Other problems, and the plan, stay. `kinds`: clear
-        only a problem of one of these kinds (a login cannot cure an offline service). `message`: clear only a problem
-        that says exactly this (a login cures SoundCloud's likes hint, not a private set's "doesn't show this
-        playlist")."""
-        with self._lock:
-            if self.problem is not None and self.problem_service == service and (kinds is None or self.problem in kinds) \
-                    and (message is None or self.message == message):
-                self.problem, self.problem_service, self.message = None, None, ""
-
-    def mark_stale(self) -> None:
-        with self._lock:
-            self.stale = True
-
-    def keys(self) -> set[tuple[str, str, str]]:
-        with self._lock:
-            return {run.action_key(a) for a in self.prep.plan.actions} if self.prep else set()
+        self.auto_read = False  # the hub has started its one automatic read of this session
 
 
-def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now,
+def refresh_work(paths: Paths, now: Callable[[], datetime] = datetime.now,
                  infos: dict | None = None, lock: Callable[[], AbstractContextManager[bool]] = run.lock_held):
     """A dry run: run.prepare(dry_run=True). Changes no music file, report or download; it scans Library/ into
     library.db first when `lock()` gets the library lock (Jobs.scan_lock), else it plans on the last scan. The read
@@ -900,11 +837,9 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
                                want_info=infos is not None, scan=True)
         except run.SetupProblem as e:
             message = hub_message(e.kind, str(e), e.service)
-            store.failed(e.kind, message, e.service, ctx.token)
             if not ctx.token.cancelled:
                 run.store_read(paths, StoredRead("sync", started, [], None, [], e.kind, e.service, message), keep=None)
             raise
-        store.ready(prep, now(), ctx.token)
         ctx.token.check()
         if infos is not None:
             # a source that learned the playlist's page while reading its tracks (Qobuz) has told us already: asking
@@ -931,23 +866,21 @@ def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken,
     sources.read_infos(paths, refs, infos, token, paused, on_signal)
 
 
-def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str]],
+def sync_work(paths: Paths, plan: Callable[[], run.Prepared | None], ticked: set[tuple[str, str, str]],
               now: Callable[[], datetime] = datetime.now, rekordbox: dict | None = None):
     """A sync from the preview: a fresh plan (recovery, .tmp cleanup, new Spotify read), only the actions the user saw
-    and left ticked, filtered before open_qobuz; nothing left -> finish_quietly. Afterwards the preview is the plan
-    worked out again from that read and the library as the run left it (run.replan), so the Sync page shows what is
-    really left without reading Spotify again.
+    and left ticked, filtered before open_qobuz; nothing left -> finish_quietly. `plan` gives the plan the user saw (the
+    one derived from the stored read, `HubApi._plan`) when the job starts; None: no read yet. Nothing is planned again
+    afterwards: the run's own read stored itself (`run.prepare`), so the next plan is derived from it and the library
+    as the run left it, and the Sync page shows what is really left without reading Spotify again.
 
     Auto-upgrade (issue 33 stage C): both ways a sync ends (`execute` after the actions, `finish_quietly` when there
     were none) get the job's Stop token and `rekordbox`, the hub's services for the phase (`running`, `place`,
     `compare`, `now`: HubApi._rekordbox_services; None: the real ones), so Stop reaches a quiet sync's phase too and a
     test's fake rekordbox is the one the phase asks."""
     def work(ctx: JobContext) -> dict:
-        previewed = store.keys()
-        if not previewed and store.prep is None:
-            raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
         started = now()
-        prep, read_at, new_since = None, started, 0
+        prep, new_since = None, 0
         step = "reading your playlists and working out the plan"
 
         def outcome(code: int, report: Path) -> dict:
@@ -955,8 +888,11 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
                     "new_since_preview": new_since}
 
         try:
+            seen = plan()  # what the user saw: the plan derived from the stored read (a crash deriving it is filed too)
+            if seen is None:
+                raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
+            previewed = {run.action_key(a) for a in seen.plan.actions}
             prep = run.prepare(paths, emit=ctx.emit, token=ctx.token)
-            read_at = now()
             new_since = sum(1 for a in prep.plan.actions if run.action_key(a) not in previewed)
             where = run.folder_names(prep)
             run.select_actions(prep, previewed, ticked, where)
@@ -983,31 +919,19 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
             ctx.emit(ev.RunFinished(1, str(report)))
             ctx.failed_result = outcome(1, report)
             raise run.RunCrashed(e, report) from e
-        finally:
-            if prep is not None:
-                preview_after_run(store, prep, read_at)
         return outcome(code, report)
     return work
 
 
-def preview_after_run(store: PreviewStore, prep: run.Prepared, read_at: datetime) -> None:
-    """The preview once a sync has ended (finished, stopped or not): the run's Spotify read planned again against
-    the library it left. If state.json or settings.json can't be read now, the old preview stays, marked stale."""
-    try:
-        store.ready(run.replan(prep), read_at)
-    except (library.StateError, settings.SettingsError):
-        store.mark_stale()
-
-
 # --- the import of the user's own music, and the answers to its questions (plan library stage 4, D4, D6, D14) ---
 
-def import_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now, *,
+def import_work(paths: Paths, plan: Callable[[], run.Prepared | None], now: Callable[[], datetime] = datetime.now, *,
                 folder: Path | str | None = None, on_stopped: Callable[[], None] | None = None):
     """The import as a write job (kind "import"): `folder` is watched first (Add folder: folders.add; it was checked
     by the caller and db refuses it again if it changed), then importer.run_import works through every file waiting.
-    Its last phase links the playlists (D6) from the preview's last read, or from a read of its own when there is
-    none yet; the preview is then planned again on the linked library (the To-do questions and the Sync counts are
-    right at once). A Stop ends it ImportStopped: JobFinished.result is the import as far as it went, `stopped` true,
+    Its last phase links the playlists (D6) from the plan derived from the stored read (`plan`), or from a read of its
+    own when there is none yet; the next plan is derived on the linked library (the To-do questions and the Sync counts
+    are right at once). A Stop ends it ImportStopped: JobFinished.result is the import as far as it went, `stopped` true,
     and `on_stopped` tells the hub that the import must not start by itself again this session (D14). The result of
     a finished one is ImportResult as a dict; JobFinished.message is W6's line ("Imported 3 files.")."""
     def work(ctx: JobContext) -> dict:
@@ -1015,25 +939,11 @@ def import_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] =
             folders.add(paths, folder, now())
 
         def link() -> str | None:
-            prep, read_at = store.prep, store.read_at or now()
-            if prep is None:
-                try:
-                    prep, read_at = run.prepare(paths, emit=ctx.emit, token=ctx.token), now()
-                except (run.SetupProblem, library.StateError, settings.SettingsError):
-                    prep = None  # link_playlists tries once more and words why it couldn't (W11)
-            note = importer.link_playlists(paths, prep, emit=ctx.emit, token=ctx.token)
-            if prep is not None:
-                preview_after_run(store, prep, read_at)
-            return note
-
-        def replan() -> None:
-            """The preview from its last read on the library as the import left it (also after a stop or a failure:
-            files it linked or imported before must show in To-do and Sync). Never hides what ended the import."""
-            if store.prep is not None:
-                try:
-                    preview_after_run(store, store.prep, store.read_at or now())
-                except Exception:  # noqa: BLE001
-                    log.warning("planning the preview again after the import failed", exc_info=True)
+            try:
+                prep = plan() or run.prepare(paths, emit=ctx.emit, token=ctx.token)
+            except (run.SetupProblem, library.StateError, settings.SettingsError):
+                prep = None  # link_playlists tries once more and words why it couldn't (W11)
+            return importer.link_playlists(paths, prep, emit=ctx.emit, token=ctx.token)
 
         try:
             result = importer.run_import(paths, emit=ctx.emit, token=ctx.token, link=link)
@@ -1041,25 +951,7 @@ def import_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] =
             ctx.failed_result = asdict(stopped.result)
             if on_stopped is not None:
                 on_stopped()
-            replan()
-            raise
-        except BaseException:
-            replan()
             raise
         ctx.message = importer.result_words(result)
         return asdict(result)
-    return work
-
-
-def replanned_work(store: PreviewStore, change: Callable[[JobContext], dict | None],
-                   now: Callable[[], datetime] = datetime.now):
-    """A write job that changes the records the plan is made from (an answer on To-do, a folder removed, a duplicate
-    moved to Superseded/), then plans the preview again from its last read (run.replan, no new read) so Sync and
-    To-do show what is true now. `change(ctx)` returns the job's result."""
-    def work(ctx: JobContext) -> dict:
-        result = change(ctx) or {}
-        prep = store.prep
-        if prep is not None:
-            preview_after_run(store, prep, store.read_at or now())
-        return result
     return work

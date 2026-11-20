@@ -37,10 +37,10 @@ Pinned by tests: `tests/test_hub_api*.py` (the page sees exactly these methods: 
   and says so. They do not use localStorage because the window's saved settings start over when its port changes
   (`hub/window_port.py`), which is fine for a width but not for a curated list.
 - After a write job finishes, re-fetch the screens you show (`track`, `todo`, `sidebar`, ...). After a playlists save,
-  `read_status.stale` is true: offer ↻ (`refresh()`). After a sync (finished, stopped or crashed) `sync_preview` is the
-  plan worked out again from the sync's own Spotify read and the library as the run left it (`read_at` = that read,
-  `stale` false), so what the run did is not offered again; only when the library records (`library.db`) or settings.json can't be read then
-  does the old plan stay, with `stale` true.
+  `read_status.lines_changed` is true until the next read: offer ↻ (`refresh()`; "playlists.txt changed since this read:
+  the plan below is from the old lines"). After a sync (finished, stopped or crashed) `sync_preview` is the plan
+  derived from the sync's own stored read and the library as the run left it, so what the run did is not offered again;
+  after any other write too: nothing re-plans, the plan is derived on every ask (see `sync_preview`).
 - A song's `rekordbox_check` (in `state.json`) is kept by every sync; only `rekordbox_checked(track_id)` clears it. The
   page sees it through `todo()`'s `rekordbox_check` group and the report section of the same name; `track()` does not
   return it. The panel builds its numbered steps from `reason`, `match`, `offset_ms`, `moved` and `aligned`: an added file's first step is a manual Relocate, never Auto Relocate, while `relocate` is true; with `relocate` false the one step is `report.NO_RELOCATE`'s words. It keeps `text` for any other reason.
@@ -137,7 +137,10 @@ Shape: `SyncPreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjock
 Before the first read the counts are 0, `counts` and `estimate` are null and `collections` is empty. `waiting_answers`
 are held back until the user answers "Is this the same song?" (the plan's `questions`) and are not downloaded meanwhile.
 `auto_upgrade` (stage C) is null when the switch is off and no placement is coming, settings.json can't be read, or
-there is no preview yet — see "Auto-upgrade" below.
+there is no preview yet — see "Auto-upgrade" below. `read_id` names the stored read the plan is derived from
+(`read:<n>`; null before the first read). The plan is derived, never stored: every process that asks (the window, the
+command line, a second window) gets the plan for the stored read and the library as they are now, and asking writes
+nothing (so a dry run is this answer).
 Group `key`s/labels in order: `acquire:new` Download (new), `acquire:retry` Try again, `acquire:redownload` Download
 again (its file is missing; planned only for a song whose Download again the user asked for, issue 43: a missing file alone plans nothing), `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
 `adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no

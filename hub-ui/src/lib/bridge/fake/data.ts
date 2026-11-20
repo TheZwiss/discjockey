@@ -888,7 +888,7 @@ export function readStatus(s: FakeState): ReadStatus {
 }
 export function readOk(minutes = 2, now = new Date()): ReadStatus {
   return { read_at: iso(new Date(now.getTime() - minutes * 60000)), minutes_ago: minutes, problem: null,
-    problem_service: null, services: readServices(), message: '', stale: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
+    problem_service: null, services: readServices(), message: '', lines_changed: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
 }
 
 export function makeState(scenario: string, now = new Date()): FakeState {
@@ -944,7 +944,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     s.setup = nextStep({ ...setupComplete(), spotify_login: false, qobuz: false, playlists: false });
     s.read_status = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
       services: [], message: 'Spotify is not set up yet.',
-      stale: false, reading: false, offline: false, auto_read: false };
+      lines_changed: false, reading: false, offline: false, auto_read: false };
   }
   if (scenario === 'no_music') {
     s.setup = nextStep({ ...s.setup, music: { state: 'not_chosen', path: null, suggested: FAKE_MUSIC } });

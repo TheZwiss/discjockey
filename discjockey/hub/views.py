@@ -244,18 +244,36 @@ def still_to_load(prep, money: dict | None, state: dict) -> dict:
     return {"count": count, "days": days, "fits_today": money is None or count <= money["remaining"]}
 
 
-def read_status(store, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]]) -> dict:
+@dataclass(frozen=True)
+class ReadView:
+    """What the pages show of the stored read, as `HubApi._read_view` gathers it (this module does no I/O): `prep` the
+    plan derived from it (None before the first good read), `read_at` when it was stored, `problem` / `problem_service` /
+    `message` the newest sync read's (a failed first read shows its problem with no plan), `read_id` its name
+    (`read:<n>`, None before the first good read), `auto_read` the window's one automatic read of this session has
+    started, `lines_changed` playlists.txt's lines are not those the read was made for."""
+    prep: object | None = None
+    read_at: datetime | None = None
+    problem: str | None = None
+    problem_service: str | None = None
+    message: str = ""
+    read_id: str | None = None
+    auto_read: bool = False
+    lines_changed: bool = False
+
+
+def read_status(read: ReadView, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]]) -> dict:
     """"Playlists read 2 min ago · ↻" (the wire field is `read_status`). problem: the last read's problem kind
     (offline: the data shown is older); problem_service: the playlist service it is about, else null. auto_read: the
-    hub's one automatic read of this session has started (the Sync page then never reads by itself). services: each
-    playlist service playlists.txt uses with whether its login is there; `logins` is (service, connected) in that
-    order, worked out by the caller (this module does no I/O)."""
-    read_at = store.read_at
+    hub's one automatic read of this session has started (the Sync page then never reads by itself). lines_changed:
+    playlists.txt's lines changed since the read, so the plan is from the old lines. services: each playlist service
+    playlists.txt uses with whether its login is there; `logins` is (service, connected) in that order, worked out by
+    the caller (this module does no I/O)."""
+    read_at = read.read_at
     return {"read_at": read_at.isoformat(timespec="seconds") if read_at else None,
             "minutes_ago": int((now - read_at).total_seconds() // 60) if read_at else None,
-            "problem": store.problem, "problem_service": store.problem_service, "message": store.message,
-            "stale": store.stale, "reading": reading, "offline": store.problem == "offline",
-            "auto_read": store.auto_read,
+            "problem": read.problem, "problem_service": read.problem_service, "message": read.message,
+            "lines_changed": read.lines_changed, "reading": reading, "offline": read.problem == "offline",
+            "auto_read": read.auto_read,
             "services": [{"service": s, "name": PLAYLIST_SERVICES[s], "connected": ok} for s, ok in logins]}
 
 
@@ -356,11 +374,11 @@ def needs_you(state: dict) -> dict:
             "weak": sum(1 for _, e in live if quality_class(e) == "weak")}
 
 
-def dashboard(state: dict, settings: Settings, store, reports: list[tuple[str, dict]], folder_order: list[str],
+def dashboard(state: dict, settings: Settings, read: ReadView, reports: list[tuple[str, dict]], folder_order: list[str],
               setup: dict, today: date, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]] = ()) -> dict:
     money = budget(state, settings, today)
     m = moneys(state, settings, today)
-    prep = store.prep
+    prep = read.prep
     ready = None
     todo = planned(prep, state)[0]
     if prep is not None:
@@ -374,7 +392,7 @@ def dashboard(state: dict, settings: Settings, store, reports: list[tuple[str, d
         empty = "not_set_up"
     elif not state["tracks"]:
         empty = "empty_library"
-    return {"greeting": greeting(now), "read_status": read_status(store, now, reading, logins),
+    return {"greeting": greeting(now), "read_status": read_status(read, now, reading, logins),
             "tiles": {"lossless": lossless_share(state), "qobuz_today": money,
                       "still_to_load": still_to_load(prep, gate(m), state),
                       "account_today": next((c for c in limit_cards(state, settings, today) if c["set_up"]), None)},
@@ -2233,7 +2251,7 @@ def _members(prep, plan_state: dict, places: Places | None):
     return members, names
 
 
-def sync_preview(store, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
+def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
                  where: Callable[[str], str] | None = None, places: Places | None = None,
                  auto_upgrade: dict | None = None) -> dict:
@@ -2245,12 +2263,13 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
     `places`: `song_places`, the folders a file sits in. Each row's `in` lists the collections of the browser column
     its song belongs to (`_members`; Sync's switches leave a row out only when every one of them is off, issue 37),
     and `collections` names each of them (target -> name)."""
-    prep = store.prep
-    status = read_status(store, now, reading, logins)
+    prep = read.prep
+    status = read_status(read, now, reading, logins)
     if prep is None:
         return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
-                "waiting_answers": 0, "deferred_checks": 0, "collections": {}, "auto_upgrade": None}
+                "waiting_answers": 0, "deferred_checks": 0, "collections": {}, "auto_upgrade": None,
+                "read_id": read.read_id}
     plan_state = prep.state
     members, names = _members(prep, plan_state, places)
 
@@ -2281,7 +2300,7 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
             "waiting_answers": len({q.song_key for q in prep.plan.questions}),
             "deferred_checks": prep.plan.deferred_checks,
             # every collection a row is in, by its target (the browser column's key) -> its name (issue 37)
-            "collections": names, "auto_upgrade": auto_upgrade}
+            "collections": names, "auto_upgrade": auto_upgrade, "read_id": read.read_id}
 
 
 # --- watched folders (Settings, Setup; plan library stage 4 I11) ---

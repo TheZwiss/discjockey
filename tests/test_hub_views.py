@@ -9,7 +9,6 @@ import pytest
 from discjockey import models, report, words
 from discjockey.hub import views
 from discjockey.rekordbox.master import Status
-from discjockey.hub.jobs import PreviewStore
 from discjockey.models import (Action, BatchResult, BatchRow, FetchedPlaylist, MoveRow, Plan, PlannedMove, PlaylistInfo,
                                PlaylistLine, PlaylistRecord, RecordedTrack, SourceTrack)
 from discjockey.planner import ENTRY_KEYS, TidyRow, tidy_rows
@@ -45,11 +44,9 @@ def a(kind, tid, reason="", **kw):
     return Action(kind, tid, "A", t(tid), (0, 0), reason=reason, **kw)
 
 
-def store_with(actions, st=None):
-    store = PreviewStore()
+def read_with(actions, st=None):
     st = st or state()
-    store.ready(Prepared(None, st, Settings(), Plan(st, actions, [], []), None), datetime(2026, 10, 20, 21, 45))
-    return store
+    return views.ReadView(Prepared(None, st, Settings(), Plan(st, actions, [], []), None), datetime(2026, 10, 20, 21, 45))
 
 
 @pytest.mark.parametrize("entry,cls,label", [
@@ -92,10 +89,10 @@ def test_days_to_load(rest, remaining, limit, days):
 
 
 def test_still_to_load_with_nothing_left_today_does_not_fit_today():
-    store = store_with([a("acquire", f"t{i}", "new") for i in range(108)])
-    assert views.still_to_load(store.prep, {"remaining": 0, "limit": 66}, state()) == {
+    read = read_with([a("acquire", f"t{i}", "new") for i in range(108)])
+    assert views.still_to_load(read.prep, {"remaining": 0, "limit": 66}, state()) == {
         "count": 108, "days": 2, "fits_today": False}
-    one = store_with([a("acquire", "t0", "new")])
+    one = read_with([a("acquire", "t0", "new")])
     assert views.still_to_load(one.prep, {"remaining": 0, "limit": 66}, state()) == {
         "count": 1, "days": 1, "fits_today": False}
 
@@ -137,7 +134,7 @@ def test_minutes_table_is_the_formula_once():
 def test_sync_preview_gives_the_minutes_for_every_count_the_page_can_tick():
     actions = [a("acquire", f"n{i}", "new") for i in range(12)] + [a("adopt_bought", "m1"), a("upgrade", "u1")]
     st = state()
-    p = views.sync_preview(store_with(actions, st), st, Settings(), TODAY, NOW, False)
+    p = views.sync_preview(read_with(actions, st), st, Settings(), TODAY, NOW, False)
     est = p["estimate"]
     assert est["qobuz_needed"] == 13
     # one entry for 0 .. the downloads that fit today: the page ticks any subset of them
@@ -151,11 +148,11 @@ def test_sync_preview_names_the_folder_of_an_own_song_never_blank():
     own = Action("upgrade", "own1", "", t("own1"), (1, 0))
     st = state(own1=e(folder="", path="/Music/Old/Techno/x.mp3"), own2=e(folder="", path=None))
     actions = [a("upgrade", "u1"), own, Action("upgrade", "own2", "", t("own2"), (1, 1))]
-    store = store_with(actions, st)
-    rows = {r["track_id"]: r for g in views.sync_preview(store, st, Settings(), TODAY, NOW, False,
+    read = read_with(actions, st)
+    rows = {r["track_id"]: r for g in views.sync_preview(read, st, Settings(), TODAY, NOW, False,
                                                          where=lambda path: "Techno")["groups"] for r in g["actions"]}
     assert (rows["u1"]["folder"], rows["own1"]["folder"], rows["own2"]["folder"]) == ("A", "Techno", views.OWN_MUSIC)
-    bare = views.sync_preview(store, st, Settings(), TODAY, NOW, False)["groups"][0]["actions"]
+    bare = views.sync_preview(read, st, Settings(), TODAY, NOW, False)["groups"][0]["actions"]
     assert all(r["folder"] for r in bare)
 
 
@@ -172,12 +169,11 @@ def test_sync_preview_lists_every_collection_a_song_belongs_to():
     fetched = [FetchedPlaylist(lines[0], [t("both"), t("mine")], []), FetchedPlaylist(lines[1], [t("both")], [])]
     st["never"] = {"both": {"artist": "Artist", "title": "x", "folder": "A", "at": "2026-10-18"}}
     actions = [a("upgrade", k) for k in ("both", "lib", "mine", "hid")] + [a("acquire", "both", "new")]
-    store = PreviewStore()
-    store.ready(Prepared(None, st, Settings(), Plan(st, actions, [], []), None, lines, fetched), NOW)
+    read = views.ReadView(Prepared(None, st, Settings(), Plan(st, actions, [], []), None, lines, fetched), NOW)
     watched = [WatchedFolder(1, Path("/m/Library"), "library"), WatchedFolder(2, Path("/Volumes/Ex/Music/Techno"), "import")]
     places = views.song_places(st, [Row(ln.folder, f"https://open.spotify.com/playlist/{ln.playlist_id}", True)
                                     for ln in lines], watched, {"/Volumes/Ex/Music/Techno/Hidden": False})
-    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False, places=places)
+    p = views.sync_preview(read, st, Settings(), TODAY, NOW, False, places=places)
     rows = {r["track_id"]: r["in"] for g in p["groups"] for r in g["actions"]}
     techno = "folder:/Volumes/Ex/Music/Techno"
     assert rows["both"] == ["playlist:pa", "playlist:pb", techno, f"{techno}/2019/Deep"]  # 2019 holds no file: no crate
@@ -189,7 +185,7 @@ def test_sync_preview_lists_every_collection_a_song_belongs_to():
     assert (names["playlist:pa"], names["playlist:pc"], names[techno], names["folder:Library/Old Stuff"]) == (
         "A", "C", "Techno", "Old Stuff")
     assert names[f"{techno}/2019/Deep"].startswith("Techno › ")
-    assert views.sync_preview(PreviewStore(), st, Settings(), TODAY, NOW, False)["collections"] == {}
+    assert views.sync_preview(views.ReadView(), st, Settings(), TODAY, NOW, False)["collections"] == {}
 
 
 def test_sync_preview_membership_of_a_playlist_not_read_this_time():
@@ -197,10 +193,9 @@ def test_sync_preview_membership_of_a_playlist_not_read_this_time():
     lines = [PlaylistLine("Liked", "LM", 1, "youtube_music"), PlaylistLine("Old", "po", 2)]
     st = state(s1=e("not_lossless", folder="Liked"), s2=e("not_lossless", folder="Old"), s3=e("not_lossless", folder="Z"))
     plan = Plan(st, [a("upgrade", "s1"), a("upgrade", "s2"), a("upgrade", "s3")], [], [])
-    store = PreviewStore()
-    store.ready(Prepared(None, st, Settings(), plan, None, lines, [], unread_folders=frozenset({"Liked", "Old"}),
-                         unread_members={"Liked": ["s1"]}), NOW)
-    rows = {r["track_id"]: r["in"] for g in views.sync_preview(store, st, Settings(), TODAY, NOW, False)["groups"]
+    read = views.ReadView(Prepared(None, st, Settings(), plan, None, lines, [], unread_folders=frozenset({"Liked", "Old"}),
+                                      unread_members={"Liked": ["s1"]}), NOW)
+    rows = {r["track_id"]: r["in"] for g in views.sync_preview(read, st, Settings(), TODAY, NOW, False)["groups"]
             for r in g["actions"]}
     assert rows == {"s1": ["playlist:youtube_music:LM"], "s2": ["playlist:po"], "s3": []}
 
@@ -211,9 +206,9 @@ def test_sync_preview_covers_come_from_the_tracks_own_file_when_the_service_has_
     own = Action("upgrade", "own1", "", t("own1"), (1, 0))
     bare = Action("upgrade", "own2", "", t("own2"), (1, 1))
     st = state(own1=e(folder="", path="/Music/Old/Techno/Ko-lab - Song.aiff"), own2=e(folder="", path="/Music/Old/x.aiff"))
-    store = store_with([own, bare], st)
+    read = read_with([own, bare], st)
     links = {"own1": "cache/covers/own1.jpg"}
-    rows = {r["track_id"]: r for g in views.sync_preview(store, st, Settings(), TODAY, NOW, False,
+    rows = {r["track_id"]: r for g in views.sync_preview(read, st, Settings(), TODAY, NOW, False,
                                                          cover=lambda tid, entry: links.get(tid))["groups"]
             for r in g["actions"]}
     assert rows["own1"]["cover_url"] == "cache/covers/own1.jpg" and rows["own2"]["cover_url"] is None
@@ -221,37 +216,38 @@ def test_sync_preview_covers_come_from_the_tracks_own_file_when_the_service_has_
 
 def test_still_to_load():
     money = {"remaining": 10, "limit": 60}
-    store = store_with([a("acquire", f"t{i}", "new") for i in range(12)] + [a("upgrade", "u")])
-    assert views.still_to_load(store.prep, money, state()) == {"count": 12, "days": 2, "fits_today": False}
+    read = read_with([a("acquire", f"t{i}", "new") for i in range(12)] + [a("upgrade", "u")])
+    assert views.still_to_load(read.prep, money, state()) == {"count": 12, "days": 2, "fits_today": False}
     assert views.still_to_load(None, money, state()) == {"count": None, "days": None, "fits_today": None}
     never = state()
     never["never"] = {"t0": {}, "t1": {}, "t2": {}}
-    assert views.still_to_load(store.prep, money, never) == {"count": 9, "days": 1, "fits_today": True}
+    assert views.still_to_load(read.prep, money, never) == {"count": 9, "days": 1, "fits_today": True}
 
 
 def test_read_status():
-    store = store_with([])
-    st = views.read_status(store, NOW, False, [])
+    read = read_with([])
+    st = views.read_status(read, NOW, False, [])
     assert st["read_at"] == "2026-10-20T21:45:00" and st["minutes_ago"] == 2 and not st["offline"]
-    assert st["problem_service"] is None and st["services"] == []
-    store.failed("offline", "Cannot reach Spotify.")
-    st = views.read_status(store, NOW, True, [])
+    assert st["problem_service"] is None and st["services"] == [] and st["lines_changed"] is False
+    read = replace(read, problem="offline", message="Cannot reach Spotify.")
+    st = views.read_status(read, NOW, True, [])
     assert st["offline"] and st["problem"] == "offline" and st["reading"] and st["read_at"] == "2026-10-20T21:45:00"
     assert st["problem_service"] is None
+    assert views.read_status(replace(read, lines_changed=True), NOW, False, [])["lines_changed"] is True
 
 
 def test_read_status_names_the_service_of_a_problem_and_each_login():
-    store = store_with([])
-    store.failed("not_set_up", "Qobuz isn't set up yet.", "qobuz")
-    st = views.read_status(store, NOW, False, [("spotify", True), ("qobuz", False)])
+    read = read_with([])
+    read = replace(read, problem="not_set_up", problem_service="qobuz", message="Qobuz isn't set up yet.")
+    st = views.read_status(read, NOW, False, [("spotify", True), ("qobuz", False)])
     assert (st["problem"], st["problem_service"]) == ("not_set_up", "qobuz")
     assert st["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
                               {"service": "qobuz", "name": "Qobuz", "connected": False}]
-    store.ready(store.prep, NOW)  # a good read clears the problem, service included
-    assert views.read_status(store, NOW, False, [])["problem_service"] is None
-    assert views.dashboard(state(), Settings(), store, [], [], SETUP_OK, TODAY, NOW, False,
+    read = replace(read, problem=None, problem_service=None, message="")  # a good read clears the problem, service included
+    assert views.read_status(read, NOW, False, [])["problem_service"] is None
+    assert views.dashboard(state(), Settings(), read, [], [], SETUP_OK, TODAY, NOW, False,
                            [("qobuz", True)])["read_status"]["services"][0]["connected"] is True
-    assert views.sync_preview(store, state(), Settings(), TODAY, NOW, False,
+    assert views.sync_preview(read, state(), Settings(), TODAY, NOW, False,
                               logins=[("qobuz", True)])["read_status"]["services"][0]["service"] == "qobuz"
 
 
@@ -270,7 +266,7 @@ def test_playlist_rows_name_their_service_and_info_carries_the_hint():
 
 
 def test_the_new_services_are_listed_connected_and_their_rows_and_hints_are_worded():
-    st = views.read_status(store_with([]), NOW, False, [("spotify", True), ("soundcloud", True), ("youtube_music", True)])
+    st = views.read_status(read_with([]), NOW, False, [("spotify", True), ("soundcloud", True), ("youtube_music", True)])
     assert st["services"] == [{"service": "spotify", "name": "Spotify", "connected": True},
                               {"service": "soundcloud", "name": "SoundCloud", "connected": True},
                               {"service": "youtube_music", "name": "YouTube Music", "connected": True}]
@@ -353,8 +349,8 @@ def test_dashboard():
     s = state(a=e(), b=e("not_lossless", cutoff=16000), c=e("missing"),
               u=e("not_lossless", cutoff=20000, upgrade={"file": "f", "alignment": {"result": "shifted"}}))
     s["qobuz_usage"]["days"] = {"2026-10-19": 60, "2026-10-20": 37}
-    store = store_with([a("acquire", "n1", "new"), a("adopt_bought", "m1"), a("upgrade", "u1")], s)
-    d = views.dashboard(s, Settings(), store, [("2026-10-19_214700", REPORT)], ["A"], SETUP_OK, TODAY, NOW, False)
+    read = read_with([a("acquire", "n1", "new"), a("adopt_bought", "m1"), a("upgrade", "u1")], s)
+    d = views.dashboard(s, Settings(), read, [("2026-10-19_214700", REPORT)], ["A"], SETUP_OK, TODAY, NOW, False)
     assert d["greeting"] == "Good evening" and d["empty"] is None
     assert d["tiles"]["lossless"]["share"] == 0.25 and d["tiles"]["qobuz_today"]["used"] == 37
     assert d["tiles"]["still_to_load"] == {"count": 1, "days": 1, "fits_today": True}
@@ -370,7 +366,7 @@ def test_dashboard():
     (SETUP_OK, {}, "empty_library"),
 ])
 def test_dashboard_first_run_states(setup, tracks, empty):
-    d = views.dashboard(state(**tracks), Settings(), PreviewStore(), [], [], setup, TODAY, NOW, False)
+    d = views.dashboard(state(**tracks), Settings(), views.ReadView(), [], [], setup, TODAY, NOW, False)
     assert d["empty"] == empty and d["ready"] is None and d["last_runs"] == []
     assert d["tiles"]["lossless"]["share"] is None and d["tiles"]["still_to_load"]["count"] is None
 
@@ -383,8 +379,8 @@ def test_limits_page_for_qobuz():
         {"time": "2026-10-19T22:00:00", "kind": "duration_mismatch", "message": "a preview"},
         {"time": "2026-10-20T10:00:00", "kind": "auto_stop", "message": "3 failed"},
     ]
-    store = store_with([a("acquire", f"t{i}", "new") for i in range(250)], s)
-    q = views.limits("qobuz", s, Settings(60), store.prep, TODAY)["usage"]
+    read = read_with([a("acquire", f"t{i}", "new") for i in range(250)], s)
+    q = views.limits("qobuz", s, Settings(60), read.prep, TODAY)["usage"]
     assert q["today"]["used"] == 37 and q["today"]["allowance"] == 60
     assert len(q["days"]) == 14 and q["days"][0] == {"date": "2026-10-07", "used": 12}
     assert q["days"][-1] == {"date": "2026-10-20", "used": 37}
@@ -397,8 +393,8 @@ def test_limits_page_for_qobuz():
 def test_limits_what_if_for_qobuz():
     s = state()
     s["qobuz_usage"]["days"] = {"2026-10-19": 60, "2026-10-20": 37}
-    store = store_with([a("acquire", f"t{i}", "new") for i in range(250)], s)
-    w = views.limits_what_if("qobuz", 90, 20, s, Settings(60), store.prep, TODAY)
+    read = read_with([a("acquire", f"t{i}", "new") for i in range(250)], s)
+    w = views.limits_what_if("qobuz", 90, 20, s, Settings(60), read.prep, TODAY)
     assert w["assessment"] == {"level": 4, "label": "fast"}
     assert (w["allowance_today"], w["remaining_today"]) == (90 + 30 + 20, 103)  # carry-over follows the limit
     assert w["days_to_load"] == 1 + 2 and w["run_minutes"] == 105
@@ -789,10 +785,9 @@ def test_todo_empty_states():
 def test_todo_others_from_the_last_run_and_the_preview():
     report = {"results": [{"section": "conflicts", "track_id": "m"}, {"section": "moved", "track_id": "x"}]}
     st = state()
-    store = PreviewStore()
-    store.ready(Prepared(None, st, Settings(), Plan(st, [], [("amb", t("amb"), "A", ["Library/A/x.aiff"])], []), None),
-                NOW)
-    assert views.todo_others(store.prep, report) == {
+    read = views.ReadView(Prepared(None, st, Settings(), Plan(st, [], [("amb", t("amb"), "A", ["Library/A/x.aiff"])], []), None),
+                          NOW)
+    assert views.todo_others(read.prep, report) == {
         "m": "MOVE BLOCKED · a file is in the way", "amb": "SEVERAL FILES · could be this track, nothing done"}
     assert views.todo_others(None, None) == {}
 
@@ -801,11 +796,10 @@ def test_sync_preview_groups_with_keys():
     st = state(m1=e(folder="Bouncy", artist="DJ TALLBOY", title="THE WEEKEND"))
     bought = Action("adopt_bought", "m1", "Hard_Bounce", t("m1"), (0, 0),
                     src="Library/Hard_Bounce/DJ TALLBOY - THE WEEKEND.wav")
-    store = PreviewStore()
     plan = Plan(st, [a("acquire", "n1", "new"), a("acquire", "n2", "new"), bought], [], ["m9"], ["a note"])
     st["tracks"]["m9"] = e(artist="Gone", title="Dropped", in_playlists=False)
-    store.ready(Prepared(None, st, Settings(), plan, None), datetime(2026, 10, 20, 21, 45))
-    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False, cover)
+    read = views.ReadView(Prepared(None, st, Settings(), plan, None), datetime(2026, 10, 20, 21, 45))
+    p = views.sync_preview(read, st, Settings(), TODAY, NOW, False, cover)
     assert [g["key"] for g in p["groups"]] == ["acquire:new", "adopt_bought"]
     row = p["groups"][1]["actions"][0]
     assert row["key"] == ["adopt_bought", "m1", "Library/Hard_Bounce"] and "from_folder" not in row
@@ -820,16 +814,15 @@ def test_sync_preview_groups_with_keys():
 def test_sync_preview_never_download_moves_at_once():
     st = state(m=e("missing"))
     st["never"] = {"n2": {"artist": "Artist", "title": "x", "folder": "A", "at": "2026-10-18"}}
-    store = PreviewStore()
     plan = Plan(st, [a("acquire", "n1", "new"), a("acquire", "n2", "new")], [], [],
                 never=[a("acquire", "n3", "new")])  # n3 was marked before the read, then marked back
-    store.ready(Prepared(None, st, Settings(), plan, None), datetime(2026, 10, 20, 21, 45))
-    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
+    read = views.ReadView(Prepared(None, st, Settings(), plan, None), datetime(2026, 10, 20, 21, 45))
+    p = views.sync_preview(read, st, Settings(), TODAY, NOW, False)
     assert [r["track_id"] for r in p["groups"][0]["actions"]] == ["n1", "n3"]
     assert [r["track_id"] for r in p["never"]] == ["n2"] and p["counts"]["new"] == 2
     assert [r["run"] for r in p["groups"][0]["actions"]] == [0, 1]
     st["never"]["n1"] = st["never"]["n3"] = {}
-    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
+    p = views.sync_preview(read, st, Settings(), TODAY, NOW, False)
     assert p["groups"] == [] and p["empty"] == "up_to_date" and len(p["never"]) == 3
 
 
@@ -841,8 +834,8 @@ def test_never_download_is_not_a_to_do():
 
 
 def test_sync_preview_without_a_read_yet_and_up_to_date():
-    assert views.sync_preview(PreviewStore(), state(), Settings(), TODAY, NOW, True)["empty"] == "no_preview"
-    assert views.sync_preview(store_with([]), state(), Settings(), TODAY, NOW, False)["empty"] == "up_to_date"
+    assert views.sync_preview(views.ReadView(), state(), Settings(), TODAY, NOW, True)["empty"] == "no_preview"
+    assert views.sync_preview(read_with([]), state(), Settings(), TODAY, NOW, False)["empty"] == "up_to_date"
 
 
 ID1, ID2 = "0DiscjockeyExampleList", "3DiscjockeyExampleList"
@@ -1212,8 +1205,8 @@ def test_no_limit_without_any_account():
     assert m == {} and views.gate(m) is None
     e = views.estimate([a("acquire", f"n{i}") for i in range(5)], None)
     assert (e["left"], e["qobuz_uses"], e["duration_min"]) == (None, 5, 5)
-    store = store_with([a("acquire", f"t{i}", "new") for i in range(12)])
-    assert views.still_to_load(store.prep, None, state()) == {"count": 12, "days": 1, "fits_today": True}
+    read = read_with([a("acquire", f"t{i}", "new") for i in range(12)])
+    assert views.still_to_load(read.prep, None, state()) == {"count": 12, "days": 1, "fits_today": True}
 
 
 def test_limit_cards():
@@ -1232,21 +1225,21 @@ def test_limits_for_youtube_use_its_own_zones_signals_and_numbers():
     s = state()
     s["youtube_usage"] = {"days": {"2026-10-19": 30, "2026-10-20": 3}, "signals": [
         {"time": "2026-10-20T10:00:00", "kind": "premium_missing", "message": "x"}]}
-    store = store_with([a("acquire", f"t{i}", "new") for i in range(12)], s)
-    u = views.limits("youtube", s, YT, store.prep, TODAY)["usage"]
+    read = read_with([a("acquire", f"t{i}", "new") for i in range(12)], s)
+    u = views.limits("youtube", s, YT, read.prep, TODAY)["usage"]
     assert (u["service"], u["name"], u["behind"]) == ("youtube", "YouTube Premium", "Qobuz")
     assert u["setting"]["recommended"] == 30 and u["setting"]["zones"][1] == {"name": "normal", "from": 21, "to": 30}
     assert u["signal_summary"] == {"cookies_unreadable": 0, "bot_check": 0, "rate_limited": 0, "refused": 0,
                                    "premium_missing": 1, "download_rejected": 0, "auto_stop": 0}
-    assert views.limits("soundcloud", s, YT, store.prep, TODAY)["usage"] is None
+    assert views.limits("soundcloud", s, YT, read.prep, TODAY)["usage"] is None
 
 
 def test_limits_what_if_for_an_account():
     s = state()
     s["youtube_usage"] = {"days": {"2026-10-19": 45, "2026-10-20": 3}, "signals": []}  # no carry-over at 45
     settings = Settings(qobuz_skipped=True, accounts=YT.accounts)
-    store = store_with([a("acquire", f"t{i}", "new") for i in range(50)], s)
-    w = views.limits_what_if("youtube", 45, 0, s, settings, store.prep, TODAY)
+    read = read_with([a("acquire", f"t{i}", "new") for i in range(50)], s)
+    w = views.limits_what_if("youtube", 45, 0, s, settings, read.prep, TODAY)
     assert w["assessment"] == {"level": 3, "label": "faster"}
     assert (w["allowance_today"], w["remaining_today"], w["days_to_load"]) == (45, 42, 2)
 
@@ -1271,8 +1264,8 @@ def test_warning_signs_say_whether_they_are_new_and_when_they_clear():
         {"time": "2026-10-19T22:00:00", "kind": "download_rejected", "message": "seen"},
         {"time": "2026-10-20T10:00:00", "kind": "preview_only", "message": "after Got it"}]
     seen = replace(Settings(60), warnings_seen={"qobuz": "2026-10-19T23:00:00"})
-    store = store_with([], s)
-    sig = views.limits("qobuz", s, seen, store.prep, TODAY)["usage"]["signals"]
+    read = read_with([], s)
+    sig = views.limits("qobuz", s, seen, read.prep, TODAY)["usage"]["signals"]
     assert [(x["message"], x["new"], x["clears_in"]) for x in sig] == [
         ("oldest still shown", False, 1), ("seen", False, 13), ("after Got it", True, 14)]
     card = views.limit_cards(s, seen, TODAY)[0]
@@ -1635,11 +1628,10 @@ def test_a_qobuz_keyed_ambiguous_song_shows_on_the_todo_and_in_the_preview_under
     st = state(**{"qobuz:900000001": e("lossless"), "t1": e("lossless")})
     plan = Plan(st, [], [("qobuz:900000001", q, "A", ["Library/A/x.aiff", "Library/B/x.aiff"]),
                          ("t1", q, "A", ["Library/A/y.aiff", "Library/B/y.aiff"])], [])  # t1: linked to the Qobuz track
-    store = PreviewStore()
-    store.ready(Prepared(None, st, Settings(), plan, None, [], [FetchedPlaylist(PlaylistLine("A", "p", 1, "qobuz"), [q], [])]),
-                NOW)
-    assert set(views.todo_others(store.prep, None)) == {"qobuz:900000001", "t1"}
-    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
+    read = views.ReadView(Prepared(None, st, Settings(), plan, None, [], [FetchedPlaylist(PlaylistLine("A", "p", 1, "qobuz"), [q], [])]),
+                          NOW)
+    assert set(views.todo_others(read.prep, None)) == {"qobuz:900000001", "t1"}
+    p = views.sync_preview(read, st, Settings(), TODAY, NOW, False)
     assert [r["track_id"] for r in p["ambiguous"]] == ["qobuz:900000001", "t1"]
     assert p["in_playlists"] == 1  # counted by song key
 
@@ -1802,11 +1794,10 @@ def test_the_library_marks_files_whose_sound_is_not_checked_yet_and_copes_with_o
 def test_sync_preview_counts_the_songs_waiting_for_an_answer_and_the_checks_left_for_later():
     st = state(t1=e("missing"), **{"local:1": own()})
     plan = Plan(st, [], [], [], questions=[question(), question(song_key="t2", own_key="local:2")], deferred_checks=40)
-    store = PreviewStore()
-    store.ready(Prepared(None, st, Settings(), plan, None, [], []), NOW)
-    p = views.sync_preview(store, st, Settings(), TODAY, NOW, False)
+    read = views.ReadView(Prepared(None, st, Settings(), plan, None, [], []), NOW)
+    p = views.sync_preview(read, st, Settings(), TODAY, NOW, False)
     assert (p["waiting_answers"], p["deferred_checks"]) == (2, 40)
-    none = views.sync_preview(PreviewStore(), st, Settings(), TODAY, NOW, False)
+    none = views.sync_preview(views.ReadView(), st, Settings(), TODAY, NOW, False)
     assert (none["waiting_answers"], none["deferred_checks"]) == (0, 0)
 
 

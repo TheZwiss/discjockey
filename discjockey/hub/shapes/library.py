@@ -72,7 +72,7 @@ class ReadStatus(TypedDict):
                                                          "a restart.")]
     services: Annotated[list[ReadStatusService], F("The services the switched-on lines of playlists.txt use, in line "
                                                    "order.")]
-    stale: Annotated[bool, F("The data shown is older than the playlists file.")]
+    lines_changed: Annotated[bool, F("playlists.txt changed since this read: the plan below is from the old lines.")]
     reading: Annotated[bool, F("A read is running now.")]
     offline: Annotated[bool, F("The last read found no network (`problem` is `offline`).")]
     auto_read: Annotated[bool, F("The hub's one automatic read of this session has started (kept in Python, so also "
@@ -505,6 +505,8 @@ class SyncPreview(TypedDict):
     auto_upgrade: Annotated[SyncPreviewAutoUpgrade | None, F(
         "Auto-upgrade before a start; null: the switch is off and nothing is to be placed (or settings.json cannot "
         "be read, or there is no preview).")]
+    read_id: Annotated[str | None, F("The stored read the plan is derived from (`read:<n>`); null before the first "
+                                     "read.", shown=False)]
 
 
 @shape

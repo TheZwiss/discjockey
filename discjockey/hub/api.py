@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import contextvars
 import functools
+import hashlib
 import inspect
 import json
 import logging
@@ -46,7 +47,7 @@ from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
 from ..events import BatchProgress, Cancelled, CancelToken, Result
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatchRow, BatchResult, BatchRow, Candidate,
                       PlaylistLine,
-                      PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, file_missing, token)
+                      PlaylistRecord, ReadHead, SaveChoice, SourceTrack, WatchedFolder, file_missing, token)
 from ..names import fold, search_fold
 from ..words import SCAN_OLDER, preview_words, rekordbox_words
 from ..ops import OpProblem
@@ -61,7 +62,7 @@ from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Job, Jobs, PreviewStore, SignInPhase,
-                   import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
+                   import_work, problem_of, refresh_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
@@ -397,6 +398,10 @@ class HubApi:
         self._jobs.on_finished = self._registered_envelope  # ... and its `result.json` at the end
         self._settings_mutex = threading.Lock()  # settings.json: read, change, save — one at a time
         self._store = PreviewStore()
+        # the plan derived from the stored read (`_plan`): the newest key's plan, so each page asks library.db's head,
+        # not the whole read, and a process that did not make the read still has the plan
+        self._plan_lock = threading.Lock()
+        self._plan_cache: tuple[tuple, run.Prepared] | None = None
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
         self._rb_at: str | None = None  # when `_rb_cache`'s answer was read (ISO time): the `as_of` of a `writing` answer
         # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
@@ -450,7 +455,8 @@ class HubApi:
             self._jobs.bind(paths.lock)
             if self._media is not None:
                 self._media.bind(paths, self._file_path)
-            self._store.records_reopened()  # its records may count their generation from 0 again
+            with self._plan_lock:
+                self._plan_cache = None  # another library's records: its plan is derived afresh
             self._bound, self._missing = paths, None  # last: the library gate opens once lock and media are ready
 
     def _bind(self, paths: Paths) -> None:
@@ -534,7 +540,7 @@ class HubApi:
         `place_notes`: `{closed, open}` the sentence for them (`engine_words.place_plan_line`, rekordbox closed / open), null
         with none. None when the switch is off and nothing is to be placed (or the settings file is unreadable) or there
         is no preview (no plan, so no questions to hold songs)."""
-        prep = self._store.prep
+        prep = self._plan()
         if prep is None:
             return None
         try:
@@ -591,6 +597,68 @@ class HubApi:
     def _reading(self) -> bool:
         return self._jobs.status()["refresh_running"]
 
+    def _plan(self) -> run.Prepared | None:
+        """The Sync plan, derived from the stored read (issue 39 phase 2, D22): `run.prepared_from_read` on library.db's
+        newest good sync read, the records and the settings as they are now. Never stored: every process that asks gets
+        the plan for the library as it is, after any read or write, so no writer re-plans anything. None before the
+        first good read (and while no library is bound or library.db does not exist yet). Kept for the newest key
+        `(newest read id of any kind, the records' generation, sha256 of settings.json, today)`: a check read may
+        replace a record the plan's songs come from, a write changes the generation, and the planner plans with
+        today's date (budgets, first checks). StateError / SettingsError from deriving propagate as a read's do."""
+        return self._plan_and_head()[1]
+
+    def _plan_and_head(self) -> tuple[ReadHead | None, run.Prepared | None]:
+        """`_plan`'s answer with the stored read's head, read on the same connection."""
+        try:
+            paths = self._paths
+        except NoLibrary:
+            return None, None
+        loaded = None
+        with self._move_log() as conn:
+            if conn is None:
+                return None, None
+            head = db.read_head(conn)
+            if head is None or head.sync_id is None:
+                return head, None
+            key = (head.current, db._generation(conn), self._settings_hash(), self._today())
+            with self._plan_lock:
+                cached = self._plan_cache
+            if cached is not None and cached[0] == key:
+                return head, cached[1]
+            loaded = db.load_read(conn)
+        if loaded is None:  # the read went meanwhile (library.db replaced): no plan
+            return head, None
+        prep = run.prepared_from_read(paths, loaded)  # no lock held: two threads may both derive, the second stores
+        with self._plan_lock:
+            self._plan_cache = (key, prep)
+        return head, prep
+
+    def _settings_hash(self) -> str:
+        try:
+            return hashlib.sha256(self._support.settings_file.read_bytes()).hexdigest()
+        except FileNotFoundError:
+            return ""
+
+    def _read_view(self) -> views.ReadView:
+        """What the pages show of the stored read: the derived plan and the newest sync read's problem and words (a
+        failed first read shows its problem with no plan), with the window's `auto_read` and whether playlists.txt's
+        lines are still those the plan was made for."""
+        head, prep = self._plan_and_head()
+        if head is None:
+            return views.ReadView(auto_read=self._store.auto_read)
+        return views.ReadView(prep, head.read_at, head.problem, head.problem_service, head.message,
+                              None if head.sync_id is None else db.read_label(head.sync_id), self._store.auto_read,
+                              prep is not None and self._lines_changed(prep))
+
+    def _lines_changed(self, prep: run.Prepared) -> bool:
+        """playlists.txt's switched-on lines (folder, ref; `line_no` shifts with a comment) are not those the stored read
+        was made for (a line added, removed, switched or retargeted since). A file that can't be read: unchanged."""
+        try:
+            now = [(ln.folder, ln.ref) for ln in config.load_playlists(self._paths.playlists_file)]
+        except config.ConfigError:
+            return False
+        return now != [(ln.folder, ln.ref) for ln in prep.lines]
+
     def _logins(self) -> list[tuple[str, bool]]:
         """(service, logged in) for each playlist service the switched-on playlists.txt lines use, in line order.
         A local check of each service's login files, never a network call."""
@@ -640,7 +708,7 @@ class HubApi:
         return run.paused_now(self._paths, self._state(), self._today())
 
     def _images(self) -> dict[str, str]:
-        prep = self._store.prep
+        prep = self._plan()
         return {t.key: t.image_url for fp in (prep.fetched if prep else []) for t in fp.tracks if t.image_url}
 
     def _cover(self, images: dict[str, str]) -> Callable[[str, dict], str | None]:
@@ -714,7 +782,7 @@ class HubApi:
 
     def _others(self, state: dict) -> dict[str, str]:
         reports = self._reports()
-        return views.todo_others(self._store.prep, reports[-1][1] if reports else None)
+        return views.todo_others(self._plan(), reports[-1][1] if reports else None)
 
     def _todo(self, state: dict, filt: str, show_hidden: bool, count_only: bool = False) -> dict:
         """views.todo with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
@@ -722,7 +790,7 @@ class HubApi:
         counted without loading their files (they are online and not held by how they are found), so only the plan's
         few same-song groups read theirs; the groups of the answer are then not listed. While an import folder is
         away right now every group's files are read, so a group with a file in it is left out of the count too."""
-        prep = self._store.prep
+        prep = self._plan()
         questions = list(prep.plan.questions) if prep else []
         groups = list(prep.plan.duplicates) if prep else []
         files: dict[str, list] = {}
@@ -853,7 +921,7 @@ class HubApi:
     def _decided_now(self, state: dict) -> set[str]:
         """`views.decided_songs` for the records and the import's last plan as they are now: the songs the `cdj` scope
         leaves out (a Convert all and the plan read ask; To-do computes its own from what it has read)."""
-        prep = self._store.prep
+        prep = self._plan()
         questions = list(prep.plan.questions) if prep else []
         groups = list(prep.plan.duplicates) if prep else []
         files: dict[str, list] = {}
@@ -927,7 +995,7 @@ class HubApi:
 
     @bridge
     def dashboard(self) -> dict:
-        return views.dashboard(self._shown_state(), self._settings(), self._store, self._reports(), self._folders(),
+        return views.dashboard(self._shown_state(), self._settings(), self._read_view(), self._reports(), self._folders(),
                                setup_status(self._support, self._paths, self._music_status(), self._svc.which),
                                self._today(), self._svc.now(),
                                self._reading(), self._logins())
@@ -978,7 +1046,7 @@ class HubApi:
             folders, overrides = (db.watched_folders(conn), db.crate_overrides(conn)) if conn is not None else ([], {})
         lines = pf.load(self._paths.playlists_file).rows
         where = views.sites(state, lines, folders).place
-        return views.sync_preview(self._store, state, self._settings(), self._today(), self._svc.now(),
+        return views.sync_preview(self._read_view(), state, self._settings(), self._today(), self._svc.now(),
                                   self._reading(), self._cover(self._images()), self._logins(), where,
                                   views.song_places(state, lines, folders, overrides),
                                   self._auto_upgrade_ready(state))
@@ -990,7 +1058,7 @@ class HubApi:
         with self._auto_lock:
             if auto and self._store.auto_read:
                 raise OpProblem(AUTO_READ_DONE, "refused")
-            read = refresh_work(self._paths, self._store, self._svc.now, infos={},
+            read = refresh_work(self._paths, self._svc.now, infos={},
                                 lock=self._opening_scan if auto else self._jobs.scan_lock)
 
             def work(ctx) -> dict:
@@ -1034,7 +1102,7 @@ class HubApi:
         """The import as a write job (Busy when another job or a terminal run holds the library)."""
         stopped, self._import_stopped = self._import_stopped, False  # before it starts: it may be stopped at once
         try:
-            return self._jobs.start("import", import_work(self._paths, self._store, self._svc.now, folder=folder,
+            return self._jobs.start("import", import_work(self._paths, self._plan, self._svc.now, folder=folder,
                                                           on_stopped=self._note_stopped))
         except BaseException:
             self._import_stopped = stopped
@@ -1049,7 +1117,7 @@ class HubApi:
 
     @bridge
     def job_status(self) -> dict:
-        return {**self._jobs.status(), "read_status": views.read_status(self._store, self._svc.now(), self._reading(),
+        return {**self._jobs.status(), "read_status": views.read_status(self._read_view(), self._svc.now(), self._reading(),
                                                                            self._logins())}
 
     @bridge
@@ -1071,7 +1139,7 @@ class HubApi:
         if filter not in views.LIBRARY_FILTERS:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
         records, folders = self._records_and_folders()
-        prep = self._store.prep
+        prep = self._plan()
         return views.library(state, view, key, query, filter, sort, self._cover(self._images()),
                              self._away_by_root(folders), lines=pf.load(self._paths.playlists_file).rows,
                              records=records, watched=folders, fetched=prep.fetched if prep else [],
@@ -1083,7 +1151,7 @@ class HubApi:
     def track(self, track_id: str) -> dict:
         state = self._state()
         e = self._entry(state, track_id)
-        prep = self._store.prep
+        prep = self._plan()
         if prep is not None:  # the aliases the last read's linking added (a Qobuz track linked to this song) count too
             planned = (prep.state["tracks"].get(track_id) or {}).get("aliases") or []
             e = {**e, "aliases": list(dict.fromkeys([*(e.get("aliases") or []), *planned]))}
@@ -1292,7 +1360,7 @@ class HubApi:
 
     @bridge
     def limits(self, service: str = "qobuz") -> dict:
-        return views.limits(self._service(service), self._shown_state(), self._settings(), self._store.prep, self._today())
+        return views.limits(self._service(service), self._shown_state(), self._settings(), self._plan(), self._today())
 
     @bridge
     def limits_what_if(self, service: str, limit: int, extra_today: int = 0) -> dict:
@@ -1300,7 +1368,7 @@ class HubApi:
         if not 1 <= limit <= MAX_DAILY_LIMIT or not 0 <= extra_today <= MAX_EXTRA:
             raise ValueError(f"The daily limit goes from 1 to {MAX_DAILY_LIMIT}, the extra for today from 0 to "
                              f"{MAX_EXTRA}.")
-        return views.limits_what_if(service, limit, extra_today, self._shown_state(), self._settings(), self._store.prep,
+        return views.limits_what_if(service, limit, extra_today, self._shown_state(), self._settings(), self._plan(),
                                     self._today())
 
     @bridge
@@ -1503,7 +1571,7 @@ class HubApi:
             raise Busy(SYNC_RUNNING, "sync_running")
 
     def _spotify_track(self, track_id: str, e: dict) -> SourceTrack:
-        prep = self._store.prep
+        prep = self._plan()
         ids = {track_id, *(e.get("aliases") or [])}
         for fp in prep.fetched if prep else []:
             for t in fp.tracks:
@@ -1611,9 +1679,8 @@ class HubApi:
     # --- playlists (playlists.txt stays the source of truth) ---
 
     def _clear_read_problem(self, service: str, kinds: frozenset[str] | None = None, message: str | None = None) -> None:
-        """A login for `service` was just made: a read problem about it, in the window's memory and in the stored
-        read, is out of date (`PreviewStore.clear_service`, `db.clear_read_problem`: same rule, same arguments)."""
-        self._store.clear_service(service, kinds, message)
+        """A login for `service` was just made: the stored read's problem about it is out of date
+        (`db.clear_read_problem`), so every process stops showing it."""
         if self._bound is not None:
             run.clear_read_problem(self._bound, service, kinds, message)
 
@@ -1750,7 +1817,6 @@ class HubApi:
                 retargeted = pf.retargeted(before, rows, self._tracks_by_id(), self._state())
                 all_renames = pf.renames(before, rows)
             version = pf.save(self._paths.playlists_file, rows, loaded_version or "")
-            self._store.mark_stale()  # the plan was made for the old lines
             if choice is None:
                 return {"version": version, "batches": []}
             try:
@@ -1927,7 +1993,7 @@ class HubApi:
             if not (isinstance(key, (list, tuple)) and len(key) == 3 and all(isinstance(k, str) for k in key)):
                 raise ValueError("Each ticked action is [kind, track_id, to_dir].")
             ticked.add(tuple(key))
-        job = self._jobs.start("sync", sync_work(self._paths, self._store, ticked, self._svc.now,
+        job = self._jobs.start("sync", sync_work(self._paths, self._plan, ticked, self._svc.now,
                                                  self._rekordbox_services()))
         with self._lock:  # the sync has its own auto-stop; "Use this" starts a new streak after it
             self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
@@ -1976,7 +2042,7 @@ class HubApi:
     def never_download(self, track_id: str, never: bool) -> dict:
         """"Never download" on the Sync page (or undo it): kept in state.json → never; the planner leaves the track
         out of every sync until undone. Nothing is downloaded or deleted. The preview moves the track at once."""
-        prep = self._store.prep
+        prep = self._plan()
         a = next((a for a in [*(prep.plan.actions if prep else []), *(prep.plan.never if prep else [])]
                   if a.track_id == track_id), None)
         if never and a is None:
@@ -2005,14 +2071,10 @@ class HubApi:
     def rescan_library(self) -> dict:
         """The window opened, or came back to the front after a while (spec library §6.4): index Library/ against
         library.db, so files moved or replaced by hand are found. A write job (kind "scan"): busy/console as every
-        write method; the page ignores those answers, a running sync scans by itself. A scan that changed something
-        plans the stored preview again from its own Spotify read (run.replan, no new read), so Sync and To-do never
-        show the plan from before the scan."""
+        write method; the page ignores those answers, a running sync scans by itself. The plan is derived from the
+        records as they are (`_plan`), so Sync and To-do never show the plan from before the scan."""
         def work(ctx) -> dict:
             summary = library.scan_library(self._paths, ctx.emit)
-            prep = self._store.prep
-            if prep is not None and summary != library.ScanSummary():
-                preview_after_run(self._store, prep, self._store.read_at)
             return {"moved": summary.moved, "new": summary.new, "gone": summary.gone, "missing": summary.missing,
                     "back": summary.back, "changed": summary.replaced, "copies": summary.copies}
 
@@ -2044,7 +2106,7 @@ class HubApi:
             counts = folders_mod.remove(self._paths, folder.id, self._today(), emit=ctx.emit)
             return {"name": folder.path.name or str(folder.path), "files": counts.files, "redownload": counts.redownload}
 
-        return {"job_id": self._jobs.start("folders", replanned_work(self._store, change, self._svc.now)).id}
+        return {"job_id": self._jobs.start("folders", change).id}
 
     @bridge
     def answer_same_song(self, song_key: str, own_key: str, same: bool) -> dict:
@@ -2057,7 +2119,7 @@ class HubApi:
             folders_mod.answer_same_song(self._paths, song_key, own_key, same, self._svc.now())
             return {}
 
-        return {"job_id": self._jobs.start("answer", replanned_work(self._store, change, self._svc.now)).id}
+        return {"job_id": self._jobs.start("answer", change).id}
 
     @bridge
     def keep_duplicates(self, group_id: str, paths: list[str]) -> dict:
@@ -2071,7 +2133,7 @@ class HubApi:
             folders_mod.keep_both(self._paths, group_id, paths, self._svc.now())
             return {}
 
-        return {"job_id": self._jobs.start("answer", replanned_work(self._store, change, self._svc.now)).id}
+        return {"job_id": self._jobs.start("answer", change).id}
 
     @bridge
     def supersede_duplicate(self, group_id: str, file_id: int, paths: list[str]) -> dict:
@@ -2093,7 +2155,7 @@ class HubApi:
                             (e or {}).get("status"), (e or {}).get("source"), (e or {}).get("cutoff_hz"), dst)
             return {"result": asdict(result), "recovered": []}
 
-        return {"job_id": self._jobs.start("supersede", replanned_work(self._store, change, self._svc.now)).id}
+        return {"job_id": self._jobs.start("supersede", change).id}
 
     @bridge
     def add_bought_file(self, track_id: str, expect: str | None = None) -> dict:
@@ -2474,7 +2536,7 @@ class HubApi:
                 rep.write_not_lossless(self._paths, state)  # the removed songs leave that list
             return body
 
-        return {"job_id": self._jobs.start("missing_files", replanned_work(self._store, work, self._svc.now),
+        return {"job_id": self._jobs.start("missing_files", work,
                                            track_id=ids[0] if len(ids) == 1 else None).id}
 
     def _plan_run(self, plan_id: str, mode: str, ids: list[str], state: dict, typed: set[str] | None = None
@@ -2761,7 +2823,6 @@ class HubApi:
                 folder = f"{youtube_music.LIKED_MUSIC_FOLDER}_{n}"
             link = youtube_music.canonical_link(youtube_music.LIKED_MUSIC)
             pf.save(self._paths.playlists_file, [*loaded.rows, pf.Row(folder, link)], loaded.version)
-            self._store.mark_stale()  # the plan was made for the old lines
             return {"folder": folder}
 
         return {"job_id": self._jobs.start("add_liked_music", work).id}

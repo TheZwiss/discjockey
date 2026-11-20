@@ -62,7 +62,7 @@
     {#if sp.offline && !inBody}<Badge tone="muted" text="OFFLINE" />{/if}
     {#if stopped}<span class="txt" data-test="read-stopped">Stopped reading.</span>{/if}
     {#if !(block || needsSetup) || sp.read_at}
-      <span class="txt" data-test="read-when">{sp.stale && !sp.offline ? 'Your playlists changed since.' : when}</span>
+      <span class="txt" data-test="read-when">{sp.lines_changed && !sp.offline ? 'Your playlists changed since.' : when}</span>
     {/if}
     <Button size="sm" disabled={!!blocked} title={blocked}
       onclick={read} data-test="read-read">↻ Read playlists</Button>

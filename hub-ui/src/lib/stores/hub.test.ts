@@ -128,7 +128,7 @@ describe('readBlockIn: the read is blocked only by a service playlists.txt uses 
   const both = (spotify: boolean, qobuz: boolean): ReadStatus['services'] => [
     { service: 'spotify', name: 'Spotify', connected: spotify }, { service: 'qobuz', name: 'Qobuz', connected: qobuz }];
   const ok: ReadStatus = { read_at: '2026-10-21T10:00:00Z', minutes_ago: 2, problem: null, problem_service: null,
-    message: '', services: both(true, true), stale: false, reading: false, offline: false, auto_read: false };
+    message: '', services: both(true, true), lines_changed: false, reading: false, offline: false, auto_read: false };
   it('is null while nothing is known yet and while every used service is connected', () => {
     expect(readBlockIn(null)).toBeNull();
     expect(readBlockIn(ok)).toBeNull();
@@ -264,7 +264,7 @@ describe('a scan job in job_status', () => {
 
 describe('readNeedsSetupIn: a not_set_up without a service is a missing playlists.txt (first-run Dashboard, §5a)', () => {
   const ok: ReadStatus = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
-    message: '', services: [], stale: false, reading: false, offline: false, auto_read: false };
+    message: '', services: [], lines_changed: false, reading: false, offline: false, auto_read: false };
   const setup = (playlists: boolean) => ({ playlists }) as unknown as SetupStatus;
   it('is true for the missing playlists.txt, which is no login block', () => {
     expect(readNeedsSetupIn(ok, null)).toBe(true);
