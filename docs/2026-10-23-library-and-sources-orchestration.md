@@ -963,6 +963,13 @@ Results:
     STOP POINTS (wait for the user): the real-copy rehearsals of V2.2/V2.5 (need the user present, rekordbox
     closed); the merge of phase 2 into main; the cost checkpoint at the end of phase 2 (logged + agent-cost.py); any
     real product decision; no release. Never a real sync/download; real library.db read-only.
+    NIGHT LOG:
+      - E7a done (Sonnet): logged 180.5k (est. 215k), 47 calls, cache reads 6.0M, fresh in 179k, out 67k, advisor 0k.
+        Commits c9ced660 (kernel) + fcc85be4 (contract); pytest 6093 passed / 4 skipped, npm check 0/0, vitest bridge
+        284. 9 small deviations (alias → Annotated, values(), take_mismatches(), tuple min/maxItems, with_schemas,
+        test_missing_* ts_type reads types.gen.ts): all additive, noted in E7b-E7e "Landed in E7a". Merged 2a148971.
+        Advisor tag still in message metadata after a 2nd `/advisor off` (03:02); rule: prompts say never call it,
+        agent-cost advisor must stay 0k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
