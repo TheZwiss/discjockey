@@ -906,7 +906,7 @@ Results:
     2026-11-15..17: 5 182 API calls, 947M cache reads, 17.2M fresh input, 3.8M output, + advisor (Fable) 8.0M uncached
     input / 0.54M output in 37 calls (max 450k per call), none of it in the log. Worst agent: suite speed, 503 calls,
     123M cache reads (logged 332k). Advisor: user to run `/advisor off`.
-    **RESUME HERE (LATEST, 2026-11-20 late):** DECIDED: no Fable (not in Pro any more); `/advisor off` done by the user.
+    **RESUME HERE (superseded below, 2026-11-20 late):** DECIDED: no Fable (not in Pro any more); `/advisor off` done by the user.
     Phase 1 real logged total ~11.4M (2.24x), NOT 13.4M. PROPOSED, waiting for the user's go: (1) Opus phase 2
     detailing run (est. 250-350k) whose sizing script counts edited functions, callers, ported tests AND every
     changed bridge shape (+ contract doc, types.ts, contract.ts, fake); briefs end "Open: none" and carry exact read
@@ -943,6 +943,26 @@ Results:
     the check stays for wave 2 (it pays: one Critical would have cost a fix round or a live-test bug). The "beside"
     V2.4 run removed (one agent at a time). Wave 1 now 1 627k builds (~2 137k with review + fix). Planning total
     ~0.87M (132 + 95 + 371 + 271). Phase branch feat/cli-2-foundations (= main d18ceb5d+). Next: E7a.
+    **RESUME HERE (LATEST, 2026-11-20 night):** USER GO: "work through the night without me … orchestrating and not
+    drifting". E7a (Sonnet, brief .claude/issue39/phase2/E7a.md, est. 215k, maybe 250-300k) RUNNING on
+    feat/cli-2-shapes-kernel (worktree .claude/worktrees/cli2-1) from the phase branch feat/cli-2-foundations.
+    NIGHT LOOP, one agent at a time, in phase2-dispatch.md's order (E7a → E7b → E7c → E7d → E7e → V2.1a → V2.4 →
+    V2.1b):
+      on each notice: `ps aux | grep -E 'pytest|vite|job _worker'` (kill leftovers I or it started); log
+      subagent_tokens + `.claude/agent-cost.py 2026-11-20` (calls, cache reads) here; check its commits
+      (`git log`), that it reported a green full pytest; merge --no-ff into feat/cli-2-foundations, push, remove the
+      worktree; then dispatch the next brief with Dispatch/Scope check lines (material from phase2-dispatch.md).
+      An agent that stopped on a brief gap: decide it myself by the goals (plan v2 G1-G5), write the decision into
+      the brief and phase2-plan.md, fresh Sonnet. Cut by the usage limit: resume by message. Over ~300k: it stops at
+      its next green commit, a fresh agent takes the rest (E7a has commit 1 as hand-over).
+    After V2.1b: measure the wave 1 diff, Opus phase review split in two (shapes+surface / jobs+identity, ~180k
+    each, sized at ~3x the measured diff), ONE Sonnet fix round per half (fix-round agent), `npm run verify` once on
+    the phase branch (run_in_background, mine), CI green. Then (B2) Opus wave 2 detailing against the code (briefs
+    V2.2-V2.6, E9, E4, as wave 1's brief-detail-wave1.md) and (C2) a fresh Opus brief check; then wave 2 builds in
+    order, own Sonnet reviews for V2.2, V2.5, V2.6 (+ V2.6's fake-service rehearsal), E9/E4 shots passes, E4b Opus UI.
+    STOP POINTS (wait for the user): the real-copy rehearsals of V2.2/V2.5 (need the user present, rekordbox
+    closed); the merge of phase 2 into main; the cost checkpoint at the end of phase 2 (logged + agent-cost.py); any
+    real product decision; no release. Never a real sync/download; real library.db read-only.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
