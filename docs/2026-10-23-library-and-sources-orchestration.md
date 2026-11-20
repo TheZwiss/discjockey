@@ -1076,6 +1076,15 @@ Results:
         check reads; missing test sites; V2.5a catalog tests; V2.5b NEEDS_NO_LIBRARY + flips merged while a settings
         job runs), 16 Minor, 2 size. 24 of 26 not catchable by size.py or "Open: none": the check stays. Part A
         builds re-measured 795k (was 855k). Part B dispatched.
+      - C2 part B (Opus): logged 349k (exp. 250k, 1.4x), 144 calls, cache 31.5M, advisor 0k. 32 findings (11
+        Important: V2.3a action ids shifting/unticked songs coming back, hint naming an unbuilt command (plan stores
+        no command now; carry to V4.1), missed callers; V2.6 queued sync recorded as `start_sync`, pacer injection,
+        hub fixture importing the deleted `Pacer`; E9 four fakes -> "undefined." banner; E4a unknown id `crashed`
+        instead of `bad_args`, end screen losing its job, method-count test), 16 Minor, 4 size. Queued-sync deadlock:
+        no cycle. Decided by me (open-scope): E4a `stop(job_id=None)` + E4b "Stop safely" for a Terminal sync (design
+        6.2/6.4). Run 2 builds 1 240k (was 1 275k).
+      - User 2026-11-20: "This codebase is yours" rule -> CLAUDE.md section, fix-round/ui-build agents, checklist
+        line 12 (every prompt carries the ownership line), memory. Next: V2.2a.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend

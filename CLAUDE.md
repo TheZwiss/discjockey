@@ -9,6 +9,22 @@ building, releasing).
 The repo is public (github `TheZwiss/discjockey`); users install the signed app from its releases. A maintainer
 develops on a Mac that also holds their own library, and tests never touch a real library.
 
+## This codebase is yours
+
+An orchestrating Claude session and the agents it dispatches write and maintain all of this code; the user reads
+results, not diffs. So the codebase is yours: you are responsible for keeping it correct and maintainable, and you
+(or the next agent, who is you without your memory) will build on whatever you leave. Every shortcut, hidden bug,
+unclear name, flaky test or half-finished move comes back to bite you in a later phase. Work accordingly:
+
+- Write code you would be glad to find next week with no context: correct first, tested by behaviour, named plainly,
+  and explained where the why is not obvious.
+- Fix root causes, never symptoms; no workaround the next change has to step around.
+- What you touch you leave at least as clear as you found it: no dead code, no duplicate path, no stale doc or test.
+- A bug, flaky test or confusing piece you meet is yours: fix it if it is in the files you touch, otherwise report it
+  (`docs/issues.md`, or your report). Never step past it silently. Work a later planned group owns is reported, not
+  done (scope rule, `.claude/scope-check.sh`).
+- "Green" means you believe it is right, not that the tests happen to pass.
+
 ---
 
 ## Layout
