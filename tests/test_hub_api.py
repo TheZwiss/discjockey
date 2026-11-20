@@ -1,7 +1,10 @@
 import inspect
 import json
+import os
+import re
 import threading
 import time
+from datetime import datetime, timedelta
 
 import pytest
 from hub_helpers import (ID1, LOSSLESS, LOSSY, PLAYLISTS, QOBUZ_LINK, fake_qobuz, fake_spotify, make_api, make_root,
@@ -121,6 +124,46 @@ def test_sync_preview_lists_the_actions_with_keys(root):
     ins = [a["in"] for a in p["groups"][0]["actions"]]
     assert all(len(i) == 1 and i[0].startswith("playlist:") for i in ins) and ins[0] != ins[1]
     assert [p["collections"][i[0]] for i in ins] == ["Hard_Bounce", "Powertrance"]
+
+
+def plan_file(root, plan_id):
+    return root.support / "plans" / f"{plan_id.removeprefix('plan:')}.json"
+
+
+def test_sync_preview_gives_every_action_an_id_and_stores_its_plan(root):
+    api, rec = make_api(root)
+    before = api.sync_preview()
+    assert (before["plan_id"], before["presets"], before["default_how_many"]) == (None, [], None)
+    assert not (root.support / "plans").exists()  # no plan: nothing to store
+    refreshed(api, rec)
+    p = api.sync_preview()
+    actions = p["groups"][0]["actions"]
+    assert [a["id"] for a in actions] == ["act:acquire:t4:1", "act:acquire:t5:2"]  # n: the folder's place in playlists.txt
+    assert re.fullmatch(r"plan:[0-9a-f]{12}", p["plan_id"])
+    body = json.loads(plan_file(root, p["plan_id"]).read_text())
+    assert body["items"] == {"act:acquire:t4:1": {"kind": "acquire", "track_id": "t4", "to_dir": "Library/Hard_Bounce"},
+                             "act:acquire:t5:2": {"kind": "acquire", "track_id": "t5", "to_dir": "Library/Powertrance"}}
+    assert body["kind"] == "sync" and body["root"] == str(root.root) and body["extra"]["read_id"] == "read:1"
+    assert isinstance(body["extra"]["generation"], int) and "command" not in body["extra"]
+    assert [(x["key"], x["downloads"], x["selected"]) for x in p["presets"]] == [
+        ("all", 2, ["act:acquire:t4:1", "act:acquire:t5:2"])] and p["default_how_many"] == "all"
+
+
+def test_a_sync_preview_that_changed_nothing_saves_nothing_new_until_an_hour_passed(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    first = api.sync_preview()["plan_id"]
+    file = plan_file(root, first)
+    os.utime(file, ns=(1_000_000_000, 1_000_000_000))  # a mark to see a second save by
+    assert api.sync_preview()["plan_id"] == first
+    assert file.stat().st_mtime_ns == 1_000_000_000  # same plan, saved a moment ago: left alone
+    api._saved_plan = (first, datetime.now() - timedelta(hours=2))
+    api.sync_preview()
+    assert file.stat().st_mtime_ns != 1_000_000_000  # over an hour: saved again, the 24 hours start over
+    assert wait_job(api, rec, api.never_download("t4", True)).ok  # another plan: another id and file
+    second = api.sync_preview()["plan_id"]
+    assert second != first and plan_file(root, second).is_file()
+    assert {f.name for f in (root.support / "plans").iterdir()} == {f"{first[5:]}.json", f"{second[5:]}.json"}
 
 
 def test_never_download_and_back(root):

@@ -79,6 +79,8 @@ RESUME_FIRST = "An upgrade was stopped halfway. Carry it on instead of starting 
 BAD_AIFF_SCOPE = "That isn't a set of files Discjockey can make AIFF."
 BAD_AIFF_ONLY = "`only` is rename, or left out."
 AIFF_ORIGINS = ("library", "todo")  # where a Convert was started: the batch's scope says so ("library:selection")
+SYNC_PLAN = "sync"  # the kind of the plan a Sync preview stores (`plan_store`)
+PLAN_RESAVE = timedelta(hours=1)  # a Sync plan this window saved is saved again after this long (it is good for 24 hours)
 TAG_CACHE_MAX = 50000  # file tag reads kept in memory (plan stage D §0.7); a library past it starts the cache over
 NO_AIFF_BATCH = "Discjockey has no record of this batch."
 NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
@@ -431,6 +433,8 @@ class HubApi:
         # not the whole read, and a process that did not make the read still has the plan
         self._plan_lock = threading.Lock()
         self._plan_cache: tuple[tuple, run.Prepared] | None = None
+        # the Sync plan this window last stored in `<support>/plans/` and when (`_store_sync_plan`), under `_lock`
+        self._saved_plan: tuple[str, datetime] | None = None
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
         self._rb_at: str | None = None  # when `_rb_cache`'s answer was read (ISO time): the `as_of` of a `writing` answer
         # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
@@ -543,6 +547,17 @@ class HubApi:
         its lock)."""
         plan = plan_store.load(self._support.support, plan_id, self._plan_root())
         return plan, plan_store.bind(plan, now)
+
+    @staticmethod
+    def _planned_actions(plan: plan_store.Plan) -> dict[str, tuple[str, str, str]]:
+        """A stored Sync plan's actions by their ids as `run.action_key`s. A plan of another kind, or one whose file
+        holds no such items, is no plan to start a sync from: `UnknownPlan`."""
+        try:
+            if plan.kind != SYNC_PLAN:
+                raise TypeError(plan.kind)
+            return {act: (item["kind"], item["track_id"], item["to_dir"]) for act, item in plan.items.items()}
+        except (KeyError, TypeError):
+            raise plan_store.UnknownPlan(plan.id) from None
 
     def _settings(self) -> Settings:
         try:
@@ -1102,10 +1117,33 @@ class HubApi:
         lines = pf.load(self._paths.playlists_file).rows
         where = views.sites(state, lines, folders).place
         read = self._read_view(strict=True)  # a refused settings.json is the answer here, not an empty preview
-        return views.sync_preview(read, state, self._settings(), self._today(), self._svc.now(),
-                                  self._reading(), self._cover(self._images(read.prep)), self._logins(), where,
-                                  views.song_places(state, lines, folders, overrides),
-                                  self._auto_upgrade_ready(state, read.prep))
+        answer = views.sync_preview(read, state, self._settings(), self._today(), self._svc.now(),
+                                    self._reading(), self._cover(self._images(read.prep)), self._logins(), where,
+                                    views.song_places(state, lines, folders, overrides),
+                                    self._auto_upgrade_ready(state, read.prep))
+        if read.prep is not None:
+            answer["plan_id"] = self._store_sync_plan(answer, state.get("generation"))
+        return answer
+
+    def _store_sync_plan(self, preview: dict, generation: int | None) -> str:
+        """Stores the plan a Sync preview answers (design §7.1, §9.2) where every process finds it, and returns its id:
+        the actions the preview groups, by their ids, as `(kind, track_id, to_dir)`, with the read and the records'
+        generation it was derived from. A preview is asked for on every data change, so the plan is saved when its id
+        is another than the last one this window saved or that save is over an hour old (a plan is good for 24 hours
+        from its last save). A save that fails (the support folder can't be written) is the preview's problem."""
+        items = {a["id"]: {"kind": a["kind"], "track_id": a["track_id"], "to_dir": a["to_dir"]}
+                 for g in preview["groups"] for a in g["actions"]}
+        root = self._plan_root()
+        identifier = plan_store.plan_id(SYNC_PLAN, root, list(items))
+        now = datetime.now()  # as plan_store reads the clock: it is the plan's own 24 hours
+        with self._lock:
+            last = self._saved_plan
+        if last is None or last[0] != identifier or now - last[1] > PLAN_RESAVE:
+            plan_store.save(self._support.support, SYNC_PLAN, root, items,
+                            {"read_id": preview["read_id"], "generation": generation}, now=now)
+            with self._lock:
+                self._saved_plan = (identifier, now)
+        return identifier
 
     @bridge
     def refresh(self, auto: bool = False) -> dict:
@@ -1202,7 +1240,26 @@ class HubApi:
     def job_status(self) -> dict:
         read = self._read_view(plan=False)  # the head only: this runs on every window refresh, no plan is derived
         return {**self._jobs.status(), "read_status": views.read_status(read, self._svc.now(), self._reading(),
-                                                                           self._logins())}
+                                                                           self._logins()),
+                "last_sync": self._last_sync()}
+
+    def _last_sync(self) -> dict | None:
+        """The newest sync of this music folder in the registry (any `via`: the window's or the terminal's), as `{job,
+        args: {plan_id, selected}, ended}`: what the run list shows after a reload and `job show` says of what was
+        ticked. Null with no sync, no library, or no registry. The recorded args are read defensively (an older or
+        hand-made record has none): a plan id that is no string is None, `selected` keeps its strings."""
+        registry_ = self._jobs.registry
+        if registry_ is None or self._bound is None:
+            return None
+        state = next((s for s in registry_.list(self._bound.root) if s.get("kind") == "sync"), None)
+        if state is None:
+            return None
+        args = state.get("args") if isinstance(state.get("args"), dict) else {}
+        plan_id, selected = args.get("plan_id"), args.get("selected")
+        return {"job": state.get("id"),
+                "args": {"plan_id": plan_id if isinstance(plan_id, str) else None,
+                         "selected": [i for i in selected if isinstance(i, str)] if isinstance(selected, list) else []},
+                "ended": state.get("ended")}
 
     @bridge
     def library(self, view: str = "all", key: str | None = None, query: str = "", filter: str = "all",
@@ -2047,13 +2104,20 @@ class HubApi:
     # --- write jobs (one at a time; each returns {"job_id"} at once, the outcome comes as JobFinished) ---
 
     @bridge
-    def start_sync(self, selected: list) -> dict:
-        ticked = set()
-        for key in selected or []:
-            if not (isinstance(key, (list, tuple)) and len(key) == 3 and all(isinstance(k, str) for k in key)):
-                raise ValueError("Each ticked action is [kind, track_id, to_dir].")
-            ticked.add(tuple(key))
-        job = self._jobs.start("sync", sync_work(self._paths, lambda: self._plan(strict=True), ticked, self._svc.now,
+    def start_sync(self, plan_id: str | None = None, selected: list | None = None) -> dict:
+        """Starts the sync of the plan `plan_id` (a Sync preview's, `_store_sync_plan`) that runs only the actions
+        `selected` (their ids in the plan); the rest of the plan is left out of the run, and what the run's fresh plan
+        has that the plan did not is `new_since_plan` in its result. No plan id: nothing was read yet. A plan that is
+        unknown or expired answers `bad_args` / `refused` (the window then reads a new preview)."""
+        if plan_id is None:
+            raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
+        plan = plan_store.load(self._support.support, plan_id, self._plan_root())
+        planned = self._planned_actions(plan)
+        chosen = list(selected or [])
+        for act in chosen:
+            if not isinstance(act, str) or act not in planned:
+                raise ValueError(f"{act!r} is not an action of the plan {plan_id}.")
+        job = self._jobs.start("sync", sync_work(self._paths, planned, chosen, self._svc.now,
                                                  self._rekordbox_services()))
         with self._lock:  # the sync has its own auto-stop; "Use this" starts a new streak after it
             self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}

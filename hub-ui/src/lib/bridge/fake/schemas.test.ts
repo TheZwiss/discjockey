@@ -53,13 +53,17 @@ async function planned(b: Bridge): Promise<string> {
   const p = (await b.sync_preview()) as { groups?: { actions?: { track_id: string }[] }[]; never?: { track_id: string }[] };
   return p.groups?.flatMap((g) => g.actions ?? [])[0]?.track_id ?? p.never?.[0]?.track_id ?? 't2';
 }
+/** `start_sync(plan_id, selected)`: the plan the fake shows, with nothing ticked (a quiet sync). */
+async function startSyncArgs(b: Bridge): Promise<unknown[]> {
+  return [((await b.sync_preview()) as { plan_id: string | null }).plan_id, []];
+}
 const SAMPLE_ARGS: Record<string, Args> = {
   dashboard: [], sidebar: [], library: ['all', null, '', 'all', null], sync_preview: [], job_status: [], playlists: [],
   limits: ['qobuz'], limits_what_if: ['qobuz', 60, 0], runs: [], run: ['last'], spectrum: ['t1', 'current'],
   set_favourites: [['playlist:0DiscjockeyExampleList']],
   set_crate_shown: ['/Users/you/Music/Rekordbox Library/Hardtechno', true],
   set_crates_shown: [['/Users/you/Music/Rekordbox Library/Hardtechno'], null],
-  stop_refresh: [], stop: [], stop_sign_in: [], refresh: [false], start_sync: [[]], save_limits: ['qobuz', 60, 0],
+  stop_refresh: [], stop: [], stop_sign_in: [], refresh: [false], start_sync: startSyncArgs, save_limits: ['qobuz', 60, 0],
   mark_warnings_seen: ['qobuz'], rescan_library: [],
   todo: ['all', true], track: ['t2'], missing_files_preview: [['t1', 't2'], 'download_again'],
   hide: ['t2', true], never_download: async (b) => [await planned(b), true], upgrade: [['t2'], 'same_track'], undo_upgrade: [['t2']],

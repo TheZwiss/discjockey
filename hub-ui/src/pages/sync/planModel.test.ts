@@ -43,7 +43,7 @@ describe('the import hints (W9)', () => {
 import { keyId } from './selection';
 
 const act = (kind: string, id: string, folder = 'Hard_Bounce', more: Partial<PreviewAction> = {}): PreviewAction => ({
-  key: [kind, id, `Library/${folder}`] as ActionKey, kind, reason: kind === 'acquire' ? 'new' : null, track_id: id,
+  key: [kind, id, `Library/${folder}`] as ActionKey, id: `act:${kind}:${id}:1`, kind, reason: kind === 'acquire' ? 'new' : null, track_id: id,
   artist: `Artist ${id}`, title: `Title ${id}`, folder, to_dir: `Library/${folder}`,
   to_not_lossless: false, src: null, cover_url: null, in: [P(folder)], ...more });
 /** a playlist's target; in these tests a playlist's ref is its name */

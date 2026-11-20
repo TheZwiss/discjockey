@@ -1491,3 +1491,45 @@ def test_fill_kbps_does_not_look_up_a_missing_or_offline_file():
     assert run.fill_kbps(state, fb, lambda e: None) == 1
     assert fb.asked == ["a"]
     assert not state["tracks"]["m"].get("source_kbps") and not state["tracks"]["o"].get("source_kbps")
+
+
+# --- the ids of a Sync plan's actions (issue 39 phase 2) ---
+
+def _track(tid):
+    return SourceTrack(tid, f"Song {tid}", ("Artist",), "Al", None, 180000, None)
+
+
+def _ided(folders, actions, never=()):
+    """A plan over playlists.txt folders `folders` (in file order) with `actions` as (kind, track id, folder)."""
+    lines = [PlaylistLine(f, f"id{i}", i) for i, f in enumerate(folders, 1)]
+    make = lambda kind, tid, folder: run.Action(kind, tid, folder, _track(tid), (0, 0))  # noqa: E731
+    plan = Plan({}, [make(*a) for a in actions], [], [], never=[make(*a) for a in never])
+    return SimpleNamespace(lines=lines, plan=plan)
+
+
+def test_action_ids_number_the_folder_by_its_place_in_playlists_txt():
+    prep = _ided(["Hard_Bounce", "Powertrance", "Techno"],
+                 [("acquire", "t1", "Techno"), ("acquire", "t2", "Hard_Bounce"), ("upgrade", "t3", "Techno")])
+    assert run.action_ids(prep) == {("acquire", "t1", "Library/Techno"): "act:acquire:t1:3",
+                                    ("acquire", "t2", "Library/Hard_Bounce"): "act:acquire:t2:1",
+                                    ("upgrade", "t3", "Library/Techno"): "act:upgrade:t3:3"}
+    assert run.action_ids(prep) == run.action_ids(prep)  # the same plan twice: the same ids
+    assert len(set(run.action_ids(prep).values())) == 3
+
+
+def test_a_song_added_to_an_earlier_folder_leaves_every_other_id_alone():
+    before = run.action_ids(_ided(["A", "B", "C"], [("acquire", "t1", "B"), ("acquire", "t2", "C")]))
+    after = run.action_ids(_ided(["A", "B", "C"], [("acquire", "t0", "A"), ("acquire", "t1", "B"), ("acquire", "t2", "C")]))
+    assert {k: v for k, v in after.items() if k in before} == before
+    assert after[("acquire", "t0", "Library/A")] == "act:acquire:t0:1"
+    gone = run.action_ids(_ided(["A", "B", "C"], [("acquire", "t2", "C")]))  # B lost its only action
+    assert gone[("acquire", "t2", "Library/C")] == before[("acquire", "t2", "Library/C")] == "act:acquire:t2:3"
+
+
+def test_a_never_row_has_an_id_and_a_target_outside_the_folders_is_numbered_after_them():
+    prep = _ided(["A", "B"], [("acquire", "t1", "A")], never=[("acquire", "t9", "B")])
+    stray = run.Action("adopt_bought", "t5", "A", _track("t5"), (0, 0), dest_dir="Library/Elsewhere")
+    prep.plan.actions.append(stray)
+    ids = run.action_ids(prep)
+    assert ids[("acquire", "t9", "Library/B")] == "act:acquire:t9:2"
+    assert ids[("adopt_bought", "t5", "Library/Elsewhere")] == "act:adopt_bought:t5:3"

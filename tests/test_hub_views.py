@@ -2876,3 +2876,112 @@ def test_the_songs_an_open_question_or_a_listed_duplicate_group_asks_about_are_d
     assert [i["track_id"] for i in cdj_group(out)["items"]] == ["local:4", "local:5"]
     assert cdj_rule.group_members(st, held=held).keys() == {"local:4", "local:5"}
     assert len(cdj_group(views.todo(st, "all", False, {}, TODAY))["items"]) == 5                       # none held: all five
+
+
+# --- the Sync's scope and "how many" (issue 39 phase 2: the window's planModel words as engine answers) ---
+
+S_A, S_B, S_TECHNO, S_CRATE, S_OLD = ("playlist:pa", "playlist:pb", "folder:/Volumes/Ex/Techno",
+                              "folder:/Volumes/Ex/Techno/2019", "folder:Library/Old Stuff")
+
+
+def srow(kind, tid, order=0, held=(), reason=None):
+    return {"id": f"act:{kind}:{tid}:1", "kind": kind, "reason": reason, "in": list(held), "run": order}
+
+
+def test_a_row_is_in_scope_while_any_collection_it_belongs_to_is_on():
+    two, mixed = srow("upgrade", "two", held=[S_A, S_B]), srow("acquire", "mixed", held=[S_A, S_TECHNO, S_CRATE], reason="retry")
+    own, lib, loose = (srow("upgrade", "own", held=[S_TECHNO, S_CRATE]), srow("upgrade", "lib", held=[S_OLD]),
+                       srow("upgrade", "loose"))
+    assert views.in_scope(two, [S_A], []) and views.in_scope(two, [S_B], [])  # one of two playlists on keeps it
+    assert not views.in_scope(two, [S_A, S_B], [])
+    assert views.in_scope(mixed, [S_TECHNO], []) and views.in_scope(mixed, [S_A], [])  # a playlist and a folder: either
+    assert not views.in_scope(mixed, [S_A, S_TECHNO], [])
+    assert not views.in_scope(lib, [S_OLD], []) and views.in_scope(lib, [S_A, S_TECHNO], [])
+    assert views.in_scope(loose, [S_A, S_TECHNO, S_OLD], [])  # a row in no collection has no switch
+    assert views.in_scope(own, [], [])
+
+
+def test_a_folder_off_takes_its_crates_and_a_crate_off_inside_a_folder_that_is_on_is_off():
+    own, mixed = srow("upgrade", "own", held=[S_TECHNO, S_CRATE]), srow("acquire", "mixed", held=[S_A, S_TECHNO, S_CRATE])
+    assert not views.in_scope(own, [S_TECHNO], []) and not views.in_scope(own, [S_CRATE], [])
+    assert not views.in_scope(mixed, [S_A, S_CRATE], []) and views.in_scope(mixed, [S_CRATE], [])  # playlist A keeps it
+
+
+def test_a_weekly_kind_off_leaves_its_rows_out_whatever_their_collections_say():
+    retry, weekly = srow("acquire", "r", held=[S_A], reason="retry"), srow("upgrade", "w", held=[S_A])
+    new, bought = srow("acquire", "n", held=[S_A], reason="new"), srow("adopt_bought", "b", held=[S_A])
+    assert not views.in_scope(retry, [], ["retry"]) and views.in_scope(retry, [], ["weekly"])
+    assert not views.in_scope(weekly, [], ["weekly"]) and views.in_scope(weekly, [], ["retry"])
+    assert views.in_scope(new, [], ["retry", "weekly"]) and views.in_scope(bought, [], ["retry", "weekly"])
+
+
+def n_downloads(n, start=0):
+    return [srow("acquire", f"d{i}", i, reason="new") for i in range(start, start + n)]
+
+
+def labels_of(rows, left, off=(), weekly_off=()):
+    return [p["label"] for p in views.how_many(rows, left, off, weekly_off)[0]]
+
+
+def test_how_many_offers_the_round_numbers_below_the_total_what_fits_today_and_all():
+    assert labels_of(n_downloads(195), 10) == ["5", "10 · fits today", "25", "50", "All 195"]  # 10 == left: one chip
+    assert labels_of(n_downloads(30), 0) == ["5", "10", "25", "All 30"]  # nothing left today: no "fits"
+    assert labels_of(n_downloads(30), None) == ["5", "10", "25", "All 30"]  # no daily limit
+    assert labels_of(n_downloads(8), 60) == ["5", "All 8"]
+    assert labels_of(n_downloads(3), 2) == ["2 · fits today", "All 3"]
+    assert labels_of(n_downloads(3), 3) == ["All 3"]  # everything fits: no "fits" chip
+
+
+def test_how_many_keys_downloads_and_default():
+    presets, default = views.how_many(n_downloads(195), 10, [], [])
+    assert [(p["key"], p["downloads"]) for p in presets] == [("5", 5), ("fits", 10), ("25", 25), ("50", 50), ("all", 195)]
+    assert default == "fits"
+    presets, default = views.how_many(n_downloads(8), 60, [], [])
+    assert [(p["key"], p["downloads"]) for p in presets] == [("5", 5), ("all", 8)] and default == "all"
+    assert views.how_many(n_downloads(8), 0, [], [])[1] == "all"
+
+
+def test_how_many_with_nothing_in_scope_offers_nothing_and_with_no_downloads_only_all():
+    assert views.how_many([], 10, [], []) == ([], None)
+    assert views.how_many([srow("upgrade", "u", held=[S_A])], 10, [S_A], []) == ([], None)  # left out by its playlist
+    only = [srow("adopt_bought", "m1", 0), srow("adopt_bought", "m2", 1)]
+    presets, default = views.how_many(only, 10, [], [])
+    assert presets == [{"key": "all", "label": "All", "downloads": 0, "selected": [only[0]["id"], only[1]["id"]]}]
+    assert default == "all"
+
+
+def test_a_preset_ticks_every_non_download_in_scope_and_the_first_downloads_in_run_order():
+    rows = [srow("adopt_bought", "m", 0, [S_A]), srow("acquire", "a", 1, [S_A], "new"), srow("acquire", "b", 2, [S_B], "new"),
+            srow("acquire", "c", 3, [S_A], "new"), srow("upgrade", "u", 4, [S_A])]
+    by_key = lambda off, weekly=(): {p["key"]: [i.split(":")[2] for i in p["selected"]]  # noqa: E731
+                                     for p in views.how_many(list(reversed(rows)), None, off, weekly)[0]}
+    assert by_key([])["all"] == ["m", "a", "b", "c", "u"]  # whatever order the rows come in: the run order
+    only_two = [srow("acquire", f"x{i}", i, reason="new") for i in range(7)]
+    assert [i.split(":")[2] for i in views.how_many(only_two, None, [], [])[0][0]["selected"]] == [f"x{i}" for i in range(5)]
+    assert by_key([S_B])["all"] == ["m", "a", "c", "u"]  # B's download is out of scope: not counted, not ticked
+    assert by_key([], ["weekly"])["all"] == ["m", "a", "b", "c"]  # the weekly check is out
+    assert labels_of(rows, None, [S_B], ["weekly"]) == ["All 2"]
+
+
+def test_sync_preview_gives_every_action_an_id_and_the_presets_of_the_scope():
+    lines = [PlaylistLine("A", "pa", 1), PlaylistLine("B", "pb", 2)]
+    st = state()
+    fetched = [FetchedPlaylist(lines[0], [t("a1"), t("a2")], []), FetchedPlaylist(lines[1], [t("b1")], [])]
+    actions = [Action("acquire", "a1", "A", t("a1"), (0, 0), reason="new"),
+               Action("acquire", "a2", "A", t("a2"), (0, 1), reason="retry"),
+               Action("acquire", "b1", "B", t("b1"), (1, 0), reason="new")]
+
+    def preview(**scope):
+        read = views.ReadView(Prepared(None, st, Settings(**scope), Plan(st, actions, [], []), None, lines, fetched), NOW)
+        return views.sync_preview(read, st, Settings(**scope), TODAY, NOW, False)
+    p = preview()
+    assert [a["id"] for g in p["groups"] for a in g["actions"]] == ["act:acquire:a1:1", "act:acquire:b1:2",
+                                                                      "act:acquire:a2:1"]  # by group, then the run order
+    assert [(x["key"], x["downloads"]) for x in p["presets"]] == [("all", 3)] and p["default_how_many"] == "all"
+    assert p["plan_id"] is None  # the api stores the plan and gives its id
+    assert [x["label"] for x in preview(scope_off=("playlist:pb",))["presets"]] == ["All 2"]  # B's download not counted
+    assert [x["label"] for x in preview(weekly_off=("retry",))["presets"]] == ["All 2"]
+    gone = preview(scope_off=("playlist:pa", "playlist:pb"))
+    assert (gone["presets"], gone["default_how_many"]) == ([], None) and gone["groups"]
+    none = views.sync_preview(views.ReadView(), st, Settings(), TODAY, NOW, False)
+    assert (none["plan_id"], none["presets"], none["default_how_many"]) == (None, [], None)

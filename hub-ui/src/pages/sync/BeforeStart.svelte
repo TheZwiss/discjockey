@@ -254,9 +254,12 @@
     setPref(PREF_LAST_SELECTION, sel);
     starting = true;
     startProblem = null;
-    const out = await runJob(api.start_sync(sel.map((a) => a.key)), { quiet: true });
+    const out = await runJob(api.start_sync(preview.plan_id, chosen.map((a) => a.id)), { quiet: true });
     starting = false;
-    if (!out.ok && out.job_id === null) startProblem = { ok: false, kind: out.kind, message: out.message };
+    if (!out.ok && out.job_id === null) {
+      startProblem = { ok: false, kind: out.kind, message: out.message };
+      void load();   // an expired or pruned plan is replaced at once; the refusal shows as before
+    }
   }
 </script>
 

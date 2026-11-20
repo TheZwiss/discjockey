@@ -2024,6 +2024,8 @@ export type CratesSaved = {
 export type PreviewAction = {
   /** The action's key, sent back ticked to `start_sync`. */
   key: ActionKey;
+  /** The action's id in this plan (`act:<kind>:<track>:<n>`); sent back ticked to `start_sync`. */
+  id: string;
   /** What the action does (acquire, adopt_bought, upgrade). */
   kind: string;
   /** Why: new, retry or redownload for a download; null for the others. */
@@ -2053,6 +2055,20 @@ export type PreviewAction = {
   in: string[];
   /** The order the sync works through the actions (kind, then playlist order); not on `never` rows. */
   run?: number;
+};
+/** One of the "how many" choices of a plan. */
+export type SyncPreset = {
+  /** The choice. */
+  key: '5' | '10' | '25' | '50' | 'fits' | 'all';
+  /** Its words ("10", "7 · fits today", "All 12"). */
+  label: string;
+  /** How many downloads it ticks. */
+  downloads: number;
+  /**
+   * The ids of the actions it ticks: every action in the Sync scope that is no download and the first
+   * downloads in scope, in the order the sync works.
+   */
+  selected: string[];
 };
 /** One group of the preview's actions. */
 export type PreviewGroup = {
@@ -2154,6 +2170,18 @@ export type SyncPreview = {
   auto_upgrade: SyncPreviewAutoUpgrade | null;
   /** The stored read the plan is derived from (`read:<n>`); null before the first read. */
   read_id: string | null;
+  /**
+   * The id this plan is stored under (`plan:<12 hex>`, 24 h); Start and `sync run --plan` run only its
+   * actions. Null before the first read.
+   */
+  plan_id: string | null;
+  /** The "how many" choices, by downloads; empty when no action is in the Sync scope. */
+  presets: SyncPreset[];
+  /**
+   * The choice to start from (a preset's `key`): `fits` when it is offered, else `all`; null when there are no
+   * choices.
+   */
+  default_how_many: string | null;
 };
 /** One planned action of a running job, copied from `RunStarted.actions`. */
 export type PlannedAction = {
@@ -2209,6 +2237,22 @@ export type JobSnap = {
    */
   actions: PlannedAction[];
 };
+/** What a sync was started with. */
+export type SyncArgs = {
+  /** The plan it ran (`plan:<12 hex>`); null when the record has none. */
+  plan_id: string | null;
+  /** The ids of the actions ticked, in the plan. */
+  selected: string[];
+};
+/** The newest sync of this music folder, from the job registry. */
+export type LastSync = {
+  /** Its job id. */
+  job: string;
+  /** What it was started with. */
+  args: SyncArgs;
+  /** When it ended, an ISO time; null while it runs. */
+  ended: string | null;
+};
 /** The snapshot after a window reload. */
 export type JobStatus = {
   /** The running write job; null when none runs. */
@@ -2219,6 +2263,11 @@ export type JobStatus = {
   console_running: boolean;
   /** How the last playlists read went. */
   read_status: ReadStatus;
+  /**
+   * The newest sync of this music folder, the window's or the terminal's: what was ticked, and when it ended;
+   * null with none.
+   */
+  last_sync: LastSync | null;
   /**
    * A sign-in waiting for the browser (its own slot beside the write jobs; Settings restores its phase from
    * it); null when none.
@@ -2676,8 +2725,11 @@ export type SyncResult = {
   report: string;
   /** How many actions it ran; 0 when it crashed before the plan. */
   actions: number;
-  /** Actions the plan gained since the preview. */
-  new_since_preview: number;
+  /**
+   * The actions the run's fresh plan has that the plan you started from did not, by their ids in the fresh
+   * plan; left for the next sync.
+   */
+  new_since_plan: string[];
 };
 /** The result of `save_limits`. */
 export type SaveLimitsResult = {

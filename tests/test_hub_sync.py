@@ -88,10 +88,11 @@ def head(paths):
         return db.read_head(conn)
 
 
-def plan_keys(plan):
-    """The action keys of the plan now (what a sync's `previewed` is)."""
+def planned_of(plan):
+    """The plan now as a stored Sync plan holds it (what a sync's `planned` is): action id -> (kind, track_id, to_dir)."""
     prep = plan()
-    return {run.action_key(a) for a in prep.plan.actions} if prep else set()
+    ids = run.action_ids(prep) if prep else {}
+    return {ids[run.action_key(a)]: run.action_key(a) for a in prep.plan.actions} if prep else {}
 
 
 def refresh(js, paths):
@@ -257,17 +258,18 @@ def test_a_spotify_problem_names_spotify_and_a_good_read_clears_it(env, monkeypa
     assert (head(paths).problem, head(paths).problem_service) == (None, None)
 
 
-def sync(js, paths, plan, ticked):
-    job = js.start("sync", jobs.sync_work(paths, plan, ticked))
+def sync(js, paths, planned, ticked=None):
+    """A sync of the plan `planned` that runs the actions with these keys (None: all of them)."""
+    chosen = [act for act, key in planned.items() if ticked is None or key in ticked]
+    job = js.start("sync", jobs.sync_work(paths, planned, chosen))
     assert job.done.wait(10)
 
 
 def test_sync_runs_only_ticked_actions(env):
     paths, js, plan, rec, acq, logins, tracks = env
     refresh(js, paths)
-    keys = plan_keys(plan)
-    ticked = {k for k in keys if k[1] != "t2"}
-    sync(js, paths, plan, ticked)
+    planned = planned_of(plan)
+    sync(js, paths, planned, {k for k in planned.values() if k[1] != "t2"})
     assert acq.tracks == ["t1", "t3"] and logins == [1]
     finished = rec.finished()
     assert finished.ok and finished.result["exit_code"] == 0 and finished.result["actions"] == 2
@@ -283,7 +285,7 @@ def test_after_a_full_sync_the_preview_is_up_to_date_without_another_read(env, m
     refresh(js, paths)
     reads = []
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: reads.append(1) or FetchedPlaylist(line, list(tracks), []))
-    sync(js, paths, plan, plan_keys(plan))
+    sync(js, paths, planned_of(plan))
     assert reads == [1]  # only the sync's own read
     assert plan().plan.actions == [] and head(paths).read_at is not None
     preview = views.sync_preview(views.ReadView(plan(), head(paths).read_at), load_state(paths), load_settings(paths.settings_file),
@@ -310,11 +312,11 @@ def test_a_crash_during_the_run_files_a_crash_note_as_the_runs_report(env, monke
     paths, js, plan, rec, acq, logins, tracks = env
     refresh(js, paths)
     crash_on("t2", monkeypatch)
-    sync(js, paths, plan, plan_keys(plan))
+    sync(js, paths, planned_of(plan))
     finished = rec.finished()
     assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     result = finished.result
-    assert result["exit_code"] == 1 and result["actions"] == 3 and result["new_since_preview"] == 0
+    assert result["exit_code"] == 1 and result["actions"] == 3 and result["new_since_plan"] == []
     md = open(result["report"], encoding="utf-8").read()
     note = main_text(md)
     assert "The sync stopped unexpectedly" in note and "Artist - Song 2" in note and "KeyError" not in note
@@ -334,9 +336,9 @@ def test_a_crash_before_the_run_starts_still_files_a_note(env, monkeypatch):
     def broken(*a, **k):
         raise RuntimeError("bad plan")
 
-    ticked = plan_keys(plan)
+    planned = planned_of(plan)
     monkeypatch.setattr(run.planner, "plan", broken)
-    sync(js, paths, plan, ticked)
+    sync(js, paths, planned)
     finished = rec.finished()
     assert (finished.ok, finished.problem) == (False, "crashed") and finished.message == run.rep.CRASH_MESSAGE
     note = main_text(open(finished.result["report"], encoding="utf-8").read())
@@ -349,36 +351,50 @@ def test_a_setup_problem_writes_no_crash_note(env, monkeypatch):
     paths, js, plan, rec, acq, logins, tracks = env
     refresh(js, paths)
     monkeypatch.setattr(run, "open_qobuz", lambda prep: (_ for _ in ()).throw(run.SetupProblem("x", "not_set_up")))
-    sync(js, paths, plan, plan_keys(plan))
+    sync(js, paths, planned_of(plan))
     assert rec.finished().problem == "not_set_up" and rec.finished().result is None
     assert not (paths.data / "reports").exists()
 
 
-def test_actions_new_since_the_preview_wait_for_the_next_run(env):
+def test_actions_new_since_the_plan_wait_for_the_next_run_and_are_listed_by_their_ids(env):
     paths, js, plan, rec, acq, logins, tracks = env
     refresh(js, paths)
-    ticked = plan_keys(plan)
+    planned = planned_of(plan)
     tracks.append(SourceTrack("t4", "Song 4", ("Artist",), "Al", None, 180000, None))  # added in Spotify meanwhile
-    sync(js, paths, plan, ticked)
+    sync(js, paths, planned)
     assert acq.tracks == ["t1", "t2", "t3"]
-    assert rec.finished().result["new_since_preview"] == 1
+    assert rec.finished().result["new_since_plan"] == ["act:acquire:t4:1"]  # its id in the run's fresh plan
+
+
+def test_an_action_whose_target_moved_is_not_run_and_is_listed_as_new(env):
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
+    planned = {act: (k, t, "Library/Elsewhere" if t == "t1" else d) for act, (k, t, d) in planned_of(plan).items()}
+    sync(js, paths, planned)  # the plan said t1 goes elsewhere; today it goes to the playlist's folder
+    assert acq.tracks == ["t2", "t3"]
+    assert rec.finished().result["new_since_plan"] == ["act:acquire:t1:1"] and rec.finished().result["actions"] == 2
+    report = json.loads(open(rec.finished().result["report"].replace(".md", ".json")).read())
+    assert {r["track_id"]: r["note"] for r in report["results"] if r["section"] == "queued"} == {
+        "t1": run.NEW_SINCE_PREVIEW}
+
+
+def test_a_sync_runs_only_the_ids_it_is_given_in_any_order(env):
+    paths, js, plan, rec, acq, logins, tracks = env
+    refresh(js, paths)
+    planned = planned_of(plan)
+    job = js.start("sync", jobs.sync_work(paths, planned, ["act:acquire:t3:1", "act:acquire:t1:1"]))
+    assert job.done.wait(10)
+    assert sorted(acq.tracks) == ["t1", "t3"] and rec.finished().result["new_since_plan"] == []
 
 
 def test_nothing_ticked_finishes_quietly_without_qobuz(env):
     paths, js, plan, rec, acq, logins, tracks = env
     refresh(js, paths)
-    sync(js, paths, plan, set())
+    sync(js, paths, planned_of(plan), set())
     assert acq.tracks == [] and logins == []  # filtered before open_qobuz: no login for nothing
     assert rec.finished().ok and rec.finished().result["actions"] == 0
     assert any(isinstance(e, RunFinished) for e in rec.events)  # the end screen works the same way
     assert paths.state_file.exists()  # finish_quietly saved flags and wrote the report
-
-
-def test_sync_without_a_preview_is_refused(env):
-    paths, js, plan, rec, acq, logins, tracks = env
-    sync(js, paths, plan, set())
-    assert (rec.finished().ok, rec.finished().problem) == (False, "refused")
-    assert "Read your playlists first" in rec.finished().message
 
 
 def test_a_setup_problem_ends_the_sync_with_its_kind(env, monkeypatch):
@@ -389,7 +405,7 @@ def test_a_setup_problem_ends_the_sync_with_its_kind(env, monkeypatch):
         raise spotify.SpotifyError("Your Spotify login has expired.", "login_expired")
 
     monkeypatch.setattr(spotify, "fetch_playlist", expired)
-    sync(js, paths, plan, plan_keys(plan))
+    sync(js, paths, planned_of(plan))
     assert (rec.finished().ok, rec.finished().problem) == (False, "login_expired")
 
 
@@ -404,7 +420,7 @@ def test_stop_during_the_sync(env, monkeypatch):
         return FakeAcquirer.acquire(acq, track, rejected, workdir, lossless_only, tracker)
 
     monkeypatch.setattr(acq, "acquire", stop_on_second)
-    sync(js, paths, plan, plan_keys(plan))
+    sync(js, paths, planned_of(plan))
     finished = rec.finished()
     assert finished.ok and finished.result["exit_code"] == 130  # stopped safely: a normal end of a run
     assert [e.exit_code for e in rec.events if isinstance(e, RunFinished)] == [130]
@@ -467,7 +483,7 @@ def test_a_sync_that_fails_while_reading_keeps_the_service_and_the_hub_words(env
     refresh(js, paths)
     paths.playlists_file.write_text(PLAYLISTS + QOBUZ_PLAYLISTS.replace("Hard_Bounce", "Deep_Cuts"))
     monkeypatch.setattr(qobuz_source, "login_state", lambda p: LoginState("missing", CONSOLE_TEXT))
-    sync(js, paths, plan, plan_keys(plan))
+    sync(js, paths, planned_of(plan))
     done = rec.finished()
     assert (done.ok, done.problem, done.service) == (False, "not_set_up", "qobuz")
     assert done.message == "Connect Qobuz first." and not logins  # nothing was downloaded or logged in to
@@ -477,7 +493,7 @@ def test_a_job_that_is_not_about_a_service_finishes_without_one(env):
     paths, js, plan, rec, acq, logins, tracks = env
     refresh(js, paths)
     assert rec.finished().service is None
-    sync(js, paths, plan, set())
+    sync(js, paths, planned_of(plan), set())
     assert rec.finished().service is None
 
 
@@ -516,7 +532,7 @@ def test_a_hub_read_logs_in_to_qobuz_once_and_takes_the_playlist_page_from_the_t
 
 # --- the plan is derived from the stored read, in any process (issue 39 phase 2, V2.2b) ---
 
-from hub_helpers import (ID1, fake_import, fake_spotify, import_folder, make_api, make_root, music_root, refreshed,
+from hub_helpers import (ID1, fake_import, fake_spotify, import_folder, make_api, make_root, music_root, refreshed, sync_plan,
                          store_sync_read, wait_job)
 from discjockey.models import PlaylistLine, StoredRead
 from discjockey.settings import Settings, save_settings
@@ -600,14 +616,14 @@ def test_the_plan_is_derived_once_per_read_records_settings_and_day(hub):
 
 def test_a_hub_sync_makes_its_own_read_the_plan_and_needs_a_stored_read_to_start(hub):
     api, rec, paths, derived, loads = hub
-    f = wait_job(api, rec, api.start_sync([]))
-    assert (f.ok, f.problem) == (False, "refused") and "Read your playlists first" in f.message
+    refused = api.start_sync(api.sync_preview()["plan_id"], [])  # no read yet: no plan id (null), nothing starts
+    assert (refused["ok"], refused["kind"]) == (False, "refused") and "Read your playlists first" in refused["message"]
     refreshed(api, rec)
     assert api.sync_preview()["read_id"] == "read:1"
-    keys = [a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]]
-    assert keys
-    f = wait_job(api, rec, api.start_sync([]))  # nothing ticked: a quiet sync, which still reads and stores itself
-    assert f.ok and f.result["new_since_preview"] == 0 and f.result["actions"] == 0
+    plan_id, ids = sync_plan(api)
+    assert ids
+    f = wait_job(api, rec, api.start_sync(plan_id, []))  # nothing ticked: a quiet sync, which still reads and stores itself
+    assert f.ok and f.result["new_since_plan"] == [] and f.result["actions"] == 0
     assert api.sync_preview()["read_id"] == "read:2"  # the run's own read is the newest: the plan is derived from it
 
 
@@ -654,10 +670,11 @@ def test_a_refused_settings_file_leaves_every_page_but_the_sync_preview_answerin
 def test_a_refused_settings_file_is_the_error_of_the_sync_preview_and_of_a_sync(hub):
     api, rec, paths, derived, loads = hub
     refreshed(api, rec)
+    plan_id = api.sync_preview()["plan_id"]
     paths.settings_file.write_text(REFUSED)
     refused = api.sync_preview()
     assert refused["ok"] is False and "settings.json" in refused["message"]
-    f = wait_job(api, rec, api.start_sync([]))
+    f = wait_job(api, rec, api.start_sync(plan_id, []))
     assert (f.ok, f.problem) == (False, "config_invalid") and "Read your playlists first" not in f.message
     assert api.never_download("t1", True)["ok"] is False
 
@@ -705,3 +722,72 @@ def test_a_page_asks_for_the_plan_once(hub, monkeypatch, name):
     monkeypatch.setattr(api, "_derive", lambda *a, **k: asked.append(1) or real(*a, **k))
     getattr(api, name)()
     assert len(asked) == 1
+
+
+# --- the plan binding (issue 39 phase 2): the plan another window saved, the job's args and the last sync ---
+
+def test_a_plan_saved_by_one_hub_starts_in_a_new_hub_on_the_same_folder(hub):
+    api, rec, paths, derived, loads = hub
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    assert ids
+    other, other_rec = make_api(paths)  # another window or the command line: no memory of A's save, the same plans/
+    wrong = other.start_sync(plan_id, [ids[0], "act:acquire:nope:1"])  # the ids are checked against A's saved plan
+    assert (wrong["kind"], "act:acquire:nope:1" in wrong["message"]) == ("refused", True)
+    f = wait_job(other, other_rec, other.start_sync(plan_id, []))
+    assert f.ok and f.result["actions"] == 0 and f.result["new_since_plan"] == []
+
+
+def wait_for(read, timeout=5.0):
+    """The value `read()` gives as soon as it is not None (a registry record is written a moment after the end)."""
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if (value := read()) is not None:
+            return value
+        time.sleep(0.01)
+    raise AssertionError("it did not come")
+
+
+def test_a_sync_records_what_it_was_started_with_and_job_status_names_the_last_sync(hub, monkeypatch):
+    api, rec, paths, derived, loads = hub
+    assert api.job_status()["last_sync"] is None
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    held, release, real = threading.Event(), threading.Event(), run.prepare
+
+    def held_prepare(*a, **k):
+        held.set()
+        release.wait(5)
+        return real(*a, **k)
+
+    monkeypatch.setattr(run, "prepare", held_prepare)
+    answer = api.start_sync(plan_id, [])
+    assert held.wait(5)
+    state = json.loads((paths.support / "jobs" / answer["job_id"] / "state.json").read_text())
+    assert state["kind"] == "sync" and state["args"] == {"plan_id": plan_id, "selected": []}
+    running = api.job_status()["last_sync"]
+    assert running == {"job": answer["job_id"], "args": {"plan_id": plan_id, "selected": []}, "ended": None}
+    release.set()
+    wait_job(api, rec, answer)
+    done = wait_for(lambda: api.job_status()["last_sync"]["ended"])
+    assert api.job_status()["last_sync"] == {"job": answer["job_id"], "args": {"plan_id": plan_id, "selected": []},
+                                             "ended": done}
+    other, _ = make_api(paths)
+    assert other.job_status()["last_sync"]["job"] == answer["job_id"]  # a reloaded window finds it in the registry
+
+
+def test_a_sync_record_with_malformed_args_answers_empty_ones(hub):
+    api, rec, paths, derived, loads = hub
+    folder = paths.support / "jobs" / "job:0badc0de"
+    folder.mkdir(parents=True)
+    (folder / "state.json").write_text(json.dumps({"id": "job:0badc0de", "kind": "sync", "args": {"plan_id": 7, "selected": "x"},
+                                                   "roots": {"music": str(paths.root)}, "started": "2099-01-01T00:00:00",
+                                                   "status": "done", "ended": None}))
+    assert api.job_status()["last_sync"] == {"job": "job:0badc0de", "args": {"plan_id": None, "selected": []},
+                                             "ended": None}
+    (folder / "state.json").write_text(json.dumps({"id": "job:0badc0de", "kind": "sync", "args": {"selected": ["a", 3]},
+                                                   "roots": {"music": str(paths.root)}, "started": "2099-01-01T00:00:00"}))
+    assert api.job_status()["last_sync"]["args"] == {"plan_id": None, "selected": ["a"]}
+    (folder / "state.json").write_text(json.dumps({"id": "job:0badc0de", "kind": "refresh", "args": {},
+                                                   "roots": {"music": str(paths.root)}, "started": "2099-01-01T00:00:00"}))
+    assert api.job_status()["last_sync"] is None  # a refresh is no sync

@@ -2,12 +2,12 @@ import json
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder, make_api, make_root, music_root,
-                         refreshed, wait_job, write, window)
+                         refreshed, sync_plan, wait_job, write, window)
 
 from discjockey import db, importer, library, models, run
 from discjockey import report as report_mod
@@ -15,7 +15,7 @@ from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
 from discjockey.events import ImportProgress, SourceChosen
-from discjockey.hub import jobs
+from discjockey.hub import jobs, plan_store
 from discjockey.library import load_state, run_lock, save_state
 from discjockey.models import Candidate, ScanSummary, WatchedFolder
 from discjockey.settings import Account, Settings, load_settings, save_settings
@@ -600,8 +600,7 @@ def test_reads_during_a_sync_never_write_state(root, monkeypatch):
         real_save(paths, state, **kw)
 
     monkeypatch.setattr(library, "save_state", spy)
-    keys = [a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]]
-    answer = api.start_sync(keys)
+    answer = api.start_sync(*sync_plan(api))
     assert second.wait(5)
     before = library.load_state(root)
     for call in (api.dashboard, api.sidebar, api.sync_preview, api.job_status, api.todo, api.library,
@@ -639,7 +638,7 @@ def test_stop_safely_from_the_page(root, monkeypatch):
 
     monkeypatch.setattr(run, "Acquirer", lambda *a, **k: StopAware())
     monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: FakeQobuz()))
-    answer = api.start_sync([a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]])
+    answer = api.start_sync(*sync_plan(api))
     assert started.wait(5)
     assert api.job_status()["job"]["stopping"] is False
     assert api.stop() == {"ok": True, "stopped": True}
@@ -648,9 +647,42 @@ def test_stop_safely_from_the_page(root, monkeypatch):
     assert api.stop() == {"ok": True, "stopped": False}
 
 
-def test_start_sync_checks_the_keys(root):
+def test_start_sync_without_a_plan_id_asks_for_a_read_first(root):
     api, rec = make_api(root)
-    assert api.start_sync([["acquire", "t1"]])["kind"] == "refused"
+    answer = api.start_sync()
+    assert (answer["ok"], answer["kind"]) == (False, "refused") and "Read your playlists first" in answer["message"]
+    assert api.start_sync(None, [])["kind"] == "refused" and api.job_status()["job"] is None
+
+
+def test_start_sync_answers_an_unknown_plan_as_bad_args(root):
+    api, rec = make_api(root)
+    for unknown in ("plan:0123456789ab", "plan:nonsense", "not a plan"):
+        answer = api.start_sync(unknown, [])
+        assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "bad_args", "unknown_id")
+    assert api.job_status()["job"] is None
+
+
+def test_start_sync_refuses_an_expired_plan_with_no_command_to_repeat(root):
+    api, rec = make_api(root)
+    old = plan_store.save(root.support, "sync", str(root.root), {"act:acquire:t1:1": {"kind": "acquire",
+                          "track_id": "t1", "to_dir": "Library/A"}}, now=datetime.now() - timedelta(hours=25))
+    answer = api.start_sync(old, ["act:acquire:t1:1"])
+    assert (answer["ok"], answer["kind"], answer["reason"], answer["next"]) == (False, "refused", "plan_expired", [])
+    other = plan_store.save(root.support, "sync", "/another/music", {})  # a plan made for another music folder
+    assert api.start_sync(other, [])["reason"] == "plan_expired"
+    assert api.job_status()["job"] is None
+
+
+def test_start_sync_refuses_an_id_the_plan_does_not_hold_and_a_plan_of_another_kind(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    answer = api.start_sync(plan_id, [ids[0], "act:acquire:t1:9"])
+    assert (answer["ok"], answer["kind"]) == (False, "refused") and "act:acquire:t1:9" in answer["message"]
+    assert api.start_sync(plan_id, [["acquire", "t1", "Library/A"]])["kind"] == "refused"  # the old key is no id
+    other = plan_store.save(root.support, "upgrade", str(root.root), {"upgrade:t1": {"track": "t1"}})
+    assert (api.start_sync(other, [])["kind"], api.start_sync(other, [])["reason"]) == ("bad_args", "unknown_id")
+    assert api.job_status()["job"] is None
 
 
 def test_rekordbox_checked_through_the_bridge(root):
@@ -693,7 +725,8 @@ def test_failed_qobuz_downloads_in_a_row_pause_qobuz_for_the_hub_session(root):
     assert [s["kind"] for s in load_state(root)["qobuz_usage"]["signals"]][-1] == "auto_stop"
     f = wait_job(api, rec, api.use_link("t2", "https://open.qobuz.com/track/123"))
     assert not f.ok and "Qobuz is paused" in f.message
-    wait_job(api, rec, api.start_sync([]))  # a new sync starts a new streak
+    refreshed(api, rec)
+    wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))  # a new sync starts a new streak
     assert api._qobuz_streak == {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
 
 

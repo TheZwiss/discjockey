@@ -204,8 +204,8 @@ def record(work: Path, stop_at: int | None = None) -> list[str]:
         api._attach(paths)
         api_ref.append(api)
         _wait(api, api.refresh())
-        keys = [a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]]
-        _wait(api, api.start_sync(keys))
+        preview = api.sync_preview()
+        _wait(api, api.start_sync(preview["plan_id"], [a["id"] for g in preview["groups"] for a in g["actions"]]))
         return rec.lines
     finally:
         for obj, name, value in reversed(restore):

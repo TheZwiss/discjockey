@@ -132,7 +132,13 @@ The page reads `sidebar()` again after `JobFinished` of kind `refresh`, `sync` o
 and lists), after `DrivesChanged` (a folder's `state`), and after its own `set_favourites` / `set_crate_shown`; no
 event was added for it. The hub store reads it after every `JobFinished`, which includes those.
 
-`sync_preview()` — the check before Start. Each action's `key` is sent back ticked to `start_sync`.
+`sync_preview()` — the check before Start. Each action's `id` (`act:<kind>:<track>:<n>`, `n` the place of its target
+folder in playlists.txt, opaque to the page) is sent back ticked to `start_sync`, with the preview's `plan_id`: the plan
+(its actions by id, the read and the records' generation) is stored in `<support>/plans/` for 24 hours, saved when it
+changes or an hour after its last save, so every process finds it. `presets` are the "how many" choices (`key`, `label`,
+`downloads`, the ids it ticks `selected`) for the actions in the Sync scope (settings.json's `sync_scope`) and
+`default_how_many` the key to start from (`fits` when offered, else `all`); null `plan_id`, no presets before the first
+read. The row's `key` stays for the window's ticks until they go by id.
 Shape: `SyncPreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 Before the first read the counts are 0, `counts` and `estimate` are null and `collections` is empty. `waiting_answers`
 are held back until the user answers "Is this the same song?" (the plan's `questions`) and are not downloaded meanwhile.
@@ -140,7 +146,7 @@ are held back until the user answers "Is this the same song?" (the plan's `quest
 there is no preview yet — see "Auto-upgrade" below. `read_id` names the stored read the plan is derived from
 (`read:<n>`; null before the first read). The plan is derived, never stored: every process that asks (the window, the
 command line, a second window) gets the plan for the stored read and the library as they are now, and asking writes
-nothing (so a dry run is this answer). A plan that can't be derived (a settings.json the planner refuses) is the error
+nothing but the plan file above (`plans/`, the one place a read writes; so a dry run is this answer). A plan that can't be derived (a settings.json the planner refuses) is the error
 of `sync_preview`, `start_sync` and `never_download` (`config_invalid`, its words); every other page that shows the plan
 (the dashboard, Library, To-do, Playlists, Limits, the sidebar, `tidy_preview`) shows what it has without one, and
 `read_status` then says `problem: config_invalid` with the words. `job_status` derives no plan: its `read_status` is the
@@ -182,7 +188,9 @@ last preview stays with `read_status.problem` set.
 `stop_refresh()` → `Stopped` (`{"stopped": bool}`; `stop()` and `stop_sign_in()` answer it too). The read's `JobFinished` (`stopped`) comes at once, also while one slow
 Spotify request is still under way; that request's late answer is dropped (the last preview stays).
 
-`job_status()` — snapshot after a reload. `sign_in` is null or the browser sign-in's snapshot, the same shape as `job` (see
+`job_status()` — snapshot after a reload. `last_sync` is null or `{job, args: {plan_id, selected}, ended}` of the newest
+sync of this music folder in the job registry (the window's or the terminal's; `ended` null while it runs): what was
+ticked, for a reloaded window and `job show`. `sign_in` is null or the browser sign-in's snapshot, the same shape as `job` (see
 Settings). `job` is null or a `JobSnap`: the events are not shapes (`tests/fixtures/hub_events.schema.json` pins them), so
 `last`, `results` and `finished` hold them as events.ts `HubEvent`s.
 Shape: `JobStatus` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
@@ -460,7 +468,7 @@ same shape. Rules per method:
 
 | method (positional args) | job kind | rules of its outcome |
 |---|---|---|
-| `start_sync(selected)` — list of ticked `key`s from `sync_preview` | `sync` | with the switch on, the run's last phase is Auto-upgrade: it sends `BatchProgress` events and the report's `.json` carries `auto_upgrade`, see below; with the switch off the phase still runs for the placements of missing songs (issue 43), alone, see "Auto-upgrade"; a `crashed` sync still carries its result (`exit_code` 1, `report` its crash note, `actions` 0 when it crashed before the plan) |
+| `start_sync(plan_id, selected)` — the preview's `plan_id` and the ticked action `id`s of that plan (no plan id: `refused`, read first; an unknown plan `bad_args` `unknown_id`; one older than 24 hours or of another music folder `refused` `plan_expired`; an id the plan does not hold `refused`). Only those actions run, as `run.select_actions` decides against the run's fresh plan; the actions the fresh plan has that the plan did not (a moved target counts) are left for the next sync and listed by their fresh ids in the result's `new_since_plan`. The job's registry `args` are `{plan_id, selected}` and `job_status().last_sync` answers the newest sync's | `sync` | with the switch on, the run's last phase is Auto-upgrade: it sends `BatchProgress` events and the report's `.json` carries `auto_upgrade`, see below; with the switch off the phase still runs for the placements of missing songs (issue 43), alone, see "Auto-upgrade"; a `crashed` sync still carries its result (`exit_code` 1, `report` its crash note, `actions` 0 when it crashed before the plan) |
 | `save_playlists(lines, loaded_version, files = null)` — `files` answers the save question when the change retargets files: `null` (nothing to ask) or `{choice: "leave"\|"move", renames: [[old, new]], moves: [[file_id, from_path]]}` (`from_path` as `preview_playlist_change`'s rows send it). `leave` makes the files this save would have moved the user's own placement (a later tidy-up lists them apart); `move` renames the chosen folders on disk (one batch each), then moves the chosen files (one batch). A malformed `files` is `refused` before a job starts | `save_playlists` | problem `changed` = "playlists.txt was changed elsewhere…". A Stop after the save ends with problem `stopped` and the same result |
 | `tidy_up(moves)` — `moves`: `[[file_id, from_path]]` from `tidy_preview` rows (not empty, else `refused`); each file moves only if it still looks as shown | `tidy` | a Stop ends with problem `stopped` and the batch so far as `result` |
 | `undo_moves(batch_id)` — undoes a batch as a batch of its own | `undo_moves` | an undo with nothing left to move has `batch_id` null; a Stop as for `tidy` |

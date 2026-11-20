@@ -33,6 +33,7 @@
 import type { Bridge } from '$lib/bridge/client';
 import type { FakeContext, PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
+import { numberPlan } from '$lib/bridge/fake/plan';
 import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
 import { addPastAutoRun, readyTracks, seedUpgrades } from '$lib/bridge/fake/auto';
 import { sampleQuestions } from '$lib/bridge/fake/folders';
@@ -197,7 +198,7 @@ export const overrides: PageFake['overrides'] = {
     if (ctx.s.scenario === 'sync:up-to-date-wait') await new Promise((r) => setTimeout(r, 60_000));
     return base(run_id);
   },
-  sync_preview: (ctx, base) => async () => fillMembers(await syncPreview(ctx, base)),
+  sync_preview: (ctx, base) => async () => numbered(ctx, fillMembers(await syncPreview(ctx, base))),
   job_status: (ctx, base) => {
     // a sync that already runs when the window opens, frozen in the conversion of "non stop"
     if (ctx.s.scenario === 'sync:converting' || ctx.s.scenario === 'sync:stop-refused' || ctx.s.scenario === 'sync:own-cover') {
@@ -221,7 +222,7 @@ export const overrides: PageFake['overrides'] = {
         const report = `${FAKE_MUSIC}/.discjockey/reports/${runId(new Date())}.md`;
         setTimeout(() => {
           ctx.emit({ type: 'RunFinished', exit_code: 1, report_path: report });
-          finish(false, { exit_code: 1, report, actions: 9, new_since_preview: 0 }, 'crashed',
+          finish(false, { exit_code: 1, report, actions: 9, new_since_plan: [] }, 'crashed',
             "The sync stopped unexpectedly. Everything done up to then is saved, and the next sync carries on from there.");
         }, 800 / ctx.speed);
       });
@@ -262,6 +263,14 @@ async function syncPreview(ctx: FakeContext, base: Bridge['sync_preview']): Prom
       return { ...r, groups: [], counts: { new: 0, retries: 0, redownloads: 0, bought: 0, weekly_checks: 0 }, never, empty: 'up_to_date' as const };
     }
     return r;
+}
+/** The scenario's rows get their ids and the preview its plan id and presets (the fake bridge numbered only its own rows),
+ *  and that plan is the one a Start is checked against. */
+function numbered(ctx: FakeContext, r: Preview): Preview {
+  if (!r.ok) return r;
+  const plan = numberPlan(r, ctx.s.scope);
+  ctx.knowPlan(plan.plan_id!, r.groups.flatMap((g) => g.actions).map((a) => a.id));
+  return { ...r, ...plan };
 }
 /** Rows a scenario added go by their folder's collection (the fake bridge fills its own rows' `in`, issue 37). */
 function fillMembers(r: Preview): Preview {

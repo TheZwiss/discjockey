@@ -13,7 +13,7 @@ import shutil
 import threading
 import traceback
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -871,34 +871,36 @@ def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken,
     sources.read_infos(paths, refs, infos, token, paused, on_signal, dropped)
 
 
-def sync_work(paths: Paths, plan: Callable[[], run.Prepared | None], ticked: set[tuple[str, str, str]],
+def sync_work(paths: Paths, planned: Mapping[str, tuple[str, str, str]], selected: Sequence[str],
               now: Callable[[], datetime] = datetime.now, rekordbox: dict | None = None):
-    """A sync from the preview: a fresh plan (recovery, .tmp cleanup, new Spotify read), only the actions the user saw
-    and left ticked, filtered before open_qobuz; nothing left -> finish_quietly. `plan` gives the plan the user saw (the
-    one derived from the stored read, `HubApi._plan`) when the job starts; None: no read yet. Nothing is planned again
-    afterwards: the run's own read stored itself (`run.prepare`), so the next plan is derived from it and the library
-    as the run left it, and the Sync page shows what is really left without reading Spotify again.
+    """A sync from a plan (issue 39 phase 2): a fresh plan (recovery, .tmp cleanup, new Spotify read), only the actions
+    of the plan the user chose, filtered before open_qobuz; nothing left -> finish_quietly. `planned`: the plan's actions
+    by their ids (`run.action_ids`) as `(kind, track_id, to_dir)` (`run.action_key`), the plan the person saw
+    (`plan_store`); `selected`: the ids of those the sync runs, each one of `planned`. An action the fresh plan has that
+    the plan did not is left for the next sync and listed by its id in the fresh plan (`new_since_plan`). Nothing is
+    planned again afterwards: the run's own read stored itself (`run.prepare`), so the next plan is derived from it and
+    the library as the run left it, and the Sync page shows what is really left without reading Spotify again.
 
     Auto-upgrade (issue 33 stage C): both ways a sync ends (`execute` after the actions, `finish_quietly` when there
     were none) get the job's Stop token and `rekordbox`, the hub's services for the phase (`running`, `place`,
     `compare`, `now`: HubApi._rekordbox_services; None: the real ones), so Stop reaches a quiet sync's phase too and a
     test's fake rekordbox is the one the phase asks."""
+    previewed = set(planned.values())
+    ticked = {planned[act] for act in selected}
+
     def work(ctx: JobContext) -> dict:
         started = now()
-        prep, new_since = None, 0
+        prep, new_since = None, []
         step = "reading your playlists and working out the plan"
 
         def outcome(code: int, report: Path) -> dict:
             return {"exit_code": code, "report": str(report), "actions": len(prep.plan.actions) if prep else 0,
-                    "new_since_preview": new_since}
+                    "new_since_plan": new_since}
 
         try:
-            seen = plan()  # what the user saw: the plan derived from the stored read (a crash deriving it is filed too)
-            if seen is None:
-                raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
-            previewed = {run.action_key(a) for a in seen.plan.actions}
             prep = run.prepare(paths, emit=ctx.emit, token=ctx.token)
-            new_since = sum(1 for a in prep.plan.actions if run.action_key(a) not in previewed)
+            fresh = run.action_ids(prep)
+            new_since = [fresh[key] for a in prep.plan.actions if (key := run.action_key(a)) not in previewed]
             where = run.folder_names(prep)
             run.select_actions(prep, previewed, ticked, where)
             if not prep.plan.actions:

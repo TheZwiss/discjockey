@@ -54,7 +54,7 @@ export interface Bridge {
   add_playlist(url: string): Promise<Res<AddedPlaylist>>;
   preview_playlist_change(lines: PlaylistLine[]): Promise<Res<ChangePreview>>;
   // write jobs (outcome = JobFinished with the same job_id)
-  start_sync(selected: ActionKey[]): Promise<JobStart>;   stop(): Promise<Res<Stopped>>;
+  start_sync(plan_id: string | null, selected: string[]): Promise<JobStart>;   stop(): Promise<Res<Stopped>>;
   save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null): Promise<JobStart>;
   tidy_up(moves: [number, string][]): Promise<JobStart>;   undo_moves(batch_id: number): Promise<JobStart>;
   add_watched_folder(path: string): Promise<JobStart>;   remove_watched_folder(folder_id: number): Promise<JobStart>;
