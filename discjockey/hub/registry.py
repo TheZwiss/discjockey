@@ -280,6 +280,95 @@ class EventsWriter:
             pass
 
 
+def _is_marker(line: str) -> bool:
+    """The registry's `Truncated` marker: the last line of `events.jsonl`, rewritten as events are skipped."""
+    return '"Truncated"' in line and line.startswith("{") and _type_of(line) == "Truncated"
+
+
+def _type_of(line: str) -> str | None:
+    try:
+        return json.loads(line).get("type")
+    except (ValueError, AttributeError):
+        return None
+
+
+class EventReader:
+    """The new events of one job since the last `read`, in order: the head file by byte offset (it only grows, except
+    that the registry rewrites it with a `Truncated` marker as its last line, which is never consumed), then the
+    rolling tail (rewritten when it is compacted: found again by the last line seen).
+
+    The writer flushes the head before the tail file exists, so a tail line on disk means the head is complete. That is
+    why `read` takes its look at the tail first and at the head second: a head read first could miss lines the writer
+    flushes before the tail read, and those would then come out after the tail's."""
+
+    def __init__(self, directory: Path, *, from_end: bool = False):
+        self.head, self.tail = directory / "events.jsonl", directory / "events.tail.jsonl"
+        self._offset = 0
+        self._tail_offset, self._last_tail = 0, b""  # where the tail's last line seen ends; that line with its newline
+        if from_end:
+            self.read()
+
+    @staticmethod
+    def _complete(blob: bytes) -> bytes:
+        return blob[:blob.rfind(b"\n") + 1]
+
+    @staticmethod
+    def _decode(blob: bytes) -> list[str]:  # by newline only: `splitlines` would also cut at a raw U+2028 in a line
+        return blob.decode("utf-8", "replace").split("\n")[:-1]
+
+    def read(self) -> list[str]:
+        tail = self._read_tail()
+        out: list[str] = []
+        try:
+            with open(self.head, "rb") as f:
+                f.seek(self._offset)
+                blob = self._complete(f.read())
+        except OSError:
+            blob = b""
+        for raw in blob.split(b"\n")[:-1]:
+            line = raw.decode("utf-8", "replace")
+            if _is_marker(line):
+                break
+            out.append(line)
+            self._offset += len(raw) + 1
+        return out + tail
+
+    def _read_tail(self) -> list[str]:
+        """The new lines of the tail, from one look at one file (a path read twice could be two files, the compaction
+        replaces it). It goes on where it stopped when the last line seen still ends there; else the file was replaced
+        and the lines after the last one seen are the new ones (all of it when that line is gone: the writer outran us)."""
+        try:
+            with open(self.tail, "rb") as f:
+                start = self._tail_offset - len(self._last_tail)
+                if self._last_tail and start >= 0:
+                    f.seek(start)
+                    if f.read(len(self._last_tail)) == self._last_tail:
+                        return self._take(f.read(), self._tail_offset)
+                f.seek(0)
+                everything = f.read()
+        except OSError:
+            return []
+        done = self._complete(everything)
+        lines = self._decode(done)
+        if self._last_tail:
+            seen = self._last_tail[:-1].decode("utf-8", "replace")
+            at = len(lines) - 1 - lines[::-1].index(seen) if seen in lines else -1
+            lines = lines[at + 1:]
+            self._tail_offset = len(done)
+            if lines:
+                self._last_tail = lines[-1].encode("utf-8") + b"\n"
+            return lines
+        return self._take(everything, 0)
+
+    def _take(self, blob: bytes, offset: int) -> list[str]:
+        done = self._complete(blob)
+        self._tail_offset = offset + len(done)
+        lines = self._decode(done)
+        if lines:
+            self._last_tail = lines[-1].encode("utf-8") + b"\n"
+        return lines
+
+
 class ProgressReducer:
     """The events of a job reduced to `state.json`'s `progress`: the step now running, how many of how many are done, the
     item in work, the last message and `line`, the one line the window's foot shows (`words.job_line`). Only what

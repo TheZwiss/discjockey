@@ -188,6 +188,14 @@ last preview stays with `read_status.problem` set.
 `stop_refresh()` → `Stopped` (`{"stopped": bool}`; `stop()` and `stop_sign_in()` answer it too). The read's `JobFinished` (`stopped`) comes at once, also while one slow
 Spotify request is still under way; that request's late answer is dropped (the last preview stays).
 
+`job_events(job_id, after = 0)` — the events of any job of this support folder, the window's own or the Terminal's, from position `after`
+on: what `job follow --jsonl` reads (`events.jsonl`, then the rolling tail; the `Truncated` marker never shows). Positions count the lines of the
+files, so `next` (`after` plus the lines delivered, at most 500 an answer) is the next `after`; a line that does not parse is left out of `events`
+but has its place. `status` is the job's `state.json` status read before the lines; `done` is true when it was `done` or `lost` and fewer than 500
+lines came, so the last events are never cut off. The hub keeps one reader per followed job (at most 4): an `after` equal to what it delivered
+reads on, any other (0, a reload, another window) starts a fresh reader that drops the first `after` lines. The window sends only 0 or the `next` it
+was given. An id the registry has no folder for answers `bad_args` `unknown_id`. Shape: `JobEvents`.
+
 `job_status()` — snapshot after a reload. `last_sync` is null or `{job, args: {plan_id, selected}, ended}` of the newest
 sync of this music folder in the job registry (the window's or the terminal's; `ended` null while it runs): what was
 ticked, for a reloaded window and `job show`. `sign_in` is null or the browser sign-in's snapshot, the same shape as `job` (see
@@ -459,7 +467,9 @@ Every write method answers `{"job_id"}` at once and the job ends with exactly on
 done (`stopped`, `rekordbox_open`, `busy`, `refused`). A job's success can carry words in `JobFinished.message`, empty
 otherwise (the import's "Imported 3 files."). A job that crashed has `result` null, except a crashed sync (see below).
 Stop (`stop()` → `{"stopped": bool}`, not a job) stops the current write job safely: what was done is saved, the job ends
-`stopped` and still carries its result so far. The result of each job kind is its shape: `RESULTS` in
+`stopped` and still carries its result so far. `stop(job_id)` does the same for any job of this support folder, the Terminal's too (it writes the job's stop file, as `job stop`
+does; only "Stop safely"): `{"stopped": true}` for a queued, running or stopping job, `false` for one that has ended, `bad_args` `unknown_id` for an id
+the registry has no folder for. The result of each job kind is its shape: `RESULTS` in
 `discjockey/hub/shapes/` maps the kind to it (`schemas.gen.json` `results`), and the method's own entry in `ANSWERS` names the
 same shape. Rules per method:
 

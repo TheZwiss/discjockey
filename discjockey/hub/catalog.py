@@ -247,6 +247,7 @@ ENTRIES: tuple[Entry, ...] = (
        params={"batch_id": _positional("moves", type="int")}),
     _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True, locks={"rekordbox_r"}),
     _e("job_status", "", "R", built=True),  # the window's own job; `job list` / `job show` read the registry
+    _e("job_events", "", "R", built=True),  # the window's follow; `job follow --jsonl` reads the same files
     _e("spectrum", "track spectrum", "R", "track spectrum local:1 --which current", params={"track_id": TRACK}),
     _e("media_url", "", "dropped"),
     _e("dashboard", "status", "R", "status"),

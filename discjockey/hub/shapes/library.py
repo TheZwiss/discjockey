@@ -609,6 +609,17 @@ class JobStatus(TypedDict):
 
 
 @shape
+class JobEvents(TypedDict):
+    """What `job_events` answers: a job's events from a position on (the window's follow of a job another process runs)."""
+    events: Annotated[list[Any], F("The job's events from `after` on, as events.ts `HubEvent` objects (`{type, …fields}`), "
+                                   "at most 500.")]
+    next: Annotated[int, F("The position to ask from next: `after` plus the lines of the files delivered (a line that "
+                           "is no event has its place but is not in `events`).", shown=False)]
+    done: Annotated[bool, F("The job has ended and these were its last events.", shown=False)]
+    status: Annotated[str, F("The job's status when it was read: queued, running, stopping, done or lost.", shown=False)]
+
+
+@shape
 class Stopped(TypedDict):
     """What `stop`, `stop_refresh` and `stop_sign_in` answer."""
     stopped: Annotated[bool, F("Whether a job was running to stop.")]
@@ -1020,7 +1031,7 @@ class SyncScope(TypedDict):
 ANSWERS: dict[str, str] = {
     "sync_scope": "SyncScope", "set_sync_scope": "SyncScope",
     "dashboard": "Dashboard", "sidebar": "Sidebar", "library": "Library", "sync_preview": "SyncPreview",
-    "job_status": "JobStatus", "playlists": "Playlists", "limits": "Limits", "limits_what_if": "WhatIf",
+    "job_status": "JobStatus", "job_events": "JobEvents", "playlists": "Playlists", "limits": "Limits", "limits_what_if": "WhatIf",
     "runs": "Runs", "run": "RunAnswer", "spectrum": "SpectrumAnswer", "stop_refresh": "Stopped", "stop": "Stopped",
     "stop_sign_in": "Stopped", "set_favourites": "FavouritesSaved", "set_crate_shown": "CrateSaved",
     "set_crates_shown": "CratesSaved", "refresh": "RefreshResult", "start_sync": "SyncResult",

@@ -210,7 +210,7 @@ export type FakeState = {
   licensesMissing?: boolean;
   read_status: ReadStatus;
   console_running: boolean;
-  /** what the Terminal's job is (`console_running` true): its kind and progress line; null means a sync at "4 of 60" */
+  /** what the Terminal's job is (`console_running` true): its kind and progress line; null means a sync at "4 of 60", '' a job that has not said how far it is */
   console_kind: string | null;
   console_line: string | null;
   /** the holder is one the registry knows nothing of (an older Discjockey): no job, the unnamed sentence */
