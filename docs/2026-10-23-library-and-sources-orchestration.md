@@ -1104,7 +1104,7 @@ Results:
         commit order). Findings: .claude/issue39/phase2/review/findings-V2.2.md. All fixes stated; none PLANNED.
       - PAUSED by the user (~18:40, "Pause after the agent is done"). Next on go: the V2.2 fix round (Sonnet
         fix-round, F1-F12, from the phase branch 176c8d93), then V2.5a.
-      - RESUME HERE (LATEST, 2026-11-20 ~19:xx, after a compact): the user said "continue" = go on from the pause
+      - RESUME HERE (superseded below, 2026-11-20 ~19:xx, after a compact): the user said "continue" = go on from the pause
         (open-scope Decided). Same night loop and stop points as the RESUME HERE above. FR-V2.2 (Sonnet fix-round,
         brief .claude/issue39/phase2/review/FR-V2.2.md, F1-F12, F4 as stated) dispatched on worktree
         .claude/worktrees/cli2-fv22, branch feat/cli-2-fix-v22 from 176c8d93; exp. ~170k. Then V2.5a (cli2-13),
@@ -1197,6 +1197,18 @@ Results:
         in copy.ts used by the shell banner and Setup; npm check 0, vitest 20, rules setup 6 shots 0 problems. My
         full pytest after the merge: 6412 passed / 3 skipped. Merged f015d03f, pushed. E9 total: 158 + 132 + 57 =
         347k. E4a dispatched (cli2-17, exp. 185k).
+      - RESUME HERE (LATEST, 2026-11-21 ~00:xx): E4a (Sonnet, brief E4a.md) RUNNING on .claude/worktrees/cli2-17,
+        branch feat/cli-2-job-events from f015d03f. Phase branch feat/cli-2-foundations = f015d03f (pushed), main
+        checkout on it. On E4a's notice: ps, agent-cost (2026-11-20 and -21), commits, its green full pytest, merge
+        --no-ff, push, remove worktree, append "Landed in E4a" to E4b.md and shots-E4.md. Then E4b (ui-build Opus,
+        brief E4b.md, cli2-18, exp. ~300k, precise direction, no mockup: open-scope Decided) → shots E4 (Sonnet,
+        shots-E4.md, base worktree + own Vite cacheDirs) → fix if needed → wave 2 Opus phase review in 2 halves
+        (measure the wave 2 diff first; carry every "FOR PHASE REVIEW" note in this NIGHT LOG since FR-V2.2) →
+        Sonnet fix round(s) → `npm run verify` (mine, run_in_background) → CI green → STOP for the user: the
+        end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (rehearse-V2.2.md / -V2.5.md; user
+        present, Discjockey + rekordbox closed), the merge go into main. No release.
+        WAVE 2 SPENT (logged): V2.2 831 + V2.5 775 + V2.3 437 + V2.6 634 + E9 347 = 3,024k; left ≈ E4a 185 + E4b 300
+        + shots 120 + review 350 + fix 150 ≈ 1.1M → wave 2 ≈ 4.1M (B2 plan 3,860k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
