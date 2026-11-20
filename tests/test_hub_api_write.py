@@ -9,6 +9,7 @@ from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder
                          refreshed, wait_job, write, window)
 
 from discjockey import db, importer, library, models, run
+from discjockey import report as report_mod
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
@@ -1132,10 +1133,32 @@ def test_a_refused_move_of_keep_file_fails_the_job_with_the_files_moved_so_far(l
         return real(*a, **kw)
     monkeypatch.setattr(library, "move_path", second_refused)
     done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
-    assert (done.ok, done.problem) == (False, "failed") and done.message.startswith("Nothing was moved: ")
+    assert (done.ok, done.problem) == (False, "failed") and done.message.startswith(
+        "Moved 1 of 2 files to Superseded/, then stopped.")
     assert len(done.result["results"]) == 1 and done.result["kept_track"] is None
     assert (paths.root / done.result["results"][0]["path"]).is_file()
     assert [Path(f["path"]).exists() for f in pair["files"]] == [False, True, True]
+
+
+def test_an_unexpected_error_between_the_moves_of_keep_file_still_lists_what_moved(lib, tmp_path, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][2]
+    real, calls = report_mod.write_not_lossless, []
+
+    def second_crashes(*a, **kw):
+        calls.append(a)
+        if len(calls) == 2:
+            raise OSError(5, "Input/output error")
+        return real(*a, **kw)
+    monkeypatch.setattr(report_mod, "write_not_lossless", second_crashes)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert not done.ok and done.problem == "crashed"
+    assert len(done.result["results"]) == 1 and done.result["kept_track"] is None
+    assert (paths.root / done.result["results"][0]["path"]).is_file()
+    assert not Path(pair["files"][0]["path"]).exists()
 
 
 def test_supersede_duplicate_is_no_bridge_method_any_more(lib):

@@ -2186,8 +2186,8 @@ class HubApi:
         group goes to Superseded/, one engine job (`folders.keep_file`). `paths`: the group's files' paths as the card
         showed them (`changed` when they are not the group's any more, whatever its file ids say, and the group stays as
         it was). The result is `{results, recovered, kept_track}`: a report line per moved file, without a track's
-        row; a move that was refused stops the job, the files moved before it stay moved and the failed job's
-        result lists them."""
+        row; a move that was refused (or any error) stops the job, the files moved before it stay moved and the
+        failed job's result lists them."""
         if (not isinstance(group_id, str) or isinstance(file_id, bool) or not isinstance(file_id, int)
                 or not _paths_list(paths)):
             raise ValueError(NOT_ANSWERABLE)
@@ -2206,10 +2206,13 @@ class HubApi:
                         folders_mod.MOVED.format(dst=dst), e.get("status"), e.get("source"), e.get("cutoff_hz"), dst)))
                 return {"results": results, "recovered": [], "kept_track": kept.kept_track}
 
+            done: list[tuple[int, str]] = []  # the moves made so far, whatever ends the call
             try:
-                kept = folders_mod.keep_file(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now)
-            except folders_mod.KeepStopped as stopped:
-                ctx.failed_result = body(stopped.kept)
+                kept = folders_mod.keep_file(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now,
+                                             moved_out=done)
+            except BaseException as e:
+                if done or isinstance(e, folders_mod.KeepStopped):
+                    ctx.failed_result = body(folders_mod.KeptFile(list(done), None))
                 raise
             ctx.message = kept.words()
             return body(kept)
