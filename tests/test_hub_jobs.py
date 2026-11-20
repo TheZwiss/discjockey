@@ -15,8 +15,6 @@ from discjockey.models import Protected
 from discjockey.library import Paths, run_lock
 from discjockey.ops import OpProblem
 
-pytestmark = pytest.mark.shapes_unchecked  # stub work runs under real job kinds to pin the mechanics
-
 
 class Recorder:
     def __init__(self):
@@ -45,6 +43,7 @@ def env(tmp_path):
     return paths, Jobs(paths.lock, rec.emit, keep_awake=fake_awake), rec, awake
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_a_job_holds_the_lock_and_keeps_the_mac_awake(env):
     paths, js, rec, awake = env
     seen = {}
@@ -67,6 +66,7 @@ def test_a_job_holds_the_lock_and_keeps_the_mac_awake(env):
         pass
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_the_started_event_carries_the_batch_kind_the_snapshot_does(env):
     paths, js, rec, _ = env
     job = js.start("aiff_batch", lambda ctx: {}, batch_kind="convert")
@@ -196,6 +196,7 @@ def test_the_snapshot_keeps_the_newest_account_usage_of_each_service(env):
     assert snap["last"]["AccountUsage"]["service"] == "qobuz"
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_a_broken_event_does_not_break_the_job(env):
     paths, js, rec, _ = env
     job = js.start("sync", lambda ctx: ctx.emit(object()) or {"ok": 1})
@@ -301,6 +302,7 @@ def test_cancelled_is_stopped(env):
     assert rec.of(jobs.JobFinished)[-1].problem == "stopped"
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_lock_briefly_takes_the_lock_outside_a_job_and_never_twice_inside_one(env):
     paths, js, rec, _ = env
     with js.lock_briefly():  # a sign-in's settings save
@@ -479,6 +481,7 @@ def test_a_stopped_import_finishes_stopped_with_its_result_and_its_words(env, le
     assert finished.result["stopped"] is True and finished.result["left"] == left
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_a_job_can_word_its_own_success(env):
     paths, js, rec, _ = env
 
@@ -588,6 +591,7 @@ def wait_ended(job, files):
     raise AssertionError("the job still holds its alive lock")
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_a_window_write_job_is_in_the_registry(hub, monkeypatch):
     api, paths, reg = hub
     g = Gated(monkeypatch, "hide", a_write)
@@ -700,6 +704,7 @@ def test_own_ids_hold_a_started_window_job_and_an_adopted_one(tmp_path):
     own.release_claim()
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_the_library_job_elsewhere_ignores_the_windows_own_job_and_names_a_foreign_one(hub, monkeypatch):
     api, paths, reg = hub
     g = Gated(monkeypatch, "hide", a_write)
@@ -721,6 +726,7 @@ def test_the_library_job_elsewhere_ignores_the_windows_own_job_and_names_a_forei
     wait_ended(job, reg.get(answer["job_id"]))
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_a_window_job_carries_the_same_words_a_workers_does(hub, monkeypatch):
     api, paths, reg = hub
     done = {"track": "t2", "action": "same_track", "state": "done", "reason": None, "message": None, "path": None,
@@ -904,6 +910,7 @@ def test_a_write_refused_while_a_foreign_job_holds_the_library_says_who(watched)
     js.start("hide", lambda ctx: None).done.wait(5)
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_a_queued_job_of_another_process_is_not_the_library_holder(watched):
     paths, js, rec, reg = watched
     waiting = Foreign(paths, reg)
@@ -953,6 +960,7 @@ def test_a_look_in_the_middle_of_the_windows_own_job_start_never_sees_it_as_fore
     assert [e.job_id for e in rec.of(jobs.JobFinished)] == [job.id]
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_a_registry_that_fails_partway_leaves_no_record_and_no_lock(watched, monkeypatch):
     paths, js, rec, reg = watched
 
@@ -966,6 +974,7 @@ def test_a_registry_that_fails_partway_leaves_no_record_and_no_lock(watched, mon
     assert list(reg.root.glob("*")) == []  # the half-made folder (and its claim) went
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_a_registry_that_cannot_be_pruned_does_not_stop_a_write(watched, monkeypatch):
     paths, js, rec, reg = watched
 

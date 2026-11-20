@@ -48,6 +48,32 @@ export const PROBLEM_KINDS: readonly ProblemKind[] = [
   'rekordbox_open',
 ];
 /**
+ * The `kind` of a failed answer: a `ProblemKind`, or `bad_args` for what only the command line sends (a typed
+ * id or word that names nothing; the window never sends one and shows it as `crashed`).
+ */
+export type FailKind =
+  | 'busy'
+  | 'console'
+  | 'sync_running'
+  | 'not_set_up'
+  | 'login_expired'
+  | 'offline'
+  | 'playlist_unreadable'
+  | 'config_invalid'
+  | 'qobuz_login_failed'
+  | 'login_failed'
+  | 'changed'
+  | 'refused'
+  | 'failed'
+  | 'stopped'
+  | 'protected'
+  | 'crashed'
+  | 'no_library'
+  | 'setting_off'
+  | 'exists'
+  | 'rekordbox_open'
+  | 'bad_args';
+/**
  * A song's colour class: lossless green, good_lossy yellow, weak red (cutoff 17 kHz or less), fake purple,
  * missing red.
  */
@@ -262,8 +288,8 @@ export type FailPersonStep = {
  * A problem answer: `{ok: false, kind, message}` and, from the bridge decorator, the command line's view of it
  * (issue 39, `discjockey/hub/outcomes.py`); the window ignores the latter. `outcome`, `reason`, `next`,
  * `person_steps` and `data` are always present on an answer of the engine, optional here so the fake bridge
- * needs no change. `kind` can also be `bad_args` for arguments only the command line sends (contract, Problem
- * kinds).
+ * needs no change. The window never sends what makes a `bad_args`: a failure the command line gets is a
+ * `CliFail`.
  */
 export type Fail = {
   /** Always false on a problem. */
@@ -290,8 +316,17 @@ export type Fail = {
    */
   data?: Record<string, any> | null;
 };
+/**
+ * A failed answer as any caller can get it: a `Fail` whose `kind` can also be `bad_args` (a typed id or word
+ * that names nothing: `BadId`, an unknown `--plan`). Every failure the engine answers is checked against this
+ * shape.
+ */
+export type CliFail = Omit<Fail, 'kind'> & {
+  /** Why it failed; `bad_args` only for the command line. */
+  kind: FailKind;
+};
 /** An answer or a job result with nothing in it (`{}`). */
-export type Empty = Record<string, never>;
+export type Empty = Record<never, never>;
 /** How fresh the answers are, from the stored records alone: never a scan or a fetch. */
 export type Freshness = {
   /**
@@ -674,10 +709,14 @@ export type RekordboxCheckView = {
 /**
  * One song of a To-do group: the row plus the group's own words. `pair`, `can_undo` and the others are set
  * only on the groups that use them. `free` and `own` are NotRequired because the engine leaves them off some
- * items (findings, the window's types call both always there); the generated TypeScript still says `TrackRow &
- * {...}`, where `own` is required.
+ * items (findings, the window's types call both always there).
  */
-export type TodoItemBase = TrackRow & {
+export type TodoItemBase = Omit<TrackRow, 'own'> & {
+  /**
+   * A file of the user's own that the import found (no playlist holds it). Not sent by the engine on a
+   * duplicate group's item (finding); a `TrackRow` has it always.
+   */
+  own?: boolean;
   /** The group the item is in. */
   group: TodoGroupKey;
   /** The row's short line (what to do, or why it is here). */
@@ -3329,7 +3368,8 @@ export type SkippedMove = {
 };
 /**
  * What a move batch tells the page: `tidy_up`, `undo_moves` and each item of `save_playlists`' `batches`
- * finish with it (also with problem `stopped`, then `stopped` is true).
+ * finish with it (also with problem `stopped`, then `stopped` is true). Files never change their names in a
+ * move batch: only their folder changes.
  */
 export type BatchResult = {
   /** The batch's id; null when nothing was asked to move. */

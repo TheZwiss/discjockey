@@ -16,6 +16,13 @@ ProblemKind = alias(
     const="PROBLEM_KINDS",
     doc="Why an answer is not ok. The window reads `kind` and shows `message`; the command line maps each kind to an "
         "outcome (`outcomes.KIND_OUTCOME`). The command line's own `bad_args` is sent only to it.")
+FailKind = alias(
+    "FailKind",
+    Literal["busy", "console", "sync_running", "not_set_up", "login_expired", "offline", "playlist_unreadable",
+            "config_invalid", "qobuz_login_failed", "login_failed", "changed", "refused", "failed", "stopped",
+            "protected", "crashed", "no_library", "setting_off", "exists", "rekordbox_open", "bad_args"],
+    doc="The `kind` of a failed answer: a `ProblemKind`, or `bad_args` for what only the command line sends (a typed "
+        "id or word that names nothing; the window never sends one and shows it as `crashed`).")
 Quality = alias(
     "Quality", Literal["lossless", "good_lossy", "weak", "fake", "missing"], const="QUALITIES",
     doc="A song's colour class: lossless green, good_lossy yellow, weak red (cutoff 17 kHz or less), fake purple, "
@@ -164,7 +171,7 @@ class Fail(TypedDict):
     """A problem answer: `{ok: false, kind, message}` and, from the bridge decorator, the command line's view of it
     (issue 39, `discjockey/hub/outcomes.py`); the window ignores the latter. `outcome`, `reason`, `next`,
     `person_steps` and `data` are always present on an answer of the engine, optional here so the fake bridge needs
-    no change. `kind` can also be `bad_args` for arguments only the command line sends (contract, Problem kinds)."""
+    no change. The window never sends what makes a `bad_args`: a failure the command line gets is a `CliFail`."""
     ok: Annotated[Literal[False], F("Always false on a problem.", shown=False)]
     kind: Annotated[ProblemKind, F("Why it failed; the window reads this.")]
     message: Annotated[str, F("Plain words for the person.")]
@@ -179,6 +186,13 @@ class Fail(TypedDict):
     data: NotRequired[Annotated[dict[str, Any] | None, F(
         "Facts that belong to the reason, a different object per reason (`outcomes.REASONS`); null or absent when "
         "there are none.")]]
+
+
+@shape
+class CliFail(Fail):
+    """A failed answer as any caller can get it: a `Fail` whose `kind` can also be `bad_args` (a typed id or word that
+    names nothing: `BadId`, an unknown `--plan`). Every failure the engine answers is checked against this shape."""
+    kind: Annotated[FailKind, F("Why it failed; `bad_args` only for the command line.")]
 
 
 @shape

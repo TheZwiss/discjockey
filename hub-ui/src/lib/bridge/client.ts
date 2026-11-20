@@ -1,6 +1,6 @@
 // The only bridge to Python. Only this file touches window.pywebview (plan 64.4).
 import type {
-  ActionKey, AddedPlaylist, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
+  ActionKey, AddedPlaylist, Empty, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res,
   SetupStatus, SetupTools, Sidebar, SyncPreview, Todo, TodoFilter, TrackAnswer, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
@@ -42,7 +42,7 @@ export interface Bridge {
   runs(): Promise<Res<Runs>>;   run(run_id: string): Promise<Res<RunAnswer>>;
   spectrum(track_id: string, which: Which): Promise<Res<SpectrumAnswer>>;
   media_url(track_id: string, which: Which): Promise<Res<{ url: string }>>;
-  setup_status(): Promise<Res<SetupStatus>>;      select(track_id: string | null): Promise<Res<{}>>;
+  setup_status(): Promise<Res<SetupStatus>>;      select(track_id: string | null): Promise<Res<Empty>>;
   /** rekordbox on this Mac now; works without a music folder. The Sync page reads it when it opens and on window focus */
   rekordbox_status(): Promise<Res<RekordboxStatusAnswer>>;
   /** What Make all lossless files AIFF, a selection's Convert or the CDJ group's Convert all would do now (issue 33
@@ -103,14 +103,14 @@ export interface Bridge {
    *  the planned download at once */
   missing_files(track_ids: string[], action: MissingAction): Promise<JobStart>;
   // other
-  show_in_finder(track_id: string, which: Which): Promise<Res<{}>>;   reveal(rel_path: string): Promise<Res<{}>>;
-  open_report(run_id: string): Promise<Res<{}>>;   open_external(url: string): Promise<Res<{}>>;
+  show_in_finder(track_id: string, which: Which): Promise<Res<Empty>>;   reveal(rel_path: string): Promise<Res<Empty>>;
+  open_report(run_id: string): Promise<Res<Empty>>;   open_external(url: string): Promise<Res<Empty>>;
   app_update(): Promise<Res<AppUpdate>>;
-  quit(): Promise<Res<{}>>;
+  quit(): Promise<Res<Empty>>;
   // setup
   setup_check_tools(): Promise<Res<SetupTools>>;  setup_save_client_id(client_id: string): Promise<JobStart>;
   setup_spotify_login(): Promise<JobStart>;       setup_qobuz_login(email: string, password: string): Promise<JobStart>;
-  open_licenses(): Promise<Res<{}>>;
+  open_licenses(): Promise<Res<Empty>>;
   update_tools(): Promise<JobStart>;
   rollback_tools(): Promise<JobStart>;
   setup_skip_qobuz(): Promise<JobStart>;
@@ -119,14 +119,14 @@ export interface Bridge {
   /** "Upgrade automatically when I sync" (job `set_auto_upgrade`); on by default */
   set_auto_upgrade(on: boolean): Promise<JobStart>;
   add_liked_music(): Promise<JobStart>;
-  setup_skip_import(): Promise<Res<{}>>;
+  setup_skip_import(): Promise<Res<Empty>>;
   setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
   setup_check_account(service: 'youtube' | 'soundcloud'): Promise<Res<{ service: Service; check: AccountCheck }>>;
   downloads_view(): Promise<Res<DownloadsViewAnswer>>;
   find_logins(service: 'youtube' | 'soundcloud'): Promise<Res<FindLogins>>;
   account_sign_in(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
   stop_sign_in(): Promise<Res<Stopped>>;
-  open_privacy_settings(): Promise<Res<{}>>;
+  open_privacy_settings(): Promise<Res<Empty>>;
   qobuz_check_login(): Promise<JobStart>;
   spotify_sign_out(): Promise<JobStart>;
   // the music folder

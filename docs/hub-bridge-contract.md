@@ -41,7 +41,7 @@ Pinned by tests: `tests/test_hub_api*.py` (the page sees exactly these methods: 
   does the old plan stay, with `stale` true.
 - A song's `rekordbox_check` (in `state.json`) is kept by every sync; only `rekordbox_checked(track_id)` clears it. The
   page sees it through `todo()`'s `rekordbox_check` group and the report section of the same name; `track()` does not
-  return it. The panel builds its steps from the check's fields and keeps `text` for any other reason.
+  return it. The panel builds its numbered steps from `reason`, `match`, `offset_ms`, `moved` and `aligned`: an added file's first step is a manual Relocate, never Auto Relocate, while `relocate` is true; with `relocate` false the one step is `report.NO_RELOCATE`'s words. It keeps `text` for any other reason.
 - An own file (the import's) is in no playlist by nature: the Library table dims a row only when `!in_playlists && !own`.
 - Disable write buttons while `job_status().job.running` or `console_running`. ↻ is refused during the hub's own sync.
 
@@ -73,7 +73,7 @@ Pinned by tests: `tests/test_hub_api*.py` (the page sees exactly these methods: 
 Use the kind for the card/headline; always show `message` as the detail.
 
 Beside `ok`, `kind`, `message` (and `service`, `setting`) every ok:false answer also carries what the command line
-reads (issue 39; additive, the page ignores it; the `Fail` shape has every field): `outcome` is the row of `kind` in
+reads (issue 39; additive, the page ignores it; the `Fail` shape has every field; a failure with kind `bad_args` is the `CliFail` shape, which the window never gets): `outcome` is the row of `kind` in
 `discjockey/hub/outcomes.py` `KIND_OUTCOME` (`busy`, `console`, `sync_running` are `busy`; `not_set_up`, `no_library`,
 `setting_off`, `exists`, `changed`, `refused`, `protected` are `refused`; `login_expired`, `rekordbox_open` are
 `needs_person`; `stopped` is `stopped`; the rest are `failed`), `reason` is a key of `REASONS` in the same module (the

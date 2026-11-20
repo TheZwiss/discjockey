@@ -2,7 +2,7 @@
 import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
-  BatchResult, Candidate, ChangePreview, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, PreviewGroupKey, ProblemKind, Res, Result,
+  BatchResult, Candidate, ChangePreview, CliFail, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, PreviewGroupKey, ProblemKind, Res, Result,
   AccountCheck, Browser, MissingAction, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, Todo, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
@@ -153,9 +153,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   };
   const fail = (kind: ProblemKind, message: string, service?: PlaylistService, setting?: SettingKey): Fail =>
     ({ ok: false, kind, message, ...(service ? { service } : {}), ...(setting ? { setting } : {}) });
-  /** The engine's answer for a word only the command line sends (api.py: `kind` and `outcome` `bad_args`, `reason` `usage`);
-   *  `ProblemKind` has no such kind (the window never sends one), so the answer is typed as the `Fail` it is. */
-  const badArgs = (message: string): Fail => ({ ok: false, kind: 'bad_args', message, outcome: 'bad_args', reason: 'usage' } as unknown as Fail);
+  /** The engine's answer for a word only the command line sends (api.py: `kind` and `outcome` `bad_args`, `reason` `usage`):
+   *  a `CliFail`. The window's `Res` has no `bad_args` kind (it never sends one), so it is typed as the `Fail` it stands for. */
+  const badArgs = (message: string): Fail => {
+    const answer: CliFail = { ok: false, kind: 'bad_args', message, outcome: 'bad_args', reason: 'usage' };
+    return answer as unknown as Fail;
+  };
   const later = <T>(ms: number, value: () => T) => new Promise<T>((r) => setTimeout(() => r(value()), ms / speed));
   const ok = <T extends object>(v: T) => ({ ok: true as const, ...v });
   const syncRunning = () => (job?.running && job.kind === 'sync') || s.console_running;

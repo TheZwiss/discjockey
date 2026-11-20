@@ -184,7 +184,7 @@ def test_a_shape_without_fields_is_the_empty_object():
 
     assert reg.definition("Empty") == {"type": "object", "properties": {}, "additionalProperties": False,
                                        "description": "Nothing."}
-    assert "export type Empty = Record<string, never>;" in reg.typescript()
+    assert "export type Empty = Record<never, never>;" in reg.typescript()
     assert reg.validate({}, "Empty") == [] and reg.validate({"a": 1}, "Empty") == ["$.a: unexpected key"]
 
 
@@ -345,7 +345,35 @@ def test_a_shape_must_be_a_typed_dict_and_its_base_registered():
     refused(build, "Child", "Base")
 
 
+def test_a_total_false_shape_is_refused():
+    reg = make()
+
+    class Loose(TypedDict, total=False):
+        a: Annotated[int, F("a")]
+
+    refused(lambda: reg.shape(Loose), "Loose", "total=False")
+
+
 # --- inheritance ---
+
+def test_a_field_a_subclass_overrides_is_omitted_from_the_base_in_typescript():
+    reg = make()
+
+    @reg.shape
+    class Base(TypedDict):
+        """Base."""
+        a: Annotated[int, F("a")]
+        b: Annotated[int, F("b")]
+
+    @reg.shape
+    class Over(Base):
+        """Over."""
+        a: NotRequired[Annotated[int, F("a, optional here")]]
+
+    text = reg.typescript()
+    assert "export type Over = Omit<Base, 'a'> & {" in text
+    assert "  a?: number;" in text and "  b: number" not in text.split("export type Over")[1]
+    assert reg.validate({"b": 1}, "Over") == []  # the JSON Schema agrees: `a` is not required
 
 def test_a_subclass_is_base_and_own_fields_in_typescript_and_flat_in_json():
     reg = make()
@@ -593,7 +621,7 @@ def test_a_right_answer_a_job_start_and_a_none_result_record_nothing(checking):
     assert checking.MISMATCHES == []
 
 
-def test_a_wrong_job_result_is_recorded_by_the_registry_when_an_ok_job_finishes(checking, tmp_path):
+def test_a_wrong_job_result_is_recorded_by_the_registry_when_a_job_finishes(checking, tmp_path):
     from discjockey.hub.jobs import Jobs
     from discjockey.library import Paths
 
@@ -604,6 +632,37 @@ def test_a_wrong_job_result_is_recorded_by_the_registry_when_an_ok_job_finishes(
     assert checking.take_mismatches() == ["result of job probe_job: $.x: unexpected key"]
     assert js.start("probe_job", lambda ctx: None).done.wait(5)  # an ok job with no result
     assert checking.MISMATCHES == []
+
+    def stopped(ctx):
+        ctx.failed_result = {"x": 1}
+        raise KeyboardInterrupt  # Stop: the job ends `stopped`, not ok, with the result the work had kept
+
+    assert js.start("probe_job", stopped).done.wait(5)  # a job that ends not ok and carries a result is checked too
+    assert checking.take_mismatches() == ["result of job probe_job: $.scanned_at: missing; $.read_at: missing; "
+                                          "$.x: unexpected key"]
+
+
+def test_a_failure_answer_is_checked_against_cli_fail(checking):
+    from discjockey.hub import api
+    from discjockey.hub.ids import BadId
+
+    class Page:
+        def _need_library(self):
+            pass
+
+        @api.bridge
+        def raises(self):
+            raise BadId("unknown_id", "no such id")
+
+        @api.bridge
+        def probe(self):
+            return {"ok": False, "kind": "nope", "message": "m"}
+
+    assert Page().raises()["kind"] == "bad_args"  # `bad_args` is a `Fail` kind
+    assert checking.MISMATCHES == []
+    assert Page().probe()["kind"] == "nope"
+    [(where, problems)] = checking.MISMATCHES
+    assert where == "failure handed back by probe" and problems[0].startswith("$.kind")
 
 
 def test_with_checking_off_nothing_is_recorded(checking, monkeypatch):
@@ -946,11 +1005,10 @@ def test_client_ts_has_no_inline_answer_type_but_the_window_only_and_dropped_met
     import re
 
     text = (BRIDGE_DIR / "client.ts").read_text(encoding="utf-8")
-    inline = re.findall(r"(\w+)\([^()]*\): Promise<Res<\{(\s*\})?", text)
-    # `Res<{}>` is an answer with nothing in it: `Res<Empty>` would make `ok` never (Empty is `Record<string, never>`)
-    kept = {"quit", "pick_folder", "media_url", "select", "setup_check_account"}
-    assert sorted(m for m, empty in inline if not empty and m not in kept) == []
-    assert kept <= {m for m, _ in inline}
+    inline = re.findall(r"(\w+)\([^()]*\): Promise<Res<\{", text)
+    kept = {"pick_folder", "media_url", "setup_check_account"}
+    assert sorted(m for m in inline if m not in kept) == []
+    assert kept <= set(inline)
 
 
 def test_help_json_of_every_built_command_prints_the_schema_the_shapes_make(capsys):

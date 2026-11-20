@@ -2195,7 +2195,7 @@
     },
     "BatchResult": {
       "additionalProperties": false,
-      "description": "What a move batch tells the page: `tidy_up`, `undo_moves` and each item of `save_playlists`' `batches` finish with it (also with problem `stopped`, then `stopped` is true).",
+      "description": "What a move batch tells the page: `tidy_up`, `undo_moves` and each item of `save_playlists`' `batches` finish with it (also with problem `stopped`, then `stopped` is true). Files never change their names in a move batch: only their folder changes.",
       "properties": {
         "batch_id": {
           "anyOf": [
@@ -3193,6 +3193,82 @@
         "checked",
         "not_checked",
         "recovered"
+      ],
+      "type": "object"
+    },
+    "CliFail": {
+      "additionalProperties": false,
+      "description": "A failed answer as any caller can get it: a `Fail` whose `kind` can also be `bad_args` (a typed id or word that names nothing: `BadId`, an unknown `--plan`). Every failure the engine answers is checked against this shape.",
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Facts that belong to the reason, a different object per reason (`outcomes.REASONS`); null or absent when there are none.",
+          "x-shown": true
+        },
+        "kind": {
+          "$ref": "#/$defs/FailKind",
+          "description": "Why it failed; `bad_args` only for the command line.",
+          "x-shown": true
+        },
+        "message": {
+          "description": "Plain words for the person.",
+          "type": "string",
+          "x-shown": true
+        },
+        "next": {
+          "description": "The commands that move on.",
+          "items": {
+            "$ref": "#/$defs/FailNext"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "ok": {
+          "const": false,
+          "description": "Always false on a problem.",
+          "x-shown": false
+        },
+        "outcome": {
+          "$ref": "#/$defs/FailOutcome",
+          "description": "The command line's outcome of the problem.",
+          "x-shown": false
+        },
+        "person_steps": {
+          "description": "The steps only a person can do.",
+          "items": {
+            "$ref": "#/$defs/FailPersonStep"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "reason": {
+          "description": "The closed reason of the problem (`outcomes.REASONS`).",
+          "type": "string",
+          "x-shown": false
+        },
+        "service": {
+          "$ref": "#/$defs/PlaylistService",
+          "description": "Set when a playlist service caused the problem (a SourceError); absent for every other.",
+          "x-shown": true
+        },
+        "setting": {
+          "$ref": "#/$defs/SettingKey",
+          "description": "Only with kind `setting_off` (add_playlist for a link that needs a Settings choice that is off).",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "ok",
+        "kind",
+        "message"
       ],
       "type": "object"
     },
@@ -4650,7 +4726,7 @@
     },
     "Fail": {
       "additionalProperties": false,
-      "description": "A problem answer: `{ok: false, kind, message}` and, from the bridge decorator, the command line's view of it (issue 39, `discjockey/hub/outcomes.py`); the window ignores the latter. `outcome`, `reason`, `next`, `person_steps` and `data` are always present on an answer of the engine, optional here so the fake bridge needs no change. `kind` can also be `bad_args` for arguments only the command line sends (contract, Problem kinds).",
+      "description": "A problem answer: `{ok: false, kind, message}` and, from the bridge decorator, the command line's view of it (issue 39, `discjockey/hub/outcomes.py`); the window ignores the latter. `outcome`, `reason`, `next`, `person_steps` and `data` are always present on an answer of the engine, optional here so the fake bridge needs no change. The window never sends what makes a `bad_args`: a failure the command line gets is a `CliFail`.",
       "properties": {
         "data": {
           "anyOf": [
@@ -4723,6 +4799,32 @@
         "message"
       ],
       "type": "object"
+    },
+    "FailKind": {
+      "description": "The `kind` of a failed answer: a `ProblemKind`, or `bad_args` for what only the command line sends (a typed id or word that names nothing; the window never sends one and shows it as `crashed`).",
+      "enum": [
+        "busy",
+        "console",
+        "sync_running",
+        "not_set_up",
+        "login_expired",
+        "offline",
+        "playlist_unreadable",
+        "config_invalid",
+        "qobuz_login_failed",
+        "login_failed",
+        "changed",
+        "refused",
+        "failed",
+        "stopped",
+        "protected",
+        "crashed",
+        "no_library",
+        "setting_off",
+        "exists",
+        "rekordbox_open",
+        "bad_args"
+      ]
     },
     "FailNext": {
       "additionalProperties": false,
@@ -13125,7 +13227,7 @@
     },
     "TodoItemBase": {
       "additionalProperties": false,
-      "description": "One song of a To-do group: the row plus the group's own words. `pair`, `can_undo` and the others are set only on the groups that use them. `free` and `own` are NotRequired because the engine leaves them off some items (findings, the window's types call both always there); the generated TypeScript still says `TrackRow & {...}`, where `own` is required.",
+      "description": "One song of a To-do group: the row plus the group's own words. `pair`, `can_undo` and the others are set only on the groups that use them. `free` and `own` are NotRequired because the engine leaves them off some items (findings, the window's types call both always there).",
       "properties": {
         "added": {
           "anyOf": [

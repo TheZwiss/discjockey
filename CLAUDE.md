@@ -222,7 +222,8 @@ their Qobuz daily limit. Long commands run in the background with a status line.
   commit (the maintainer's checkout has the denylist, so there it runs with `--require-denylist`).
 - **Contract:** a change to an answer of `api.py`, a shape of `views.py` or a job result changes its TypedDict in
   `discjockey/hub/shapes/` and regenerates (`uv run python -m discjockey.hub.shapes --export`), and the fake's builder
-  of that payload, in the same commit; `contract.ts` when a bridge method is added or removed;
+  of that payload, in the same commit; `client.ts` (the `Bridge` signature and its answer type) when a method's
+  parameters or answer shape change, and `contract.ts` when a bridge method is added or removed;
   `docs/hub-bridge-contract.md` when a rule changes. An event changes its dataclass,
   `tests/fixtures/hub_events.schema.json`, `hub-ui/src/lib/bridge/events.ts` (type and `EVENT_FIELDS`), the fake's
   emitter and the doc's Events section, in the same commit.

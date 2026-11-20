@@ -108,12 +108,13 @@ class Field:
 @dataclass(frozen=True)
 class Spec:
     """One shape as the kernel keeps it: all its fields (inherited ones first), the registered shapes it extends and the
-    fields it adds itself."""
+    fields it adds itself or declares differently from the base (`overrides`: the names of the latter)."""
     cls: type
     doc: str
     fields: tuple
     bases: tuple
     own: tuple
+    overrides: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -179,13 +180,18 @@ class Registry:
             if not typing.is_typeddict(base) or self.shapes.get(base.__name__) is not base:
                 raise ShapeError(f"{name}: its base {getattr(base, '__name__', base)!r} is not a registered shape")
             bases.append(base.__name__)
+        if getattr(cls, "__total__", True) is False:
+            raise ShapeError(f"{name}: total=False is not in the closed set; use NotRequired")
         hints = typing.get_type_hints(cls, include_extras=True)
-        inherited = {f.name for b in bases for f in self._specs[b].fields}
-        fields = []
-        for key, hint in hints.items():
-            fields.append(self._field(name, key, hint, total=getattr(cls, "__total__", True)))
+        inherited = {f.name: f for b in bases for f in self._specs[b].fields}
+        fields = [self._field(name, key, hint, total=True) for key, hint in hints.items()]
+        # a field a subclass declares again with another type or requiredness replaces the base's (TypeScript cannot
+        # loosen a field of an intersection, so the base is written without it)
+        same = {f.name for f in fields if f.name in inherited
+                and (f.node, f.required) == (inherited[f.name].node, inherited[f.name].required)}
         spec = Spec(cls=cls, doc=_words(cls.__doc__ or ""), fields=tuple(fields), bases=tuple(bases),
-                    own=tuple(f for f in fields if f.name not in inherited))
+                    own=tuple(f for f in fields if f.name not in same),
+                    overrides=tuple(f.name for f in fields if f.name in inherited and f.name not in same))
         self.shapes[name] = cls
         self._specs[name] = spec
         self._order.append(name)
@@ -412,6 +418,13 @@ class Registry:
                 lines.append("];")
         return lines
 
+    def _ts_base(self, base: str, overrides: tuple) -> str:
+        """A base as the intersection names it: without the fields its subclass declares again."""
+        held = [n for n in overrides if any(f.name == n for f in self._specs[base].fields)]
+        if not held:
+            return base
+        return f"Omit<{base}, {' | '.join(_quote(n) for n in held)}>"
+
     def _ts_shape(self, name: str, spec: Spec) -> list[str]:
         lines = _ts_comment(spec.doc, "")
         fields = spec.fields if not spec.bases else spec.own
@@ -422,9 +435,9 @@ class Registry:
             body.append(f"  {f.name}{'' if f.required else '?'}: {text};")
         if not spec.bases:
             if not body:
-                return lines + [f"export type {name} = Record<string, never>;"]
+                return lines + [f"export type {name} = Record<never, never>;"]
             return lines + [f"export type {name} = {{"] + body + ["};"]
-        base = " & ".join(spec.bases)
+        base = " & ".join(self._ts_base(b, spec.overrides) for b in spec.bases)
         if not body:
             return lines + [f"export type {name} = {base};"]
         return lines + [f"export type {name} = {base} & {{"] + body + ["};"]

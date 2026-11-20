@@ -706,8 +706,7 @@ class Jobs:
             if job.files is not None:
                 self._end_files(job, finished)  # before `done`: whoever sees the job ended finds its files complete
             job.done.set()
-        if ok:
-            shapes.note_result(job.kind, finished.result)  # test mode only: the result must fit its shape
+        shapes.note_result(job.kind, finished.result)  # test mode only: also a not-ok end's result must fit
         self.emit(finished)
         return True
 
