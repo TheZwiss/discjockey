@@ -870,10 +870,24 @@ Results:
     (pytest 6034, verify 1249 ok), release workflow green, DRAFT waiting for the user's install + "publish". Issue 44
     + muted check browsers (synth tones the user heard came from verify's cover-play shots): fix-round Sonnet **93k**,
     merged main 126cfd24 (fixture `no_first_read`; `mutePlayback` in shot-lib.mjs incl. Web Audio gain 0).
-    **RESUME HERE (2026-11-20):** next = plan with the user how agents finish issue 39 phases 2–8 (Sonnet/Opus split,
+    **RESUME HERE (LATEST, 2026-11-20):** next = plan with the user how agents finish issue 39 phases 2–8 (Sonnet/Opus split,
     group sizes from phase 1's record: builds 186-301k early, 512-783k for V1.10-V1.14 vs ~200k planned; reviews
     163-221k; fix rounds 148-200k; rehearsals 96-133k). Then the phase 2 setup choice. Open: publish 1.3.0 on the user's
     word; issue 43 Download-again live test when Qobuz is back; archive issue 33's plans.
+    1.3.0 PUBLISHED 2026-11-20 on the user's "publish". User: "get ready for a compact, then read all you need for a
+    great planning phase". PLANNING READING LIST (read these, in this order, before saying anything):
+    (a) plan v2 `docs/2026-11-15-agent-cli-plan-v2.md`: §0 summary (18-70), §1 basis for numbers (71-107), §4 rules
+        (173-201), §6 phases 2-8 (404-500), §7 extras (501-531), §9 risks (681-699); §8 owner tables only by grep.
+    (b) this log: phase 1's record lines ~955-1215 (each group's size and WHY V1.10-V1.14 overran: splits, reviews,
+        fixes, rehearsals) and the setup discussion at ~664-671 (measured per role: builds 54%, group reviews+fixes 19%,
+        Opus phase review+fixes 21%; proposal Opus plans + ONE Fable 5.2 pass per plan + Sonnet builds; still open).
+    (c) `.claude/dispatch-checklist.md` (11 items incl. SCOPE) and `.claude/open-scope.md` (Done early: headerSub).
+    (d) memory: feedback_token_cost, feedback_delegate_by_difficulty, feedback_split_ui_groups, feedback_subagent_scope,
+        feedback_fix_round_fresh_agent, feedback_review_and_rehearsal_spend, feedback_cuts_checked_against_goals,
+        feedback_no_hidden_cost_savings, feedback_scope_guard, project_issue39_cli.
+    Goal of the planning talk: how agents finish phases 2-8 with Sonnet/Opus (and Fable) used as efficiently as
+    possible: why the late phase 1 groups ran 2.5-4x, how to cut groups (material measured, <250k), which role gets
+    which model, review/rehearsal spend, and the setup choice. Bring measured numbers, a recommendation, no survey.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
