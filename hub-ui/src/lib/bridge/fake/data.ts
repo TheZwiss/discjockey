@@ -777,7 +777,7 @@ export function runDetail(id: string, started: Date, duration_s: number, exit_co
   const newFiles = results.filter((r) => NEW_FILE_SECTIONS.includes(r.section) && r.path).map((r) => r.path!);
   const count = (...ss: string[]) => results.filter((r) => ss.includes(r.section)).length;
   return {
-    run_id: id, kind: 'sync', started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
+    run_id: id, id: `report:${id}`, kind: 'sync', started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
     exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded', 'upgraded', 'placed_missing'),
       lossy: count('new_not_lossless', 'fake'), problems: count(...PROBLEM_SECTIONS), moved: count('moved') },
     stopped_after, sections, needs_you: results.filter((r) => PROBLEM_SECTIONS.includes(r.section) && r.track_id),

@@ -179,450 +179,97 @@ remember=False)` (the command line's) acts on a write's record as it is, with no
 
 ### Read, any time
 
-`dashboard()`
-```json
-{
- "ok": true,
- "greeting": "Good evening",
- "read_status": {
-  "read_at": "2026-10-20T21:47:00",
-  "minutes_ago": 0,
-  "problem": null,
-  "message": "",
-  "stale": false,
-  "reading": false,
-  "offline": false,
-  "auto_read": true,
-  "problem_service": null,
-  "services": [
-   {"service": "spotify", "name": "Spotify", "connected": true}
-  ]
- },
- "tiles": {
-  "lossless": {
-   "share": 0.3333,
-   "lossless": 1,
-   "total": 3,
-   "by_quality": {
-    "lossless": 1,
-    "good_lossy": 0,
-    "weak": 1,
-    "fake": 0,
-    "missing": 1
-   }
-  },
-  "qobuz_today": {
-   "used": 0,
-   "allowance": 80,
-   "limit": 60,
-   "carry_over": 20,
-   "extra": 0,
-   "remaining": 80
-  },
-  "still_to_load": {
-   "count": 2,
-   "days": 1,
-   "fits_today": true
-  },
-  "account_today": {
-   "service": "youtube",
-   "name": "YouTube Premium",
-   "set_up": true,
-   "used": 3,
-   "allowance": 30,
-   "warnings": 0,
-   "new_warnings": 0,
-   "paused": false
-  }
- },
- "ready": {
-  "counts": {
-   "new": 2,
-   "retries": 0,
-   "redownloads": 0,
-   "bought": 0,
-   "weekly_checks": 0
-  },
-  "actions": 2,
-  "duration_min": 5,
-  "qobuz_limit": 60,
-  "qobuz_needed": 2,
-  "qobuz_left": 80,
-  "qobuz_uses": 2,
-  "accounts": [],
-  "left": 80,
-  "limit": 60
- },
- "needs_you": {
-  "upgrades": 1,
-  "swappable": 1,
-  "not_found": 1,
-  "weak": 1
- },
- "folders": [
-  {
-   "folder": "Hard_Bounce",
-   "tracks": 3,
-   "lossless_share": 0.3333,
-   "by_quality": {
-    "lossless": 1,
-    "good_lossy": 0,
-    "weak": 1,
-    "fake": 0,
-    "missing": 1
-   }
-  },
-  {
-   "folder": "Powertrance",
-   "tracks": 0,
-   "lossless_share": null,
-   "by_quality": {
-    "lossless": 0,
-    "good_lossy": 0,
-    "weak": 0,
-    "fake": 0,
-    "missing": 0
-   }
-  }
- ],
- "last_runs": [
-  {
-   "run_id": "2026-10-19_214700",
-   "id": "report:2026-10-19_214700",
-   "started": "2026-10-19T21:47:00",
-   "finished": "2026-10-19T22:11:00",
-   "duration_s": 1440,
-   "exit_code": 0,
-   "kind": "sync",
-   "counts": {
-    "lossless": 1,
-    "lossy": 0,
-    "problems": 0,
-    "moved": 0
-   },
-   "stopped_after": null
-  }
- ],
- "has_more_runs": false,
- "next_checks": 0,
- "empty": "not_set_up"
-}
-```
-`ready` is null until Spotify was read; `next_checks` = weekly checks in the preview; `empty` as above. `ready` carries
-the same `estimate` fields as `sync_preview`. `tiles.account_today`: the first set-up card of `limits()` (Qobuz first,
-then YouTube Premium, then SoundCloud Go+), null when no service is set up.
+`dashboard()` — the start page: greeting, the read status, the tiles, the plan that is ready, what needs the user, one bar
+per playlist folder and the newest runs.
+Shape: `Dashboard` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+`ready` is null until the playlists were read; it carries the estimate fields of `sync_preview` (without its two
+tables) and the plan's counts. `tiles.account_today` is the first set-up card of `limits()` (Qobuz first, then YouTube
+Premium, then SoundCloud Go+), null when no service is set up.
 
 `sidebar()` — counts and lists for the sidebar (to-do badge, Favourites, one entry per `playlists.txt` line, the watched import folders with their crates, the Library folders no line uses, Not in a playlist).
-```json
-{
- "ok": true,
- "todo": 2,
- "all_tracks": 2,
- "not_in_playlist": 0,
- "limits_warning": false,
- "favourites": [
-  {
-   "key": "playlist:37i9dQZF1DX0XUsuxWHRQd",
-   "kind": "playlist",
-   "name": "Hard_Bounce",
-   "service": "spotify",
-   "enabled": true,
-   "count": 2,
-   "path": null,
-   "state": "here"
-  },
-  {
-   "key": "folder:/Users/you/Music/Rekordbox Library/Hardtechno",
-   "kind": "folder",
-   "name": "Hardtechno",
-   "service": null,
-   "enabled": true,
-   "count": 9,
-   "path": "/Users/you/Music/Rekordbox Library/Hardtechno",
-   "state": "here"
-  }
- ],
- "playlists": [
-  {
-   "name": "Hard_Bounce",
-   "ref": "37i9dQZF1DX0XUsuxWHRQd",
-   "service": "spotify",
-   "enabled": true,
-   "songs": 2
-  },
-  {
-   "name": "Powertrance",
-   "ref": "qobuz:900000001",
-   "service": "qobuz",
-   "enabled": false,
-   "songs": null
-  }
- ],
- "watched": [
-  {
-   "path": "/Users/you/Music/Rekordbox Library",
-   "name": "Rekordbox Library",
-   "place": "~/Music/Rekordbox Library",
-   "files": 9,
-   "state": "here",
-   "too_many": false,
-   "crate_count": 2,
-   "crates": [
-    {
-     "path": "/Users/you/Music/Rekordbox Library/Hardtechno",
-     "label": "Hardtechno",
-     "name": "Hardtechno",
-     "tip": "Rekordbox Library › Hardtechno",
-     "files": 9,
-     "hidden": false,
-     "has_crates": true
-    },
-    {
-     "path": "/Users/you/Music/Rekordbox Library/Hardtechno/2019",
-     "label": "Hardtechno › 2019",
-     "name": "2019",
-     "tip": "Rekordbox Library › Hardtechno › 2019",
-     "files": 4,
-     "hidden": false,
-     "has_crates": false
-    }
-   ]
-  }
- ],
- "library_folders": [
-  {
-   "path": "Library/Old_Sets",
-   "name": "Old_Sets",
-   "files": 1
-  }
- ]
-}
-```
-`playlists` has every line of `playlists.txt` in file order, switched-off ones too (`enabled: false`; `#off#` lines): `name`
-is the folder name, `ref` the playlist's token (a Spotify id stays bare, any other service is `service:id`), `service`
-a key of the playlist services, and `songs` the distinct songs of the playlist's read record (the last successful read
-of it, kept per playlist in `library.db`; a token resolves through a song's key or alias), or `null` for a playlist
-that was never read. A read that found no song is a record of 0 songs, not `null`. It replaces `tracks`, the files in
-the playlist's folder, which the sidebar no longer sends.
-`library_folders` are the `Library/` folders with files that no line uses (case and accents ignored, as the disk
-does), by name, with their `path` (`Library/<name>`, what `library("folder", …)` takes) and the files at or below it.
-A file belongs to the folder it sits in, not to its song's folder: a file outside its song's folder counts where it
-is, and a folder holding only the user's own files has its row. So every `files` (a Library folder's, a watched
+Shape: `Sidebar` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+`playlists` has every line of `playlists.txt` in file order, switched-off ones too (`#off#` lines). Its `songs` are the
+distinct songs of the playlist's read record (the last successful read of it, kept per playlist in `library.db`; a token
+resolves through a song's key or alias); a read that found no song is a record of 0 songs, not `null`, which is a playlist
+never read. `library_folders` are the `Library/` folders with files that no line uses (case and accents ignored, as the
+disk does). A file belongs to the folder it sits in, not to its song's folder: a file outside its song's folder counts
+where it is, and a folder holding only the user's own files has its row. So every `files` (a Library folder's, a watched
 folder's, a crate's) is the length of the `rows` of the view it opens, as are `all_tracks`, `not_in_playlist` and a
-playlist's `songs`. This replaces `folders` / `in_playlists_txt`.
-`watched` has the watched import folders (not the Library) ordered by name; `path` is the folder as the snapshot spells
-it, `place` its path in words (`~/Music/Old`, `Example Drive › Music/Old`: the home folder as `~`, a folder on
-another drive with the drive's name first and a no-break blank before the `›`), `files` the imported files at or below
-it (Settings' row counts those an import has yet to work through as well, the sidebar leaves them out), `state` where
-the folder is now: `here`, `offline` (its drive is not connected) or `folder_missing` (not found: moved, renamed,
-deleted), checked live. `crates` are the folders below it that hold a file themselves (wrapper folders get no row;
-files directly in the watched folder belong to no crate; a file under two watched folders belongs to the deeper one),
-all of them in label order (numbers read as numbers, case ignored), hidden ones too; `crate_count` is their number.
-A crate: `label` the browser's short name (`Hardtechno › 2019` for a crate inside a crate; `Bounce · Old Sets` when
-another top-level crate of any watched folder has the same name, with its parent folder's name), `name` the folder's own
-name, `tip` the way from the watched folder (`Rekordbox Library › Hardtechno › 2019`), `files` the files at or below it,
-`has_crates` whether another crate lies below it. `hidden` is out of the sidebar: the user's switch (`set_crate_shown`)
-or, without one, the default: shown, but hidden when the watched folder has more than 25 crates (`too_many`; the folder is
-then one row, and Settings switches single crates on). A label never depends on what is hidden.
-`favourites` are the keys of `set_favourites` in their stored order, resolved: `kind` `playlist` (`key` = `playlist:<ref>`) or
-`folder` (`key` = `folder:<path>` of a Library folder, a watched folder or a crate), `name` (a crate's `label`), `service`
-and `enabled` (playlists; a folder has `null` and `true`), `count` (a playlist's `songs`, a folder's `files`), `path`
-(a folder's, `null` for a playlist) and `state` (a playlist is `here`; a crate has its watched folder's). A key whose
-playlist or folder is gone is left out of the answer, and stays stored.
+playlist's `songs`.
+`watched` has the watched import folders (not the Library) ordered by name; `place` writes the path in words (the home
+folder as `~`, a folder on another drive with the drive's name first and a no-break blank before the `›`), `state` is
+checked live. `crates` are the folders below it that hold a file themselves (wrapper folders get no row; files directly
+in the watched folder belong to no crate; a file under two watched folders belongs to the deeper one), all of them in
+label order (numbers read as numbers, case ignored), hidden ones too. A crate is `hidden` by the user's switch
+(`set_crate_shown`) or, without one, by the default: shown, but hidden when the watched folder has more than 25 crates
+(`too_many`; the folder is then one row, and Settings switches single crates on). A label never depends on what is hidden.
+`favourites` are the keys of `set_favourites` in their stored order, resolved; a key whose playlist or folder is gone is
+left out of the answer, and stays stored.
 `set_crate_shown(path, shown)` refuses a path that is no crate of a watched folder; `set_crates_shown(paths, shown)` is the same
-for several crates in one write (all or none, a path given twice counts once, answers `{paths, shown}`). `reveal(path)` also
+for several crates in one write (all or none, a path given twice counts once). Both and `set_favourites` are brief saves
+that start no job: they answer `FavouritesSaved`, `CrateSaved` and `CratesSaved` (generated, as above). `reveal(path)` also
 opens an absolute path inside a watched import folder (the folder, a crate); any other absolute path is refused.
-`limits_warning`: true when a set-up service has a warning sign the user hasn't marked as seen ("Got it",
+`limits_warning` is true when a set-up service has a warning sign the user hasn't marked as seen ("Got it",
 `mark_warnings_seen`), or is paused today (the dot on "Download limits").
 The page reads `sidebar()` again after `JobFinished` of kind `refresh`, `sync` or `import` (each changes what it counts
 and lists), after `DrivesChanged` (a folder's `state`), and after its own `set_favourites` / `set_crate_shown`; no
 event was added for it. The hub store reads it after every `JobFinished`, which includes those.
 
 `sync_preview()` — the check before Start. Each action's `key` is sent back ticked to `start_sync`.
-It also carries `waiting_answers: int` (songs held back until the user answers "Is this the same song?", the plan's
-`questions`; they are not downloaded meanwhile) and `deferred_checks: int` (first upgrade checks of imported music
-that the per-run cap left for later runs); both 0 before the first read. It also carries `auto_upgrade` (stage C):
-`{on: true, ready: n}` with n the upgrades the sync's last phase would put in place now, or null (the switch is off,
-settings.json can't be read, or there is no preview yet) — see "Auto-upgrade" below.
+Shape: `SyncPreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+Before the first read the counts are 0, `counts` and `estimate` are null and `collections` is empty. `waiting_answers`
+are held back until the user answers "Is this the same song?" (the plan's `questions`) and are not downloaded meanwhile.
+`auto_upgrade` (stage C) is null when the switch is off and no placement is coming, settings.json can't be read, or
+there is no preview yet — see "Auto-upgrade" below.
 Group `key`s/labels in order: `acquire:new` Download (new), `acquire:retry` Try again, `acquire:redownload` Download
 again (its file is missing; planned only for a song whose Download again the user asked for, issue 43: a missing file alone plans nothing), `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
 `adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no
 `from_folder` on a row any more (library stage 1): a sync moves no files, and files moved by hand are found by the
-scan (`rescan_library`). `key` is `[kind, track_id, to_dir]` (3 strings; example cut).
-Every action row also has `in`: the collections of the browser column its song belongs to (issue 37), by their
-sidebar keys — every playlist line whose read holds it (`playlist:<ref>`, playlists.txt order; a line not read this
-time by its last stored read, else by the songs' folder), then the folders its file sits in, outer to inner
-(`folder:<path>`: the watched import folder, each crate of it shown in the sidebar that holds the file, or a Library
-folder no playlist uses; a file in a playlist's own Library folder is in no folder). Sync leaves a row out only when
-every collection in it is switched off (a folder by its own switch and those of the folders around it); a row with
-an empty `in` has nothing that can switch it off. The preview's `collections` names each of them (target -> name as
-the sections say it: a playlist's folder, "Techno", "Techno › 2019", a Library folder's name; `{}` before the first
-read). `api.sync_preview` passes `views.song_places` (watched folders, crate visibility).
-Every action row also has `run`: its index in the order the sync works through them (bought files, then downloads, then weekly checks; inside each, playlists.txt order). Downloads of tracks in the "never download" list
-are not in `groups` but in `never` (same rows, without `run`); marking or unmarking a track moves it at once, without
-reading Spotify again. `folders` is the playlists.txt order, `in_playlists` the number of unique Spotify tracks read
-(null before the first read). `estimate.duration_min` counts only the downloads that fit into today's Qobuz
-allowance (`min(qobuz_needed, qobuz_left)` × 70 s, rounded to 5 min): the rest is queued at once and waits for the
-next sync. `estimate.qobuz_limit` is the daily limit setting. `estimate.accounts` says which service the downloads
-are expected to use, one entry per set-up service in quality order: `{service, name, uses, left, limit, about}`
-(`uses` null for an account behind Qobuz, which only gets the tracks Qobuz lacks; `about` true for every service but
-Qobuz: an estimate). `estimate.left` is today's remaining allowance (null = no limit) and `estimate.limit` the daily
-limit; the `qobuz_*` fields are kept for one release. `estimate.minutes_by_downloads[n]` (sync_preview only, not
-the dashboard's) is the time for `n` downloads, for `n = 0 … qobuz_uses` (the most any ticked subset can run today):
-the page looks up the count of the actions the user ticked, so the formula (70 s a download, rounded to 5 minutes) is
-in the engine only (`views.minutes_by_downloads`) and ticking needs no bridge call. In the same way, each entry of
-`estimate.accounts` in `sync_preview` also has `uses_by_downloads[n]`: that service's `uses` for `n` downloads
-(`n = 0 … qobuz_uses`, the engine's `views.split(n, …)`), or null for an account behind Qobuz. The page looks up the
-ticked count (a larger count takes the last entry) for the service rows and never repeats the split.
-```json
-{
- "ok": true,
- "read_status": {
-  "read_at": "2026-10-20T21:47:00",
-  "minutes_ago": 0,
-  "problem": null,
-  "message": "",
-  "stale": false,
-  "reading": false,
-  "offline": false,
-  "auto_read": true,
-  "problem_service": null,
-  "services": [
-   {"service": "spotify", "name": "Spotify", "connected": true}
-  ]
- },
- "counts": {
-  "new": 2,
-  "retries": 0,
-  "redownloads": 0,
-  "bought": 0,
-  "weekly_checks": 0
- },
- "groups": [
-  {
-   "key": "acquire:new",
-   "label": "Download (new)",
-   "actions": [
-    {
-     "key": [
-      "acquire",
-      "t4"
-     ],
-     "kind": "acquire",
-     "reason": "new",
-     "track_id": "t4",
-     "artist": "Pegassi",
-     "title": "AEIOU",
-     "folder": "Hard_Bounce",
-     "to_dir": "Library/Hard_Bounce",
-     "to_not_lossless": false,
-     "src": null,
-     "cover_url": "https://i.scdn.co/image/t4",
-     "in": ["playlist:0DiscjockeyExampleList"],
-     "run": 0
-    },
-    {
-     "key": [
-      "acquire",
-      "t5"
-     ],
-     "kind": "acquire",
-     "reason": "new",
-     "track_id": "t5",
-     "artist": "torbentorben",
-     "title": "non stop",
-     "folder": "Powertrance",
-     "to_dir": "Library/Powertrance",
-     "to_not_lossless": false,
-     "src": null,
-     "cover_url": "https://i.scdn.co/image/t5",
-     "in": ["playlist:3DiscjockeyExampleList"],
-     "run": 1
-    }
-   ]
-  }
- ],
- "estimate": {
-  "duration_min": 5,
-  "qobuz_limit": 60,
-  "qobuz_needed": 2,
-  "qobuz_left": 80,
-  "qobuz_uses": 2,
-  "accounts": [
-   {
-    "service": "qobuz",
-    "name": "Qobuz",
-    "uses": 2,
-    "left": 80,
-    "limit": 60,
-    "about": false,
-    "uses_by_downloads": [0, 1, 2]
-   }
-  ],
-  "left": 80,
-  "limit": 60,
-  "minutes_by_downloads": [0, 5, 5]
- },
- "never": [],
- "folders": [
-  "Hard_Bounce",
-  "Powertrance"
- ],
- "in_playlists": 2,
- "ambiguous": [],
- "dropped": [],
- "notes": [],
- "empty": null,
- "collections": {"playlist:0DiscjockeyExampleList": "Hard_Bounce", "playlist:3DiscjockeyExampleList": "Powertrance"}
-}
-```
+scan (`rescan_library`). An action's `key` is `[kind, track_id, to_dir]` (3 strings).
+A row's `in` names the collections of the browser column its song belongs to (issue 37), by their sidebar keys: every
+playlist line whose read holds it (`playlist:<ref>`, playlists.txt order; a line not read this time by its last stored
+read, else by the songs' folder), then the folders its file sits in, outer to inner (`folder:<path>`: the watched import
+folder, each crate of it shown in the sidebar that holds the file, or a Library folder no playlist uses; a file in a
+playlist's own Library folder is in no folder). Sync leaves a row out only when every collection in it is switched off
+(a folder by its own switch and those of the folders around it); a row with an empty `in` has nothing that can switch it
+off. The preview's `collections` names each of them. `api.sync_preview` passes `views.song_places` (watched folders,
+crate visibility).
+A row's `run` is its index in the order the sync works through them (bought files, then downloads, then weekly checks;
+inside each, playlists.txt order). Downloads of tracks in the "never download" list are not in `groups` but in `never`
+(same rows, without `run`); marking or unmarking a track moves it at once, without reading Spotify again.
+`estimate.duration_min` counts only the downloads that fit into today's Qobuz allowance (`min(qobuz_needed, qobuz_left)`
+× 70 s, rounded to 5 min): the rest is queued at once and waits for the next sync. `estimate.accounts` says which service
+the downloads are expected to use, one entry per set-up service in quality order (`uses` null for an account behind
+Qobuz, which only gets the tracks Qobuz lacks; `about` true for every service but Qobuz: an estimate); the `qobuz_*`
+fields are kept for one release. `estimate.minutes_by_downloads[n]` (the preview only, not the dashboard's) is the time
+for `n` downloads, `n = 0 … qobuz_uses` (the most any ticked subset can run today), and each account's
+`uses_by_downloads[n]` its `uses` for `n` downloads (the engine's `views.split(n, …)`): the page looks up the count of the
+actions the user ticked (a larger count takes the last entry), so the formula (70 s a download, rounded to 5 minutes)
+and the split are in the engine only (`views.minutes_by_downloads`) and ticking needs no bridge call.
 
 `refresh(auto=false)` → `{"job_id"}` — read-only playlists read: "↻ Read playlists", and by itself whenever
 playlists.txt changes on disk (mtime or size, checked every 2 s; retried until no hub sync blocks it). `auto=true`: the
 session's one automatic read (the hub when it opens; the Sync page when it opens and `read_status.auto_read` is still
 false, e.g. the hub's own read could not start). It sets `read_status.auto_read` when it starts; later `auto=true` calls are
 refused (`refused`), so a stopped or failed automatic read is never redone by itself. Each playlist read emits
-`ReadingPlaylist`. Outcome: `JobFinished` kind `refresh`, `result {"actions": n}`; on problems (`offline`, ...) the
+`ReadingPlaylist`. Outcome: `JobFinished` kind `refresh`, result `RefreshResult` (`{actions}`); on problems (`offline`, ...) the
 last preview stays with `read_status.problem` set.
-`stop_refresh()` → `{"stopped": bool}`. The read's `JobFinished` (`stopped`) comes at once, also while one slow
+`stop_refresh()` → `Stopped` (`{"stopped": bool}`; `stop()` and `stop_sign_in()` answer it too). The read's `JobFinished` (`stopped`) comes at once, also while one slow
 Spotify request is still under way; that request's late answer is dropped (the last preview stays).
 
-`job_status()` — snapshot after a reload. `sign_in`: null or the browser sign-in's snapshot, same shape as `job` (see
-Settings). `job`: null or `{id, kind, track_id, started, batch_kind, running, stopping, last:
-{<EventType>: <last event of that type>}, usage: [<AccountUsage>], results: [<ActionFinished events>], finished: <JobFinished>|null, actions:
-[{kind, track_id, title, artist, image_url}]}`. `batch_kind`: for an AIFF batch job (kinds `upgrade_batch`,
-`aiff_batch`, `batch_resume`, and the one-after-the-other `upgrade_add_new` / `upgrade_discard`) the batch's kind, else
-`null`: `"upgrade"` for Same track (`upgrade`, `upgrade_all`, add as new, discard), `"convert"` for what Convert, Give it
-its clean name, Make all and the CDJ group's Convert all start, and, for `batch_resume`, the stopped batch's own kind
-(`upgrade` / `convert` / `mixed`), so a reloaded window can tell a resumed Convert batch from Same track's. The `JobStarted`
-event carries the same `batch_kind`, so a snapshot built from the live event says what `job_status` says after a reload.
-`usage`: the newest `AccountUsage` event of each service, in the order the
-services first reported (`last` keeps only the newest one overall) — the "Qobuz 42 of 80 today" lines after a reload; `[]` until
-a download counted. `actions`: the run's planned actions in the order the run does them (copied from
-`RunStarted.actions`; `[]` until a run started, and for jobs without a run) — "Up next" and the time left after a
-reload.
-```json
-{
- "ok": true,
- "job": null,
- "refresh_running": false,
- "console_running": false,
- "read_status": {
-  "read_at": "2026-10-20T21:47:00",
-  "minutes_ago": 0,
-  "problem": null,
-  "message": "",
-  "stale": false,
-  "reading": false,
-  "offline": false,
-  "auto_read": true,
-  "problem_service": null,
-  "services": [
-   {"service": "spotify", "name": "Spotify", "connected": true}
-  ]
- }
-}
-```
+`job_status()` — snapshot after a reload. `sign_in` is null or the browser sign-in's snapshot, the same shape as `job` (see
+Settings). `job` is null or a `JobSnap`: the events are not shapes (`tests/fixtures/hub_events.schema.json` pins them), so
+`last`, `results` and `finished` hold them as events.ts `HubEvent`s.
+Shape: `JobStatus` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+`batch_kind` is set for an AIFF batch job (kinds `upgrade_batch`, `aiff_batch`, `batch_resume`, and the
+one-after-the-other `upgrade_add_new` / `upgrade_discard`): `"upgrade"` for Same track (`upgrade`, `upgrade_all`, add as
+new, discard), `"convert"` for what Convert, Give it its clean name, Make all and the CDJ group's Convert all start, and,
+for `batch_resume`, the stopped batch's own kind (`upgrade` / `convert` / `mixed`), so a reloaded window can tell a
+resumed Convert batch from Same track's. The `JobStarted` event carries the same `batch_kind`, so a snapshot built from
+the live event says what `job_status` says after a reload. `usage` has the newest `AccountUsage` event of each service, in
+the order the services first reported (`last` keeps only the newest one overall) — the "Qobuz 42 of 80 today" lines after
+a reload. `actions` are the run's planned actions in the order the run does them (copied from `RunStarted.actions`) —
+"Up next" and the time left after a reload.
 
 `library(view="all", key=null, query="", filter="all", sort=null)` — one view of the library. `view`: `all` (All
 tracks), `unlisted` (Not in a playlist), `playlist` (`key` = the playlist's folder name, any case) or `folder` (`key` = a
@@ -652,44 +299,23 @@ leaves out the subtitle's count, rather than let the numbers seem to disagree). 
 read and holds nothing, both come with `empty: "no_match"` even without search text; the page tells them apart by
 `view`, `folder_kind` and `read_at`.
 
-*Row fields.* Every row also has `sound_checked: bool`: false for an imported file whose sound isn't judged yet
-(`import_state` `identified`: the quality is the codec's guess for now; the page says "sound not checked yet", with a
-neutral "Not checked" badge instead of the quality). A row with `sound_checked: false` is left out of the quality
-chips (Lossless, Good lossy, Weak, Fake), of `summary.by_quality` and `summary.lossless_share` (a share of the checked
-files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`. Every
-row also has `file_state` (2026-10-29, fix K): `here`, `offline` or `folder_missing`, read now exactly as `track()`'s
-(below: the live away set of the import folders, a stored `online = 0` stays `offline`), but per watched folder only:
-a row whose file waits as missing (issue 43, "Missing files" below) says `file_missing` from its stored mark, no disk check, after the offline checks (a drive that is away says `offline`); or `no_file` (above). A row that isn't
-`here` doesn't play (Enter, double-click and its cover do nothing). The same
-holds for `dashboard`'s `lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole
-count), and the to-do list holds no such file (but the Missing files group: its items say `file_missing`). The user's
-own songs (the import) are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All
-tracks, Not in a playlist and the folder views, never under a playlist folder. Rows (and `also`) carry four more
-fields (and `in_missing_files`, see "Missing files"): `wait` (`waiting`, `not_found` or `null`), `next_try` (a `not_found` row only, else `null`: the day the sync looks
-for it again, ISO and due on and after it, or `next_sync` when it never looked yet; the page words it as To-do's
-next-try line against its own today), `position` (the place in the playlist's record, playlist views
-only, else `null`), `place` and `playlists`. `place` is where the file sits, in the words of the Folder column: a
-file in `Library/` says the name of its playlist line or Library folder as it spells it (`Techno 2019`; `not_lossless/`
-is part of its folder), a file in a watched folder says the folder and its crate (`Rekordbox Library › Hardtechno ›
-2019`; a file directly in the watched folder says just its name), any other file its folder's name. It is `null` for a
-row without a file and, in a playlist view, for a file inside the playlist's own Library folder (the page says nothing
-there). `playlists` are the names of the playlists whose record holds the song, in `playlists.txt` order (a song only a
-file holds: `[]`). `subfolder` (folder views, else `null`): in a watched folder's view the label of the crate the file
-sits in (`""` for a file directly in the folder), in a crate's view the folders below the crate (`2019`, or `A › B`).
+*Rows.* Shape: `Library` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+A row with `sound_checked: false` (an imported file whose sound isn't judged yet, `import_state` `identified`) is left out of
+the quality chips (Lossless, Good lossy, Weak, Fake), of `summary.by_quality` and `summary.lossless_share` (a share of the
+checked files), and it sorts after every checked file by quality; it still counts under All and in `summary.tracks`.
+`file_state` is read now exactly as `track()`'s (below: the live away set of the import folders, a stored `online = 0`
+stays `offline`), but per watched folder only: a row whose file waits as missing (issue 43, "Missing files" below) says
+`file_missing` from its stored mark, no disk check, after the offline checks (a drive that is away says `offline`). A row
+that isn't `here` doesn't play (Enter, double-click and its cover do nothing). The same holds for `dashboard`'s
+`lossless_share` tile and folder bars (`by_quality`, `lossless_share`; `tracks` stays the whole count), and the to-do
+list holds no such file (but the Missing files group: its items say `file_missing`). The user's own songs (the import)
+are in no folder: their rows have `folder: ""` and `in_playlists: false`, they show in All tracks, Not in a playlist and
+the folder views, never under a playlist folder. `also` rows carry the same fields.
+`key` is echoed as the request had it (the playlist's folder name as `playlists.txt` spells it, or the folder's path);
+`folder` keeps the old meaning (`null`, `"__not_in_playlist__"`, the playlist's folder name or the folder's key).
 
-*Answer fields.* `view` and `key` echo the request (`key` the playlist's folder name as `playlists.txt` spells it, or the
-folder's path; `null` for All and Not in a playlist); `folder` keeps the old meaning (`null`, `"__not_in_playlist__"`, the
-playlist's folder name or the folder's key). `folder_kind` (folder views): `watched`, `crate`, `library`, or `null` for a
-path none of these. `songs` (a read playlist, else `null`): `{"listed", "with_file"}`, the distinct songs it lists
-(what the sidebar's `songs` counts) and how many of them have a file, before any search or filter; the page words the
-strip's "13 of 18 downloaded" (and its quality bar's dashed end) from it and joins no other call. `read_at`, `enabled` and `service` (playlist views, else `null`): when the playlist was read
-(`null`: never), whether its line is switched on, its service. `empty` adds `gone`.
-
-*Summary and subtitle.* `summary` is the view at a glance and ignores the search and the filter: `by_quality` (as in
-`dashboard`), `upgrades_ready`, `to_do`, the tracks of the view the to-do list shows (in a playlist, not hidden),
-and `not_lossless`, the checked files that aren't lossless (`good_lossy` + `weak` + `fake`; the strip's "Not lossless
-yet" row, beside `to_do`). `subtitle` is the header's second line as parts in order of importance (the page drops the
-last parts first when it is too long; `1 track` for one): All tracks `["{n} tracks", "every folder"]`; Not in a playlist
+*Subtitle.* `subtitle` is the header's second line as parts in order of importance (the page drops the last parts first
+when it is too long; `1 track` for one): All tracks `["{n} tracks", "every folder"]`; Not in a playlist
 `["{n} tracks", "in no playlist"]`; a playlist `["{Service} playlist", "{n} tracks", ("switched off",) "Library ›
 {folder}"]`, or `["{Service} playlist", "not read yet"]` while it was never read (the service leads both: it is the
 one part the view says nowhere else in words, so it is the last to drop; the header keeps the first part whole); a Library folder no line uses
@@ -697,137 +323,6 @@ one part the view says nowhere else in words, so it is the last to drop; the hea
 drive" | "Folder not found",) "{k} folders with music", "{place}"]` (the folders part is left out at none; `{place}` as
 the sidebar's `place`); a crate `["{n} tracks", ("Offline: …" | "Folder not found",) "{tip}"]`. An away folder (the
 innermost watched folder holding it is offline or not found) puts its words second.
-```json
-{
- "ok": true,
- "title": "Hard_Bounce",
- "folder": "Hard_Bounce",
- "view": "playlist",
- "key": "Hard_Bounce",
- "folder_kind": null,
- "subtitle": [
-  "Spotify playlist",
-  "2 tracks",
-  "Library › Hard_Bounce"
- ],
- "summary": {
-  "tracks": 2,
-  "lossless_share": 0.5,
-  "by_quality": {
-   "lossless": 1,
-   "good_lossy": 0,
-   "weak": 1,
-   "fake": 0,
-   "missing": 0
-  },
-  "upgrades_ready": 1,
-  "to_do": 1,
-  "not_lossless": 1
- },
- "chips": {
-  "all": 2,
-  "lossless": 1,
-  "good_lossy": 0,
-  "weak": 1,
-  "fake": 0,
-  "upgrade_ready": 1
- },
- "rows": [
-  {
-   "track_id": "t2",
-   "artist": "Armin Hermann",
-   "title": "Get Naughty",
-   "folder": "Hard_Bounce",
-   "duration_s": 268.0,
-   "status": "not_lossless",
-   "quality": "weak",
-   "quality_label": "16.0 kHz",
-   "cutoff_hz": 16000,
-   "source": "youtube",
-   "source_name": "YouTube",
-   "in_playlists": true,
-   "hidden": false,
-   "upgrade_ready": true,
-   "path": "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff",
-   "added": "2026-10-13T22:15:00",
-   "cover_url": "https://i.scdn.co/image/t2",
-   "own": false,
-   "sound_checked": true,
-   "file_state": "here",
-   "in_missing_files": false,
-   "wait": null,
-   "next_try": null,
-   "position": 2,
-   "place": null,
-   "subfolder": null,
-   "playlists": ["Hard_Bounce", "Powertrance"]
-  },
-  {
-   "track_id": "t1",
-   "artist": "Vatoz Locoz",
-   "title": "Gimme Gimme",
-   "folder": "Hard_Bounce",
-   "duration_s": 156.0,
-   "status": "lossless",
-   "quality": "lossless",
-   "quality_label": "LOSSLESS",
-   "cutoff_hz": null,
-   "source": "qobuz",
-   "source_name": "Qobuz",
-   "in_playlists": true,
-   "hidden": false,
-   "upgrade_ready": false,
-   "path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff",
-   "added": "2026-10-13T22:15:00",
-   "cover_url": "https://i.scdn.co/image/t1",
-   "own": false,
-   "sound_checked": true,
-   "file_state": "here",
-   "in_missing_files": false,
-   "wait": null,
-   "next_try": null,
-   "position": 1,
-   "place": null,
-   "subfolder": null,
-   "playlists": ["Hard_Bounce"]
-  },
-  {
-   "track_id": "t3",
-   "artist": "Some Artist",
-   "title": "Gone Track",
-   "folder": "Hard_Bounce",
-   "duration_s": 180.0,
-   "status": "missing",
-   "quality": "missing",
-   "quality_label": "NONE",
-   "cutoff_hz": null,
-   "source": null,
-   "source_name": null,
-   "in_playlists": true,
-   "hidden": false,
-   "upgrade_ready": false,
-   "path": null,
-   "added": "2026-10-13T22:15:00",
-   "cover_url": null,
-   "own": false,
-   "sound_checked": true,
-   "file_state": "no_file",
-   "in_missing_files": false,
-   "wait": "not_found",
-   "next_try": "2026-10-20",
-   "position": 3,
-   "place": null,
-   "subfolder": null,
-   "playlists": ["Hard_Bounce"]
-  }
- ],
- "also": [],
- "read_at": "2026-10-20T21:47:00",
- "enabled": true,
- "service": "spotify",
- "empty": null
-}
-```
 
 `track(track_id)` — details panel (Library and To-do). The answer is `{track: TrackDetail}`.
 Shape: `TrackAnswer` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
@@ -885,335 +380,54 @@ fit; the command line prints them joined by " · " on a "Summary" row of `todo l
 tracks are left.", `nothing_here` "Nothing here."), null when `empty` is null; the window keeps its own copy until phase 6.
 Shape: `Todo` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
-`playlists()` — rows top = highest priority. `playlist_id` is the playlist's **ref** (a Spotify id stays bare, every other service's is `<service>:<id>`: `qobuz:<id>`,
-`soundcloud:<user>/sets/<slug>` or `soundcloud:<user>/likes` (the link's path, lower case), `youtube_music:<list id>`); the page keys rows by it. `service` (`spotify|qobuz|soundcloud|youtube_music`) and `service_name` ("Spotify",
-"Qobuz", "SoundCloud", "YouTube Music") name the row's service. `info.hint`: the words of the row's service for a playlist it won't show (Spotify:
-"Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."; SoundCloud: "Make it public in SoundCloud, or use its private share link."; YouTube Music: "Set it to public or unlisted in YouTube Music."), always set once `info` is. `info.track_count` is `null` when the service gives no count (a SoundCloud likes list); the row's `tracks` is then what the read found. `info.owner_name` is `""` when the name already says it (a SoundCloud likes list is named "{username}'s likes"), so the page names the owner once.
-`needs_setting` (sources round): `"read_liked_music"` for a listed YouTube Music Liked music line (`youtube_music:LM`, on or off in the file) while Settings' choice is off or no YouTube login is set up (the row reads "Liked music is off in Settings", it is not read and raises no problem), else `null`.
-`info` null until read (refresh or add_playlist); `tracks` null when
-neither the tracks nor the playlist's count were read (the row then shows no count). `quality` is always the five counts, all 0
-while the playlist's tracks were not read (a switched-off playlist is never read), never null: the row reads it when it is switched on. `version` must be sent to
-`save_playlists`. `overlaps` for the panel when nothing is unsaved: each track that is in several switched-on
-playlists, with `folders` (in list order) and `lands_in` (the first), its `cover_url`, `downloaded` (has a file yet),
-`quality` and `quality_label` (null without a state entry), `never` (the user said "never download").
-`problem`: what the sync would say about the file.
-```json
-{
- "ok": true,
- "version": "481d45b7d451c816dd949d1a86b559bf9083ef5d02f69831f870dafbccffc36b",
- "problem": null,
- "rows": [
-  {
-   "index": 0,
-   "folder": "Hard_Bounce",
-   "link": "https://open.spotify.com/playlist/0DiscjockeyExampleList",
-   "playlist_id": "0DiscjockeyExampleList",
-   "service": "spotify",
-   "service_name": "Spotify",
-   "enabled": true,
-   "needs_setting": null,
-   "info": {
-    "name": "Name of 0Dis",
-    "owner_name": "DJ One",
-    "yours": true,
-    "collaborative": false,
-    "readable": true,
-    "image_url": null,
-    "track_count": 4,
-    "hint": "Follow ≠ own: make your own copy in Spotify."
-   },
-   "tracks": 4,
-   "quality": {
-    "lossless": 1,
-    "good_lossy": 0,
-    "weak": 1,
-    "fake": 0,
-    "missing": 2
-   }
-  },
-  {
-   "index": 1,
-   "folder": "Powertrance",
-   "link": "https://open.spotify.com/playlist/3DiscjockeyExampleList",
-   "playlist_id": "3DiscjockeyExampleList",
-   "service": "spotify",
-   "service_name": "Spotify",
-   "enabled": true,
-   "info": {
-    "name": "Name of 3Dis",
-    "owner_name": "DJ One",
-    "yours": true,
-    "collaborative": false,
-    "readable": true,
-    "image_url": null,
-    "track_count": 2,
-    "hint": "Follow ≠ own: make your own copy in Spotify."
-   },
-   "tracks": 2,
-   "quality": {
-    "lossless": 0,
-    "good_lossy": 0,
-    "weak": 1,
-    "fake": 0,
-    "missing": 1
-   }
-  }
- ],
- "overlaps": [
-  {
-   "track_id": "t2",
-   "artist": "Armin Hermann",
-   "title": "Get Naughty",
-   "cover_url": "https://i.scdn.co/image/t2",
-   "downloaded": true,
-   "quality": "weak",
-   "quality_label": "16.0 kHz",
-   "folders": [
-    "Hard_Bounce",
-    "Powertrance"
-   ],
-   "lands_in": "Hard_Bounce"
-  }
- ],
- "empty": null,
- "tidy": {
-  "waiting": 0
- }
-}
-```
-`tidy.waiting`: how many files a tidy-up would tick by default (`planner.out_of_place`: files the playlist order puts
+`playlists()` — rows top = highest priority.
+Shape: `Playlists` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+`playlist_id` is the playlist's **ref** (a Spotify id stays bare, every other service's is `<service>:<id>`: `qobuz:<id>`,
+`soundcloud:<user>/sets/<slug>` or `soundcloud:<user>/likes` (the link's path, lower case), `youtube_music:<list id>`); the page keys rows by it. `service` is one of `spotify|qobuz|soundcloud|youtube_music`, `service_name` is "Spotify",
+"Qobuz", "SoundCloud" or "YouTube Music". `info.hint` words, always set once `info` is, what the row's service says for a playlist it won't show (Spotify:
+"Follow ≠ own: make your own copy in Spotify."; Qobuz: "Make it public in Qobuz, or use one of your own playlists."; SoundCloud: "Make it public in SoundCloud, or use its private share link."; YouTube Music: "Set it to public or unlisted in YouTube Music."). `info.owner_name` is `""` when the name already says it (a SoundCloud likes list is named "{username}'s likes"), so the page names the owner once.
+`needs_setting` (sources round) is `"read_liked_music"` for a listed YouTube Music Liked music line (`youtube_music:LM`, on or off in the file) while Settings' choice is off or no YouTube login is set up (the row reads "Liked music is off in Settings", it is not read and raises no problem), else `null`.
+`info` is null until read (refresh or add_playlist); `tracks` is null when neither the tracks nor the playlist's count were read
+(the row then shows no count). `quality` is always the five counts, all 0 while the playlist's tracks were not read (a
+switched-off playlist is never read), never null: the row reads it when it is switched on. `version` must be sent to
+`save_playlists`. `overlaps` is for the panel when nothing is unsaved: each track that is in several switched-on
+playlists, with `folders` (in list order) and `lands_in` (the first). `problem` is what the sync would say about the file.
+`tidy.waiting` counts what a tidy-up would tick by default (`planner.out_of_place`: files the playlist order puts
 elsewhere, not placed by the user); the page's "Tidy up files" badge.
 
-`limits(service="qobuz")` — the Download limits page. `service`: `qobuz|youtube|soundcloud` (else refused). `cards`: always
-all three services in quality order `{service, name, set_up, used, allowance, warnings, new_warnings, paused}`
-(`warnings` = signals of the last 14 days, `new_warnings` = those after the last "Got it", `paused` = an `auto_stop`
-today; a service that is not set up has zeros). `usage` is null when
-`service` is not set up, else the page of that service: `days`: 14 entries oldest first (cut here); `zones` (5 entries;
-Qobuz and SoundCloud: careful 1–40, normal 41–60, faster 61–79, fast 80–100, risky 101–500; YouTube: careful 1–20, normal
-21–30, faster 31–45, fast 46–60, risky 61–500); `recommended`: 60 Qobuz, 30 YouTube, 60 SoundCloud. `behind`: "Qobuz"
+`limits(service="qobuz")` — the Download limits page. `service`: `qobuz|youtube|soundcloud` (else refused).
+Shape: `Limits` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+`cards` are always all three services in quality order; a service that is not set up has zeros. `usage` is null when
+`service` is not set up, else the page of that service: `days` are 14 entries oldest first; `zones` are 5 entries (Qobuz
+and SoundCloud: careful 1–40, normal 41–60, faster 61–79, fast 80–100, risky 101–500; YouTube: careful 1–20, normal
+21–30, faster 31–45, fast 46–60, risky 61–500); `recommended` is 60 Qobuz, 30 YouTube, 60 SoundCloud. `behind` is "Qobuz"
 for an account while Qobuz is set up (it only gets the tracks Qobuz lacks; `still_to_load` is then all null and
-`what_if.days_to_load` null), else null. `signals` of the last 14 days `{time, kind, message, new, clears_in}` (`new`:
-after the time in settings.json `warnings_seen[service]`, or never marked; `clears_in`: days until it leaves the 14 days,
-1 = tomorrow); `signal_summary` has a
-count for every kind of the service: Qobuz `login_failed, search_failed, download_rejected, preview_only,
-duration_mismatch, auto_stop`; YouTube `cookies_unreadable, bot_check, rate_limited, refused, premium_missing,
-download_rejected, auto_stop`; SoundCloud the same without `bot_check`. `last_download`: ISO time of the last download
-of that service that counted toward its limit (any day), null if none yet ("last download 21:47").
-```json
-{
- "ok": true,
- "service": "qobuz",
- "cards": [
-  {
-   "service": "qobuz",
-   "name": "Qobuz",
-   "set_up": true,
-   "used": 0,
-   "allowance": 80,
-   "warnings": 0,
-   "new_warnings": 0,
-   "paused": false
-  },
-  {
-   "service": "youtube",
-   "name": "YouTube Premium",
-   "set_up": false,
-   "used": 0,
-   "allowance": 0,
-   "warnings": 0,
-   "new_warnings": 0,
-   "paused": false
-  },
-  {
-   "service": "soundcloud",
-   "name": "SoundCloud Go+",
-   "set_up": false,
-   "used": 0,
-   "allowance": 0,
-   "warnings": 0,
-   "new_warnings": 0,
-   "paused": false
-  }
- ],
- "usage": {
-  "service": "qobuz",
-  "name": "Qobuz",
-  "behind": null,
-  "today": {
-   "used": 0,
-   "allowance": 80,
-   "limit": 60,
-   "carry_over": 20,
-   "extra": 0,
-   "remaining": 80
-  },
-  "days": [
-   {
-    "date": "2026-10-07",
-    "used": 0
-   },
-   {
-    "date": "2026-10-08",
-    "used": 0
-   }
-  ],
-  "still_to_load": {
-   "count": 2,
-   "days": 1,
-   "fits_today": true
-  },
-  "setting": {
-   "limit": 60,
-   "extra_today": 0,
-   "recommended": 60,
-   "zones": [
-    {
-     "name": "careful",
-     "from": 1,
-     "to": 40
-    },
-    {
-     "name": "normal",
-     "from": 41,
-     "to": 60
-    }
-   ],
-   "min": 1,
-   "max": 500,
-   "extra_max": 200
-  },
-  "assessment": {
-   "level": 2,
-   "label": "normal"
-  },
-  "what_if": {
-   "limit": 60,
-   "extra_today": 0,
-   "assessment": {
-    "level": 2,
-    "label": "normal"
-   },
-   "allowance_today": 80,
-   "remaining_today": 80,
-   "days_to_load": 1,
-   "run_minutes": 5
-  },
-  "signals": [],
-  "signal_summary": {
-   "login_failed": 0,
-   "search_failed": 0,
-   "download_rejected": 0,
-   "preview_only": 0,
-   "duration_mismatch": 0,
-   "auto_stop": 0
-  },
-  "last_download": null
- }
-}
-```
+`what_if.days_to_load` null), else null. `signals` are those of the last 14 days (`new`: after the time in settings.json
+`warnings_seen[service]`, or never marked; `clears_in`: days until it leaves the 14 days, 1 = tomorrow);
+`signal_summary` has a count for every kind of the service: Qobuz `login_failed, search_failed, download_rejected,
+preview_only, duration_mismatch, auto_stop`; YouTube `cookies_unreadable, bot_check, rate_limited, refused,
+premium_missing, download_rejected, auto_stop`; SoundCloud the same without `bot_check`. A card's `paused` is an
+`auto_stop` today; `warnings` counts the signals of the last 14 days, `new_warnings` those after the last "Got it".
 
 `limits_what_if(service, limit, extra_today=0)` — "What N per day means" while the slider moves (no write). The service
 must be set up (else refused "Set up YouTube Premium first."); `limit` 1–500, `extra_today` 0–200. For an account behind
 Qobuz `days_to_load` is null.
-```json
-{
- "ok": true,
- "limit": 90,
- "extra_today": 20,
- "assessment": {
-  "level": 4,
-  "label": "fast"
- },
- "allowance_today": 140,
- "remaining_today": 140,
- "days_to_load": 1,
- "run_minutes": 5
-}
-```
+Shape: `WhatIf` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
-`runs()` → `{"runs": [RunSummary, newest first]}`. `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → the end screen:
-```json
-{
- "ok": true,
- "run": {
-  "run_id": "2026-10-19_214700",
-  "id": "report:2026-10-19_214700",
-  "started": "2026-10-19T21:47:00",
-  "finished": "2026-10-19T22:11:00",
-  "duration_s": 1440,
-  "exit_code": 0,
-  "kind": "sync",
-  "counts": {
-   "lossless": 1,
-   "lossy": 0,
-   "problems": 0,
-   "moved": 0
-  },
-  "stopped_after": null,
-  "sections": {
-   "new_lossless": [
-    {
-     "section": "new_lossless",
-     "folder": "Hard_Bounce",
-     "artist": "Vatoz Locoz",
-     "title": "Gimme Gimme",
-     "track_id": "t1",
-     "note": "Qobuz FLAC · verified lossless",
-     "status": "lossless",
-     "source": "qobuz",
-     "cutoff_hz": null,
-     "path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff",
-     "error_kind": null,
-     "found_status": null,
-     "cover_url": "https://i.scdn.co/image/t1"
-    }
-   ]
-  },
-  "needs_you": [],
-  "for_rekordbox": {
-   "new_files": 1,
-   "folders": [
-    "Library/Hard_Bounce"
-   ]
-  },
-  "upgrades_ready": 1,
-  "report_md": "reports/2026-10-19_214700.md",
-  "queued": 0,
-  "folder_order": ["Hard_Bounce", "Powertrance"],
-  "section_labels": {"new_lossless": "New lossless tracks", "placed_missing": "Better versions put in (their files were missing)", "...": "..."},
-  "part_labels": {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}
- }
-}
-```
+`runs()` → `Runs` (`{"runs": [RunSummary, newest first]}`). `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → `RunAnswer` (`{"run": RunDetail}`), the end screen.
+Shape: `RunAnswer` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 Every row with a `track_id` except `queued` carries `cover_url` (the file's own cover, else Spotify's, else null).
-`queued`: how many tracks wait for the next sync (stopped before, left out, over the limit). `folder_order`: the
-playlist folders in playlists.txt order, for grouping the rows. `section_labels`: the report's own title of every section
-(`report.SECTIONS`; the end screen's part of the placements reads `placed_missing`); `part_labels`: the titles of the
-Auto-upgrade parts that hold rows of more than one section (`report.PART_LABELS`: `upgraded`, `waiting`, `refused`). The
-window prints them as they are.
+`section_labels` are the report's own title of every section (`report.SECTIONS`; the end screen's part of the placements
+reads `placed_missing`) and `part_labels` the titles of the Auto-upgrade parts that hold rows of more than one section
+(`report.PART_LABELS`: `upgraded`, `waiting`, `refused`); the window prints them as they are.
 
-`spectrum(track_id, which="current")` — which: `current|upgrade`. `data`: base64 of `cols*bands` bytes, row by row
-in time, each row low→high frequency (band width `max_hz/bands`); byte v → dB = `floor_db * (1 - v/255)` (0 dB =
-loudest cell). Draw the cutoff line at `cutoff_hz` (null = none). `waveform`: base64 of `cols` bytes, one per column
-(the same columns as the matrix): the largest sample anywhere in that column's stretch of the track (1/`cols` of its
-length), 0 = silence, 255 = the loudest column, linear. A kick's attack shows as its peak; the matrix's mean energy
-would not show it. Files cached before the field existed are made again.
-```json
-{
- "ok": true,
- "spectrum": {
-  "cols": 400,
-  "bands": 128,
-  "max_hz": 22050,
-  "duration_s": 1.0,
-  "floor_db": -100.0,
-  "data": "////////////////////////////////////////...",
-  "waveform": "//////////////////////////////////...",
-  "which": "current",
-  "cutoff_hz": 16000
- }
-}
-```
+`spectrum(track_id, which="current")` — which: `current|upgrade`; answers `SpectrumAnswer` (`{"spectrum": Spectrum}`).
+Shape: `SpectrumAnswer` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+`data` is base64 of `cols*bands` bytes, row by row in time, each row low→high frequency (band width `max_hz/bands`); byte v → dB
+= `floor_db * (1 - v/255)` (0 dB = loudest cell). Draw the cutoff line at `cutoff_hz` (null = none). `waveform` is base64
+of `cols` bytes, one per column (the same columns as the matrix): the largest sample anywhere in that column's stretch
+of the track (1/`cols` of its length), 0 = silence, 255 = the loudest column, linear. A kick's attack shows as its peak;
+the matrix's mean energy would not show it. Files cached before the field existed are made again.
 
 `media_url(track_id, which="current")` → `{"url"}` playable by `<audio>` / `fetch` (range requests work). The URL
 changes when the file changes (`?v=size-mtime`).

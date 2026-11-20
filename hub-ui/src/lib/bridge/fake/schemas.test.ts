@@ -34,6 +34,13 @@ const CANDIDATE = {
 // The methods of one scenario share one fake, in this order: reads first, then the writes that keep the songs'
 // files, then the ones that replace or reject a file (a later call sees what an earlier one did).
 const SAMPLE_ARGS: Record<string, unknown[]> = {
+  dashboard: [], sidebar: [], library: ['all', null, '', 'all', null], sync_preview: [], job_status: [], playlists: [],
+  limits: ['qobuz'], limits_what_if: ['qobuz', 60, 0], runs: [], run: ['last'], spectrum: ['t1', 'current'],
+  set_favourites: [['playlist:0DiscjockeyExampleList']],
+  set_crate_shown: ['/Users/you/Music/Rekordbox Library/Hardtechno', true],
+  set_crates_shown: [['/Users/you/Music/Rekordbox Library/Hardtechno'], null],
+  stop_refresh: [], stop: [], stop_sign_in: [], refresh: [false], start_sync: [[]], save_limits: ['qobuz', 60, 0],
+  mark_warnings_seen: ['qobuz'], rescan_library: [],
   todo: ['all', true], track: ['t2'], missing_files_preview: [['t1', 't2'], 'download_again'],
   hide: ['t2', true], never_download: ['t2', true], upgrade: [['t2'], 'same_track'], undo_upgrade: [['t2']],
   upgrade_all: [], rekordbox_checked: [['t2']], missing_files: [['t1', 't2'], 'download_again'],
@@ -42,6 +49,9 @@ const SAMPLE_ARGS: Record<string, unknown[]> = {
 };
 /** Why a mapped method cannot be called with fixed arguments. */
 const NO_SAMPLE: Record<string, string> = {};
+
+/** A scenario that holds one answer back for ever, to show the page's loading state (the fake's own, by design). */
+const HELD: Record<string, string[]> = { 'limits:loading': ['limits'] };
 
 const scenarios = (): string[] => [...SCENARIOS, ...Object.keys(pageScenarios())];
 
@@ -118,7 +128,7 @@ describe('the fake bridge answers fit their schemas', () => {
     const sampled = Object.keys(SAMPLE_ARGS).filter((m) => mapped.includes(m));
     for (const scenario of scenarios()) {
       const fake = openFake(scenario);
-      for (const method of sampled) {
+      for (const method of sampled.filter((m) => !HELD[scenario]?.includes(m))) {
         expect(await fakeProblems(method, SAMPLE_ARGS[method], fake, { answers, results }), `${method} in ${scenario}`).toBe('');
       }
     }

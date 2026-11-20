@@ -133,6 +133,7 @@ def test_the_same_folder_again_changes_nothing(tmp_path):
     assert r["ok"] and r["restart"] is False and paths.config_file.stat().st_mtime_ns == before
 
 
+@pytest.mark.shapes_unchecked  # the stub job under the real kind `sync` answers a bool
 def test_change_is_refused_while_a_job_or_the_console_runs(tmp_path):
     paths = make_root(tmp_path / "lib")
     api, _ = make_api(paths)
