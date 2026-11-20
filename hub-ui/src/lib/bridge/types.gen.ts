@@ -1450,3 +1450,1207 @@ export type RekordboxPreviewAnswer = {
   /** What each action would do. */
   eligible: RekordboxPreviewEligible;
 };
+/**
+ * A download service with a daily limit (Download limits): Qobuz, a YouTube Premium account or a SoundCloud
+ * Go+ account.
+ */
+export type Service = 'qobuz' | 'youtube' | 'soundcloud';
+/** A browser whose login an account uses. */
+export type Browser = 'safari' | 'chrome' | 'firefox' | 'brave' | 'edge';
+/**
+ * Where a folder is now: `here`, `offline` (its drive is not connected) or `folder_missing` (not found: moved,
+ * renamed, deleted); the innermost watched folder that is away decides, for its crates too.
+ */
+export type FolderState = 'here' | 'offline' | 'folder_missing';
+/**
+ * A group of the Sync page's preview, in the order the page lists them: Download (new), Try again, Download
+ * again, Add a bought file, Look for a better version.
+ */
+export type PreviewGroupKey =
+  | 'acquire:new'
+  | 'acquire:retry'
+  | 'acquire:redownload'
+  | 'adopt_bought'
+  | 'upgrade';
+/** Which view of the Library: All tracks, Not in a playlist, a playlist or a folder. */
+export type LibraryView = 'all' | 'unlisted' | 'playlist' | 'folder';
+/**
+ * A row's file as the Library says it: a `FileState`, or `no_file` for a playlist song that has no file yet
+ * (only in a playlist view).
+ */
+export type LibraryFileState = 'here' | 'offline' | 'folder_missing' | 'file_missing' | 'no_file';
+/** A kind of warning sign of Qobuz. */
+export type SignalKind =
+  | 'login_failed'
+  | 'search_failed'
+  | 'download_rejected'
+  | 'preview_only'
+  | 'duration_mismatch'
+  | 'auto_stop';
+/** A kind of warning sign of a YouTube or SoundCloud account (SoundCloud has no `bot_check`). */
+export type AccountSignalKind =
+  | 'cookies_unreadable'
+  | 'bot_check'
+  | 'rate_limited'
+  | 'refused'
+  | 'premium_missing'
+  | 'download_rejected'
+  | 'auto_stop';
+/** A kind of warning sign of any service: a `SignalKind` or an `AccountSignalKind`. */
+export type AnySignalKind =
+  | 'login_failed'
+  | 'search_failed'
+  | 'download_rejected'
+  | 'preview_only'
+  | 'duration_mismatch'
+  | 'auto_stop'
+  | 'cookies_unreadable'
+  | 'bot_check'
+  | 'rate_limited'
+  | 'refused'
+  | 'premium_missing';
+/** One playlist service the switched-on lines of playlists.txt use. */
+export type ReadStatusService = {
+  /** The service. */
+  service: PlaylistService;
+  /** Its name for the page (Spotify, Qobuz, SoundCloud, YouTube Music). */
+  name: string;
+  /** Whether its login files exist. */
+  connected: boolean;
+};
+/** "Playlists read 2 min ago": how the last playlists read went (the wire field is `read_status`). */
+export type ReadStatus = {
+  /** When the playlists were last read, an ISO time; null when none was. */
+  read_at: string | null;
+  /** Whole minutes since `read_at`; null when none was read. */
+  minutes_ago: number | null;
+  /** The last read's problem kind (`offline`: the data shown is older); null when it went well. */
+  problem: ProblemKind | null;
+  /** The problem in words; empty when there is none. */
+  message: string;
+  /** The playlist service `problem` is about; null when no service's problem (a good read clears it). */
+  problem_service: PlaylistService | null;
+  /** The services the switched-on lines of playlists.txt use, in line order. */
+  services: ReadStatusService[];
+  /** The data shown is older than the playlists file. */
+  stale: boolean;
+  /** A read is running now. */
+  reading: boolean;
+  /** The last read found no network (`problem` is `offline`). */
+  offline: boolean;
+  /**
+   * The hub's one automatic read of this session has started (kept in Python, so also after a window reload).
+   */
+  auto_read: boolean;
+};
+/** One service's daily allowance today. */
+export type Budget = {
+  /** Downloads that counted today. */
+  used: number;
+  /** What may be downloaded today: the limit, the carried-over days and the extra. */
+  allowance: number;
+  /** The daily limit setting. */
+  limit: number;
+  /** What earlier days left unused. */
+  carry_over: number;
+  /** The one-time extra for today. */
+  extra: number;
+  /** What is left of the allowance today. */
+  remaining: number;
+};
+/** What a run did, in four counts. */
+export type RunCounts = {
+  /** Lossless songs it got. */
+  lossless: number;
+  /** Lossy songs it got. */
+  lossy: number;
+  /** Rows that need the user. */
+  problems: number;
+  /** Files it moved. */
+  moved: number;
+};
+/** A run's Auto-upgrade block with its one-line account. */
+export type RunAutoUpgrade = AutoUpgradeBlock & {
+  /**
+   * The block's one line ("Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed."); null
+   * when nothing happened.
+   */
+  line: string | null;
+};
+/** One run of the sync as the history lists it (`reports/<run_id>.json`). */
+export type RunSummary = {
+  /** The run's id, the report's stamp. */
+  run_id: string;
+  /** The typed id the command line takes, `report:<run_id>` (the window ignores it). */
+  id: string;
+  /** When the run started, an ISO time. */
+  started: string;
+  /** When it finished; null while it never did. */
+  finished: string | null;
+  /** How long it ran, in seconds; null when start or finish is not known. */
+  duration_s: number | null;
+  /** How it ended: 0 well, 130 stopped. */
+  exit_code: number;
+  /** What it did. */
+  counts: RunCounts;
+  /** For a stopped run: how many songs it had done; null otherwise. */
+  stopped_after: number | null;
+  /**
+   * What the run was: a whole sync, or only its Auto-upgrade phase (`sync run --auto-upgrade-only`, the
+   * command line's; a run from before it is a sync); the window never starts the second.
+   */
+  kind: 'sync' | 'auto_upgrade_only';
+  /** The run's Auto-upgrade phase and its one-line account; null when the switch was off for the run. */
+  auto_upgrade: RunAutoUpgrade | null;
+};
+/** What a run changed for rekordbox. */
+export type RunDetailForRekordbox = {
+  /** New files the run put in the library. */
+  new_files: number;
+  /** The folders they are in. */
+  folders: string[];
+};
+/** The titles of the Auto-upgrade parts that hold rows of more than one section (`report.PART_LABELS`). */
+export type RunPartLabels = {
+  /** The title of the upgraded part. */
+  upgraded: string;
+  /** The title of the waiting part. */
+  waiting: string;
+  /** The title of the refused part. */
+  refused: string;
+};
+/**
+ * The end screen of a run: its summary, and the rows by section, what needs the user, what changed for
+ * rekordbox and the upgrades waiting. Every row with a `track_id` except those of `queued` carries
+ * `cover_url`.
+ */
+export type RunDetail = RunSummary & {
+  /** The report's rows by section (`report.SECTIONS`). */
+  sections: Record<string, Result[]>;
+  /** The rows that need the user. */
+  needs_you: Result[];
+  /** What changed for rekordbox. */
+  for_rekordbox: RunDetailForRekordbox;
+  /** Upgrades waiting now. */
+  upgrades_ready: number;
+  /** The report's file, relative to the support folder. */
+  report_md: string;
+  /** How many tracks wait for the next sync (stopped before, left out, over the limit). */
+  queued: number;
+  /** The playlist folders in playlists.txt order, for grouping the rows. */
+  folder_order: string[];
+  /**
+   * The report's own title of every section (`report.SECTIONS`; the end part of the placements reads
+   * `placed_missing`): the window prints them as they are.
+   */
+  section_labels: Record<string, string>;
+  /** The titles of the Auto-upgrade parts: the window prints them as they are. */
+  part_labels: RunPartLabels;
+};
+/** What the plan holds, by kind. */
+export type PlanCounts = {
+  /** New downloads. */
+  new: number;
+  /** Songs tried again. */
+  retries: number;
+  /** Songs downloaded again because their file is missing. */
+  redownloads: number;
+  /** Bought files to add. */
+  bought: number;
+  /** Weekly checks for a better version. */
+  weekly_checks: number;
+};
+/** Which service the downloads are expected to use: one entry per set-up service, in quality order. */
+export type EstimateAccount = {
+  /** The service. */
+  service: Service;
+  /** Its name for the page. */
+  name: string;
+  /**
+   * How many downloads it is expected to do; null for an account behind Qobuz, which only gets the tracks
+   * Qobuz lacks.
+   */
+  uses: number | null;
+  /** What is left of its allowance today. */
+  left: number;
+  /** Its daily limit. */
+  limit: number;
+  /** True for every service but Qobuz: an estimate. */
+  about: boolean;
+};
+/**
+ * The plan's estimate without its accounts. `duration_min` counts only the downloads that fit today (the rest
+ * wait for the next sync at once).
+ */
+export type EstimateBase = {
+  /** How long the downloads that fit today take, in minutes (70 s a download, rounded to 5 minutes). */
+  duration_min: number;
+  /** The daily limit setting of Qobuz (kept for one release). */
+  qobuz_limit: number;
+  /** The downloads the plan needs from Qobuz (kept for one release). */
+  qobuz_needed: number;
+  /** What is left of Qobuz's allowance today (kept for one release). */
+  qobuz_left: number;
+  /** The downloads expected from Qobuz today (kept for one release). */
+  qobuz_uses: number;
+  /** Today's remaining allowance; null: no daily limit (only free sources are set up). */
+  left: number | null;
+  /** The daily limit. */
+  limit: number;
+};
+/** The estimate of the dashboard's ready plan. */
+export type Estimate = EstimateBase & {
+  /** The expected split between the services. */
+  accounts: EstimateAccount[];
+};
+/** One service of the Sync page's estimate. */
+export type SyncAccount = EstimateAccount & {
+  /**
+   * Its `uses` for `n` downloads, `n` = 0 … `qobuz_uses` (the engine's `views.split`); null for a backup
+   * behind Qobuz. The page looks its ticked count up (a larger count takes the last entry) and never repeats
+   * the split.
+   */
+  uses_by_downloads: number[] | null;
+};
+/**
+ * The Sync page's estimate: the formula and the split live in the engine, the page looks its subset's count
+ * up.
+ */
+export type SyncEstimate = EstimateBase & {
+  /** The expected split between the services. */
+  accounts: SyncAccount[];
+  /** The minutes for `n` downloads, `n` = 0 … `qobuz_uses` (the most any ticked subset can run today). */
+  minutes_by_downloads: number[];
+};
+/** The lossless tile. */
+export type DashboardLossless = {
+  /** The share of the checked files that are lossless, 0 to 1; null when none is checked. */
+  share: number | null;
+  /** Songs that are lossless. */
+  lossless: number;
+  /** Songs counted. */
+  total: number;
+  /** The songs by quality class. */
+  by_quality: ByQuality;
+};
+/**
+ * How long the rest of the downloads takes at the daily limit. All three are null before the playlists were
+ * read, and for an account behind Qobuz (Qobuz decides).
+ */
+export type StillToLoad = {
+  /** Downloads still to do. */
+  count: number | null;
+  /** Days they take at the allowance. */
+  days: number | null;
+  /** Whether they all fit into today's allowance. */
+  fits_today: boolean | null;
+};
+/**
+ * One service's card on Download limits (always all three, in quality order); a service that is not set up has
+ * zeros.
+ */
+export type LimitCard = {
+  /** The service. */
+  service: Service;
+  /** Its name for the page (Qobuz, YouTube Premium, SoundCloud Go+). */
+  name: string;
+  /** Whether the service is set up. */
+  set_up: boolean;
+  /** Downloads that counted today. */
+  used: number;
+  /** Today's allowance. */
+  allowance: number;
+  /** Warning signs of the last 14 days. */
+  warnings: number;
+  /** Those after the last "Got it". */
+  new_warnings: number;
+  /** An `auto_stop` happened today. */
+  paused: boolean;
+};
+/** The dashboard's tiles. */
+export type DashboardTiles = {
+  /** The lossless tile. */
+  lossless: DashboardLossless;
+  /** Qobuz's allowance today. */
+  qobuz_today: Budget;
+  /** The downloads still to do. */
+  still_to_load: StillToLoad;
+  /**
+   * The first set-up card of `limits()` (Qobuz first, then YouTube Premium, then SoundCloud Go+); null when no
+   * service is set up.
+   */
+  account_today: LimitCard | null;
+};
+/**
+ * The plan that is ready: the estimate fields of the preview (without `minutes_by_downloads`) and the counts.
+ */
+export type DashboardReady = Estimate & {
+  /** What the plan holds. */
+  counts: PlanCounts;
+  /** How many actions the plan has. */
+  actions: number;
+};
+/** What waits for the user. */
+export type DashboardNeedsYou = {
+  /** Better versions waiting. */
+  upgrades: number;
+  /** Of them, those a swap keeps the cues for. */
+  swappable: number;
+  /** Songs nobody has. */
+  not_found: number;
+  /** Songs of weak quality. */
+  weak: number;
+};
+/** One playlist folder's bar. */
+export type DashboardFolder = {
+  /** The playlist's folder name. */
+  folder: string;
+  /** Songs the playlist holds. */
+  tracks: number;
+  /** The share of its checked files that are lossless; null when none is checked. */
+  lossless_share: number | null;
+  /** Its songs by quality class. */
+  by_quality: ByQuality;
+};
+/**
+ * The start page. `ready` is null until the playlists were read; `empty` says why the page has nothing to
+ * show.
+ */
+export type Dashboard = {
+  /** Good morning, afternoon or evening. */
+  greeting: string;
+  /** How the last playlists read went. */
+  read_status: ReadStatus;
+  /** The tiles. */
+  tiles: DashboardTiles;
+  /** What the next sync would do; null until the playlists were read. */
+  ready: DashboardReady | null;
+  /** What waits for the user. */
+  needs_you: DashboardNeedsYou;
+  /** One bar per playlist folder, in playlists.txt order. */
+  folders: DashboardFolder[];
+  /** The newest runs. */
+  last_runs: RunSummary[];
+  /** There are more runs than `last_runs` lists. */
+  has_more_runs: boolean;
+  /** Weekly checks in the preview; null until the playlists were read. */
+  next_checks: number | null;
+  /** Why the page has nothing to show, or null. */
+  empty: EmptyKind | null;
+};
+/** A crate: a folder below a watched import folder that holds music itself (wrapper folders get no row). */
+export type Crate = {
+  /** The folder's path. */
+  path: string;
+  /**
+   * Its short name in the browser ("Hardtechno › 2019", "Bounce · Old Sets" when another crate has the name).
+   */
+  label: string;
+  /** The folder's own name. */
+  name: string;
+  /** The whole way from the watched folder ("Rekordbox Library › Hardtechno › 2019"). */
+  tip: string;
+  /** The files at or below it. */
+  files: number;
+  /**
+   * Out of the sidebar: the user's switch, else the default (shown, but hidden under a folder with `too_many`
+   * crates).
+   */
+  hidden: boolean;
+  /** Another crate lies below it. */
+  has_crates: boolean;
+};
+/** A watched import folder in the sidebar, by name. */
+export type WatchedEntry = {
+  /** The folder as the snapshot spells it. */
+  path: string;
+  /** The folder's name. */
+  name: string;
+  /** Its path in words ("~/Music/Old", "Example Drive › Music"). */
+  place: string;
+  /** The imported files at or below it, leaving out those an import still has to work through. */
+  files: number;
+  /** Where the folder is now, checked live. */
+  state: FolderState;
+  /** It has more than 25 crates: the folder is then one row. */
+  too_many: boolean;
+  /** How many crates it has. */
+  crate_count: number;
+  /** All its crates in label order, hidden ones too. */
+  crates: Crate[];
+};
+/**
+ * A Favourite, resolved. Keys whose playlist or folder is gone are left out of the answer (the engine keeps
+ * them stored, also through a `set_favourites` that does not name them).
+ */
+export type Favourite = {
+  /** `playlist:<ref>` or `folder:<path>`: what `set_favourites` takes. */
+  key: string;
+  /** A playlist or a folder. */
+  kind: 'playlist' | 'folder';
+  /** The playlist's folder name, or a crate's `label`. */
+  name: string;
+  /** A playlist's service; null for a folder. */
+  service: PlaylistService | null;
+  /** A playlist's switch; true for a folder. */
+  enabled: boolean;
+  /** A playlist's songs (null: never read) or a folder's files. */
+  count: number | null;
+  /** The folder's path; null for a playlist. */
+  path: string | null;
+  /** A playlist is `here`; a crate has its watched folder's. */
+  state: FolderState;
+};
+/** One line of playlists.txt in the sidebar. */
+export type SidebarPlaylist = {
+  /** The playlist's folder name. */
+  name: string;
+  /** The playlist's token: a Spotify id stays bare, any other service is `service:id`. */
+  ref: string;
+  /** Its service. */
+  service: PlaylistService | null;
+  /** Whether the line is switched on. */
+  enabled: boolean;
+  /** The distinct songs of its read record; null: never read. A read that found no song is 0. */
+  songs: number | null;
+};
+/** A `Library/` folder with files that no playlist line uses. */
+export type SidebarLibraryFolder = {
+  /** `Library/<name>`, what `library("folder", …)` takes. */
+  path: string;
+  /** The folder's name. */
+  name: string;
+  /** The files at or below it. */
+  files: number;
+};
+/**
+ * Counts and lists for the sidebar. Every `files` count is the length of the `rows` of the view it opens, as
+ * are `all_tracks`, `not_in_playlist` and a playlist's `songs`.
+ */
+export type Sidebar = {
+  /** The to-do badge. */
+  todo: number;
+  /** All tracks. */
+  all_tracks: number;
+  /** Songs in no playlist. */
+  not_in_playlist: number;
+  /**
+   * A set-up service has a warning sign the user has not marked as seen ("Got it"), or is paused today: the
+   * dot on Download limits.
+   */
+  limits_warning: boolean;
+  /** The Favourites in their stored order. */
+  favourites: Favourite[];
+  /** Every line of playlists.txt in file order, switched-off ones too. */
+  playlists: SidebarPlaylist[];
+  /** The watched import folders (not the Library) by name. */
+  watched: WatchedEntry[];
+  /** The Library folders with files that no playlist line uses, by name (case and accents ignored). */
+  library_folders: SidebarLibraryFolder[];
+};
+/** What `set_favourites` answers: a brief save that starts no job. */
+export type FavouritesSaved = {
+  /** The keys now stored, in order. */
+  favourites: string[];
+};
+/** What `set_crate_shown` answers: a brief save that starts no job. */
+export type CrateSaved = {
+  /** The crate's path. */
+  path: string;
+  /** The user's switch now; null: back to the default. */
+  shown: boolean | null;
+};
+/** What `set_crates_shown` answers: a brief save that starts no job. */
+export type CratesSaved = {
+  /** The crates' paths (a path given twice counts once). */
+  paths: string[];
+  /** The user's switch now; null: back to the default. */
+  shown: boolean | null;
+};
+export type PreviewAction = {
+  /** The action's key, sent back ticked to `start_sync`. */
+  key: ActionKey;
+  /** What the action does (acquire, adopt_bought, upgrade). */
+  kind: string;
+  /** Why: new, retry or redownload for a download; null for the others. */
+  reason: string | null;
+  /** The song's id. */
+  track_id: string;
+  /** The artist. */
+  artist: string;
+  /** The title. */
+  title: string;
+  /** The playlist folder it goes to. */
+  folder: string;
+  /** The folder it lands in (`Library/<folder>`). */
+  to_dir: string;
+  /** It would land in the folder's `not_lossless` folder. */
+  to_not_lossless: boolean;
+  /** The file it starts from; null when none. */
+  src: string | null;
+  /** The cover's media URL, else the Spotify image URL, else null. */
+  cover_url: string | null;
+  /**
+   * The collections of the browser column the song belongs to (issue 37), by their targets: every playlist
+   * whose read holds it (`playlist:<ref>`, playlists.txt order), then the folders its file sits in, outer to
+   * inner (`folder:<path>`). Sync leaves the row out only when every one of them is switched off; empty:
+   * nothing can switch it off.
+   */
+  in: string[];
+  /** The order the sync works through the actions (kind, then playlist order); not on `never` rows. */
+  run?: number;
+};
+/** One group of the preview's actions. */
+export type PreviewGroup = {
+  /** The group. */
+  key: PreviewGroupKey;
+  /**
+   * The group's title (Download (new), Try again, Download again, Add a bought file, Look for a better
+   * version).
+   */
+  label: string;
+  /** Its actions. */
+  actions: PreviewAction[];
+};
+/** A song whose files the sync cannot tell apart. */
+export type SyncPreviewAmbiguous = {
+  /** The song's id. */
+  track_id: string;
+  /** The artist. */
+  artist: string;
+  /** The title. */
+  title: string;
+  /** The playlist folder. */
+  folder: string;
+  /** The files that could be it. */
+  files: string[];
+};
+/** A song the plan dropped. */
+export type SyncPreviewDropped = {
+  /** The song's id. */
+  track_id: string;
+  /** The artist. */
+  artist: string;
+  /** The title. */
+  title: string;
+  /** The playlist folder. */
+  folder: string;
+};
+/** The engine's sentence for the placements of parked better versions. */
+export type PlaceNotes = {
+  /** The sentence while rekordbox is closed. */
+  closed: string;
+  /** The sentence while rekordbox is open. */
+  open: string;
+};
+/** Auto-upgrade before a start. Null in the preview when the switch is off and nothing is to be placed. */
+export type SyncPreviewAutoUpgrade = {
+  /** The Auto-upgrade switch. */
+  on: boolean;
+  /**
+   * The upgrades the sync's last phase would put in place (those that would wait for rekordbox included;
+   * nothing of rekordbox's library is opened for it).
+   */
+  ready: number;
+  /** The missing songs it would put their parked better version in (with the switch off too). */
+  places: number;
+  /** The engine's sentence for them (rekordbox closed / open); null with none. */
+  place_notes: PlaceNotes | null;
+};
+/**
+ * The check before Start. Each action's `key` is sent back ticked to `start_sync`. Before the first read the
+ * counts are 0, `counts` and `estimate` null and `collections` empty.
+ */
+export type SyncPreview = {
+  /** How the last playlists read went. */
+  read_status: ReadStatus;
+  /** What the plan holds; null before a read. */
+  counts: PlanCounts | null;
+  /** Songs held back until the user answers "Is this the same song?" (not downloaded meanwhile). */
+  waiting_answers: number;
+  /** First upgrade checks of imported music that the per-run cap left for later runs. */
+  deferred_checks: number;
+  /** The actions by group, in the order the page lists them. */
+  groups: PreviewGroup[];
+  /** How long it takes and which service does the downloads; null before a read. */
+  estimate: SyncEstimate | null;
+  /** Downloads left out because the user said "never download" (rows without `run`). */
+  never: PreviewAction[];
+  /** The playlist folders in playlists.txt order. */
+  folders: string[];
+  /** The unique Spotify tracks read; null before a read. */
+  in_playlists: number | null;
+  /** Songs whose files the sync cannot tell apart. */
+  ambiguous: SyncPreviewAmbiguous[];
+  /** Songs the plan dropped. */
+  dropped: SyncPreviewDropped[];
+  /** Notes of the plan, in words. */
+  notes: string[];
+  /** Why the page has nothing to show, or null. */
+  empty: EmptyKind | null;
+  /**
+   * Every collection a row is `in`, by its target, to its name as the plan's sections name it ("Techno",
+   * "Techno › 2019"); empty before the first read.
+   */
+  collections: Record<string, string>;
+  /**
+   * Auto-upgrade before a start; null: the switch is off and nothing is to be placed (or settings.json cannot
+   * be read, or there is no preview).
+   */
+  auto_upgrade: SyncPreviewAutoUpgrade | null;
+};
+/** One planned action of a running job, copied from `RunStarted.actions`. */
+export type PlannedAction = {
+  /** What the action does. */
+  kind: string;
+  /** The song's id. */
+  track_id: string;
+  /** The title. */
+  title: string;
+  /** The artist. */
+  artist: string;
+  /** The cover. */
+  image_url?: string | null;
+};
+/**
+ * A job's snapshot after a window reload (the events are not shapes: `tests/fixtures/hub_events.schema.json`
+ * pins them).
+ */
+export type JobSnap = {
+  /** The job's id. */
+  id: string;
+  /** The job kind (`sync`, `refresh`, `tidy`, ...). */
+  kind: string;
+  /** The song the job works on; null for a job on none. */
+  track_id: string | null;
+  /** When it started, an ISO time. */
+  started: string;
+  /** It is running. */
+  running: boolean;
+  /** A stop was asked and the job ends after its current step. */
+  stopping: boolean;
+  /**
+   * An AIFF batch job's (`upgrade_batch`, `aiff_batch`, `batch_resume`, `upgrade_add_new`, `upgrade_discard`)
+   * batch kind, else null: `upgrade` for Same track, `convert` for what Convert, Give it its clean name, Make
+   * all and the CDJ group's Convert all start; for `batch_resume` the stopped batch's own kind. After a reload
+   * it says whose batch runs; the live `JobStarted` event carries the same.
+   */
+  batch_kind?: 'upgrade' | 'convert' | 'mixed' | null;
+  /** The newest event of each type, as events.ts `HubEvent`, by the event's type name. */
+  last: any;
+  /**
+   * The newest `AccountUsage` event of each service, in the order the services first reported (`last` keeps
+   * only the newest one overall); empty until a download counted.
+   */
+  usage?: any[];
+  /** The `ActionFinished` events so far, as events.ts `HubEvent`s, in a list. */
+  results: any;
+  /** The `JobFinished` event as events.ts `HubEvent`, null while the job runs. */
+  finished: any;
+  /**
+   * The run's planned actions in the order the run does them; empty until a run started and for jobs without a
+   * run.
+   */
+  actions: PlannedAction[];
+};
+/** The snapshot after a window reload. */
+export type JobStatus = {
+  /** The running write job; null when none runs. */
+  job: JobSnap | null;
+  /** A playlists read is running. */
+  refresh_running: boolean;
+  /** A console command is running. */
+  console_running: boolean;
+  /** How the last playlists read went. */
+  read_status: ReadStatus;
+  /**
+   * A sign-in waiting for the browser (its own slot beside the write jobs; Settings restores its phase from
+   * it); null when none.
+   */
+  sign_in?: JobSnap | null;
+};
+/** What `stop`, `stop_refresh` and `stop_sign_in` answer. */
+export type Stopped = {
+  /** Whether a job was running to stop. */
+  stopped: boolean;
+};
+/**
+ * One row of the Library: a song's row with what the table needs. The user's own songs (the import) are in no
+ * folder: `folder` is empty and `in_playlists` false.
+ */
+export type LibraryRow = TrackRow & {
+  /**
+   * False for an imported file whose sound is not judged yet (its quality is the codec's guess for now: the
+   * page says "sound not checked yet").
+   */
+  sound_checked: boolean;
+  /**
+   * Whether the row's file is there now, decided per watched folder (`file_missing` is the stored mark of a
+   * file that waits as missing, issue 43); a row that is not `here` does not play. `no_file`: a playlist song
+   * that has no file yet.
+   */
+  file_state: LibraryFileState;
+  /**
+   * A song without a file: `waiting` (the sync has yet to get it) or `not_found` (the sync found nothing
+   * usable); null for a row with a file.
+   */
+  wait: 'waiting' | 'not_found' | null;
+  /**
+   * A `not_found` row: the day the sync looks again (ISO; due on and after it) or `next_sync` (never looked
+   * yet); null on every other row.
+   */
+  next_try: string | null;
+  /** The place in the playlist's read (playlist view only). */
+  position: number | null;
+  /**
+   * The folder the file sits in, in the Folder column's words (a Library file says its playlist line or
+   * folder, a watched folder's file the folder and its crate); null: no file, or a playlist view's rows inside
+   * the playlist's own Library folder.
+   */
+  place: string | null;
+  /**
+   * Folder views only: a watched folder's rows carry their crate's label ("" for a file directly in it), a
+   * crate's the folders below it ("2019" or "A › B"); null elsewhere.
+   */
+  subfolder: string | null;
+  /** The playlists whose read holds the song, in playlists.txt order; empty for a song only a file holds. */
+  playlists: string[];
+  /**
+   * To-do's Missing files group lists the song: true only for a row whose file waits as missing and that the
+   * group lists; false for every other row, and for a song whose Download again is asked.
+   */
+  in_missing_files: boolean;
+  /** The song's page on its service, for the row menu's "Open in {Service}"; null: no page known. */
+  track_link: TrackLink | null;
+};
+/** The folder at a glance, unaffected by the search and the filter. Only the rows with a file count. */
+export type LibrarySummary = {
+  /** The songs with a file. */
+  tracks: number;
+  /** The share of the checked files that are lossless; null when none is checked. */
+  lossless_share: number | null;
+  /** The checked files by quality class. */
+  by_quality: ByQuality;
+  /** Better versions waiting. */
+  upgrades_ready: number;
+  /** What the to-do list shows of the view (in a playlist, not hidden). */
+  to_do: number;
+  /** The checked files that are not lossless (good lossy + weak + fake). */
+  not_lossless: number;
+};
+/** A read playlist's songs, before any search or filter. */
+export type LibrarySongs = {
+  /** How many distinct songs it lists (what the sidebar's `songs` counts). */
+  listed: number;
+  /** How many of them have a file. */
+  with_file: number;
+};
+/** The newest stopped `library:*` AIFF batch (Make all, a selection's Convert) with items left. */
+export type LibraryAiffStopped = {
+  /** The batch's id. */
+  batch_id: number;
+  /** How many items are left ("Resume · {left} left"). */
+  left: number;
+};
+/**
+ * One view of the library. A playlist or folder that is not there any more is no error: `empty` is `gone`,
+ * `rows` and `subtitle` are empty. An empty folder, and a playlist that was read and holds nothing, both have
+ * `empty` `no_match` even without search text.
+ */
+export type Library = {
+  /** The view's name. */
+  title: string;
+  /** The folder at a glance. */
+  summary: LibrarySummary;
+  /**
+   * The old `folder` argument: null (All tracks), `__not_in_playlist__`, a playlist's folder name or a
+   * folder's key.
+   */
+  folder: string | null;
+  /** What the request asked for. */
+  view: LibraryView;
+  /**
+   * The playlist's folder name as playlists.txt spells it, or the folder's path; null for All tracks and Not
+   * in a playlist.
+   */
+  key: string | null;
+  /**
+   * Folder views: what the folder is (`library`: a Library/ folder); null: none of these (`empty` is `gone`).
+   */
+  folder_kind: 'watched' | 'crate' | 'library' | null;
+  /**
+   * The header's second line as parts in order of importance (the page drops the last parts first); empty when
+   * `gone`.
+   */
+  subtitle: string[];
+  /**
+   * The row count of each `LibraryFilter` (`all` counts every row the table lists, a read playlist's songs
+   * without a file too, never `also`).
+   */
+  chips: Record<string, number>;
+  /** The rows of the view, searched and filtered. */
+  rows: LibraryRow[];
+  /**
+   * A playlist view: the files in the playlist's own Library folder whose song the playlist does not hold, by
+   * artist then title; null elsewhere.
+   */
+  also: LibraryRow[] | null;
+  /**
+   * A read playlist's songs: how many it lists and how many have a file; null elsewhere and while never read.
+   * The page words "13 of 18 downloaded".
+   */
+  songs: LibrarySongs | null;
+  /** A playlist view: when its read was made; null: never read, and in other views. */
+  read_at: string | null;
+  /** A playlist view: whether its line is switched on; null elsewhere. */
+  enabled: boolean | null;
+  /** A playlist view: its service; null elsewhere. */
+  service: PlaylistService | null;
+  /**
+   * The newest stopped `library:*` AIFF batch with items left: the header's "Resume · {left} left"; null when
+   * none (issue 33 stage D).
+   */
+  aiff_stopped: LibraryAiffStopped | null;
+  /** Why the page has nothing to show (`gone` adds to the usual words), or null. */
+  empty: EmptyKind | null;
+};
+/** What the service says of a playlist; null on the row until it was read (refresh or add_playlist). */
+export type PlaylistInfo = {
+  /** The playlist's name. */
+  name: string;
+  /** Its owner; empty when the name already says it (a SoundCloud likes list is named "{username}'s likes"). */
+  owner_name: string;
+  /** Whether it is the user's own. */
+  yours: boolean;
+  /** Whether it is collaborative. */
+  collaborative: boolean;
+  /** Whether the service shows its tracks. */
+  readable: boolean;
+  /** Its picture; null when none. */
+  image_url: string | null;
+  /**
+   * How many tracks it has; null when the service gives no count (a SoundCloud likes list: the row's `tracks`
+   * is then what the read found).
+   */
+  track_count: number | null;
+  /** The words of the row's service for a playlist it will not show (always set once info is). */
+  hint: string;
+};
+/** One line of playlists.txt on the playlists page (top = highest priority). */
+export type PlaylistRow = {
+  /** The line's place. */
+  index: number;
+  /** The playlist's folder name. */
+  folder: string;
+  /** The playlist's link. */
+  link: string;
+  /**
+   * The playlist's ref (a Spotify id stays bare, every other service's is `<service>:<id>`); the page keys
+   * rows by it.
+   */
+  playlist_id: string | null;
+  /** The row's service. */
+  service: PlaylistService;
+  /** Its name (Spotify, Qobuz, SoundCloud, YouTube Music). */
+  service_name: string;
+  /** Whether the line is switched on. */
+  enabled: boolean;
+  /** What the service says; null until it was read. */
+  info: PlaylistInfo | null;
+  /**
+   * The tracks found; null when neither the tracks nor the playlist's count were read (the row then shows no
+   * count).
+   */
+  tracks: number | null;
+  /**
+   * Its songs by quality class: always the five counts, all 0 while the tracks were not read (a switched-off
+   * playlist is never read).
+   */
+  quality: ByQuality;
+  /**
+   * A listed Liked music line while Settings' choice is off (or no YouTube login): the choice it needs, else
+   * null.
+   */
+  needs_setting: SettingKey | null;
+};
+/** A track on the playlists page. */
+export type PlaylistTrack = {
+  /** The song's id. */
+  track_id: string;
+  /** The artist. */
+  artist: string;
+  /** The title. */
+  title: string;
+  /** The cover. */
+  cover_url: string | null;
+  /** Whether it has a file yet. */
+  downloaded: boolean;
+  /** The colour class. */
+  quality: Quality;
+  /** The words next to the colour; null without a state entry. */
+  quality_label: string | null;
+  /** The user left it out of the sync ("never download"). */
+  never?: boolean;
+};
+/** A track that is in several switched-on playlists. */
+export type PlaylistOverlap = PlaylistTrack & {
+  /** The playlists' folders, in list order. */
+  folders: string[];
+  /** The first of them: where the file goes. */
+  lands_in: string;
+};
+/** The tidy-up's badge. */
+export type PlaylistsTidy = {
+  /**
+   * Files a tidy-up ticks by default (`planner.out_of_place`: files the playlist order puts elsewhere, not
+   * placed by the user): the "Tidy up files" badge.
+   */
+  waiting: number;
+};
+/** The playlists page. */
+export type Playlists = {
+  /** The playlists file's version: must be sent to `save_playlists`. */
+  version: string;
+  /** What the sync would say about the file; null when nothing. */
+  problem: string | null;
+  /** Every line, top = highest priority. */
+  rows: PlaylistRow[];
+  /** For the panel when nothing is unsaved: each track that is in several switched-on playlists. */
+  overlaps: PlaylistOverlap[];
+  /** Why the page has nothing to show, or null. */
+  empty: EmptyKind | null;
+  /** The tidy-up's badge. */
+  tidy: PlaylistsTidy;
+};
+/** What a daily limit means. */
+export type Assessment = {
+  /** The zone's place, 1 (careful) to 5 (risky). */
+  level: number;
+  /** The zone's name (careful, normal, faster, fast, risky). */
+  label: string;
+};
+/**
+ * "What N per day means" while the slider moves (no write). For an account behind Qobuz `days_to_load` is
+ * null.
+ */
+export type WhatIf = {
+  /** The daily limit asked, 1 to 500. */
+  limit: number;
+  /** The one-time extra for today, 0 to 200. */
+  extra_today: number;
+  /** What the limit means. */
+  assessment: Assessment;
+  /** Today's allowance at this limit. */
+  allowance_today: number;
+  /** What would be left of it today. */
+  remaining_today: number;
+  /** Days the rest of the downloads takes; null for an account behind Qobuz or before a read. */
+  days_to_load: number | null;
+  /** How long a run takes, in minutes. */
+  run_minutes: number;
+};
+/** A warning sign without its kind: `new` is after the last "Got it". */
+export type SignalBase = {
+  /** When it happened, an ISO time. */
+  time: string;
+  /** What happened, in words. */
+  message: string;
+  /** After the time in settings.json `warnings_seen[service]`, or never marked. */
+  new: boolean;
+  /** Days until it leaves the 14 days (1 = tomorrow). */
+  clears_in: number;
+};
+/** A warning sign of a YouTube or SoundCloud account (or any service). */
+export type Signal = SignalBase & {
+  /** What kind of sign it is. */
+  kind: AnySignalKind;
+};
+/** A warning sign of Qobuz. */
+export type QobuzSignal = SignalBase & {
+  /** What kind of sign it is. */
+  kind: SignalKind;
+};
+/** One day of a service's use. */
+export type UsageDay = {
+  /** The day, an ISO date. */
+  date: string;
+  /** Downloads that counted that day. */
+  used: number;
+};
+export type UsageZone = {
+  /** The zone's name (careful, normal, faster, fast, risky). */
+  name: string;
+  /** Its first limit. */
+  from: number;
+  /** Its last limit. */
+  to: number;
+};
+/** The setting and what the slider offers. */
+export type UsageSetting = {
+  /** The daily limit. */
+  limit: number;
+  /** The one-time extra for today. */
+  extra_today: number;
+  /** The recommended limit (60 Qobuz, 30 YouTube, 60 SoundCloud). */
+  recommended: number;
+  /**
+   * The five zones (Qobuz and SoundCloud: careful 1–40, normal 41–60, faster 61–79, fast 80–100, risky
+   * 101–500; YouTube: careful 1–20, normal 21–30, faster 31–45, fast 46–60, risky 61–500).
+   */
+  zones: UsageZone[];
+  /** The smallest limit. */
+  min: number;
+  /** The largest limit. */
+  max: number;
+  /** The largest extra for today. */
+  extra_max: number;
+};
+/** What every service's page has: today, the last 14 days, the setting, its meaning and the last download. */
+export type UsageBase = {
+  /** Today's numbers. */
+  today: Budget;
+  /** The last 14 days, oldest first. */
+  days: UsageDay[];
+  /** The setting and what the slider offers. */
+  setting: UsageSetting;
+  /** What the limit means. */
+  assessment: Assessment;
+  /** What the saved limit means, in the answer of `limits_what_if`. */
+  what_if: WhatIf;
+  /** When the last download that counted toward the limit was, an ISO time (any day); null if none yet. */
+  last_download: string | null;
+};
+/** Qobuz's page of Download limits. */
+export type QobuzUsage = UsageBase & {
+  /** The downloads still to do. */
+  still_to_load: StillToLoad;
+  /** The warning signs of the last 14 days. */
+  signals: QobuzSignal[];
+  /** A count for every `SignalKind`. */
+  signal_summary: Record<string, number>;
+};
+/** The Download limits page of one set-up service. */
+export type ServiceUsage = UsageBase & {
+  /** The service. */
+  service: Service;
+  /** Its name for the page. */
+  name: string;
+  /** "Qobuz" for an account behind Qobuz (it only gets the tracks Qobuz lacks), else null. */
+  behind: string | null;
+  /** The downloads still to do. */
+  still_to_load: StillToLoad;
+  /** The warning signs of the last 14 days. */
+  signals: Signal[];
+  /**
+   * A count for every `AnySignalKind` of the service: Qobuz login_failed, search_failed, download_rejected,
+   * preview_only, duration_mismatch, auto_stop; YouTube cookies_unreadable, bot_check, rate_limited, refused,
+   * premium_missing, download_rejected, auto_stop; SoundCloud the same without bot_check.
+   */
+  signal_summary: Record<string, number>;
+};
+/** The Download limits page. */
+export type Limits = {
+  /** The service the page is for. */
+  service: Service;
+  /** Always all three services in quality order. */
+  cards: LimitCard[];
+  /** The page of that service; null when it is not set up. */
+  usage: ServiceUsage | null;
+};
+/** The run history. */
+export type Runs = {
+  /** The runs, newest first. */
+  runs: RunSummary[];
+};
+/** One run's end screen. */
+export type RunAnswer = {
+  /** The run. */
+  run: RunDetail;
+};
+/**
+ * A file's spectrum. `data` is `cols * bands` bytes row by row in time, each row low to high frequency (band
+ * width `max_hz / bands`): byte v is `floor_db * (1 - v / 255)` dB (0 dB = the loudest cell).
+ */
+export type Spectrum = {
+  /** How many columns (time steps). */
+  cols: number;
+  /** How many frequency bands. */
+  bands: number;
+  /** The highest frequency. */
+  max_hz: number;
+  /** The file's length in seconds. */
+  duration_s: number;
+  /** The quietest dB the bytes show. */
+  floor_db: number;
+  /** The matrix, base64. */
+  data: string;
+  /**
+   * Base64 of `cols` bytes, one per column (the same columns as the matrix): the largest sample anywhere in
+   * that column's stretch of the track, 0 = silence, 255 = the loudest column, linear; for the mini player's
+   * bars.
+   */
+  waveform: string;
+  /** Which file it is of. */
+  which: Which;
+  /** The measured cutoff in Hz, where to draw the cutoff line; null: none (always for the parked version). */
+  cutoff_hz: number | null;
+};
+/** A file's spectrum. */
+export type SpectrumAnswer = {
+  /** The spectrum. */
+  spectrum: Spectrum;
+};
+/** The result of the playlists read (`refresh`). */
+export type RefreshResult = {
+  /** How many actions the new plan has. */
+  actions: number;
+};
+/**
+ * The result of a sync (`start_sync`); a crashed sync carries one too: `exit_code` 1, `report` its crash note.
+ */
+export type SyncResult = {
+  /** How the run ended: 0 well, 130 stopped. */
+  exit_code: number;
+  /** The report's absolute .md path. */
+  report: string;
+  /** How many actions it ran; 0 when it crashed before the plan. */
+  actions: number;
+  /** Actions the plan gained since the preview. */
+  new_since_preview: number;
+};
+/** The result of `save_limits`. */
+export type SaveLimitsResult = {
+  /** The service. */
+  service: Service;
+  /** The daily limit saved. */
+  limit: number;
+  /** The extra for today saved. */
+  extra_today: number;
+};
+/** The result of `mark_warnings_seen` ("Got it"). */
+export type WarningsSeenResult = {
+  /** The service. */
+  service: Service;
+  /** The time saved: its signals up to then are no longer `new`. */
+  seen_until: string;
+};
+/**
+ * What one library scan found (`rescan_library`, `library scan --json`; issue 43): a file the scan does not
+ * see waits as missing, never decided by one scan.
+ */
+export type ScanResult = {
+  /** Files found in another folder. */
+  moved: number;
+  /** New files. */
+  new: number;
+  /** Index rows of nobody's file, dropped. */
+  gone: number;
+  /** Songs whose file was not found at this scan. */
+  missing: number;
+  /** Missing files seen again. */
+  back: number;
+  /** Audio replaced outside Discjockey. */
+  changed: number;
+  /** Copies of a file found. */
+  copies: number;
+};

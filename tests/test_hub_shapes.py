@@ -688,3 +688,89 @@ def test_a_missing_files_preview_answer_fits_its_shape(tmp_path, monkeypatch):
         assert shapes.validate(out, shapes.ANSWERS["missing_files_preview"]) == [], action
         assert [i["track_id"] for i in out["items"]] == ["t1", "t2", "nope"]
         assert out["items"][0]["since"] == "2026-11-01" and out["items"][2]["reason"] == "not_missing"
+
+
+# --- the dashboard, the sidebar, the Library, the Sync preview, the job snapshot and Download limits (E7c) ---
+
+@pytest.fixture
+def read_hub(tmp_path, monkeypatch):
+    """A hub whose playlists were read (a plan with two new songs, a parked upgrade, a song nobody found)."""
+    from hub_helpers import fake_spotify, make_api, make_root, refreshed
+
+    fake_spotify(monkeypatch)
+    api, rec = make_api(make_root(tmp_path, upgrade=True))
+    return api, rec, lambda: refreshed(api, rec)
+
+
+def fits(method: str, answer: dict) -> dict:
+    from discjockey.hub import shapes
+
+    out = answer_without_ok(answer)
+    assert shapes.validate(out, shapes.ANSWERS[method]) == [], method
+    return out
+
+
+def test_a_dashboard_answer_fits_its_shape_before_and_after_the_read(read_hub):
+    from discjockey.hub import shapes
+
+    api, _, read = read_hub
+    before = fits("dashboard", api.dashboard())
+    assert before["ready"] is None and before["next_checks"] is None and before["tiles"]["still_to_load"]["count"] is None
+    read()
+    after = fits("dashboard", api.dashboard())
+    assert after["ready"]["counts"]["new"] == 2 and after["tiles"]["still_to_load"]["count"] == 2
+    broken = {**after, "tiles": {**after["tiles"], "qobuz_today": {**after["tiles"]["qobuz_today"], "used": "0"}}}
+    assert shapes.validate(broken, "Dashboard")  # the check can fail
+
+
+def test_a_sidebar_answer_fits_its_shape(read_hub):
+    api, _, read = read_hub
+    fits("sidebar", api.sidebar())
+    read()
+    out = fits("sidebar", api.sidebar())
+    assert [p["name"] for p in out["playlists"]] == ["Hard_Bounce", "Powertrance"]
+
+
+def test_a_library_answer_fits_its_shape_in_every_kind_of_view(read_hub):
+    api, _, read = read_hub
+    read()
+    everything = fits("library", api.library())
+    assert {r["file_state"] for r in everything["rows"]} <= {"here", "no_file"}
+    playlist = fits("library", api.library("playlist", "Hard_Bounce"))
+    assert playlist["songs"] is not None and any(r["file_state"] == "no_file" for r in playlist["rows"])
+    fits("library", api.library("unlisted"))
+    gone = fits("library", api.library("playlist", "No_Such_List"))
+    assert gone["empty"] == "gone" and gone["rows"] == []
+
+
+def test_a_sync_preview_answer_fits_its_shape_before_and_after_the_read(read_hub):
+    from discjockey.hub import shapes
+
+    api, _, read = read_hub
+    assert fits("sync_preview", api.sync_preview())["empty"] == "no_preview"
+    read()
+    out = fits("sync_preview", api.sync_preview())
+    assert [g["key"] for g in out["groups"]] == ["acquire:new"] and out["estimate"]["accounts"][0]["uses_by_downloads"]
+    assert all(len(a["key"]) == 3 and "in" in a and "run" in a for a in out["groups"][0]["actions"])
+    wrong = {**out, "groups": [{**out["groups"][0], "key": "move"}]}
+    assert shapes.validate(wrong, "SyncPreview")  # there is no `move` group any more
+
+
+def test_a_job_status_answer_fits_its_shape_idle_and_with_a_finished_job(read_hub):
+    api, _, read = read_hub
+    idle = fits("job_status", api.job_status())
+    assert idle["job"] is None
+    read()
+    done = fits("job_status", api.job_status())
+    assert done["job"] is None or done["job"]["kind"] == "refresh"
+
+
+def test_a_limits_answer_fits_its_shape_for_every_service(read_hub):
+    api, _, read = read_hub
+    read()
+    out = fits("limits", api.limits())
+    assert [c["service"] for c in out["cards"]] == ["qobuz", "youtube", "soundcloud"] and out["usage"] is not None
+    assert len(out["usage"]["days"]) == 14 and set(out["usage"]["signal_summary"]) >= {"login_failed", "auto_stop"}
+    for service in ("youtube", "soundcloud"):
+        assert fits("limits", api.limits(service))["usage"] is None  # not set up: only the cards
+    fits("limits_what_if", api.limits_what_if("qobuz", 90, 20))

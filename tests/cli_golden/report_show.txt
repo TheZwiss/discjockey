@@ -20,9 +20,9 @@ Problems  0
 Moved     0
 
 Run › Sections › New lossless
-Section       Status    Track id  Artist  Title    Path                                  Cover url
-new_lossless  lossless  t1        A       Song t1  Library/Hard_Bounce/A - Song t1.aiff  none
-new_lossless  lossless  t2        A       Song t2  Library/Hard_Bounce/A - Song t2.aiff  none
+Section       Folder       Artist  Title    Track id  Note  Status    Source  Cutoff hz  Path                                  Error kind  Cover url
+new_lossless  Hard_Bounce  A       Song t1  t1              lossless  none    none       Library/Hard_Bounce/A - Song t1.aiff  none        none
+new_lossless  Hard_Bounce  A       Song t2  t2              lossless  none    none       Library/Hard_Bounce/A - Song t2.aiff  none        none
 2 of 2 shown
 
 Run › For rekordbox

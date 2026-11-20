@@ -2,7 +2,7 @@
 import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
-  BatchResult, Candidate, ChangePreview, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
+  BatchResult, Candidate, ChangePreview, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, PreviewGroupKey, ProblemKind, Res, Result,
   AccountCheck, Browser, MissingAction, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, Todo, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
@@ -255,9 +255,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     folder: 'Techno' }, true, '/Volumes/Example Drive/Music/Techno/Dub Chord - Night Drive.mp3', null)];
   function preview() {
     type Row = ReturnType<typeof previewAction>;
-    const groups: { key: string; label: string; actions: Row[] }[] = [];
+    const groups: { key: PreviewGroupKey; label: string; actions: Row[] }[] = [];
     const never: Row[] = [];
-    const add = (key: string, label: string, actions: Row[]) => {
+    const add = (key: PreviewGroupKey, label: string, actions: Row[]) => {
       const keep = actions.filter((a) => a.kind !== 'acquire' || !s.never.includes(a.track_id));
       never.push(...actions.filter((a) => !keep.includes(a)));
       if (keep.length) groups.push({ key, label, actions: keep });
@@ -881,8 +881,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
     async runs() { return ok({ runs: s.runs.map(summary) }); },
     async run(run_id: string) {
-      const r = s.runs.find((x) => x.run_id === run_id);
-      if (!r) return fail('refused', 'This report is not there any more.');
+      // like the hub: `report:<stamp>` is the stamp, `last` the newest report
+      const stamp = run_id.startsWith('report:') ? run_id.slice('report:'.length) : run_id;
+      const r = stamp === 'last' ? [...s.runs].sort((x, y) => (x.run_id < y.run_id ? 1 : -1))[0] : s.runs.find((x) => x.run_id === stamp);
+      if (!r) return fail('refused', stamp === 'last' ? 'There is no run report yet.' : 'This report is not there any more.');
       // like the hub: each row shown one by one gets its cover; the playlist folders in their order
       const withCover = (x: Result) => x.track_id && x.section !== 'queued'
         ? { ...x, cover_url: coverUri(track(x.track_id)?.cover ?? null) } : x;

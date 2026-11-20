@@ -1,5 +1,17 @@
 {
   "$defs": {
+    "AccountSignalKind": {
+      "description": "A kind of warning sign of a YouTube or SoundCloud account (SoundCloud has no `bot_check`).",
+      "enum": [
+        "cookies_unreadable",
+        "bot_check",
+        "rate_limited",
+        "refused",
+        "premium_missing",
+        "download_rejected",
+        "auto_stop"
+      ]
+    },
     "ActionKey": {
       "description": "The key of one planned action, three words; sent back unchanged to start_sync.",
       "items": false,
@@ -199,6 +211,43 @@
         "offset_samples",
         "result",
         "text"
+      ],
+      "type": "object"
+    },
+    "AnySignalKind": {
+      "description": "A kind of warning sign of any service: a `SignalKind` or an `AccountSignalKind`.",
+      "enum": [
+        "login_failed",
+        "search_failed",
+        "download_rejected",
+        "preview_only",
+        "duration_mismatch",
+        "auto_stop",
+        "cookies_unreadable",
+        "bot_check",
+        "rate_limited",
+        "refused",
+        "premium_missing"
+      ]
+    },
+    "Assessment": {
+      "additionalProperties": false,
+      "description": "What a daily limit means.",
+      "properties": {
+        "label": {
+          "description": "The zone's name (careful, normal, faster, fast, risky).",
+          "type": "string",
+          "x-shown": true
+        },
+        "level": {
+          "description": "The zone's place, 1 (careful) to 5 (risky).",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "level",
+        "label"
       ],
       "type": "object"
     },
@@ -812,6 +861,61 @@
       ],
       "type": "object"
     },
+    "Browser": {
+      "description": "A browser whose login an account uses.",
+      "enum": [
+        "safari",
+        "chrome",
+        "firefox",
+        "brave",
+        "edge"
+      ]
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "description": "One service's daily allowance today.",
+      "properties": {
+        "allowance": {
+          "description": "What may be downloaded today: the limit, the carried-over days and the extra.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "carry_over": {
+          "description": "What earlier days left unused.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "extra": {
+          "description": "The one-time extra for today.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "The daily limit setting.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "remaining": {
+          "description": "What is left of the allowance today.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "used": {
+          "description": "Downloads that counted today.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "used",
+        "allowance",
+        "limit",
+        "carry_over",
+        "extra",
+        "remaining"
+      ],
+      "type": "object"
+    },
     "ByQuality": {
       "additionalProperties": false,
       "description": "A count for each quality class.",
@@ -1068,6 +1172,444 @@
       "required": [
         "n",
         "k"
+      ],
+      "type": "object"
+    },
+    "Crate": {
+      "additionalProperties": false,
+      "description": "A crate: a folder below a watched import folder that holds music itself (wrapper folders get no row).",
+      "properties": {
+        "files": {
+          "description": "The files at or below it.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "has_crates": {
+          "description": "Another crate lies below it.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Out of the sidebar: the user's switch, else the default (shown, but hidden under a folder with `too_many` crates).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "label": {
+          "description": "Its short name in the browser (\"Hardtechno › 2019\", \"Bounce · Old Sets\" when another crate has the name).",
+          "type": "string",
+          "x-shown": true
+        },
+        "name": {
+          "description": "The folder's own name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "path": {
+          "description": "The folder's path.",
+          "type": "string",
+          "x-shown": false
+        },
+        "tip": {
+          "description": "The whole way from the watched folder (\"Rekordbox Library › Hardtechno › 2019\").",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "path",
+        "label",
+        "name",
+        "tip",
+        "files",
+        "hidden",
+        "has_crates"
+      ],
+      "type": "object"
+    },
+    "CrateSaved": {
+      "additionalProperties": false,
+      "description": "What `set_crate_shown` answers: a brief save that starts no job.",
+      "properties": {
+        "path": {
+          "description": "The crate's path.",
+          "type": "string",
+          "x-shown": false
+        },
+        "shown": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The user's switch now; null: back to the default.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "path",
+        "shown"
+      ],
+      "type": "object"
+    },
+    "CratesSaved": {
+      "additionalProperties": false,
+      "description": "What `set_crates_shown` answers: a brief save that starts no job.",
+      "properties": {
+        "paths": {
+          "description": "The crates' paths (a path given twice counts once).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "shown": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The user's switch now; null: back to the default.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "paths",
+        "shown"
+      ],
+      "type": "object"
+    },
+    "Dashboard": {
+      "additionalProperties": false,
+      "description": "The start page. `ready` is null until the playlists were read; `empty` says why the page has nothing to show.",
+      "properties": {
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmptyKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the page has nothing to show, or null.",
+          "x-shown": true
+        },
+        "folders": {
+          "description": "One bar per playlist folder, in playlists.txt order.",
+          "items": {
+            "$ref": "#/$defs/DashboardFolder"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "greeting": {
+          "description": "Good morning, afternoon or evening.",
+          "type": "string",
+          "x-shown": true
+        },
+        "has_more_runs": {
+          "description": "There are more runs than `last_runs` lists.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "last_runs": {
+          "description": "The newest runs.",
+          "items": {
+            "$ref": "#/$defs/RunSummary"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "needs_you": {
+          "$ref": "#/$defs/DashboardNeedsYou",
+          "description": "What waits for the user.",
+          "x-shown": true
+        },
+        "next_checks": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Weekly checks in the preview; null until the playlists were read.",
+          "x-shown": true
+        },
+        "read_status": {
+          "$ref": "#/$defs/ReadStatus",
+          "description": "How the last playlists read went.",
+          "x-shown": true
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DashboardReady"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the next sync would do; null until the playlists were read.",
+          "x-shown": true
+        },
+        "tiles": {
+          "$ref": "#/$defs/DashboardTiles",
+          "description": "The tiles.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "greeting",
+        "read_status",
+        "tiles",
+        "ready",
+        "needs_you",
+        "folders",
+        "last_runs",
+        "has_more_runs",
+        "next_checks",
+        "empty"
+      ],
+      "type": "object"
+    },
+    "DashboardFolder": {
+      "additionalProperties": false,
+      "description": "One playlist folder's bar.",
+      "properties": {
+        "by_quality": {
+          "$ref": "#/$defs/ByQuality",
+          "description": "Its songs by quality class.",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist's folder name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "lossless_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The share of its checked files that are lossless; null when none is checked.",
+          "x-shown": true
+        },
+        "tracks": {
+          "description": "Songs the playlist holds.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "folder",
+        "tracks",
+        "lossless_share",
+        "by_quality"
+      ],
+      "type": "object"
+    },
+    "DashboardLossless": {
+      "additionalProperties": false,
+      "description": "The lossless tile.",
+      "properties": {
+        "by_quality": {
+          "$ref": "#/$defs/ByQuality",
+          "description": "The songs by quality class.",
+          "x-shown": true
+        },
+        "lossless": {
+          "description": "Songs that are lossless.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The share of the checked files that are lossless, 0 to 1; null when none is checked.",
+          "x-shown": true
+        },
+        "total": {
+          "description": "Songs counted.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "share",
+        "lossless",
+        "total",
+        "by_quality"
+      ],
+      "type": "object"
+    },
+    "DashboardNeedsYou": {
+      "additionalProperties": false,
+      "description": "What waits for the user.",
+      "properties": {
+        "not_found": {
+          "description": "Songs nobody has.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "swappable": {
+          "description": "Of them, those a swap keeps the cues for.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "upgrades": {
+          "description": "Better versions waiting.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "weak": {
+          "description": "Songs of weak quality.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "upgrades",
+        "swappable",
+        "not_found",
+        "weak"
+      ],
+      "type": "object"
+    },
+    "DashboardReady": {
+      "additionalProperties": false,
+      "description": "The plan that is ready: the estimate fields of the preview (without `minutes_by_downloads`) and the counts.",
+      "properties": {
+        "accounts": {
+          "description": "The expected split between the services.",
+          "items": {
+            "$ref": "#/$defs/EstimateAccount"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "actions": {
+          "description": "How many actions the plan has.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "counts": {
+          "$ref": "#/$defs/PlanCounts",
+          "description": "What the plan holds.",
+          "x-shown": true
+        },
+        "duration_min": {
+          "description": "How long the downloads that fit today take, in minutes (70 s a download, rounded to 5 minutes).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Today's remaining allowance; null: no daily limit (only free sources are set up).",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "The daily limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "qobuz_left": {
+          "description": "What is left of Qobuz's allowance today (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_limit": {
+          "description": "The daily limit setting of Qobuz (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_needed": {
+          "description": "The downloads the plan needs from Qobuz (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_uses": {
+          "description": "The downloads expected from Qobuz today (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "duration_min",
+        "qobuz_limit",
+        "qobuz_needed",
+        "qobuz_left",
+        "qobuz_uses",
+        "left",
+        "limit",
+        "accounts",
+        "counts",
+        "actions"
+      ],
+      "type": "object"
+    },
+    "DashboardTiles": {
+      "additionalProperties": false,
+      "description": "The dashboard's tiles.",
+      "properties": {
+        "account_today": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LimitCard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The first set-up card of `limits()` (Qobuz first, then YouTube Premium, then SoundCloud Go+); null when no service is set up.",
+          "x-shown": true
+        },
+        "lossless": {
+          "$ref": "#/$defs/DashboardLossless",
+          "description": "The lossless tile.",
+          "x-shown": true
+        },
+        "qobuz_today": {
+          "$ref": "#/$defs/Budget",
+          "description": "Qobuz's allowance today.",
+          "x-shown": true
+        },
+        "still_to_load": {
+          "$ref": "#/$defs/StillToLoad",
+          "description": "The downloads still to do.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "lossless",
+        "qobuz_today",
+        "still_to_load",
+        "account_today"
       ],
       "type": "object"
     },
@@ -1470,6 +2012,183 @@
         "not_found"
       ]
     },
+    "Estimate": {
+      "additionalProperties": false,
+      "description": "The estimate of the dashboard's ready plan.",
+      "properties": {
+        "accounts": {
+          "description": "The expected split between the services.",
+          "items": {
+            "$ref": "#/$defs/EstimateAccount"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "duration_min": {
+          "description": "How long the downloads that fit today take, in minutes (70 s a download, rounded to 5 minutes).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Today's remaining allowance; null: no daily limit (only free sources are set up).",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "The daily limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "qobuz_left": {
+          "description": "What is left of Qobuz's allowance today (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_limit": {
+          "description": "The daily limit setting of Qobuz (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_needed": {
+          "description": "The downloads the plan needs from Qobuz (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_uses": {
+          "description": "The downloads expected from Qobuz today (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "duration_min",
+        "qobuz_limit",
+        "qobuz_needed",
+        "qobuz_left",
+        "qobuz_uses",
+        "left",
+        "limit",
+        "accounts"
+      ],
+      "type": "object"
+    },
+    "EstimateAccount": {
+      "additionalProperties": false,
+      "description": "Which service the downloads are expected to use: one entry per set-up service, in quality order.",
+      "properties": {
+        "about": {
+          "description": "True for every service but Qobuz: an estimate.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "left": {
+          "description": "What is left of its allowance today.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "Its daily limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "name": {
+          "description": "Its name for the page.",
+          "type": "string",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/Service",
+          "description": "The service.",
+          "x-shown": true
+        },
+        "uses": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How many downloads it is expected to do; null for an account behind Qobuz, which only gets the tracks Qobuz lacks.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "service",
+        "name",
+        "uses",
+        "left",
+        "limit",
+        "about"
+      ],
+      "type": "object"
+    },
+    "EstimateBase": {
+      "additionalProperties": false,
+      "description": "The plan's estimate without its accounts. `duration_min` counts only the downloads that fit today (the rest wait for the next sync at once).",
+      "properties": {
+        "duration_min": {
+          "description": "How long the downloads that fit today take, in minutes (70 s a download, rounded to 5 minutes).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Today's remaining allowance; null: no daily limit (only free sources are set up).",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "The daily limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "qobuz_left": {
+          "description": "What is left of Qobuz's allowance today (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_limit": {
+          "description": "The daily limit setting of Qobuz (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_needed": {
+          "description": "The downloads the plan needs from Qobuz (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_uses": {
+          "description": "The downloads expected from Qobuz today (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "duration_min",
+        "qobuz_limit",
+        "qobuz_needed",
+        "qobuz_left",
+        "qobuz_uses",
+        "left",
+        "limit"
+      ],
+      "type": "object"
+    },
     "Fail": {
       "additionalProperties": false,
       "description": "A problem answer: `{ok: false, kind, message}` and, from the bridge decorator, the command line's view of it (issue 39, `discjockey/hub/outcomes.py`); the window ignores the latter. `outcome`, `reason`, `next`, `person_steps` and `data` are always present on an answer of the engine, optional here so the fake bridge needs no change. `kind` can also be `bad_args` for arguments only the command line sends (contract, Problem kinds).",
@@ -1612,6 +2331,105 @@
       ],
       "type": "object"
     },
+    "Favourite": {
+      "additionalProperties": false,
+      "description": "A Favourite, resolved. Keys whose playlist or folder is gone are left out of the answer (the engine keeps them stored, also through a `set_favourites` that does not name them).",
+      "properties": {
+        "count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A playlist's songs (null: never read) or a folder's files.",
+          "x-shown": true
+        },
+        "enabled": {
+          "description": "A playlist's switch; true for a folder.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "key": {
+          "description": "`playlist:<ref>` or `folder:<path>`: what `set_favourites` takes.",
+          "type": "string",
+          "x-shown": false
+        },
+        "kind": {
+          "description": "A playlist or a folder.",
+          "enum": [
+            "playlist",
+            "folder"
+          ],
+          "x-shown": true
+        },
+        "name": {
+          "description": "The playlist's folder name, or a crate's `label`.",
+          "type": "string",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The folder's path; null for a playlist.",
+          "x-shown": false
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlaylistService"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A playlist's service; null for a folder.",
+          "x-shown": true
+        },
+        "state": {
+          "$ref": "#/$defs/FolderState",
+          "description": "A playlist is `here`; a crate has its watched folder's.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "name",
+        "service",
+        "enabled",
+        "count",
+        "path",
+        "state"
+      ],
+      "type": "object"
+    },
+    "FavouritesSaved": {
+      "additionalProperties": false,
+      "description": "What `set_favourites` answers: a brief save that starts no job.",
+      "properties": {
+        "favourites": {
+          "description": "The keys now stored, in order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "favourites"
+      ],
+      "type": "object"
+    },
     "FileSide": {
       "additionalProperties": false,
       "description": "One file of a question or of a duplicate group. `path` is absolute for an import folder's file.",
@@ -1741,6 +2559,14 @@
         "total"
       ],
       "type": "object"
+    },
+    "FolderState": {
+      "description": "Where a folder is now: `here`, `offline` (its drive is not connected) or `folder_missing` (not found: moved, renamed, deleted); the innermost watched folder that is away decides, for its crates too.",
+      "enum": [
+        "here",
+        "offline",
+        "folder_missing"
+      ]
     },
     "FoundTrack": {
       "additionalProperties": false,
@@ -1981,6 +2807,378 @@
       ],
       "type": "object"
     },
+    "JobSnap": {
+      "additionalProperties": false,
+      "description": "A job's snapshot after a window reload (the events are not shapes: `tests/fixtures/hub_events.schema.json` pins them).",
+      "properties": {
+        "actions": {
+          "description": "The run's planned actions in the order the run does them; empty until a run started and for jobs without a run.",
+          "items": {
+            "$ref": "#/$defs/PlannedAction"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "batch_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "upgrade",
+                "convert",
+                "mixed"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An AIFF batch job's (`upgrade_batch`, `aiff_batch`, `batch_resume`, `upgrade_add_new`, `upgrade_discard`) batch kind, else null: `upgrade` for Same track, `convert` for what Convert, Give it its clean name, Make all and the CDJ group's Convert all start; for `batch_resume` the stopped batch's own kind. After a reload it says whose batch runs; the live `JobStarted` event carries the same.",
+          "x-shown": true
+        },
+        "finished": {
+          "description": "The `JobFinished` event as events.ts `HubEvent`, null while the job runs.",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The job's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "kind": {
+          "description": "The job kind (`sync`, `refresh`, `tidy`, ...).",
+          "type": "string",
+          "x-shown": true
+        },
+        "last": {
+          "description": "The newest event of each type, as events.ts `HubEvent`, by the event's type name.",
+          "x-shown": true
+        },
+        "results": {
+          "description": "The `ActionFinished` events so far, as events.ts `HubEvent`s, in a list.",
+          "x-shown": true
+        },
+        "running": {
+          "description": "It is running.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "started": {
+          "description": "When it started, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "stopping": {
+          "description": "A stop was asked and the job ends after its current step.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song the job works on; null for a job on none.",
+          "x-shown": false
+        },
+        "usage": {
+          "description": "The newest `AccountUsage` event of each service, in the order the services first reported (`last` keeps only the newest one overall); empty until a download counted.",
+          "items": {},
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "track_id",
+        "started",
+        "running",
+        "stopping",
+        "last",
+        "results",
+        "finished",
+        "actions"
+      ],
+      "type": "object"
+    },
+    "JobStatus": {
+      "additionalProperties": false,
+      "description": "The snapshot after a window reload.",
+      "properties": {
+        "console_running": {
+          "description": "A console command is running.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "job": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JobSnap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The running write job; null when none runs.",
+          "x-shown": true
+        },
+        "read_status": {
+          "$ref": "#/$defs/ReadStatus",
+          "description": "How the last playlists read went.",
+          "x-shown": true
+        },
+        "refresh_running": {
+          "description": "A playlists read is running.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "sign_in": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JobSnap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A sign-in waiting for the browser (its own slot beside the write jobs; Settings restores its phase from it); null when none.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "job",
+        "refresh_running",
+        "console_running",
+        "read_status"
+      ],
+      "type": "object"
+    },
+    "Library": {
+      "additionalProperties": false,
+      "description": "One view of the library. A playlist or folder that is not there any more is no error: `empty` is `gone`, `rows` and `subtitle` are empty. An empty folder, and a playlist that was read and holds nothing, both have `empty` `no_match` even without search text.",
+      "properties": {
+        "aiff_stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LibraryAiffStopped"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The newest stopped `library:*` AIFF batch with items left: the header's \"Resume · {left} left\"; null when none (issue 33 stage D).",
+          "x-shown": true
+        },
+        "also": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/LibraryRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A playlist view: the files in the playlist's own Library folder whose song the playlist does not hold, by artist then title; null elsewhere.",
+          "x-shown": true
+        },
+        "chips": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "The row count of each `LibraryFilter` (`all` counts every row the table lists, a read playlist's songs without a file too, never `also`).",
+          "type": "object",
+          "x-shown": true
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmptyKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the page has nothing to show (`gone` adds to the usual words), or null.",
+          "x-shown": true
+        },
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A playlist view: whether its line is switched on; null elsewhere.",
+          "x-shown": true
+        },
+        "folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The old `folder` argument: null (All tracks), `__not_in_playlist__`, a playlist's folder name or a folder's key.",
+          "x-shown": false
+        },
+        "folder_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "watched",
+                "crate",
+                "library"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Folder views: what the folder is (`library`: a Library/ folder); null: none of these (`empty` is `gone`).",
+          "x-shown": true
+        },
+        "key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist's folder name as playlists.txt spells it, or the folder's path; null for All tracks and Not in a playlist.",
+          "x-shown": false
+        },
+        "read_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A playlist view: when its read was made; null: never read, and in other views.",
+          "x-shown": true
+        },
+        "rows": {
+          "description": "The rows of the view, searched and filtered.",
+          "items": {
+            "$ref": "#/$defs/LibraryRow"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlaylistService"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A playlist view: its service; null elsewhere.",
+          "x-shown": true
+        },
+        "songs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LibrarySongs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A read playlist's songs: how many it lists and how many have a file; null elsewhere and while never read. The page words \"13 of 18 downloaded\".",
+          "x-shown": true
+        },
+        "subtitle": {
+          "description": "The header's second line as parts in order of importance (the page drops the last parts first); empty when `gone`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "summary": {
+          "$ref": "#/$defs/LibrarySummary",
+          "description": "The folder at a glance.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The view's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "view": {
+          "$ref": "#/$defs/LibraryView",
+          "description": "What the request asked for.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "title",
+        "summary",
+        "folder",
+        "view",
+        "key",
+        "folder_kind",
+        "subtitle",
+        "chips",
+        "rows",
+        "also",
+        "songs",
+        "read_at",
+        "enabled",
+        "service",
+        "aiff_stopped",
+        "empty"
+      ],
+      "type": "object"
+    },
+    "LibraryAiffStopped": {
+      "additionalProperties": false,
+      "description": "The newest stopped `library:*` AIFF batch (Make all, a selection's Convert) with items left.",
+      "properties": {
+        "batch_id": {
+          "description": "The batch's id.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "left": {
+          "description": "How many items are left (\"Resume · {left} left\").",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "batch_id",
+        "left"
+      ],
+      "type": "object"
+    },
+    "LibraryFileState": {
+      "description": "A row's file as the Library says it: a `FileState`, or `no_file` for a playlist song that has no file yet (only in a playlist view).",
+      "enum": [
+        "here",
+        "offline",
+        "folder_missing",
+        "file_missing",
+        "no_file"
+      ]
+    },
     "LibraryFilter": {
       "description": "Which songs the Library lists.",
       "enum": [
@@ -1991,6 +3189,294 @@
         "fake",
         "upgrade_ready"
       ]
+    },
+    "LibraryRow": {
+      "additionalProperties": false,
+      "description": "One row of the Library: a song's row with what the table needs. The user's own songs (the import) are in no folder: `folder` is empty and `in_playlists` false.",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_state": {
+          "$ref": "#/$defs/LibraryFileState",
+          "description": "Whether the row's file is there now, decided per watched folder (`file_missing` is the stored mark of a file that waits as missing, issue 43); a row that is not `here` does not play. `no_file`: a playlist song that has no file yet.",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_missing_files": {
+          "description": "To-do's Missing files group lists the song: true only for a row whose file waits as missing and that the group lists; false for every other row, and for a song whose Download again is asked.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "next_try": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A `not_found` row: the day the sync looks again (ISO; due on and after it) or `next_sync` (never looked yet); null on every other row.",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it): the table never dims it. False for a downloaded or bought one.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "place": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The folder the file sits in, in the Folder column's words (a Library file says its playlist line or folder, a watched folder's file the folder and its crate); null: no file, or a playlist view's rows inside the playlist's own Library folder.",
+          "x-shown": true
+        },
+        "playlists": {
+          "description": "The playlists whose read holds the song, in playlists.txt order; empty for a song only a file holds.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "position": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The place in the playlist's read (playlist view only).",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "sound_checked": {
+          "description": "False for an imported file whose sound is not judged yet (its quality is the codec's guess for now: the page says \"sound not checked yet\").",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "subfolder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Folder views only: a watched folder's rows carry their crate's label (\"\" for a file directly in it), a crate's the folders below it (\"2019\" or \"A › B\"); null elsewhere.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "track_link": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrackLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's page on its service, for the row menu's \"Open in {Service}\"; null: no page known.",
+          "x-shown": true
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "wait": {
+          "anyOf": [
+            {
+              "enum": [
+                "waiting",
+                "not_found"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A song without a file: `waiting` (the sync has yet to get it) or `not_found` (the sync found nothing usable); null for a row with a file.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "own",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url",
+        "sound_checked",
+        "file_state",
+        "wait",
+        "next_try",
+        "position",
+        "place",
+        "subfolder",
+        "playlists",
+        "in_missing_files",
+        "track_link"
+      ],
+      "type": "object"
+    },
+    "LibrarySongs": {
+      "additionalProperties": false,
+      "description": "A read playlist's songs, before any search or filter.",
+      "properties": {
+        "listed": {
+          "description": "How many distinct songs it lists (what the sidebar's `songs` counts).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "with_file": {
+          "description": "How many of them have a file.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "listed",
+        "with_file"
+      ],
+      "type": "object"
     },
     "LibrarySort": {
       "description": "The Library's order: a column name, `-` in front for descending. `order` is a playlist's own order (its read record's); the engine's default there, and `artist` elsewhere.",
@@ -2012,6 +3498,161 @@
         "order",
         "-order"
       ]
+    },
+    "LibrarySummary": {
+      "additionalProperties": false,
+      "description": "The folder at a glance, unaffected by the search and the filter. Only the rows with a file count.",
+      "properties": {
+        "by_quality": {
+          "$ref": "#/$defs/ByQuality",
+          "description": "The checked files by quality class.",
+          "x-shown": true
+        },
+        "lossless_share": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The share of the checked files that are lossless; null when none is checked.",
+          "x-shown": true
+        },
+        "not_lossless": {
+          "description": "The checked files that are not lossless (good lossy + weak + fake).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "to_do": {
+          "description": "What the to-do list shows of the view (in a playlist, not hidden).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "tracks": {
+          "description": "The songs with a file.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "upgrades_ready": {
+          "description": "Better versions waiting.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "tracks",
+        "lossless_share",
+        "by_quality",
+        "upgrades_ready",
+        "to_do",
+        "not_lossless"
+      ],
+      "type": "object"
+    },
+    "LibraryView": {
+      "description": "Which view of the Library: All tracks, Not in a playlist, a playlist or a folder.",
+      "enum": [
+        "all",
+        "unlisted",
+        "playlist",
+        "folder"
+      ]
+    },
+    "LimitCard": {
+      "additionalProperties": false,
+      "description": "One service's card on Download limits (always all three, in quality order); a service that is not set up has zeros.",
+      "properties": {
+        "allowance": {
+          "description": "Today's allowance.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "name": {
+          "description": "Its name for the page (Qobuz, YouTube Premium, SoundCloud Go+).",
+          "type": "string",
+          "x-shown": true
+        },
+        "new_warnings": {
+          "description": "Those after the last \"Got it\".",
+          "type": "integer",
+          "x-shown": true
+        },
+        "paused": {
+          "description": "An `auto_stop` happened today.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/Service",
+          "description": "The service.",
+          "x-shown": true
+        },
+        "set_up": {
+          "description": "Whether the service is set up.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "used": {
+          "description": "Downloads that counted today.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "warnings": {
+          "description": "Warning signs of the last 14 days.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "service",
+        "name",
+        "set_up",
+        "used",
+        "allowance",
+        "warnings",
+        "new_warnings",
+        "paused"
+      ],
+      "type": "object"
+    },
+    "Limits": {
+      "additionalProperties": false,
+      "description": "The Download limits page.",
+      "properties": {
+        "cards": {
+          "description": "Always all three services in quality order.",
+          "items": {
+            "$ref": "#/$defs/LimitCard"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/Service",
+          "description": "The service the page is for.",
+          "x-shown": true
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServiceUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The page of that service; null when it is not set up.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "service",
+        "cards",
+        "usage"
+      ],
+      "type": "object"
     },
     "MissingAction": {
       "description": "What the user can do for a song whose file waits as missing: Download again for a song in a playlist, Remove from library for any other (the song decides, `missing.action_for`).",
@@ -2700,6 +4341,182 @@
       ],
       "type": "object"
     },
+    "PlaceNotes": {
+      "additionalProperties": false,
+      "description": "The engine's sentence for the placements of parked better versions.",
+      "properties": {
+        "closed": {
+          "description": "The sentence while rekordbox is closed.",
+          "type": "string",
+          "x-shown": true
+        },
+        "open": {
+          "description": "The sentence while rekordbox is open.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "closed",
+        "open"
+      ],
+      "type": "object"
+    },
+    "PlanCounts": {
+      "additionalProperties": false,
+      "description": "What the plan holds, by kind.",
+      "properties": {
+        "bought": {
+          "description": "Bought files to add.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "new": {
+          "description": "New downloads.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "redownloads": {
+          "description": "Songs downloaded again because their file is missing.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "retries": {
+          "description": "Songs tried again.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "weekly_checks": {
+          "description": "Weekly checks for a better version.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "new",
+        "retries",
+        "redownloads",
+        "bought",
+        "weekly_checks"
+      ],
+      "type": "object"
+    },
+    "PlannedAction": {
+      "additionalProperties": false,
+      "description": "One planned action of a running job, copied from `RunStarted.actions`.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "image_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cover.",
+          "x-shown": false
+        },
+        "kind": {
+          "description": "What the action does.",
+          "type": "string",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "kind",
+        "track_id",
+        "title",
+        "artist"
+      ],
+      "type": "object"
+    },
+    "PlaylistInfo": {
+      "additionalProperties": false,
+      "description": "What the service says of a playlist; null on the row until it was read (refresh or add_playlist).",
+      "properties": {
+        "collaborative": {
+          "description": "Whether it is collaborative.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "hint": {
+          "description": "The words of the row's service for a playlist it will not show (always set once info is).",
+          "type": "string",
+          "x-shown": true
+        },
+        "image_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its picture; null when none.",
+          "x-shown": false
+        },
+        "name": {
+          "description": "The playlist's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "owner_name": {
+          "description": "Its owner; empty when the name already says it (a SoundCloud likes list is named \"{username}'s likes\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "readable": {
+          "description": "Whether the service shows its tracks.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "track_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How many tracks it has; null when the service gives no count (a SoundCloud likes list: the row's `tracks` is then what the read found).",
+          "x-shown": true
+        },
+        "yours": {
+          "description": "Whether it is the user's own.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "name",
+        "owner_name",
+        "yours",
+        "collaborative",
+        "readable",
+        "image_url",
+        "track_count",
+        "hint"
+      ],
+      "type": "object"
+    },
     "PlaylistLine": {
       "additionalProperties": false,
       "description": "One line of playlists.txt as the window edits it.",
@@ -2727,6 +4544,194 @@
       ],
       "type": "object"
     },
+    "PlaylistOverlap": {
+      "additionalProperties": false,
+      "description": "A track that is in several switched-on playlists.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cover.",
+          "x-shown": false
+        },
+        "downloaded": {
+          "description": "Whether it has a file yet.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "folders": {
+          "description": "The playlists' folders, in list order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "lands_in": {
+          "description": "The first of them: where the file goes.",
+          "type": "string",
+          "x-shown": true
+        },
+        "never": {
+          "description": "The user left it out of the sync (\"never download\").",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words next to the colour; null without a state entry.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "cover_url",
+        "downloaded",
+        "quality",
+        "quality_label",
+        "folders",
+        "lands_in"
+      ],
+      "type": "object"
+    },
+    "PlaylistRow": {
+      "additionalProperties": false,
+      "description": "One line of playlists.txt on the playlists page (top = highest priority).",
+      "properties": {
+        "enabled": {
+          "description": "Whether the line is switched on.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist's folder name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "index": {
+          "description": "The line's place.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlaylistInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the service says; null until it was read.",
+          "x-shown": true
+        },
+        "link": {
+          "description": "The playlist's link.",
+          "type": "string",
+          "x-shown": true
+        },
+        "needs_setting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SettingKey"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A listed Liked music line while Settings' choice is off (or no YouTube login): the choice it needs, else null.",
+          "x-shown": true
+        },
+        "playlist_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist's ref (a Spotify id stays bare, every other service's is `<service>:<id>`); the page keys rows by it.",
+          "x-shown": false
+        },
+        "quality": {
+          "$ref": "#/$defs/ByQuality",
+          "description": "Its songs by quality class: always the five counts, all 0 while the tracks were not read (a switched-off playlist is never read).",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/PlaylistService",
+          "description": "The row's service.",
+          "x-shown": true
+        },
+        "service_name": {
+          "description": "Its name (Spotify, Qobuz, SoundCloud, YouTube Music).",
+          "type": "string",
+          "x-shown": true
+        },
+        "tracks": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tracks found; null when neither the tracks nor the playlist's count were read (the row then shows no count).",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "index",
+        "folder",
+        "link",
+        "playlist_id",
+        "service",
+        "service_name",
+        "enabled",
+        "info",
+        "tracks",
+        "quality",
+        "needs_setting"
+      ],
+      "type": "object"
+    },
     "PlaylistService": {
       "description": "A playlist service (`sources.py`): the one a playlist row, a link or a problem belongs to.",
       "enum": [
@@ -2734,6 +4739,305 @@
         "qobuz",
         "soundcloud",
         "youtube_music"
+      ]
+    },
+    "PlaylistTrack": {
+      "additionalProperties": false,
+      "description": "A track on the playlists page.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cover.",
+          "x-shown": false
+        },
+        "downloaded": {
+          "description": "Whether it has a file yet.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "never": {
+          "description": "The user left it out of the sync (\"never download\").",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words next to the colour; null without a state entry.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "cover_url",
+        "downloaded",
+        "quality",
+        "quality_label"
+      ],
+      "type": "object"
+    },
+    "Playlists": {
+      "additionalProperties": false,
+      "description": "The playlists page.",
+      "properties": {
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmptyKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the page has nothing to show, or null.",
+          "x-shown": true
+        },
+        "overlaps": {
+          "description": "For the panel when nothing is unsaved: each track that is in several switched-on playlists.",
+          "items": {
+            "$ref": "#/$defs/PlaylistOverlap"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "problem": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the sync would say about the file; null when nothing.",
+          "x-shown": true
+        },
+        "rows": {
+          "description": "Every line, top = highest priority.",
+          "items": {
+            "$ref": "#/$defs/PlaylistRow"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "tidy": {
+          "$ref": "#/$defs/PlaylistsTidy",
+          "description": "The tidy-up's badge.",
+          "x-shown": true
+        },
+        "version": {
+          "description": "The playlists file's version: must be sent to `save_playlists`.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "version",
+        "problem",
+        "rows",
+        "overlaps",
+        "empty",
+        "tidy"
+      ],
+      "type": "object"
+    },
+    "PlaylistsTidy": {
+      "additionalProperties": false,
+      "description": "The tidy-up's badge.",
+      "properties": {
+        "waiting": {
+          "description": "Files a tidy-up ticks by default (`planner.out_of_place`: files the playlist order puts elsewhere, not placed by the user): the \"Tidy up files\" badge.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "waiting"
+      ],
+      "type": "object"
+    },
+    "PreviewAction": {
+      "additionalProperties": false,
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cover's media URL, else the Spotify image URL, else null.",
+          "x-shown": false
+        },
+        "folder": {
+          "description": "The playlist folder it goes to.",
+          "type": "string",
+          "x-shown": true
+        },
+        "in": {
+          "description": "The collections of the browser column the song belongs to (issue 37), by their targets: every playlist whose read holds it (`playlist:<ref>`, playlists.txt order), then the folders its file sits in, outer to inner (`folder:<path>`). Sync leaves the row out only when every one of them is switched off; empty: nothing can switch it off.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "key": {
+          "$ref": "#/$defs/ActionKey",
+          "description": "The action's key, sent back ticked to `start_sync`.",
+          "x-shown": false
+        },
+        "kind": {
+          "description": "What the action does (acquire, adopt_bought, upgrade).",
+          "type": "string",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why: new, retry or redownload for a download; null for the others.",
+          "x-shown": true
+        },
+        "run": {
+          "description": "The order the sync works through the actions (kind, then playlist order); not on `never` rows.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "src": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file it starts from; null when none.",
+          "x-shown": false
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "to_dir": {
+          "description": "The folder it lands in (`Library/<folder>`).",
+          "type": "string",
+          "x-shown": true
+        },
+        "to_not_lossless": {
+          "description": "It would land in the folder's `not_lossless` folder.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "reason",
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "to_dir",
+        "to_not_lossless",
+        "src",
+        "cover_url",
+        "in"
+      ],
+      "type": "object"
+    },
+    "PreviewGroup": {
+      "additionalProperties": false,
+      "description": "One group of the preview's actions.",
+      "properties": {
+        "actions": {
+          "description": "Its actions.",
+          "items": {
+            "$ref": "#/$defs/PreviewAction"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "key": {
+          "$ref": "#/$defs/PreviewGroupKey",
+          "description": "The group.",
+          "x-shown": false
+        },
+        "label": {
+          "description": "The group's title (Download (new), Try again, Download again, Add a bought file, Look for a better version).",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "actions"
+      ],
+      "type": "object"
+    },
+    "PreviewGroupKey": {
+      "description": "A group of the Sync page's preview, in the order the page lists them: Download (new), Try again, Download again, Add a bought file, Look for a better version.",
+      "enum": [
+        "acquire:new",
+        "acquire:retry",
+        "acquire:redownload",
+        "adopt_bought",
+        "upgrade"
       ]
     },
     "ProblemKind": {
@@ -2760,6 +5064,124 @@
         "exists",
         "rekordbox_open"
       ]
+    },
+    "QobuzSignal": {
+      "additionalProperties": false,
+      "description": "A warning sign of Qobuz.",
+      "properties": {
+        "clears_in": {
+          "description": "Days until it leaves the 14 days (1 = tomorrow).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "kind": {
+          "$ref": "#/$defs/SignalKind",
+          "description": "What kind of sign it is.",
+          "x-shown": true
+        },
+        "message": {
+          "description": "What happened, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "new": {
+          "description": "After the time in settings.json `warnings_seen[service]`, or never marked.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "time": {
+          "description": "When it happened, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "time",
+        "message",
+        "new",
+        "clears_in",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "QobuzUsage": {
+      "additionalProperties": false,
+      "description": "Qobuz's page of Download limits.",
+      "properties": {
+        "assessment": {
+          "$ref": "#/$defs/Assessment",
+          "description": "What the limit means.",
+          "x-shown": true
+        },
+        "days": {
+          "description": "The last 14 days, oldest first.",
+          "items": {
+            "$ref": "#/$defs/UsageDay"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "last_download": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the last download that counted toward the limit was, an ISO time (any day); null if none yet.",
+          "x-shown": true
+        },
+        "setting": {
+          "$ref": "#/$defs/UsageSetting",
+          "description": "The setting and what the slider offers.",
+          "x-shown": true
+        },
+        "signal_summary": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "A count for every `SignalKind`.",
+          "type": "object",
+          "x-shown": true
+        },
+        "signals": {
+          "description": "The warning signs of the last 14 days.",
+          "items": {
+            "$ref": "#/$defs/QobuzSignal"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "still_to_load": {
+          "$ref": "#/$defs/StillToLoad",
+          "description": "The downloads still to do.",
+          "x-shown": true
+        },
+        "today": {
+          "$ref": "#/$defs/Budget",
+          "description": "Today's numbers.",
+          "x-shown": true
+        },
+        "what_if": {
+          "$ref": "#/$defs/WhatIf",
+          "description": "What the saved limit means, in the answer of `limits_what_if`.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "today",
+        "days",
+        "setting",
+        "assessment",
+        "what_if",
+        "last_download",
+        "still_to_load",
+        "signals",
+        "signal_summary"
+      ],
+      "type": "object"
     },
     "Quality": {
       "description": "A song's colour class: lossless green, good_lossy yellow, weak red (cutoff 17 kHz or less), fake purple, missing red.",
@@ -3114,6 +5536,148 @@
         "length",
         "no_length"
       ]
+    },
+    "ReadStatus": {
+      "additionalProperties": false,
+      "description": "\"Playlists read 2 min ago\": how the last playlists read went (the wire field is `read_status`).",
+      "properties": {
+        "auto_read": {
+          "description": "The hub's one automatic read of this session has started (kept in Python, so also after a window reload).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "message": {
+          "description": "The problem in words; empty when there is none.",
+          "type": "string",
+          "x-shown": true
+        },
+        "minutes_ago": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whole minutes since `read_at`; null when none was read.",
+          "x-shown": false
+        },
+        "offline": {
+          "description": "The last read found no network (`problem` is `offline`).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "problem": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProblemKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The last read's problem kind (`offline`: the data shown is older); null when it went well.",
+          "x-shown": true
+        },
+        "problem_service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlaylistService"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist service `problem` is about; null when no service's problem (a good read clears it).",
+          "x-shown": true
+        },
+        "read_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the playlists were last read, an ISO time; null when none was.",
+          "x-shown": true
+        },
+        "reading": {
+          "description": "A read is running now.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "services": {
+          "description": "The services the switched-on lines of playlists.txt use, in line order.",
+          "items": {
+            "$ref": "#/$defs/ReadStatusService"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "stale": {
+          "description": "The data shown is older than the playlists file.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "read_at",
+        "minutes_ago",
+        "problem",
+        "message",
+        "problem_service",
+        "services",
+        "stale",
+        "reading",
+        "offline",
+        "auto_read"
+      ],
+      "type": "object"
+    },
+    "ReadStatusService": {
+      "additionalProperties": false,
+      "description": "One playlist service the switched-on lines of playlists.txt use.",
+      "properties": {
+        "connected": {
+          "description": "Whether its login files exist.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "name": {
+          "description": "Its name for the page (Spotify, Qobuz, SoundCloud, YouTube Music).",
+          "type": "string",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/PlaylistService",
+          "description": "The service.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "service",
+        "name",
+        "connected"
+      ],
+      "type": "object"
+    },
+    "RefreshResult": {
+      "additionalProperties": false,
+      "description": "The result of the playlists read (`refresh`).",
+      "properties": {
+        "actions": {
+          "description": "How many actions the new plan has.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "actions"
+      ],
+      "type": "object"
     },
     "RekordboxCheckBatch": {
       "additionalProperties": false,
@@ -3907,6 +6471,563 @@
       ],
       "type": "object"
     },
+    "RunAnswer": {
+      "additionalProperties": false,
+      "description": "One run's end screen.",
+      "properties": {
+        "run": {
+          "$ref": "#/$defs/RunDetail",
+          "description": "The run.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "run"
+      ],
+      "type": "object"
+    },
+    "RunAutoUpgrade": {
+      "additionalProperties": false,
+      "description": "A run's Auto-upgrade block with its one-line account.",
+      "properties": {
+        "backup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The copy of rekordbox's library made for it, or null.",
+          "x-shown": true
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The batch's id, null when no batch ran.",
+          "x-shown": false
+        },
+        "done": {
+          "description": "How many were done.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "dry_run": {
+          "description": "Nothing was written: this is the plan.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "failed": {
+          "description": "How many failed.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The block's one line (\"Upgraded 2 tracks; your cues stayed. 1 waits for rekordbox to be closed.\"); null when nothing happened.",
+          "x-shown": true
+        },
+        "refused": {
+          "description": "How many the phase refuses and To-do shows.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "results": {
+          "description": "One row per track.",
+          "items": {
+            "$ref": "#/$defs/AutoUpgradeResult"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "stopped": {
+          "description": "The run was stopped.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "waiting": {
+          "description": "How many wait (rekordbox open + busy + not reached).",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "batch",
+        "backup",
+        "done",
+        "waiting",
+        "refused",
+        "failed",
+        "stopped",
+        "dry_run",
+        "results",
+        "line"
+      ],
+      "type": "object"
+    },
+    "RunCounts": {
+      "additionalProperties": false,
+      "description": "What a run did, in four counts.",
+      "properties": {
+        "lossless": {
+          "description": "Lossless songs it got.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "lossy": {
+          "description": "Lossy songs it got.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "moved": {
+          "description": "Files it moved.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "problems": {
+          "description": "Rows that need the user.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "lossless",
+        "lossy",
+        "problems",
+        "moved"
+      ],
+      "type": "object"
+    },
+    "RunDetail": {
+      "additionalProperties": false,
+      "description": "The end screen of a run: its summary, and the rows by section, what needs the user, what changed for rekordbox and the upgrades waiting. Every row with a `track_id` except those of `queued` carries `cover_url`.",
+      "properties": {
+        "auto_upgrade": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunAutoUpgrade"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run's Auto-upgrade phase and its one-line account; null when the switch was off for the run.",
+          "x-shown": true
+        },
+        "counts": {
+          "$ref": "#/$defs/RunCounts",
+          "description": "What it did.",
+          "x-shown": true
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How long it ran, in seconds; null when start or finish is not known.",
+          "x-shown": true
+        },
+        "exit_code": {
+          "description": "How it ended: 0 well, 130 stopped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "finished": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it finished; null while it never did.",
+          "x-shown": true
+        },
+        "folder_order": {
+          "description": "The playlist folders in playlists.txt order, for grouping the rows.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "for_rekordbox": {
+          "$ref": "#/$defs/RunDetailForRekordbox",
+          "description": "What changed for rekordbox.",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The typed id the command line takes, `report:<run_id>` (the window ignores it).",
+          "type": "string",
+          "x-shown": false
+        },
+        "kind": {
+          "description": "What the run was: a whole sync, or only its Auto-upgrade phase (`sync run --auto-upgrade-only`, the command line's; a run from before it is a sync); the window never starts the second.",
+          "enum": [
+            "sync",
+            "auto_upgrade_only"
+          ],
+          "x-shown": true
+        },
+        "needs_you": {
+          "description": "The rows that need the user.",
+          "items": {
+            "$ref": "#/$defs/Result"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "part_labels": {
+          "$ref": "#/$defs/RunPartLabels",
+          "description": "The titles of the Auto-upgrade parts: the window prints them as they are.",
+          "x-shown": true
+        },
+        "queued": {
+          "description": "How many tracks wait for the next sync (stopped before, left out, over the limit).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "report_md": {
+          "description": "The report's file, relative to the support folder.",
+          "type": "string",
+          "x-shown": false
+        },
+        "run_id": {
+          "description": "The run's id, the report's stamp.",
+          "type": "string",
+          "x-shown": false
+        },
+        "section_labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The report's own title of every section (`report.SECTIONS`; the end part of the placements reads `placed_missing`): the window prints them as they are.",
+          "type": "object",
+          "x-shown": true
+        },
+        "sections": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/Result"
+            },
+            "type": "array"
+          },
+          "description": "The report's rows by section (`report.SECTIONS`).",
+          "type": "object",
+          "x-shown": true
+        },
+        "started": {
+          "description": "When the run started, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "stopped_after": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For a stopped run: how many songs it had done; null otherwise.",
+          "x-shown": true
+        },
+        "upgrades_ready": {
+          "description": "Upgrades waiting now.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "run_id",
+        "id",
+        "started",
+        "finished",
+        "duration_s",
+        "exit_code",
+        "counts",
+        "stopped_after",
+        "kind",
+        "auto_upgrade",
+        "sections",
+        "needs_you",
+        "for_rekordbox",
+        "upgrades_ready",
+        "report_md",
+        "queued",
+        "folder_order",
+        "section_labels",
+        "part_labels"
+      ],
+      "type": "object"
+    },
+    "RunDetailForRekordbox": {
+      "additionalProperties": false,
+      "description": "What a run changed for rekordbox.",
+      "properties": {
+        "folders": {
+          "description": "The folders they are in.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "new_files": {
+          "description": "New files the run put in the library.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "new_files",
+        "folders"
+      ],
+      "type": "object"
+    },
+    "RunPartLabels": {
+      "additionalProperties": false,
+      "description": "The titles of the Auto-upgrade parts that hold rows of more than one section (`report.PART_LABELS`).",
+      "properties": {
+        "refused": {
+          "description": "The title of the refused part.",
+          "type": "string",
+          "x-shown": true
+        },
+        "upgraded": {
+          "description": "The title of the upgraded part.",
+          "type": "string",
+          "x-shown": true
+        },
+        "waiting": {
+          "description": "The title of the waiting part.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "upgraded",
+        "waiting",
+        "refused"
+      ],
+      "type": "object"
+    },
+    "RunSummary": {
+      "additionalProperties": false,
+      "description": "One run of the sync as the history lists it (`reports/<run_id>.json`).",
+      "properties": {
+        "auto_upgrade": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunAutoUpgrade"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run's Auto-upgrade phase and its one-line account; null when the switch was off for the run.",
+          "x-shown": true
+        },
+        "counts": {
+          "$ref": "#/$defs/RunCounts",
+          "description": "What it did.",
+          "x-shown": true
+        },
+        "duration_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How long it ran, in seconds; null when start or finish is not known.",
+          "x-shown": true
+        },
+        "exit_code": {
+          "description": "How it ended: 0 well, 130 stopped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "finished": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it finished; null while it never did.",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The typed id the command line takes, `report:<run_id>` (the window ignores it).",
+          "type": "string",
+          "x-shown": false
+        },
+        "kind": {
+          "description": "What the run was: a whole sync, or only its Auto-upgrade phase (`sync run --auto-upgrade-only`, the command line's; a run from before it is a sync); the window never starts the second.",
+          "enum": [
+            "sync",
+            "auto_upgrade_only"
+          ],
+          "x-shown": true
+        },
+        "run_id": {
+          "description": "The run's id, the report's stamp.",
+          "type": "string",
+          "x-shown": false
+        },
+        "started": {
+          "description": "When the run started, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "stopped_after": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For a stopped run: how many songs it had done; null otherwise.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "run_id",
+        "id",
+        "started",
+        "finished",
+        "duration_s",
+        "exit_code",
+        "counts",
+        "stopped_after",
+        "kind",
+        "auto_upgrade"
+      ],
+      "type": "object"
+    },
+    "Runs": {
+      "additionalProperties": false,
+      "description": "The run history.",
+      "properties": {
+        "runs": {
+          "description": "The runs, newest first.",
+          "items": {
+            "$ref": "#/$defs/RunSummary"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "runs"
+      ],
+      "type": "object"
+    },
+    "SaveLimitsResult": {
+      "additionalProperties": false,
+      "description": "The result of `save_limits`.",
+      "properties": {
+        "extra_today": {
+          "description": "The extra for today saved.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "The daily limit saved.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/Service",
+          "description": "The service.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "service",
+        "limit",
+        "extra_today"
+      ],
+      "type": "object"
+    },
+    "ScanResult": {
+      "additionalProperties": false,
+      "description": "What one library scan found (`rescan_library`, `library scan --json`; issue 43): a file the scan does not see waits as missing, never decided by one scan.",
+      "properties": {
+        "back": {
+          "description": "Missing files seen again.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "changed": {
+          "description": "Audio replaced outside Discjockey.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "copies": {
+          "description": "Copies of a file found.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "gone": {
+          "description": "Index rows of nobody's file, dropped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "missing": {
+          "description": "Songs whose file was not found at this scan.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "moved": {
+          "description": "Files found in another folder.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "new": {
+          "description": "New files.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "moved",
+        "new",
+        "gone",
+        "missing",
+        "back",
+        "changed",
+        "copies"
+      ],
+      "type": "object"
+    },
     "SelectListingAnswer": {
       "additionalProperties": false,
       "description": "The songs a listing selects.",
@@ -3930,9 +7051,353 @@
       ],
       "type": "object"
     },
+    "Service": {
+      "description": "A download service with a daily limit (Download limits): Qobuz, a YouTube Premium account or a SoundCloud Go+ account.",
+      "enum": [
+        "qobuz",
+        "youtube",
+        "soundcloud"
+      ]
+    },
+    "ServiceUsage": {
+      "additionalProperties": false,
+      "description": "The Download limits page of one set-up service.",
+      "properties": {
+        "assessment": {
+          "$ref": "#/$defs/Assessment",
+          "description": "What the limit means.",
+          "x-shown": true
+        },
+        "behind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "\"Qobuz\" for an account behind Qobuz (it only gets the tracks Qobuz lacks), else null.",
+          "x-shown": true
+        },
+        "days": {
+          "description": "The last 14 days, oldest first.",
+          "items": {
+            "$ref": "#/$defs/UsageDay"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "last_download": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the last download that counted toward the limit was, an ISO time (any day); null if none yet.",
+          "x-shown": true
+        },
+        "name": {
+          "description": "Its name for the page.",
+          "type": "string",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/Service",
+          "description": "The service.",
+          "x-shown": true
+        },
+        "setting": {
+          "$ref": "#/$defs/UsageSetting",
+          "description": "The setting and what the slider offers.",
+          "x-shown": true
+        },
+        "signal_summary": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "A count for every `AnySignalKind` of the service: Qobuz login_failed, search_failed, download_rejected, preview_only, duration_mismatch, auto_stop; YouTube cookies_unreadable, bot_check, rate_limited, refused, premium_missing, download_rejected, auto_stop; SoundCloud the same without bot_check.",
+          "type": "object",
+          "x-shown": true
+        },
+        "signals": {
+          "description": "The warning signs of the last 14 days.",
+          "items": {
+            "$ref": "#/$defs/Signal"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "still_to_load": {
+          "$ref": "#/$defs/StillToLoad",
+          "description": "The downloads still to do.",
+          "x-shown": true
+        },
+        "today": {
+          "$ref": "#/$defs/Budget",
+          "description": "Today's numbers.",
+          "x-shown": true
+        },
+        "what_if": {
+          "$ref": "#/$defs/WhatIf",
+          "description": "What the saved limit means, in the answer of `limits_what_if`.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "today",
+        "days",
+        "setting",
+        "assessment",
+        "what_if",
+        "last_download",
+        "service",
+        "name",
+        "behind",
+        "still_to_load",
+        "signals",
+        "signal_summary"
+      ],
+      "type": "object"
+    },
     "SettingKey": {
       "const": "read_liked_music",
       "description": "A choice in Settings that a read needs (its key in settings.json): `setting_off` names it in `setting`."
+    },
+    "Sidebar": {
+      "additionalProperties": false,
+      "description": "Counts and lists for the sidebar. Every `files` count is the length of the `rows` of the view it opens, as are `all_tracks`, `not_in_playlist` and a playlist's `songs`.",
+      "properties": {
+        "all_tracks": {
+          "description": "All tracks.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "favourites": {
+          "description": "The Favourites in their stored order.",
+          "items": {
+            "$ref": "#/$defs/Favourite"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "library_folders": {
+          "description": "The Library folders with files that no playlist line uses, by name (case and accents ignored).",
+          "items": {
+            "$ref": "#/$defs/SidebarLibraryFolder"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "limits_warning": {
+          "description": "A set-up service has a warning sign the user has not marked as seen (\"Got it\"), or is paused today: the dot on Download limits.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "not_in_playlist": {
+          "description": "Songs in no playlist.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "playlists": {
+          "description": "Every line of playlists.txt in file order, switched-off ones too.",
+          "items": {
+            "$ref": "#/$defs/SidebarPlaylist"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "todo": {
+          "description": "The to-do badge.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "watched": {
+          "description": "The watched import folders (not the Library) by name.",
+          "items": {
+            "$ref": "#/$defs/WatchedEntry"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "todo",
+        "all_tracks",
+        "not_in_playlist",
+        "limits_warning",
+        "favourites",
+        "playlists",
+        "watched",
+        "library_folders"
+      ],
+      "type": "object"
+    },
+    "SidebarLibraryFolder": {
+      "additionalProperties": false,
+      "description": "A `Library/` folder with files that no playlist line uses.",
+      "properties": {
+        "files": {
+          "description": "The files at or below it.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "name": {
+          "description": "The folder's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "path": {
+          "description": "`Library/<name>`, what `library(\"folder\", …)` takes.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "path",
+        "name",
+        "files"
+      ],
+      "type": "object"
+    },
+    "SidebarPlaylist": {
+      "additionalProperties": false,
+      "description": "One line of playlists.txt in the sidebar.",
+      "properties": {
+        "enabled": {
+          "description": "Whether the line is switched on.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "name": {
+          "description": "The playlist's folder name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "ref": {
+          "description": "The playlist's token: a Spotify id stays bare, any other service is `service:id`.",
+          "type": "string",
+          "x-shown": false
+        },
+        "service": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlaylistService"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its service.",
+          "x-shown": true
+        },
+        "songs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The distinct songs of its read record; null: never read. A read that found no song is 0.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "name",
+        "ref",
+        "service",
+        "enabled",
+        "songs"
+      ],
+      "type": "object"
+    },
+    "Signal": {
+      "additionalProperties": false,
+      "description": "A warning sign of a YouTube or SoundCloud account (or any service).",
+      "properties": {
+        "clears_in": {
+          "description": "Days until it leaves the 14 days (1 = tomorrow).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "kind": {
+          "$ref": "#/$defs/AnySignalKind",
+          "description": "What kind of sign it is.",
+          "x-shown": true
+        },
+        "message": {
+          "description": "What happened, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "new": {
+          "description": "After the time in settings.json `warnings_seen[service]`, or never marked.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "time": {
+          "description": "When it happened, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "time",
+        "message",
+        "new",
+        "clears_in",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "SignalBase": {
+      "additionalProperties": false,
+      "description": "A warning sign without its kind: `new` is after the last \"Got it\".",
+      "properties": {
+        "clears_in": {
+          "description": "Days until it leaves the 14 days (1 = tomorrow).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "message": {
+          "description": "What happened, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "new": {
+          "description": "After the time in settings.json `warnings_seen[service]`, or never marked.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "time": {
+          "description": "When it happened, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "time",
+        "message",
+        "new",
+        "clears_in"
+      ],
+      "type": "object"
+    },
+    "SignalKind": {
+      "description": "A kind of warning sign of Qobuz.",
+      "enum": [
+        "login_failed",
+        "search_failed",
+        "download_rejected",
+        "preview_only",
+        "duration_mismatch",
+        "auto_stop"
+      ]
     },
     "Source": {
       "description": "Where a file came from; `manual` is a file the user bought or owns.",
@@ -3955,6 +7420,91 @@
         "chosen"
       ]
     },
+    "Spectrum": {
+      "additionalProperties": false,
+      "description": "A file's spectrum. `data` is `cols * bands` bytes row by row in time, each row low to high frequency (band width `max_hz / bands`): byte v is `floor_db * (1 - v / 255)` dB (0 dB = the loudest cell).",
+      "properties": {
+        "bands": {
+          "description": "How many frequency bands.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "cols": {
+          "description": "How many columns (time steps).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, where to draw the cutoff line; null: none (always for the parked version).",
+          "x-shown": true
+        },
+        "data": {
+          "description": "The matrix, base64.",
+          "type": "string",
+          "x-shown": false
+        },
+        "duration_s": {
+          "description": "The file's length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "floor_db": {
+          "description": "The quietest dB the bytes show.",
+          "type": "number",
+          "x-shown": true
+        },
+        "max_hz": {
+          "description": "The highest frequency.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "waveform": {
+          "description": "Base64 of `cols` bytes, one per column (the same columns as the matrix): the largest sample anywhere in that column's stretch of the track, 0 = silence, 255 = the loudest column, linear; for the mini player's bars.",
+          "type": "string",
+          "x-shown": false
+        },
+        "which": {
+          "$ref": "#/$defs/Which",
+          "description": "Which file it is of.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "cols",
+        "bands",
+        "max_hz",
+        "duration_s",
+        "floor_db",
+        "data",
+        "waveform",
+        "which",
+        "cutoff_hz"
+      ],
+      "type": "object"
+    },
+    "SpectrumAnswer": {
+      "additionalProperties": false,
+      "description": "A file's spectrum.",
+      "properties": {
+        "spectrum": {
+          "$ref": "#/$defs/Spectrum",
+          "description": "The spectrum.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "spectrum"
+      ],
+      "type": "object"
+    },
     "Status": {
       "description": "What the sound check made of a file.",
       "enum": [
@@ -3963,6 +7513,516 @@
         "fake_lossless",
         "missing"
       ]
+    },
+    "StillToLoad": {
+      "additionalProperties": false,
+      "description": "How long the rest of the downloads takes at the daily limit. All three are null before the playlists were read, and for an account behind Qobuz (Qobuz decides).",
+      "properties": {
+        "count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Downloads still to do.",
+          "x-shown": true
+        },
+        "days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Days they take at the allowance.",
+          "x-shown": true
+        },
+        "fits_today": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether they all fit into today's allowance.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "count",
+        "days",
+        "fits_today"
+      ],
+      "type": "object"
+    },
+    "Stopped": {
+      "additionalProperties": false,
+      "description": "What `stop`, `stop_refresh` and `stop_sign_in` answer.",
+      "properties": {
+        "stopped": {
+          "description": "Whether a job was running to stop.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "stopped"
+      ],
+      "type": "object"
+    },
+    "SyncAccount": {
+      "additionalProperties": false,
+      "description": "One service of the Sync page's estimate.",
+      "properties": {
+        "about": {
+          "description": "True for every service but Qobuz: an estimate.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "left": {
+          "description": "What is left of its allowance today.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "Its daily limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "name": {
+          "description": "Its name for the page.",
+          "type": "string",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/Service",
+          "description": "The service.",
+          "x-shown": true
+        },
+        "uses": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How many downloads it is expected to do; null for an account behind Qobuz, which only gets the tracks Qobuz lacks.",
+          "x-shown": true
+        },
+        "uses_by_downloads": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its `uses` for `n` downloads, `n` = 0 … `qobuz_uses` (the engine's `views.split`); null for a backup behind Qobuz. The page looks its ticked count up (a larger count takes the last entry) and never repeats the split.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "service",
+        "name",
+        "uses",
+        "left",
+        "limit",
+        "about",
+        "uses_by_downloads"
+      ],
+      "type": "object"
+    },
+    "SyncEstimate": {
+      "additionalProperties": false,
+      "description": "The Sync page's estimate: the formula and the split live in the engine, the page looks its subset's count up.",
+      "properties": {
+        "accounts": {
+          "description": "The expected split between the services.",
+          "items": {
+            "$ref": "#/$defs/SyncAccount"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "duration_min": {
+          "description": "How long the downloads that fit today take, in minutes (70 s a download, rounded to 5 minutes).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Today's remaining allowance; null: no daily limit (only free sources are set up).",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "The daily limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "minutes_by_downloads": {
+          "description": "The minutes for `n` downloads, `n` = 0 … `qobuz_uses` (the most any ticked subset can run today).",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "qobuz_left": {
+          "description": "What is left of Qobuz's allowance today (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_limit": {
+          "description": "The daily limit setting of Qobuz (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_needed": {
+          "description": "The downloads the plan needs from Qobuz (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "qobuz_uses": {
+          "description": "The downloads expected from Qobuz today (kept for one release).",
+          "type": "integer",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "duration_min",
+        "qobuz_limit",
+        "qobuz_needed",
+        "qobuz_left",
+        "qobuz_uses",
+        "left",
+        "limit",
+        "accounts",
+        "minutes_by_downloads"
+      ],
+      "type": "object"
+    },
+    "SyncPreview": {
+      "additionalProperties": false,
+      "description": "The check before Start. Each action's `key` is sent back ticked to `start_sync`. Before the first read the counts are 0, `counts` and `estimate` null and `collections` empty.",
+      "properties": {
+        "ambiguous": {
+          "description": "Songs whose files the sync cannot tell apart.",
+          "items": {
+            "$ref": "#/$defs/SyncPreviewAmbiguous"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "auto_upgrade": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SyncPreviewAutoUpgrade"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Auto-upgrade before a start; null: the switch is off and nothing is to be placed (or settings.json cannot be read, or there is no preview).",
+          "x-shown": true
+        },
+        "collections": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Every collection a row is `in`, by its target, to its name as the plan's sections name it (\"Techno\", \"Techno › 2019\"); empty before the first read.",
+          "type": "object",
+          "x-shown": true
+        },
+        "counts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlanCounts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the plan holds; null before a read.",
+          "x-shown": true
+        },
+        "deferred_checks": {
+          "description": "First upgrade checks of imported music that the per-run cap left for later runs.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "dropped": {
+          "description": "Songs the plan dropped.",
+          "items": {
+            "$ref": "#/$defs/SyncPreviewDropped"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmptyKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the page has nothing to show, or null.",
+          "x-shown": true
+        },
+        "estimate": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SyncEstimate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How long it takes and which service does the downloads; null before a read.",
+          "x-shown": true
+        },
+        "folders": {
+          "description": "The playlist folders in playlists.txt order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "groups": {
+          "description": "The actions by group, in the order the page lists them.",
+          "items": {
+            "$ref": "#/$defs/PreviewGroup"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The unique Spotify tracks read; null before a read.",
+          "x-shown": true
+        },
+        "never": {
+          "description": "Downloads left out because the user said \"never download\" (rows without `run`).",
+          "items": {
+            "$ref": "#/$defs/PreviewAction"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "notes": {
+          "description": "Notes of the plan, in words.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "read_status": {
+          "$ref": "#/$defs/ReadStatus",
+          "description": "How the last playlists read went.",
+          "x-shown": true
+        },
+        "waiting_answers": {
+          "description": "Songs held back until the user answers \"Is this the same song?\" (not downloaded meanwhile).",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "read_status",
+        "counts",
+        "waiting_answers",
+        "deferred_checks",
+        "groups",
+        "estimate",
+        "never",
+        "folders",
+        "in_playlists",
+        "ambiguous",
+        "dropped",
+        "notes",
+        "empty",
+        "collections",
+        "auto_upgrade"
+      ],
+      "type": "object"
+    },
+    "SyncPreviewAmbiguous": {
+      "additionalProperties": false,
+      "description": "A song whose files the sync cannot tell apart.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "files": {
+          "description": "The files that could be it.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "files"
+      ],
+      "type": "object"
+    },
+    "SyncPreviewAutoUpgrade": {
+      "additionalProperties": false,
+      "description": "Auto-upgrade before a start. Null in the preview when the switch is off and nothing is to be placed.",
+      "properties": {
+        "on": {
+          "description": "The Auto-upgrade switch.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "place_notes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlaceNotes"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The engine's sentence for them (rekordbox closed / open); null with none.",
+          "x-shown": true
+        },
+        "places": {
+          "description": "The missing songs it would put their parked better version in (with the switch off too).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "ready": {
+          "description": "The upgrades the sync's last phase would put in place (those that would wait for rekordbox included; nothing of rekordbox's library is opened for it).",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "on",
+        "ready",
+        "places",
+        "place_notes"
+      ],
+      "type": "object"
+    },
+    "SyncPreviewDropped": {
+      "additionalProperties": false,
+      "description": "A song the plan dropped.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder"
+      ],
+      "type": "object"
+    },
+    "SyncResult": {
+      "additionalProperties": false,
+      "description": "The result of a sync (`start_sync`); a crashed sync carries one too: `exit_code` 1, `report` its crash note.",
+      "properties": {
+        "actions": {
+          "description": "How many actions it ran; 0 when it crashed before the plan.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "exit_code": {
+          "description": "How the run ended: 0 well, 130 stopped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "new_since_preview": {
+          "description": "Actions the plan gained since the preview.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "report": {
+          "description": "The report's absolute .md path.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "exit_code",
+        "report",
+        "actions",
+        "new_since_preview"
+      ],
+      "type": "object"
     },
     "Todo": {
       "additionalProperties": false,
@@ -6299,6 +10359,301 @@
       ],
       "type": "object"
     },
+    "UsageBase": {
+      "additionalProperties": false,
+      "description": "What every service's page has: today, the last 14 days, the setting, its meaning and the last download.",
+      "properties": {
+        "assessment": {
+          "$ref": "#/$defs/Assessment",
+          "description": "What the limit means.",
+          "x-shown": true
+        },
+        "days": {
+          "description": "The last 14 days, oldest first.",
+          "items": {
+            "$ref": "#/$defs/UsageDay"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "last_download": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the last download that counted toward the limit was, an ISO time (any day); null if none yet.",
+          "x-shown": true
+        },
+        "setting": {
+          "$ref": "#/$defs/UsageSetting",
+          "description": "The setting and what the slider offers.",
+          "x-shown": true
+        },
+        "today": {
+          "$ref": "#/$defs/Budget",
+          "description": "Today's numbers.",
+          "x-shown": true
+        },
+        "what_if": {
+          "$ref": "#/$defs/WhatIf",
+          "description": "What the saved limit means, in the answer of `limits_what_if`.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "today",
+        "days",
+        "setting",
+        "assessment",
+        "what_if",
+        "last_download"
+      ],
+      "type": "object"
+    },
+    "UsageDay": {
+      "additionalProperties": false,
+      "description": "One day of a service's use.",
+      "properties": {
+        "date": {
+          "description": "The day, an ISO date.",
+          "type": "string",
+          "x-shown": true
+        },
+        "used": {
+          "description": "Downloads that counted that day.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "date",
+        "used"
+      ],
+      "type": "object"
+    },
+    "UsageSetting": {
+      "additionalProperties": false,
+      "description": "The setting and what the slider offers.",
+      "properties": {
+        "extra_max": {
+          "description": "The largest extra for today.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "extra_today": {
+          "description": "The one-time extra for today.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "The daily limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "max": {
+          "description": "The largest limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "min": {
+          "description": "The smallest limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "recommended": {
+          "description": "The recommended limit (60 Qobuz, 30 YouTube, 60 SoundCloud).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "zones": {
+          "description": "The five zones (Qobuz and SoundCloud: careful 1–40, normal 41–60, faster 61–79, fast 80–100, risky 101–500; YouTube: careful 1–20, normal 21–30, faster 31–45, fast 46–60, risky 61–500).",
+          "items": {
+            "$ref": "#/$defs/UsageZone"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "limit",
+        "extra_today",
+        "recommended",
+        "zones",
+        "min",
+        "max",
+        "extra_max"
+      ],
+      "type": "object"
+    },
+    "UsageZone": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "description": "Its first limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "name": {
+          "description": "The zone's name (careful, normal, faster, fast, risky).",
+          "type": "string",
+          "x-shown": true
+        },
+        "to": {
+          "description": "Its last limit.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "name",
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "WarningsSeenResult": {
+      "additionalProperties": false,
+      "description": "The result of `mark_warnings_seen` (\"Got it\").",
+      "properties": {
+        "seen_until": {
+          "description": "The time saved: its signals up to then are no longer `new`.",
+          "type": "string",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/Service",
+          "description": "The service.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "service",
+        "seen_until"
+      ],
+      "type": "object"
+    },
+    "WatchedEntry": {
+      "additionalProperties": false,
+      "description": "A watched import folder in the sidebar, by name.",
+      "properties": {
+        "crate_count": {
+          "description": "How many crates it has.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "crates": {
+          "description": "All its crates in label order, hidden ones too.",
+          "items": {
+            "$ref": "#/$defs/Crate"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "files": {
+          "description": "The imported files at or below it, leaving out those an import still has to work through.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "name": {
+          "description": "The folder's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "path": {
+          "description": "The folder as the snapshot spells it.",
+          "type": "string",
+          "x-shown": false
+        },
+        "place": {
+          "description": "Its path in words (\"~/Music/Old\", \"Example Drive › Music\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "state": {
+          "$ref": "#/$defs/FolderState",
+          "description": "Where the folder is now, checked live.",
+          "x-shown": true
+        },
+        "too_many": {
+          "description": "It has more than 25 crates: the folder is then one row.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "path",
+        "name",
+        "place",
+        "files",
+        "state",
+        "too_many",
+        "crate_count",
+        "crates"
+      ],
+      "type": "object"
+    },
+    "WhatIf": {
+      "additionalProperties": false,
+      "description": "\"What N per day means\" while the slider moves (no write). For an account behind Qobuz `days_to_load` is null.",
+      "properties": {
+        "allowance_today": {
+          "description": "Today's allowance at this limit.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "assessment": {
+          "$ref": "#/$defs/Assessment",
+          "description": "What the limit means.",
+          "x-shown": true
+        },
+        "days_to_load": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Days the rest of the downloads takes; null for an account behind Qobuz or before a read.",
+          "x-shown": true
+        },
+        "extra_today": {
+          "description": "The one-time extra for today, 0 to 200.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "limit": {
+          "description": "The daily limit asked, 1 to 500.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "remaining_today": {
+          "description": "What would be left of it today.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "run_minutes": {
+          "description": "How long a run takes, in minutes.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "limit",
+        "extra_today",
+        "assessment",
+        "allowance_today",
+        "remaining_today",
+        "days_to_load",
+        "run_minutes"
+      ],
+      "type": "object"
+    },
     "Which": {
       "description": "Which file of a song: the one in the library now, or the parked better version.",
       "enum": [
@@ -6310,16 +10665,38 @@
   "answers": {
     "add_bought_file": "OpResult",
     "auto_upgrade_preview": "AutoUpgradePreviewAnswer",
+    "dashboard": "Dashboard",
     "find_tracks": "FindTracksAnswer",
     "freshness": "Freshness",
     "hide": "OpResult",
+    "job_status": "JobStatus",
+    "library": "Library",
+    "limits": "Limits",
+    "limits_what_if": "WhatIf",
+    "mark_warnings_seen": "WarningsSeenResult",
     "missing_files": "MissingResult",
     "missing_files_preview": "MissingPreview",
     "never_download": "NeverDownloadResult",
+    "playlists": "Playlists",
+    "refresh": "RefreshResult",
     "reject_current": "OpResult",
     "rekordbox_checked": "CheckedResult",
     "rekordbox_preview": "RekordboxPreviewAnswer",
+    "rescan_library": "ScanResult",
+    "run": "RunAnswer",
+    "runs": "Runs",
+    "save_limits": "SaveLimitsResult",
     "select_listing": "SelectListingAnswer",
+    "set_crate_shown": "CrateSaved",
+    "set_crates_shown": "CratesSaved",
+    "set_favourites": "FavouritesSaved",
+    "sidebar": "Sidebar",
+    "spectrum": "SpectrumAnswer",
+    "start_sync": "SyncResult",
+    "stop": "Stopped",
+    "stop_refresh": "Stopped",
+    "stop_sign_in": "Stopped",
+    "sync_preview": "SyncPreview",
     "todo": "Todo",
     "track": "TrackAnswer",
     "undo_upgrade": "UndoResult",
@@ -6333,10 +10710,15 @@
   "results": {
     "add_bought_file": "OpResult",
     "hide": "OpResult",
+    "mark_warnings_seen": "WarningsSeenResult",
     "missing_files": "MissingResult",
     "never_download": "NeverDownloadResult",
+    "refresh": "RefreshResult",
     "reject_current": "OpResult",
     "rekordbox_checked": "CheckedResult",
+    "save_limits": "SaveLimitsResult",
+    "scan": "ScanResult",
+    "sync": "SyncResult",
     "undo_upgrade": "UndoResult",
     "unhide": "OpResult",
     "upgrade_add_new": "AiffBatchResult",

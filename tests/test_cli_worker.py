@@ -495,6 +495,7 @@ def test_the_alive_descriptor_is_not_inherited_by_the_workers_children(env):
 
 # --- Jobs(inline=…) ---
 
+@pytest.mark.shapes_unchecked  # the stub job under the real kind `scan` answers {"n": 1}
 def test_inline_jobs_adopt_the_job_id_and_run_on_the_calling_thread(tmp_path):
     files = Registry(tmp_path / "support").create("rescan_library", "library scan", {}, "terminal",
                                                   {"music": None, "support": "/s", "rekordbox": None, "sandbox": None})

@@ -733,6 +733,7 @@ def test_a_sign_in_that_ends_during_a_console_run_does_not_check(root, chrome_ho
     assert dict(load_settings(root.settings_file).accounts) == {}
 
 
+@pytest.mark.shapes_unchecked  # the stub job under the real kind `save_limits` answers {}
 def test_a_sign_in_save_never_races_a_write_job(root, chrome_home, monkeypatch):
     # the write job holds the engine lock and changes settings itself: the sign-in's save must not overwrite it
     seen = switchable_logins(monkeypatch)
