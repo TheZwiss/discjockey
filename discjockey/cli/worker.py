@@ -144,15 +144,11 @@ class StopSignals:
 
 
 def _holder(files: registry.JobFiles, roots: dict) -> dict | None:
-    """The job that holds the library now, from the registry (`{job, via, kind}`), else None. Only a job that
-    holds the library lock counts (`catalog.holds_library`: its own `library_lock`, else the catalogue's `locks` column):
-    a running read job holds nothing."""
-    for other in registry.Registry(files.dir.parent.parent).list(roots.get("music")):
-        if other.get("id") != files.id and other.get("status") in ("running", "stopping"):
-            if not catalog.holds_library(other):
-                continue
-            return {"job": other["id"], "via": other.get("via"), "kind": other.get("kind")}
-    return None
+    """The job that holds the library now, from the registry (`{job, via, kind, line}`), else None. Only a running job
+    that holds the library lock counts (`Jobs._holder_of`: its own `library_lock`, else the catalogue's `locks` column):
+    a queued job still waits for it and a running read job holds nothing."""
+    return jobs.Jobs._holder_of(s for s in registry.Registry(files.dir.parent.parent).list(roots.get("music"))
+                                if s.get("id") != files.id)
 
 
 def _busy(command: str, files: registry.JobFiles, roots: dict, job=None) -> dict:

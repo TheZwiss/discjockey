@@ -56,6 +56,7 @@ HEAD_EVENTS, TAIL_EVENTS = 2000, 10000  # events.jsonl keeps the first 2 000; ev
 SLOT_FLUSH_S = 0.5  # a Progress or Waiting slot is written at most twice a second
 STATE_WRITE_S = 1.0  # state.json changes other than a new status are written at most once a second
 ACTIVE = ("queued", "running", "stopping")
+HOLDING = ("running", "stopping")  # a job that has the lock (a queued one is still waiting for it)
 STATUSES = (*ACTIVE, "done", "lost")
 
 
@@ -484,7 +485,8 @@ class Registry:
     def __init__(self, support: Path):
         self.root = Path(support) / "jobs"
 
-    def create(self, kind: str, command: str, args: Mapping | None, via: str, roots: Mapping) -> JobFiles:
+    def create(self, kind: str, command: str, args: Mapping | None, via: str, roots: Mapping, *,
+               job_id: str | None = None) -> JobFiles:
         """A new job's folder with its `state.json` as `queued`, and the `alive` lock already taken by the caller (the
         claim, see the handoff in the module's words): `files.release_claim()` once the worker has the lock, or
         `with files.alive():` to run the job in this process. `roots`: `{music, support, rekordbox, sandbox}`
@@ -492,18 +494,26 @@ class Registry:
         if via not in ("window", "terminal"):
             raise ValueError(f"via is window or terminal, not {via!r}")
         self.root.mkdir(parents=True, exist_ok=True)
-        while True:
-            job_id = new_job_id()
-            try:
-                (self.root / job_id).mkdir()
-                break
-            except FileExistsError:
-                continue
+        if job_id is not None:
+            (self.root / job_id).mkdir()
+        else:
+            while True:
+                job_id = new_job_id()
+                try:
+                    (self.root / job_id).mkdir()
+                    break
+                except FileExistsError:
+                    continue
         files = JobFiles(self.root / job_id)
         files.claim()  # before state.json exists: a reader that sees the job sees it alive
-        files.update(id=job_id, kind=kind, command=command, args=dict(args or {}), via=via,
-                     roots={"music": None, "support": None, "rekordbox": None, "rekordbox_share": None, "sandbox": None, **roots},
-                     pid=None, pid_started=None, status="queued", started=_now(), ended=None, person_steps=[])
+        try:
+            files.update(id=job_id, kind=kind, command=command, args=dict(args or {}), via=via,
+                         roots={"music": None, "support": None, "rekordbox": None, "rekordbox_share": None, "sandbox": None, **roots},
+                         pid=None, pid_started=None, status="queued", started=_now(), ended=None, person_steps=[])
+        except BaseException:
+            files.release_claim()
+            shutil.rmtree(files.dir, ignore_errors=True)
+            raise
         return files
 
     def get(self, job_id: str) -> JobFiles:

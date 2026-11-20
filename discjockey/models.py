@@ -53,11 +53,15 @@ def is_own(key: str) -> bool:
 
 
 def snapshot(entry: dict | None) -> dict | None:
-    """What a read shows of an entry's record; its `rev` is made from it."""
+    """What a read shows of an entry's record; its `rev` is made from it: the status, which file stands (path, and the
+    source it came from) and which better version waits (its file, source and when it was found)."""
     if entry is None:
         return None
+    up = entry.get("upgrade") or {}
     return {"status": entry.get("status"), "path": entry.get("path"),
-            "upgrade_file": (entry.get("upgrade") or {}).get("file")}
+            "source": entry.get("source"), "source_id": entry.get("source_id"),
+            "upgrade_file": up.get("file"), "upgrade_source": up.get("source"),
+            "upgrade_source_id": up.get("source_id"), "upgrade_found": up.get("found")}
 
 
 def rev(entry: dict | None) -> str | None:

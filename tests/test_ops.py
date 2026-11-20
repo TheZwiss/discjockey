@@ -63,7 +63,9 @@ def oplog(paths):
 
 def test_snapshot_and_rev():
     e = make_entry(upgrade={"file": "Upgrades ready/A/x.aiff"})
-    assert models.snapshot(e) == {"status": "not_lossless", "path": LOSSY, "upgrade_file": "Upgrades ready/A/x.aiff"}
+    assert models.snapshot(e) == {"status": "not_lossless", "path": LOSSY, "source": e.get("source"),
+                                  "source_id": e.get("source_id"), "upgrade_file": "Upgrades ready/A/x.aiff",
+                                  "upgrade_source": None, "upgrade_source_id": None, "upgrade_found": None}
     assert models.snapshot(None) is None and models.rev(None) is None
     rev = models.rev(e)
     assert re.fullmatch(r"[0-9a-f]{10}", rev) and models.rev(dict(e)) == rev

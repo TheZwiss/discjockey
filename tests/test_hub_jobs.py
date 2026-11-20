@@ -708,7 +708,10 @@ def test_the_library_job_elsewhere_ignores_the_windows_own_job_and_names_a_forei
     job = api._jobs.current
     assert api._library_job_elsewhere() is None  # it is this process's own, whatever its record says
     foreign = reg.create("scan", "library scan", {}, "terminal", {})  # another process's (the claim stays: it is alive)
-    foreign.update(method="rescan_library", status="running", library_lock=True)
+    foreign.update(method="rescan_library", status="queued", library_lock=True)
+    foreign.flush()
+    assert api._library_job_elsewhere() is None  # still waiting for the lock: not a holder
+    foreign.update(status="running")
     foreign.flush()
     assert api._library_job_elsewhere() == {"job": foreign.id, "via": "terminal", "command": "library scan"}
     foreign.update(status="done")
@@ -899,6 +902,79 @@ def test_a_write_refused_while_a_foreign_job_holds_the_library_says_who(watched)
     other.end()
     assert not js.console_running()  # a holder that has just ended is not waited for, though the look is a second old
     js.start("hide", lambda ctx: None).done.wait(5)
+
+
+def test_a_queued_job_of_another_process_is_not_the_library_holder(watched):
+    paths, js, rec, reg = watched
+    waiting = Foreign(paths, reg)
+    waiting.files.update(status="queued")  # a terminal job still waiting for the lock (`--wait-busy`)
+    waiting.files.flush()
+    js._look()
+    assert not js.console_running() and rec.of(jobs.ConsoleBusy) == []
+    assert js.start("hide", lambda ctx: {"n": 1}).done.wait(5)  # not refused: nobody holds the lock
+    waiting.let_go()
+
+
+def test_the_holder_named_is_the_running_job_not_a_newer_queued_one(watched):
+    paths, js, rec, reg = watched
+    running = Foreign(paths, reg, line="2 of 9")
+    waiting = Foreign(paths, reg)  # newer, so listed first
+    waiting.files.update(status="queued")
+    waiting.files.flush()
+    js._look()
+    with pytest.raises(Busy) as excinfo:
+        js.start("hide", lambda ctx: pytest.fail("must not run"))
+    assert excinfo.value.data["holder"]["job"] == running.id
+    assert rec.of(jobs.ConsoleBusy) == [jobs.ConsoleBusy(True, running.id, "sync", "2 of 9")]
+    running.let_go()
+    waiting.let_go()
+
+
+def test_a_look_in_the_middle_of_the_windows_own_job_start_never_sees_it_as_foreign(watched, monkeypatch):
+    paths, js, rec, reg = watched
+    release = threading.Event()
+    flush = registry.JobFiles.flush
+    looked = []
+
+    def flush_and_look(self):
+        flush(self)
+        if not looked:
+            looked.append(1)
+            js._look()  # the watch looking while `_new` has written the folder but not yet returned
+
+    monkeypatch.setattr(registry.JobFiles, "flush", flush_and_look)
+    job = js.start("hide", lambda ctx: release.wait(5) and None)
+    assert looked
+    js._look()
+    assert rec.of(jobs.ConsoleBusy) == [] and rec.of(jobs.JobFinished) == []
+    release.set()
+    assert job.done.wait(5)
+    js._look()
+    assert [e.job_id for e in rec.of(jobs.JobFinished)] == [job.id]
+
+
+def test_a_registry_that_fails_partway_leaves_no_record_and_no_lock(watched, monkeypatch):
+    paths, js, rec, reg = watched
+
+    def broken(self):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(registry.JobFiles, "events", broken)
+    job = js.start("hide", lambda ctx: {"n": 1})
+    assert job.done.wait(5) and rec.of(jobs.JobFinished)[-1].ok  # it ran, unrecorded
+    assert reg.list(all=True) == [] and js.own_ids == set()
+    assert list(reg.root.glob("*")) == []  # the half-made folder (and its claim) went
+
+
+def test_a_registry_that_cannot_be_pruned_does_not_stop_a_write(watched, monkeypatch):
+    paths, js, rec, reg = watched
+
+    def broken(self, now):
+        raise FileNotFoundError("gone")
+
+    monkeypatch.setattr(registry.Registry, "prune", broken)
+    job = js.start("hide", lambda ctx: {"n": 1})
+    assert job.done.wait(5) and rec.of(jobs.JobFinished)[-1].ok
 
 
 def test_close_ends_the_registry_watch(watched):
