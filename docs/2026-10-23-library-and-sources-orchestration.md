@@ -1085,6 +1085,11 @@ Results:
         6.2/6.4). Run 2 builds 1 240k (was 1 275k).
       - User 2026-11-20: "This codebase is yours" rule -> CLAUDE.md section, fix-round/ui-build agents, checklist
         line 12 (every prompt carries the ownership line), memory. Next: V2.2a.
+      - V2.2a done (Sonnet; cut once by the 5-hour limit, resumed 17:50): logged 221k (exp. 195k, 1.13x), 85 calls,
+        cache 12.1M, advisor 0k. Commits 70b0f944 (contract) + 52e1e0ef, merged c85752d1; pytest 6235 passed. Notes
+        for V2.2b (clear_service line in _clear_read_problem) and for the V2.2 review (stale info of an unreadable
+        playlist kept; stopped read stores finished tracks; two failed reads out of order; SoundCloud secret link
+        stored NULL; contract commit before engine commit) appended to V2.2b.md / review-V2.2.md. V2.2b dispatched.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
