@@ -807,11 +807,14 @@ def test_a_sync_preview_answer_fits_its_shape_before_and_after_the_read(read_hub
     from discjockey.hub import shapes
 
     api, _, read = read_hub
-    assert fits("sync_preview", api.sync_preview())["empty"] == "no_preview"
+    before = fits("sync_preview", api.sync_preview())
+    assert before["empty"] == "no_preview" and (before["plan_id"], before["presets"]) == (None, [])
     read()
     out = fits("sync_preview", api.sync_preview())
     assert [g["key"] for g in out["groups"]] == ["acquire:new"] and out["estimate"]["accounts"][0]["uses_by_downloads"]
-    assert all(len(a["key"]) == 3 and "in" in a and "run" in a for a in out["groups"][0]["actions"])
+    assert all(len(a["key"]) == 3 and "in" in a and "run" in a and a["id"].startswith("act:")
+               for a in out["groups"][0]["actions"])
+    assert out["plan_id"].startswith("plan:") and out["presets"] and out["default_how_many"] in {p["key"] for p in out["presets"]}
     wrong = {**out, "groups": [{**out["groups"][0], "key": "move"}]}
     assert shapes.validate(wrong, "SyncPreview")  # there is no `move` group any more
 

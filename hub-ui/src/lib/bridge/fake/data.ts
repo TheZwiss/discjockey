@@ -759,11 +759,19 @@ export function newTracks(n = 10) {
   return out;
 }
 
+/** `act:<kind>:<track>:<n>` (`run.action_ids`): n the place of the action's folder in the plan's folder list, a folder that is
+ *  none of them numbered after them. A row's own id has no list to go by (place 1); `numberPlan` numbers an assembled
+ *  preview's rows by its folders. */
+export const actionId = (a: Pick<PreviewAction, 'kind' | 'track_id' | 'folder'>, folders: string[] = []): string => {
+  const at = folders.indexOf(a.folder);
+  return `act:${a.kind}:${a.track_id}:${at < 0 ? folders.length + 1 : at + 1}`;
+};
+
 export function previewAction(kind: string, reason: string | null, t: { track_id: string; artist: string;
   title: string; folder: string }, to_not_lossless = false, src: string | null = null,
   cover: number | null = null): PreviewAction {
   const to_dir = `Library/${t.folder}${to_not_lossless ? '/not_lossless' : ''}`;
-  return { key: [kind, t.track_id, to_dir], kind, reason, track_id: t.track_id, artist: t.artist, title: t.title,
+  return { key: [kind, t.track_id, to_dir], id: actionId({ kind, track_id: t.track_id, folder: t.folder }), kind, reason, track_id: t.track_id, artist: t.artist, title: t.title,
     folder: t.folder, to_dir, to_not_lossless, src, cover_url: coverUri(cover), in: [] };
 }
 

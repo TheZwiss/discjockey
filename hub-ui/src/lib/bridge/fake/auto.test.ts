@@ -64,7 +64,11 @@ describe('fake Auto-upgrade', () => {
 });
 
 // ---------- the sync's last phase and the nine scenarios ----------
-const ANY: [string, string, string][] = [['acquire', 't4', 'Library/Hard_Bounce']];
+/** The window's Start with one action ticked (the first of the plan the fake shows): the plan's id and that action's id. */
+const startAny = async (f: ReturnType<typeof make>['f']) => {
+  const p = (await f.sync_preview()) as SyncPreview & { ok: true };
+  return f.start_sync(p.plan_id, p.groups.flatMap((g) => g.actions).slice(0, 1).map((a) => a.id));
+};
 type Ev<T extends HubEvent['type']> = Extract<HubEvent, { type: T }>;
 const preview = async (f: ReturnType<typeof make>['f']) => {
   await f.refresh();
@@ -76,7 +80,7 @@ const todo = async (f: ReturnType<typeof make>['f'], filter: 'all' | 'upgrade_re
 const ready = async (f: ReturnType<typeof make>['f']) => (await todo(f, 'upgrade_ready')).groups.find((g) => g.key === 'upgrade_ready')!.items;
 /** Starts the sync and returns its stored run once it has finished. */
 async function syncRun(m: ReturnType<typeof make>) {
-  const done = await m.run(m.f.start_sync(ANY));
+  const done = await m.run(startAny(m.f));
   expect(done).toMatchObject({ type: 'JobFinished', kind: 'sync' });
   const runs = (await m.f.runs()) as { ok: true; runs: { run_id: string }[] };
   const r = (await m.f.run(runs.runs[0].run_id)) as { ok: true; run: RunDetail };
@@ -221,7 +225,7 @@ describe('fake sync: the Auto-upgrade phase', () => {
 
   it('a Stop in the phase ends the batch: the rest were not reached (exit 130)', async () => {
     const m = make('sync:auto-done');
-    await m.f.start_sync(ANY);
+    await startAny(m.f);
     const t0 = Date.now();
     while (!m.evs.some((e) => e.type === 'BatchProgress' && e.done === 2) && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 5));
     expect(await m.f.stop()).toMatchObject({ ok: true, stopped: true });
@@ -244,7 +248,7 @@ describe('fake sync: the Auto-upgrade phase', () => {
 
   it('a Stop before the phase: no phase at all', async () => {
     const m = make('sync:auto-done');
-    await m.f.start_sync(ANY);
+    await startAny(m.f);
     const t0 = Date.now();
     while (!m.evs.some((e) => e.type === 'ActionStarted') && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 5));
     await m.f.stop();

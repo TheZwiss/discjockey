@@ -422,7 +422,7 @@ def synced(tmp_path, monkeypatch):
 def test_a_hub_sync_with_rekordbox_open_upgrades_nothing_and_marks_the_waits(synced):
     lib, rb, api, rec = synced(["mp3", "aiff"], running=True)
     before = (lib.music(), lib.dump())
-    f = wait_job(api, rec, api.start_sync([]))
+    f = wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))
     assert f.ok and f.result["exit_code"] == 0
     assert (lib.music(), lib.dump()) == before
     block = json.loads(open(f.result["report"].replace(".md", ".json")).read())["auto_upgrade"]
@@ -435,7 +435,7 @@ def test_a_hub_sync_with_rekordbox_open_upgrades_nothing_and_marks_the_waits(syn
 @needs_ffmpeg
 def test_a_hub_sync_with_rekordbox_closed_upgrades_as_one_batch_with_progress(synced):
     lib, rb, api, rec = synced(["mp3", "aiff"])
-    f = wait_job(api, rec, api.start_sync([]))
+    f = wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))
     assert f.ok and f.result["exit_code"] == 0
     block = json.loads(open(f.result["report"].replace(".md", ".json")).read())["auto_upgrade"]
     assert (block["done"], block["waiting"]) == (2, 0) and lib.batch(block["batch"]).started_by == "auto_upgrade"
@@ -447,7 +447,7 @@ def test_a_hub_sync_with_rekordbox_closed_upgrades_as_one_batch_with_progress(sy
 def test_stop_reaches_the_phase_of_a_sync_that_had_nothing_else_to_do(synced):
     stops = []
     lib, rb, api, rec = synced(["mp3", "mp3"], compare=lambda a, b: stops.append(api.stop()) or EXACT)
-    f = wait_job(api, rec, api.start_sync([]))
+    f = wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))
     assert f.ok and f.result["exit_code"] == 130                                    # a Stop ends the sync as stopped
     block = json.loads(open(f.result["report"].replace(".md", ".json")).read())["auto_upgrade"]
     assert (block["done"], block["waiting"], block["stopped"]) == (1, 1, True)

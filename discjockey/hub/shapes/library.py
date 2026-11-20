@@ -409,6 +409,8 @@ class CratesSaved(TypedDict):
 
 PreviewAction = TypedDict("PreviewAction", {
     "key": Annotated[ActionKey, F("The action's key, sent back ticked to `start_sync`.", shown=False)],
+    "id": Annotated[str, F("The action's id in this plan (`act:<kind>:<track>:<n>`); sent back ticked to `start_sync`.",
+                           shown=False)],
     "kind": Annotated[str, F("What the action does (acquire, adopt_bought, upgrade).")],
     "reason": Annotated[str | None, F("Why: new, retry or redownload for a download; null for the others.")],
     "track_id": Annotated[str, F("The song's id.", shown=False)],
@@ -429,6 +431,16 @@ PreviewAction = TypedDict("PreviewAction", {
                                         "not on `never` rows.")]],
 })
 shape(PreviewAction)
+
+
+@shape
+class SyncPreset(TypedDict):
+    """One of the "how many" choices of a plan."""
+    key: Annotated[Literal["5", "10", "25", "50", "fits", "all"], F("The choice.", shown=False)]
+    label: Annotated[str, F("Its words (\"10\", \"7 · fits today\", \"All 12\").")]
+    downloads: Annotated[int, F("How many downloads it ticks.")]
+    selected: Annotated[list[str], F("The ids of the actions it ticks: every action in the Sync scope that is no download "
+                                     "and the first downloads in scope, in the order the sync works.", shown=False)]
 
 
 @shape
@@ -507,6 +519,12 @@ class SyncPreview(TypedDict):
         "be read, or there is no preview).")]
     read_id: Annotated[str | None, F("The stored read the plan is derived from (`read:<n>`); null before the first "
                                      "read.", shown=False)]
+    plan_id: Annotated[str | None, F("The id this plan is stored under (`plan:<12 hex>`, 24 h); Start and `sync run "
+                                     "--plan` run only its actions. Null before the first read.")]
+    presets: Annotated[list[SyncPreset], F("The \"how many\" choices, by downloads; empty when no action is in the "
+                                           "Sync scope.")]
+    default_how_many: Annotated[str | None, F("The choice to start from (a preset's `key`): `fits` when it is offered, "
+                                              "else `all`; null when there are no choices.")]
 
 
 @shape
@@ -545,12 +563,29 @@ class JobSnap(TypedDict):
 
 
 @shape
+class SyncArgs(TypedDict):
+    """What a sync was started with."""
+    plan_id: Annotated[str | None, F("The plan it ran (`plan:<12 hex>`); null when the record has none.")]
+    selected: Annotated[list[str], F("The ids of the actions ticked, in the plan.", shown=False)]
+
+
+@shape
+class LastSync(TypedDict):
+    """The newest sync of this music folder, from the job registry."""
+    job: Annotated[str, F("Its job id.")]
+    args: Annotated[SyncArgs, F("What it was started with.")]
+    ended: Annotated[str | None, F("When it ended, an ISO time; null while it runs.")]
+
+
+@shape
 class JobStatus(TypedDict):
     """The snapshot after a window reload."""
     job: Annotated[JobSnap | None, F("The running write job; null when none runs.")]
     refresh_running: Annotated[bool, F("A playlists read is running.")]
     console_running: Annotated[bool, F("A console command is running.")]
     read_status: Annotated[ReadStatus, F("How the last playlists read went.")]
+    last_sync: Annotated[LastSync | None, F("The newest sync of this music folder, the window's or the terminal's: what "
+                                            "was ticked, and when it ended; null with none.")]
     sign_in: NotRequired[Annotated[JobSnap | None, F(
         "A sign-in waiting for the browser (its own slot beside the write jobs; Settings restores its phase from "
         "it); null when none.")]]
@@ -908,7 +943,8 @@ class SyncResult(TypedDict):
     exit_code: Annotated[int, F("How the run ended: 0 well, 130 stopped.")]
     report: Annotated[str, F("The report's absolute .md path.", shown=False)]
     actions: Annotated[int, F("How many actions it ran; 0 when it crashed before the plan.")]
-    new_since_preview: Annotated[int, F("Actions the plan gained since the preview.")]
+    new_since_plan: Annotated[list[str], F("The actions the run's fresh plan has that the plan you started from did not, "
+                                           "by their ids in the fresh plan; left for the next sync.")]
 
 
 @shape

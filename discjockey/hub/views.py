@@ -191,8 +191,11 @@ def plan_counts(actions: list) -> dict:
     return c
 
 
+DOWNLOAD_KINDS = ("acquire", "upgrade")  # the actions that take time and count against a daily limit
+
+
 def downloads_in(actions: list) -> int:
-    return sum(1 for a in actions if a.kind in ("acquire", "upgrade"))
+    return sum(1 for a in actions if a.kind in DOWNLOAD_KINDS)
 
 
 def estimate(actions: list, money: dict | None, accounts: list | tuple = ()) -> dict:
@@ -2251,6 +2254,70 @@ def _members(prep, plan_state: dict, places: Places | None):
     return members, names
 
 
+# --- the Sync's scope and "how many" (the window's planModel words, issue 39 phase 2: engine answers) ---
+
+HOW_MANY_STEPS = (5, 10, 25, 50)  # the number presets, each offered only below the downloads in scope
+
+
+def scope_kind(row: Mapping) -> str:
+    """The kind a row is switched by in the Sync scope: `retry` (an acquisition not found last time), `weekly` (an
+    upgrade check) or the row's own kind word; only those two can be switched off (`settings.SCOPE_KINDS`)."""
+    if row["kind"] == "acquire":
+        return "retry" if row.get("reason") == "retry" else "new"
+    return "weekly" if row["kind"] == "upgrade" else row["kind"]
+
+
+def _target_on(folders: Sequence[str], target: str, off: Collection[str]) -> bool:
+    """A folder of a row's `in` (outer to inner) is on: its own switch and those of the folders around it."""
+    return target in folders and all(f not in off for f in folders[:folders.index(target) + 1])
+
+
+def in_scope(row: Mapping, off: Collection[str], weekly_off: Collection[str]) -> bool:
+    """Whether the Sync does something with this action row (`off`: the collections switched off, `playlist:<ref>` and
+    `folder:<path>`; `weekly_off`: the kinds switched off). Left out only when every collection its song belongs to
+    (`in`) is off: any playlist on keeps it; else its innermost folder and every folder around it must be on. A row in no
+    collection has no switch. A kind switched off leaves its rows out whatever their collections say."""
+    if scope_kind(row) in weekly_off:
+        return False
+    held = row["in"]
+    if not held or any(t.startswith("playlist:") and t not in off for t in held):
+        return True
+    folders = [t for t in held if t.startswith("folder:")]
+    return bool(folders) and _target_on(folders, folders[-1], off)
+
+
+def how_many(rows: Sequence[Mapping], left: int | None, off: Collection[str], weekly_off: Collection[str]
+             ) -> tuple[list[dict], str | None]:
+    """The "how many" choices of the plan's `rows` (every row with its `id`, `kind`, `in` and `run`): `([{key, label,
+    downloads, selected}], default key)`. Downloads are the acquisitions and upgrade checks in scope (`total`); `left` is
+    today's allowance (None: no daily limit). Offered: 5, 10, 25 and 50 below `total`; "fits today" when the allowance
+    is more than nothing and less than `total` (the number preset that equals it is dropped); and all of them. Nothing
+    in scope: none. A preset ticks every action in scope that is no download and the first n downloads in run order;
+    the default is "fits" when it is offered, else "all"."""
+    scoped = sorted((r for r in rows if in_scope(r, off, weekly_off)), key=lambda r: r["run"])
+    if not scoped:
+        return [], None
+    total = sum(1 for r in scoped if r["kind"] in DOWNLOAD_KINDS)
+    fits = left is not None and 0 < left < total
+    offered = [(str(n), str(n), n) for n in HOW_MANY_STEPS if n < total and not (fits and n == left)]
+    if fits:
+        offered.append(("fits", f"{left} · fits today", left))
+    offered.append(("all", f"All {total}" if total else "All", total))
+
+    def ticks(n: int) -> list[str]:
+        done = 0
+        out = []
+        for r in scoped:
+            if r["kind"] not in DOWNLOAD_KINDS:
+                out.append(r["id"])
+            elif done < n:
+                out.append(r["id"])
+                done += 1
+        return out
+    return ([{"key": key, "label": label, "downloads": n, "selected": ticks(n)}
+             for key, label, n in sorted(offered, key=lambda o: o[2])], "fits" if fits else "all")
+
+
 def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
                  where: Callable[[str], str] | None = None, places: Places | None = None,
@@ -2269,12 +2336,15 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
         return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
                 "waiting_answers": 0, "deferred_checks": 0, "collections": {}, "auto_upgrade": None,
-                "read_id": read.read_id}
+                "read_id": read.read_id, "plan_id": None, "presets": [], "default_how_many": None}
+    from .. import run  # at call time: run imports this module
     plan_state = prep.state
     members, names = _members(prep, plan_state, places)
+    ids = run.action_ids(prep)
 
     def row(a) -> dict:
-        return {**action_row(a, plan_state, cover, where), "in": members(a.track_id)}
+        shown = action_row(a, plan_state, cover, where)
+        return {**shown, "id": ids[tuple(shown["key"])], "in": members(a.track_id)}
     m = moneys(state, settings, today)
     todo, never = planned(prep, state)
     groups: dict[str, list] = {}
@@ -2282,11 +2352,13 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
         groups.setdefault(f"acquire:{a.reason}" if a.kind == "acquire" else a.kind, []).append(a)
     in_playlists = {t.key for fp in prep.fetched for t in fp.tracks}
     run_index = {id(a): i for i, a in enumerate(todo)}  # the order the sync works through them
-    return {"read_status": status, "counts": plan_counts(todo),
-            "groups": [{"key": key, "label": label,
-                        "actions": [{**row(a), "run": run_index[id(a)]} for a in groups[key]]}
-                       for key, label in PLAN_LABELS if key in groups],
-            "estimate": sync_estimate(todo, m),
+    grouped = [{"key": key, "label": label, "actions": [{**row(a), "run": run_index[id(a)]} for a in groups[key]]}
+               for key, label in PLAN_LABELS if key in groups]
+    size = sync_estimate(todo, m)
+    presets, default = how_many([r for g in grouped for r in g["actions"]], size["left"], settings.scope_off,
+                                settings.weekly_off)
+    return {"read_status": status, "counts": plan_counts(todo), "groups": grouped,
+            "estimate": size,
             "never": [row(a) for a in never],
             "folders": [line.folder for line in prep.lines],
             "in_playlists": len(in_playlists),
@@ -2300,7 +2372,9 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
             "waiting_answers": len({q.song_key for q in prep.plan.questions}),
             "deferred_checks": prep.plan.deferred_checks,
             # every collection a row is in, by its target (the browser column's key) -> its name (issue 37)
-            "collections": names, "auto_upgrade": auto_upgrade, "read_id": read.read_id}
+            "collections": names, "auto_upgrade": auto_upgrade, "read_id": read.read_id,
+            # the id the plan is stored under is the api's to give (`HubApi.sync_preview` saves it): a view stores nothing
+            "plan_id": None, "presets": presets, "default_how_many": default}
 
 
 # --- watched folders (Settings, Setup; plan library stage 4 I11) ---
@@ -2529,7 +2603,7 @@ def batch_title(b: BatchRow, undone_title: str | None = None) -> str:
 
 def _summary(moved: int, skipped: int) -> str:
     text = _plural(moved, "1 file moved", "{n} files moved")
-    return f"{text} \u00b7 {skipped} not moved" if skipped else text
+    return f"{text} · {skipped} not moved" if skipped else text
 
 
 def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | None = None) -> dict:

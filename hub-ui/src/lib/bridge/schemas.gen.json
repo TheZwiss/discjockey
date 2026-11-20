@@ -6049,6 +6049,18 @@
           "description": "The running write job; null when none runs.",
           "x-shown": true
         },
+        "last_sync": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LastSync"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The newest sync of this music folder, the window's or the terminal's: what was ticked, and when it ended; null with none.",
+          "x-shown": true
+        },
         "read_status": {
           "$ref": "#/$defs/ReadStatus",
           "description": "How the last playlists read went.",
@@ -6076,7 +6088,8 @@
         "job",
         "refresh_running",
         "console_running",
-        "read_status"
+        "read_status",
+        "last_sync"
       ],
       "type": "object"
     },
@@ -6175,6 +6188,40 @@
         "problem",
         "kbps",
         "at"
+      ],
+      "type": "object"
+    },
+    "LastSync": {
+      "additionalProperties": false,
+      "description": "The newest sync of this music folder, from the job registry.",
+      "properties": {
+        "args": {
+          "$ref": "#/$defs/SyncArgs",
+          "description": "What it was started with.",
+          "x-shown": true
+        },
+        "ended": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it ended, an ISO time; null while it runs.",
+          "x-shown": true
+        },
+        "job": {
+          "description": "Its job id.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "job",
+        "args",
+        "ended"
       ],
       "type": "object"
     },
@@ -8423,6 +8470,11 @@
           "type": "string",
           "x-shown": true
         },
+        "id": {
+          "description": "The action's id in this plan (`act:<kind>:<track>:<n>`); sent back ticked to `start_sync`.",
+          "type": "string",
+          "x-shown": false
+        },
         "in": {
           "description": "The collections of the browser column the song belongs to (issue 37), by their targets: every playlist whose read holds it (`playlist:<ref>`, playlists.txt order), then the folders its file sits in, outer to inner (`folder:<path>`). Sync leaves the row out only when every one of them is switched off; empty: nothing can switch it off.",
           "items": {
@@ -8493,6 +8545,7 @@
       },
       "required": [
         "key",
+        "id",
         "kind",
         "reason",
         "track_id",
@@ -12494,6 +12547,37 @@
       ],
       "type": "object"
     },
+    "SyncArgs": {
+      "additionalProperties": false,
+      "description": "What a sync was started with.",
+      "properties": {
+        "plan_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The plan it ran (`plan:<12 hex>`); null when the record has none.",
+          "x-shown": true
+        },
+        "selected": {
+          "description": "The ids of the actions ticked, in the plan.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "plan_id",
+        "selected"
+      ],
+      "type": "object"
+    },
     "SyncEstimate": {
       "additionalProperties": false,
       "description": "The Sync page's estimate: the formula and the split live in the engine, the page looks its subset's count up.",
@@ -12570,6 +12654,49 @@
       ],
       "type": "object"
     },
+    "SyncPreset": {
+      "additionalProperties": false,
+      "description": "One of the \"how many\" choices of a plan.",
+      "properties": {
+        "downloads": {
+          "description": "How many downloads it ticks.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "key": {
+          "description": "The choice.",
+          "enum": [
+            "5",
+            "10",
+            "25",
+            "50",
+            "fits",
+            "all"
+          ],
+          "x-shown": false
+        },
+        "label": {
+          "description": "Its words (\"10\", \"7 · fits today\", \"All 12\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "selected": {
+          "description": "The ids of the actions it ticks: every action in the Sync scope that is no download and the first downloads in scope, in the order the sync works.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "downloads",
+        "selected"
+      ],
+      "type": "object"
+    },
     "SyncPreview": {
       "additionalProperties": false,
       "description": "The check before Start. Each action's `key` is sent back ticked to `start_sync`. Before the first read the counts are 0, `counts` and `estimate` null and `collections` empty.",
@@ -12612,6 +12739,18 @@
             }
           ],
           "description": "What the plan holds; null before a read.",
+          "x-shown": true
+        },
+        "default_how_many": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The choice to start from (a preset's `key`): `fits` when it is offered, else `all`; null when there are no choices.",
           "x-shown": true
         },
         "deferred_checks": {
@@ -12695,6 +12834,26 @@
           "type": "array",
           "x-shown": true
         },
+        "plan_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The id this plan is stored under (`plan:<12 hex>`, 24 h); Start and `sync run --plan` run only its actions. Null before the first read.",
+          "x-shown": true
+        },
+        "presets": {
+          "description": "The \"how many\" choices, by downloads; empty when no action is in the Sync scope.",
+          "items": {
+            "$ref": "#/$defs/SyncPreset"
+          },
+          "type": "array",
+          "x-shown": true
+        },
         "read_id": {
           "anyOf": [
             {
@@ -12734,7 +12893,10 @@
         "empty",
         "collections",
         "auto_upgrade",
-        "read_id"
+        "read_id",
+        "plan_id",
+        "presets",
+        "default_how_many"
       ],
       "type": "object"
     },
@@ -12867,9 +13029,12 @@
           "type": "integer",
           "x-shown": true
         },
-        "new_since_preview": {
-          "description": "Actions the plan gained since the preview.",
-          "type": "integer",
+        "new_since_plan": {
+          "description": "The actions the run's fresh plan has that the plan you started from did not, by their ids in the fresh plan; left for the next sync.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
           "x-shown": true
         },
         "report": {
@@ -12882,7 +13047,7 @@
         "exit_code",
         "report",
         "actions",
-        "new_since_preview"
+        "new_since_plan"
       ],
       "type": "object"
     },

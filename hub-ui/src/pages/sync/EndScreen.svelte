@@ -34,9 +34,9 @@
 
   const mine = $derived($run.job_kind === 'sync' && ($run.phase === 'finished' || $run.phase === 'failed'));
   const failed = $derived(mine && $run.phase === 'failed' && !!$run.job_finished);
-  const jobResult = $derived(($run.job_finished?.result ?? null) as { report?: string; new_since_preview?: number } | null);
+  const jobResult = $derived(($run.job_finished?.result ?? null) as { report?: string; new_since_plan?: string[] } | null);
   const newSince = $derived(mine && run_id && runIdFromReport(jobResult?.report) === run_id
-    ? jobResult?.new_since_preview ?? null : null);
+    ? jobResult?.new_since_plan?.length ?? null : null);
   const m = $derived(detail ? endModel(detail, newSince) : null);
   // the Auto-upgrade parts in one list (Upgraded, Still waiting, Couldn't go in); the placed ones have a card of their own
   const autoMain = $derived(m?.auto.filter((p) => p.key !== 'placed') ?? []);

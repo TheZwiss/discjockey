@@ -274,6 +274,12 @@ def wait_job(api, rec, answer, timeout=30):
     raise AssertionError("the job did not finish")
 
 
+def sync_plan(api):
+    """What the window's Start sends: the id of the plan `sync_preview` shows and the ids of all its actions."""
+    preview = api.sync_preview()
+    return preview["plan_id"], [a["id"] for g in preview["groups"] for a in g["actions"]]
+
+
 def refreshed(api, rec):
     f = wait_job(api, rec, api.refresh())
     assert f.ok, f

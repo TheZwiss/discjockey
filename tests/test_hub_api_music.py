@@ -166,7 +166,7 @@ def test_missing_at_start_answers_no_library_then_binds_when_back(support, tmp_p
     assert status["state"] == "missing" and status["path"] == str(gone)
     r = api.todo()
     assert (r["ok"], r["kind"]) == (False, "no_library") and str(gone) in r["message"]
-    r = api.start_sync([])
+    r = api.start_sync("plan:0123456789ab", [])
     assert (r["ok"], r["kind"], r["message"]) == (False, "no_library", api_mod.MISSING.format(path=gone))
     assert api.retry_music_folder()["music"]["state"] == "missing" and not gone.exists() and seen == []
     (support / "config.json").unlink()  # config.json no longer names a folder: back to Setup's first step
