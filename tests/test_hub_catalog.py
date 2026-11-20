@@ -242,8 +242,9 @@ def test_add_bought_file_takes_the_files_path_after_the_track():
 
 
 def test_duplicate_keep_with_a_file_id_runs_keep_file_and_all_runs_keep_duplicates():
-    by_method = {e.method: e for e in catalog.ENTRIES if e.command == "duplicate keep"}
-    assert set(by_method) == {"keep_duplicates", "keep_file"} and "supersede_duplicate" not in BRIDGE
+    by_method = {m: catalog.by_method(m)[0] for m in ("keep_duplicates", "keep_file")}
+    assert {e.command for e in by_method.values()} == {("duplicate", "keep")} and not catalog.by_method("supersede_duplicate")
+    assert "supersede_duplicate" not in BRIDGE
     assert list(by_method["keep_file"].params) == ["group_id", "file_id", "paths"]
     assert by_method["keep_file"].params["file_id"].positional and by_method["keep_file"].params["paths"].resolve == "duplicate_paths"
     assert catalog.DISPATCH["duplicate keep"] == ("a file id as the second word runs keep_file, `--all` runs keep_duplicates")
