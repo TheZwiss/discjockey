@@ -5,8 +5,10 @@
 Every payload shape is a `TypedDict` in `discjockey/hub/shapes/` with each field's meaning beside it; this document keeps
 the rules only. `uv run python -m discjockey.hub.shapes --export` writes `hub-ui/src/lib/bridge/types.gen.ts` and
 `schemas.gen.json` (which shape answers which method and job kind); `discjockey help <command> --json` prints a
-command's schema (`data_schema`, and `dry_run_schema` for its `--dry-run`). A pytest fails when the generated files are
-stale, every test checks what the engine answers and what a job finishes with against the shapes (test mode,
+command's schema (`data_schema`, and `dry_run_schema` for its `--dry-run`; where the command line adds keys to the
+answer, `CLI_DATA` in `shapes/cli.py` maps the method to the shape of the `data` it prints). A pytest fails when the generated files are
+stale, every test checks what the engine answers and what a job finishes with, and the `data` the command line prints,
+against the shapes (test mode,
 `DISCJOCKEY_CHECK_SHAPES=1`), and `hub-ui/src/lib/bridge/fake/schemas.test.ts` checks the fake's. A shape changes in
 its TypedDict and is regenerated; never in the generated files.
 

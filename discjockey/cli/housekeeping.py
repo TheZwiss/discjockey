@@ -200,6 +200,15 @@ def usage_of(command: tuple[str, ...], args: list[dict], flags: list[str], flag_
     return " ".join(words)
 
 
+def cli_data_shape(entry: Entry, dry: bool) -> str | None:
+    """The name of the shape of the `data` a command prints: the answer's own shape (`entry.schema`), or the one with what
+    the command line adds (`shapes.CLI_DATA`). `dry`: for its `--dry-run`, the entry's `dry_run` method (`with_schemas`
+    takes the row's `dry_run_method`, which is the same). None while none is mapped."""
+    if dry:
+        return shapes.cli_data_name(entry.dry_run, True)
+    return shapes.CLI_DATA.get(entry.method) or entry.schema
+
+
 def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
     """One built command as `help --json` lists it. `kind` is the catalogue's (R read, RJ read that may run as a job,
     J write job, J-control stops a job, B brief save, `words` the command line's own word); `writes` is whether it
@@ -219,7 +228,7 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
             "dry_run": any(e.dry_run for e in entries), "locks": sorted({lock for e in entries for lock in e.locks}),
             "methods": list(dict.fromkeys(e.method for e in entries)),
             "dry_run_method": next((e.dry_run for e in entries if e.dry_run), None), "songs": songs,
-            "flag_values": values, "required_flags": required, "schema": primary.schema,
+            "flag_values": values, "required_flags": required, "schema": cli_data_shape(primary, False),
             "reasons": reasons_of(entries), "example": next((e.example for e in entries if e.example), ""),
             "usage": usage_of(command, args, flags, values, songs, required)}
 
@@ -271,7 +280,7 @@ def with_schemas(rows: list[dict]) -> list[dict]:
     def schema_of(name: str | None) -> dict | None:
         return shapes.json_schema(name) if name else None
     return [{**row, "data_schema": schema_of(row["schema"]),
-             "dry_run_schema": schema_of(shapes.ANSWERS.get(row["dry_run_method"] or ""))} for row in rows]
+             "dry_run_schema": schema_of(shapes.cli_data_name(row["dry_run_method"], True))} for row in rows]
 
 
 def run_help(parsed: Parsed) -> dict:

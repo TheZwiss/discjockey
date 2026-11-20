@@ -1015,6 +1015,7 @@ def test_help_json_of_every_built_command_prints_the_schema_the_shapes_make(caps
     import json
 
     from discjockey import cli as cli_main
+    from discjockey.cli.housekeeping import cli_data_shape
     from discjockey.hub import catalog, shapes
 
     commands = sorted({e.command for e in catalog.ENTRIES if e.command and e.planned is None})
@@ -1024,10 +1025,11 @@ def test_help_json_of_every_built_command_prints_the_schema_the_shapes_make(caps
         rows = json.loads(capsys.readouterr().out)["data"]["commands"]
         [row] = [r for r in rows if r["command"] == " ".join(command)]
         primary = catalog.primary([e for e in catalog.ENTRIES if e.command == command and e.planned is None])
-        assert row["schema"] == primary.schema, command
-        assert row["data_schema"] == (shapes.json_schema(primary.schema) if primary.schema else None), command
-        dry = shapes.ANSWERS.get(primary.dry_run or "")
+        data = cli_data_shape(primary, False)
+        assert row["schema"] == data, command
+        assert row["data_schema"] == (shapes.json_schema(data) if data else None), command
+        dry = cli_data_shape(primary, True)
         assert row["dry_run_schema"] == (shapes.json_schema(dry) if dry else None), command
-        schemas += bool(primary.schema)
+        schemas += bool(data)
         dry_runs += bool(dry)
     assert schemas > 25 and dry_runs > 3, (schemas, dry_runs)

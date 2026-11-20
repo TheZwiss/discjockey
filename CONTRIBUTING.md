@@ -50,8 +50,9 @@ absolute path of the program.
   then}`; `then` is the command to run afterwards, or `null` for the same command again; every `next[].run` and every
   `then` starts with this program's path), `recovered` (always a list), `job`, `as_of` (`{scanned_at, read_at}`: when
   the index was last scanned and the playlists last read, from the stored records; both `null` without a music folder),
-  `sandbox`. `data` is the answer of the command's bridge method minus `ok`: `help <command> --json` prints its `data_schema`
-  (and `dry_run_schema`), and the shapes themselves, with each field's meaning, are in `discjockey/hub/shapes/`
+  `sandbox`. `data` is the answer of the command's bridge method minus `ok`, plus what the command line adds (a dry run's
+  `plan_id`, a batch's `batch_id`, the counts of `check done`; `shapes.CLI_DATA`): `help <command> --json` prints its
+  `data_schema` (and `dry_run_schema`), which fits the `data` printed, and the shapes themselves, with each field's meaning, are in `discjockey/hub/shapes/`
   (`cli.py` holds the command line's own methods, `cli_first` included).
 - **Exit codes** are the outcome's: 0 `ok`, 1 `failed`, 2 `bad_args`, 3 `busy`, 4 `needs_person`, 5 `stopped`,
   6 `partial`, 7 `refused`, 8 `running`. `reason` is one word of the closed list in `discjockey/hub/outcomes.py`.

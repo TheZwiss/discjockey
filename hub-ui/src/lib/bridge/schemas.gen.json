@@ -553,6 +553,26 @@
       ],
       "type": "object"
     },
+    "AiffPlanDryRun": {
+      "additionalProperties": false,
+      "description": "`aiff convert --dry-run` and `aiff rename --dry-run`: the plan, and the id `--plan` runs it by.",
+      "properties": {
+        "plan": {
+          "$ref": "#/$defs/AiffPlan",
+          "description": "The plan.",
+          "x-shown": true
+        },
+        "plan_id": {
+          "description": "The id the plan is stored under; `--plan <id>` runs it. Missing when the plan lists nothing to run.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "plan"
+      ],
+      "type": "object"
+    },
     "AiffPlanItem": {
       "additionalProperties": false,
       "description": "One file the run would change. `path`, `new_path` and `superseded` are relative to the music folder (an own file in a watched folder: absolute).",
@@ -1257,6 +1277,46 @@
       ],
       "type": "object"
     },
+    "AutoUpgradePreviewDryRun": {
+      "additionalProperties": false,
+      "description": "`sync run --auto-upgrade-only --dry-run`: what the phase would do, and the id `--plan` runs it by.",
+      "properties": {
+        "auto_upgrade": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutoUpgradeBlock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The phase's block, null when Settings' switch is off and no placement is coming.",
+          "x-shown": true
+        },
+        "plan_id": {
+          "description": "The id the plan is stored under; `--plan <id>` runs it. Missing when the phase has nothing to run.",
+          "type": "string",
+          "x-shown": true
+        },
+        "start_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Sync page's before-start line for it; null when nothing is coming.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "auto_upgrade",
+        "start_note"
+      ],
+      "type": "object"
+    },
     "AutoUpgradeResult": {
       "additionalProperties": false,
       "description": "One track of the sync's Auto-upgrade phase (`auto_upgrade.py`).",
@@ -1338,6 +1398,80 @@
         "reason",
         "message",
         "how"
+      ],
+      "type": "object"
+    },
+    "AutoUpgradeRunData": {
+      "additionalProperties": false,
+      "description": "The `data` of `sync run --auto-upgrade-only`: the phase's result and the batch it made.",
+      "properties": {
+        "auto_upgrade": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutoUpgradeBlock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The phase's block; null when Settings' switch is off and no placement was coming.",
+          "x-shown": true
+        },
+        "batch_id": {
+          "description": "The phase's batch, `aiff:<n>`; missing when it made none.",
+          "type": "string",
+          "x-shown": true
+        },
+        "exit_code": {
+          "description": "How it ended: 0 well, 130 stopped, 1 crashed.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "new_since_plan": {
+          "description": "A run with `--plan`: the songs that are new since the plan, left out.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "report": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run's report id (`report:<stamp>`); null when no report was written.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "exit_code",
+        "report",
+        "auto_upgrade",
+        "recovered"
       ],
       "type": "object"
     },
@@ -3117,6 +3251,161 @@
         "quality_label",
         "from",
         "to"
+      ],
+      "type": "object"
+    },
+    "CheckDoneData": {
+      "additionalProperties": false,
+      "description": "The `data` of `check done`: the result with one row per track named, and how many tracks it counted.",
+      "properties": {
+        "batch": {
+          "description": "Only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`); a batch whose tracks were all checked already is a finished job with nothing in it.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "checked": {
+          "description": "The keys of the checks cleared.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "done": {
+          "description": "How many were checked.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "failed": {
+          "description": "How many failed (always 0).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "newer": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Only with `batch`: the songs of the batch whose check a later batch took, each with that batch's id (`aiff:<n>`), or null when it is not an AIFF batch.",
+          "type": "object",
+          "x-shown": false
+        },
+        "not_checked": {
+          "description": "The keys that had no open check.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "results": {
+          "description": "One row per track, `done` or `skipped`.",
+          "items": {
+            "$ref": "#/$defs/CheckDoneRow"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "How many had nothing to check, or belong to a later change.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many tracks the command looked at.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "results",
+        "checked",
+        "not_checked",
+        "recovered"
+      ],
+      "type": "object"
+    },
+    "CheckDoneRow": {
+      "additionalProperties": false,
+      "description": "One track of `check done`.",
+      "properties": {
+        "action": {
+          "const": "check",
+          "description": "Always `check`.",
+          "x-shown": true
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words, where there are some.",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "nothing_to_check",
+                "newer_batch"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it was skipped, null when done.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "`done`: its check is cleared; `skipped`: it had nothing to check, or a later change took its check.",
+          "enum": [
+            "done",
+            "skipped"
+          ],
+          "x-shown": true
+        },
+        "track": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track",
+        "action",
+        "state",
+        "reason",
+        "message"
       ],
       "type": "object"
     },
@@ -9297,6 +9586,124 @@
       ],
       "type": "object"
     },
+    "RekordboxPreviewData": {
+      "additionalProperties": false,
+      "description": "The `data` of `rekordbox preview`: the answer without the `ok` the window's answer carries (`data` never has it).",
+      "properties": {
+        "bits": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The bit depth.",
+          "x-shown": true
+        },
+        "codec": {
+          "description": "The file's codec.",
+          "type": "string",
+          "x-shown": true
+        },
+        "eligible": {
+          "$ref": "#/$defs/RekordboxPreviewEligible",
+          "description": "What each action would do.",
+          "x-shown": true
+        },
+        "entries": {
+          "description": "The rekordbox tracks that hold the file.",
+          "items": {
+            "$ref": "#/$defs/RekordboxPreviewEntry"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "file": {
+          "description": "The file's absolute path.",
+          "type": "string",
+          "x-shown": true
+        },
+        "new_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file the first action that can run would make, an absolute path; null when none can.",
+          "x-shown": true
+        },
+        "ok": {
+          "const": true,
+          "description": "Not in the command line's `data`.",
+          "x-shown": false
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/RekordboxPreviewState",
+          "description": "rekordbox's library.",
+          "x-shown": true
+        },
+        "sample_rate": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The sample rate in Hz.",
+          "x-shown": true
+        },
+        "superseded": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the old file would go, an absolute path; null when none.",
+          "x-shown": true
+        },
+        "timing": {
+          "$ref": "#/$defs/RekordboxPreviewTiming",
+          "description": "How the file's timing against rekordbox came out.",
+          "x-shown": true
+        },
+        "track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's key, null for a file the library does not know.",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track",
+        "file",
+        "codec",
+        "sample_rate",
+        "bits",
+        "new_file",
+        "superseded",
+        "rekordbox",
+        "timing",
+        "entries",
+        "eligible"
+      ],
+      "type": "object"
+    },
     "RekordboxPreviewEligible": {
       "additionalProperties": false,
       "description": "What each action would do for the file: the reason key (null when it can run) and its words.",
@@ -15216,6 +15623,77 @@
       ],
       "type": "object"
     },
+    "UpgradePreviewDryRun": {
+      "additionalProperties": false,
+      "description": "`upgrade apply --dry-run`: what it would do, and the id `--plan` runs it by.",
+      "properties": {
+        "items": {
+          "description": "One item per song.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/UpgradePreviewItem"
+              },
+              {
+                "$ref": "#/$defs/DiscardPreviewItem"
+              }
+            ]
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "mode": {
+          "description": "The mode asked.",
+          "enum": [
+            "same_track",
+            "new_track",
+            "discard"
+          ],
+          "x-shown": true
+        },
+        "plan_id": {
+          "description": "The id the plan is stored under; `--plan <id>` runs it. Missing for `upgrade discard`, which runs on what is there.",
+          "type": "string",
+          "x-shown": true
+        },
+        "planned": {
+          "description": "How many would run.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/UpgradePreviewRekordbox",
+          "description": "rekordbox's state (not for Discard).",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "How many would not.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "space": {
+          "description": "What the new files need per drive (not for Discard).",
+          "items": {
+            "$ref": "#/$defs/UpgradePreviewSpace"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many songs.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "mode",
+        "total",
+        "planned",
+        "skipped",
+        "items"
+      ],
+      "type": "object"
+    },
     "UpgradePreviewItem": {
       "additionalProperties": false,
       "description": "One song of an upgrade preview (`batches.preview_row`).",
@@ -15384,6 +15862,229 @@
       "required": [
         "state",
         "running"
+      ],
+      "type": "object"
+    },
+    "UpgradeRunData": {
+      "additionalProperties": false,
+      "description": "The `data` of `upgrade apply`, `upgrade all`, `batch resume` and the AIFF commands: the batch's result with each row's steps for the person, and the batch's name.",
+      "properties": {
+        "backup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The id of the copy of rekordbox's library made for it, or null.",
+          "x-shown": true
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The batch's id, null for a New track or Discard list.",
+          "x-shown": false
+        },
+        "batch_id": {
+          "description": "The batch, `aiff:<n>`; missing when no batch was made (a New track or Discard list).",
+          "type": "string",
+          "x-shown": true
+        },
+        "done": {
+          "description": "How many were done.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "failed": {
+          "description": "How many failed.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "new_since_plan": {
+          "description": "A run with a plan (`--plan`): the songs named that the plan did not have, left out.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "results": {
+          "description": "One row per track.",
+          "items": {
+            "$ref": "#/$defs/UpgradeRunRow"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "How many were skipped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "state": {
+          "description": "How the batch ended.",
+          "enum": [
+            "running",
+            "stopped",
+            "done"
+          ],
+          "x-shown": true
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "stop",
+                "rekordbox_open",
+                "busy",
+                "crash"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it stopped, null when it did not.",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many tracks it holds.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "batch",
+        "state",
+        "stop_reason",
+        "total",
+        "done",
+        "skipped",
+        "failed",
+        "results",
+        "backup",
+        "recovered"
+      ],
+      "type": "object"
+    },
+    "UpgradeRunRow": {
+      "additionalProperties": false,
+      "description": "One song of a batch as the command line prints it: with the steps only a person can do for it.",
+      "properties": {
+        "action": {
+          "description": "What was done: same_track, add_new, convert, rename, ...",
+          "type": "string",
+          "x-shown": true
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words.",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path.",
+          "x-shown": true
+        },
+        "person_steps": {
+          "description": "The steps only a person can do in rekordbox for this song; empty when there are none.",
+          "items": {
+            "$ref": "#/$defs/FailPersonStep"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An `EligibleReason` key (skipped only).",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ItemResultRekordbox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What was written in rekordbox, or null.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "What became of it.",
+          "enum": [
+            "planned",
+            "done",
+            "skipped",
+            "failed",
+            "undone"
+          ],
+          "x-shown": true
+        },
+        "track": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track",
+        "action",
+        "state",
+        "reason",
+        "message",
+        "path",
+        "rekordbox",
+        "person_steps"
       ],
       "type": "object"
     },
@@ -15920,6 +16621,20 @@
     "use_candidate": "OpResult",
     "use_link": "OpResult",
     "watched_folders": "WatchedFolders"
+  },
+  "cli_data": {
+    "aiff_plan:dry_run": "AiffPlanDryRun",
+    "auto_upgrade_preview:dry_run": "AutoUpgradePreviewDryRun",
+    "auto_upgrade_run": "AutoUpgradeRunData",
+    "batch_resume": "UpgradeRunData",
+    "convert": "UpgradeRunData",
+    "make_aiff": "UpgradeRunData",
+    "rekordbox_checked": "CheckDoneData",
+    "rekordbox_preview": "RekordboxPreviewData",
+    "rename": "UpgradeRunData",
+    "upgrade": "UpgradeRunData",
+    "upgrade_all": "UpgradeRunData",
+    "upgrade_preview:dry_run": "UpgradePreviewDryRun"
   },
   "results": {
     "account_sign_in": "AccountSaved",

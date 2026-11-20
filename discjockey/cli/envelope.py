@@ -6,9 +6,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ..hub import shapes
 from ..hub.outcomes import EXIT, NO_AS_OF, REASONS, VERSION, envelope  # noqa: F401  (the envelope itself lives with the table of outcomes: the window's jobs write it too)
 
 YOUR_TURN = "Your turn: "  # what starts each line of `person_steps` on stderr (`cli/__init__.py` notices, `follow.py`)
+
+
+def noted(env: dict, method: str, dry: bool = False) -> dict:
+    """`env` as it is, after the check of an ok envelope's final `data` against the shape `help --json` prints for it
+    (`shapes.note_cli_data`; test mode only)."""
+    if env.get("outcome") == "ok" and isinstance(env.get("data"), dict):
+        shapes.note_cli_data(env["command"], shapes.cli_data_name(method, dry), env["data"])
+    return env
 
 
 def problem(command: str, outcome: str, reason: str, message: str | None = None, **fields) -> dict:

@@ -7,13 +7,18 @@ sync's Auto-upgrade phase alone, and the six bridge methods that answer `{}` and
 `resolve` and `result_words` have no shape: they are the command line's lookups, no command prints them as `data`.
 
 `ANSWERS` maps a method to the shape of its answer without `ok` (a J method: the shape of its job's result); `RESULTS`
-maps a job kind to the shape of its `JobFinished.result`."""
+maps a job kind to the shape of its `JobFinished.result`. `CLI_DATA` maps a method (`"<method>"`), or the method a
+command's `--dry-run` runs (`"<method>:dry_run"`), to the shape of the `data` the command line prints where that is the
+answer plus what the command line adds (a dry run's `plan_id`, a batch's `batch_id`, the counts of `check done`); a
+method not in it prints its `ANSWERS` shape. `help --json` gives `data_schema` and `dry_run_schema` from it."""
 from typing import Annotated, Literal, NotRequired, TypedDict
 
+from .common import FailPersonStep
 from .kernel import F, shape
 from .library import Browser
-from .setup import LastCheck
-from .todo import AutoUpgradeBlock, ItemResult, UndoUpgradePreviewAnswer
+from .setup import AiffPlanAnswer, LastCheck
+from .todo import (AiffBatchResult, AutoUpgradeBlock, AutoUpgradePreviewAnswer, CheckedResult, ItemResult,
+                   RekordboxPreviewAnswer, UndoUpgradePreviewAnswer, UpgradePreviewAnswer)
 
 
 # --- settings show ---
@@ -227,6 +232,78 @@ class AutoUpgradeRunResult(TypedDict):
         "A run with `--plan`: the songs that are new since the plan, left out.", shown=False)]]
 
 
+# --- what the command line adds to `data` ---
+
+@shape
+class AiffPlanDryRun(AiffPlanAnswer):
+    """`aiff convert --dry-run` and `aiff rename --dry-run`: the plan, and the id `--plan` runs it by."""
+    plan_id: NotRequired[Annotated[str, F("The id the plan is stored under; `--plan <id>` runs it. Missing when the "
+                                          "plan lists nothing to run.")]]
+
+
+@shape
+class UpgradePreviewDryRun(UpgradePreviewAnswer):
+    """`upgrade apply --dry-run`: what it would do, and the id `--plan` runs it by."""
+    plan_id: NotRequired[Annotated[str, F("The id the plan is stored under; `--plan <id>` runs it. Missing for "
+                                          "`upgrade discard`, which runs on what is there.")]]
+
+
+@shape
+class AutoUpgradePreviewDryRun(AutoUpgradePreviewAnswer):
+    """`sync run --auto-upgrade-only --dry-run`: what the phase would do, and the id `--plan` runs it by."""
+    plan_id: NotRequired[Annotated[str, F("The id the plan is stored under; `--plan <id>` runs it. Missing when the "
+                                          "phase has nothing to run.")]]
+
+
+@shape
+class UpgradeRunRow(ItemResult):
+    """One song of a batch as the command line prints it: with the steps only a person can do for it."""
+    person_steps: Annotated[list[FailPersonStep], F("The steps only a person can do in rekordbox for this song; empty "
+                                                    "when there are none.")]
+
+
+@shape
+class UpgradeRunData(AiffBatchResult):
+    """The `data` of `upgrade apply`, `upgrade all`, `batch resume` and the AIFF commands: the batch's result with
+    each row's steps for the person, and the batch's name."""
+    results: Annotated[list[UpgradeRunRow], F("One row per track.")]
+    batch_id: NotRequired[Annotated[str, F("The batch, `aiff:<n>`; missing when no batch was made (a New track or "
+                                           "Discard list).")]]
+
+
+@shape
+class CheckDoneRow(TypedDict):
+    """One track of `check done`."""
+    track: Annotated[str, F("The song's key.", shown=False)]
+    action: Annotated[Literal["check"], F("Always `check`.")]
+    state: Annotated[Literal["done", "skipped"], F("`done`: its check is cleared; `skipped`: it had nothing to check, "
+                                                   "or a later change took its check.")]
+    reason: Annotated[Literal["nothing_to_check", "newer_batch"] | None, F("Why it was skipped, null when done.")]
+    message: Annotated[str | None, F("The words, where there are some.")]
+
+
+@shape
+class CheckDoneData(CheckedResult):
+    """The `data` of `check done`: the result with one row per track named, and how many tracks it counted."""
+    results: Annotated[list[CheckDoneRow], F("One row per track, `done` or `skipped`.")]
+    total: NotRequired[Annotated[int, F("How many tracks the command looked at.")]]
+    done: NotRequired[Annotated[int, F("How many were checked.")]]
+    skipped: NotRequired[Annotated[int, F("How many had nothing to check, or belong to a later change.")]]
+    failed: NotRequired[Annotated[int, F("How many failed (always 0).")]]
+
+
+@shape
+class AutoUpgradeRunData(AutoUpgradeRunResult):
+    """The `data` of `sync run --auto-upgrade-only`: the phase's result and the batch it made."""
+    batch_id: NotRequired[Annotated[str, F("The phase's batch, `aiff:<n>`; missing when it made none.")]]
+
+
+@shape
+class RekordboxPreviewData(RekordboxPreviewAnswer):
+    """The `data` of `rekordbox preview`: the answer without the `ok` the window's answer carries (`data` never has it)."""
+    ok: NotRequired[Annotated[Literal[True], F("Not in the command line's `data`.", shown=False)]]
+
+
 ANSWERS: dict[str, str] = {
     "settings_view": "SettingsView", "rekordbox_backups": "RekordboxBackups",
     "rekordbox_restore_preview": "RestorePreview", "batches": "Batches", "batch_detail": "BatchDetail",
@@ -239,4 +316,12 @@ ANSWERS: dict[str, str] = {
 }
 RESULTS: dict[str, str] = {
     "rekordbox_restore": "RestoreResult", "facts": "FactsResult", "auto_upgrade": "AutoUpgradeRunResult",
+}
+CLI_DATA: dict[str, str] = {
+    "aiff_plan:dry_run": "AiffPlanDryRun", "upgrade_preview:dry_run": "UpgradePreviewDryRun",
+    "auto_upgrade_preview:dry_run": "AutoUpgradePreviewDryRun",
+    "upgrade": "UpgradeRunData", "upgrade_all": "UpgradeRunData", "batch_resume": "UpgradeRunData",
+    "convert": "UpgradeRunData", "rename": "UpgradeRunData", "make_aiff": "UpgradeRunData",
+    "rekordbox_checked": "CheckDoneData", "auto_upgrade_run": "AutoUpgradeRunData",
+    "rekordbox_preview": "RekordboxPreviewData",
 }
