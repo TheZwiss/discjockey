@@ -2,6 +2,7 @@
 `as_of` from `HubApi.freshness()`."""
 import json
 import shlex
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from rekordbox_helpers import make_master
 import discjockey.cli as cli
 from discjockey import __version__, db, library
 from discjockey.cli import bind, housekeeping, parser
-from discjockey.hub import catalog
+from discjockey.hub import catalog, shapes
 
 
 def run_json(argv, capsys):
@@ -41,11 +42,33 @@ def test_help_json_lists_every_built_entry_with_what_an_agent_needs(capsys):
         assert all("id" in a for a in found["args"]), command
         assert found["example"] and found["usage"].startswith(command)
         assert "usage" in found["reasons"] and set(found["reasons"]) <= set(housekeeping.REASONS)
-        assert "schema" not in found  # plan v2 D11: no data schema in phase 1
+        assert found["schema"] is None  # no built command's method is mapped to a shape yet
     status = listed["rekordbox status"]
     assert (status["kind"], status["writes"], status["job"], status["flags"]) == ("R", False, False,
                                                                                   ["--limit", "--offset"])
     assert [f["flag"] for f in data["global_flags"]][:2] == ["--json", "--jsonl"]
+
+
+def test_a_command_with_a_mapped_shape_names_it_and_help_of_it_carries_the_schema():
+    built = catalog.entry_of("rekordbox_status", "rekordbox status")
+    row = housekeeping.index_entry(built.command, [replace(built, schema="Freshness")])
+    assert row["schema"] == "Freshness"
+    [full] = housekeeping.with_schemas([row])
+    assert full["data_schema"] == shapes.json_schema("Freshness") and full["dry_run_schema"] is None
+    assert full["data_schema"]["$defs"]["Freshness"]["properties"]["read_at"]
+    # a dry run that is answered by a mapped method brings that method's schema
+    dry = housekeeping.with_schemas([{**row, "dry_run_method": "freshness"}])
+    assert dry[0]["dry_run_schema"] == shapes.json_schema("Freshness")
+
+
+def test_help_of_one_command_has_null_schemas_while_none_is_mapped(capsys):
+    code, env = run_json(["help", "rekordbox", "status"], capsys)
+    row = env["data"]["commands"][0]
+    assert code == 0 and (row["schema"], row["data_schema"], row["dry_run_schema"]) == (None, None, None)
+    code, env = run_json(["help", "where"], capsys)
+    assert env["data"]["commands"][0]["data_schema"] is None
+    code = cli.main(["help", "rekordbox", "status"])  # the text page shows no schema
+    assert code == 0 and "schema" not in capsys.readouterr().out
 
 
 def test_every_example_of_the_index_parses(capsys):

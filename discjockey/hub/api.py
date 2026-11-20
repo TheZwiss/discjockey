@@ -55,7 +55,7 @@ from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, 
 from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, extra_json, load_settings, update_settings_held
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, media as media_mod, plan_store, registry, select, spectrum as spec, views
+from . import catalog, media as media_mod, plan_store, registry, select, shapes, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
@@ -201,7 +201,9 @@ def _answering(fn):
         try:
             if fn.__name__ in LIBRARY_METHODS or fn.__name__ in CLI_LIBRARY_METHODS:
                 self._need_library()  # NoLibrary -> no_library before anything starts
-            return {"ok": True, **(fn(self, *args, **kwargs) or {})}
+            answer = fn(self, *args, **kwargs) or {}
+            shapes.note_answer(fn.__name__, answer)  # test mode only: the answer must fit its shape
+            return {"ok": True, **answer}
         except Busy as e:
             return {"ok": False, "kind": e.kind, "message": str(e), **problem_fields(e.kind, e)}
         except StateError as e:

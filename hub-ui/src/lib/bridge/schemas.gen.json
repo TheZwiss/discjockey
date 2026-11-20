@@ -1,0 +1,733 @@
+{
+  "$defs": {
+    "ActionKey": {
+      "description": "The key of one planned action, three words; sent back unchanged to start_sync.",
+      "items": false,
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "type": "array"
+    },
+    "ByQuality": {
+      "additionalProperties": false,
+      "description": "A count for each quality class.",
+      "properties": {
+        "fake": {
+          "description": "Songs that claim to be lossless and are not.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "good_lossy": {
+          "description": "Songs that are lossy but good.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "lossless": {
+          "description": "Songs that are lossless.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "missing": {
+          "description": "Songs with no file found.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "weak": {
+          "description": "Songs whose cutoff is 17 kHz or less.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "lossless",
+        "good_lossy",
+        "weak",
+        "fake",
+        "missing"
+      ],
+      "type": "object"
+    },
+    "Empty": {
+      "additionalProperties": false,
+      "description": "An answer or a job result with nothing in it (`{}`).",
+      "properties": {},
+      "type": "object"
+    },
+    "EmptyKind": {
+      "description": "Why a page has nothing to show (a first-run or empty state), or null when it has something.",
+      "enum": [
+        "no_playlists",
+        "not_set_up",
+        "empty_library",
+        "no_preview",
+        "up_to_date",
+        "no_match",
+        "all_lossless",
+        "all_hidden",
+        "nothing_here",
+        "gone"
+      ]
+    },
+    "ErrorKind": {
+      "description": "What kind of error a report line holds (errors: network, qobuz or other; a song nobody has: not_found).",
+      "enum": [
+        "network",
+        "qobuz",
+        "other",
+        "not_found"
+      ]
+    },
+    "Fail": {
+      "additionalProperties": false,
+      "description": "A problem answer: `{ok: false, kind, message}` and, from the bridge decorator, the command line's view of it (issue 39, `discjockey/hub/outcomes.py`); the window ignores the latter. `outcome`, `reason`, `next`, `person_steps` and `data` are always present on an answer of the engine, optional here so the fake bridge needs no change. `kind` can also be `bad_args` for arguments only the command line sends (contract, Problem kinds).",
+      "properties": {
+        "data": {
+          "anyOf": [
+            {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Facts that belong to the reason, a different object per reason (`outcomes.REASONS`); null or absent when there are none.",
+          "x-shown": true
+        },
+        "kind": {
+          "$ref": "#/$defs/ProblemKind",
+          "description": "Why it failed; the window reads this.",
+          "x-shown": true
+        },
+        "message": {
+          "description": "Plain words for the person.",
+          "type": "string",
+          "x-shown": true
+        },
+        "next": {
+          "description": "The commands that move on.",
+          "items": {
+            "$ref": "#/$defs/FailNext"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "ok": {
+          "const": false,
+          "description": "Always false on a problem.",
+          "x-shown": false
+        },
+        "outcome": {
+          "$ref": "#/$defs/FailOutcome",
+          "description": "The command line's outcome of the problem.",
+          "x-shown": false
+        },
+        "person_steps": {
+          "description": "The steps only a person can do.",
+          "items": {
+            "$ref": "#/$defs/FailPersonStep"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "reason": {
+          "description": "The closed reason of the problem (`outcomes.REASONS`).",
+          "type": "string",
+          "x-shown": false
+        },
+        "service": {
+          "$ref": "#/$defs/PlaylistService",
+          "description": "Set when a playlist service caused the problem (a SourceError); absent for every other.",
+          "x-shown": true
+        },
+        "setting": {
+          "$ref": "#/$defs/SettingKey",
+          "description": "Only with kind `setting_off` (add_playlist for a link that needs a Settings choice that is off).",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "ok",
+        "kind",
+        "message"
+      ],
+      "type": "object"
+    },
+    "FailNext": {
+      "additionalProperties": false,
+      "description": "One command that moves on after a problem.",
+      "properties": {
+        "run": {
+          "description": "The command line to run.",
+          "type": "string",
+          "x-shown": true
+        },
+        "why": {
+          "description": "What it is for.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "run",
+        "why"
+      ],
+      "type": "object"
+    },
+    "FailOutcome": {
+      "description": "The command line's outcome of a problem (`outcomes.KIND_OUTCOME`).",
+      "enum": [
+        "failed",
+        "bad_args",
+        "busy",
+        "needs_person",
+        "stopped",
+        "refused"
+      ]
+    },
+    "FailPersonStep": {
+      "additionalProperties": false,
+      "description": "One step only a person can do.",
+      "properties": {
+        "id": {
+          "description": "The step's id (`step:relocate_new`, `step:reload_tag`, ...).",
+          "type": "string",
+          "x-shown": false
+        },
+        "say": {
+          "description": "What the person does, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "then": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The command that goes on afterwards, or null.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "say",
+        "then"
+      ],
+      "type": "object"
+    },
+    "Freshness": {
+      "additionalProperties": false,
+      "description": "How fresh the answers are, from the stored records alone: never a scan or a fetch.",
+      "properties": {
+        "read_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the playlists were last read, an ISO time; null when none was.",
+          "x-shown": true
+        },
+        "scanned_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the index was last scanned (a watched folder's last scan), an ISO time; null while there is no music folder, no library.db or nothing was scanned.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "scanned_at",
+        "read_at"
+      ],
+      "type": "object"
+    },
+    "LibraryFilter": {
+      "description": "Which songs the Library lists.",
+      "enum": [
+        "all",
+        "lossless",
+        "good_lossy",
+        "weak",
+        "fake",
+        "upgrade_ready"
+      ]
+    },
+    "LibrarySort": {
+      "description": "The Library's order: a column name, `-` in front for descending. `order` is a playlist's own order (its read record's); the engine's default there, and `artist` elsewhere.",
+      "enum": [
+        "title",
+        "-title",
+        "artist",
+        "-artist",
+        "length",
+        "-length",
+        "source",
+        "-source",
+        "quality",
+        "-quality",
+        "added",
+        "-added",
+        "folder",
+        "-folder",
+        "order",
+        "-order"
+      ]
+    },
+    "PlaylistLine": {
+      "additionalProperties": false,
+      "description": "One line of playlists.txt as the window edits it.",
+      "properties": {
+        "enabled": {
+          "description": "Whether the line is switched on; a switched-off line is left out of the sync.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist's folder name in the library.",
+          "type": "string",
+          "x-shown": true
+        },
+        "link": {
+          "description": "The playlist's link.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "folder",
+        "link",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    "PlaylistService": {
+      "description": "A playlist service (`sources.py`): the one a playlist row, a link or a problem belongs to.",
+      "enum": [
+        "spotify",
+        "qobuz",
+        "soundcloud",
+        "youtube_music"
+      ]
+    },
+    "ProblemKind": {
+      "description": "Why an answer is not ok. The window reads `kind` and shows `message`; the command line maps each kind to an outcome (`outcomes.KIND_OUTCOME`). The command line's own `bad_args` is sent only to it.",
+      "enum": [
+        "busy",
+        "console",
+        "sync_running",
+        "not_set_up",
+        "login_expired",
+        "offline",
+        "playlist_unreadable",
+        "config_invalid",
+        "qobuz_login_failed",
+        "login_failed",
+        "changed",
+        "refused",
+        "failed",
+        "stopped",
+        "protected",
+        "crashed",
+        "no_library",
+        "setting_off",
+        "exists",
+        "rekordbox_open"
+      ]
+    },
+    "Quality": {
+      "description": "A song's colour class: lossless green, good_lossy yellow, weak red (cutoff 17 kHz or less), fake purple, missing red.",
+      "enum": [
+        "lossless",
+        "good_lossy",
+        "weak",
+        "fake",
+        "missing"
+      ]
+    },
+    "Result": {
+      "additionalProperties": false,
+      "description": "One report line (also `ActionFinished.result`, run sections and op results): the payload copy of `events.Result`.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`run(run_id)` only: the cover of rows shown one by one.",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, or null.",
+          "x-shown": false
+        },
+        "error_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For an error line: what kind; null elsewhere.",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "found_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Status"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "upgrade_ready: the found file's status (`status` stays the current file's; a SoundCloud original can be lossless). Missing in runs saved before it.",
+          "x-shown": true
+        },
+        "note": {
+          "description": "What happened, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path, or null.",
+          "x-shown": true
+        },
+        "section": {
+          "description": "The report section the line belongs to (`report.SECTIONS`).",
+          "type": "string",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from: one of `Source`'s values, or another word the engine reports; null when there is none.",
+          "x-shown": true
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Status"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the sound check made of the file, or null.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's id, or null.",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "section",
+        "folder",
+        "artist",
+        "title",
+        "track_id",
+        "note",
+        "status",
+        "source",
+        "cutoff_hz",
+        "path",
+        "error_kind"
+      ],
+      "type": "object"
+    },
+    "SettingKey": {
+      "const": "read_liked_music",
+      "description": "A choice in Settings that a read needs (its key in settings.json): `setting_off` names it in `setting`."
+    },
+    "Source": {
+      "description": "Where a file came from; `manual` is a file the user bought or owns.",
+      "enum": [
+        "qobuz",
+        "youtube_music",
+        "soundcloud",
+        "youtube",
+        "manual"
+      ]
+    },
+    "SourceHow": {
+      "description": "How a download's source was found (the engine's `source_how`): the exact Qobuz track, its ISRC, a name search, the playlist's own upload, the fallback search, or picked by the user.",
+      "enum": [
+        "exact",
+        "isrc",
+        "name",
+        "upload",
+        "fallback",
+        "chosen"
+      ]
+    },
+    "Status": {
+      "description": "What the sound check made of a file.",
+      "enum": [
+        "lossless",
+        "not_lossless",
+        "fake_lossless",
+        "missing"
+      ]
+    },
+    "TodoFilter": {
+      "description": "A To-do group, or `all`.",
+      "enum": [
+        "all",
+        "rekordbox_check",
+        "missing_file",
+        "same_song",
+        "duplicate",
+        "upgrade_ready",
+        "cdj",
+        "not_found",
+        "weak",
+        "good_lossy",
+        "fake",
+        "other"
+      ]
+    },
+    "TrackRow": {
+      "additionalProperties": false,
+      "description": "One song as a list shows it: a Library row, a to-do item, a change move (to-do items add `group` and `detail`, moves add `from`, `to`, `to_not_lossless`).",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it): the table never dims it. False for a downloaded or bought one.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "own",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url"
+      ],
+      "type": "object"
+    },
+    "Which": {
+      "description": "Which file of a song: the one in the library now, or the parked better version.",
+      "enum": [
+        "current",
+        "upgrade"
+      ]
+    }
+  },
+  "answers": {
+    "freshness": "Freshness"
+  },
+  "results": {}
+}

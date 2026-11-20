@@ -401,11 +401,12 @@ def test_the_job_plans_the_sync_again_so_the_download_shows_at_once(lib):
 # --- the contract: the window's types name what the hub sends ---
 
 TYPES_TS = Path(__file__).resolve().parents[1] / "hub-ui" / "src" / "lib" / "bridge" / "types.ts"
+TYPES_GEN_TS = TYPES_TS.with_name("types.gen.ts")  # the shapes (hub/shapes) are generated there
 CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "hub-bridge-contract.md"
 
 
 def ts_type(name):
-    return re.search(rf"export type {name} =(.*?);\n(?=\n|/\*\*|export |type |//)", TYPES_TS.read_text(encoding="utf-8"),
+    return re.search(rf"export type {name} =(.*?);\n(?=\n|/\*\*|export |type |//)", TYPES_TS.read_text(encoding="utf-8") + TYPES_GEN_TS.read_text(encoding="utf-8"),
                      re.S).group(1)
 
 

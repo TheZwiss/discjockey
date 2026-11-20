@@ -1,58 +1,14 @@
-// Every JSON shape of docs/hub-bridge-contract.md, field by field. Source of truth: discjockey/hub/{api,views,jobs}.py.
+// The hand-written part of the bridge's types. Every other shape is generated into types.gen.ts from
+// discjockey/hub/shapes/ (`uv run python -m discjockey.hub.shapes --export`); edit the Python shapes, never the
+// generated file. This file re-exports it, so the window imports every type from here, and keeps only what is
+// generic: Res, JobStart, NOT_IN_PLAYLIST and the guards. The other types below are still to move into the shapes.
+export * from './types.gen';
+import type { Fail, ProblemKind, Quality, EmptyKind, PlaylistService, SettingKey, ActionKey, LibraryFilter, TodoFilter, Which, Source, SourceHow, ByQuality, TrackRow, Result } from './types.gen';
 
-export type ProblemKind = 'busy' | 'console' | 'sync_running' | 'not_set_up' | 'login_expired' | 'offline'
-  | 'playlist_unreadable' | 'config_invalid' | 'qobuz_login_failed' | 'login_failed' | 'changed' | 'refused'
-  | 'failed' | 'stopped' | 'protected' | 'crashed' | 'no_library' | 'setting_off' | 'exists' | 'rekordbox_open';
-export const PROBLEM_KINDS: readonly ProblemKind[] = ['busy', 'console', 'sync_running', 'not_set_up',
-  'login_expired', 'offline', 'playlist_unreadable', 'config_invalid', 'qobuz_login_failed', 'login_failed',
-  'changed', 'refused', 'failed', 'stopped', 'protected', 'crashed', 'no_library', 'setting_off', 'exists', 'rekordbox_open'];
-export type Quality = 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'missing';
-export const QUALITIES: readonly Quality[] = ['lossless', 'good_lossy', 'weak', 'fake', 'missing'];
-export type EmptyKind = 'no_playlists' | 'not_set_up' | 'empty_library' | 'no_preview' | 'up_to_date' | 'no_match'
-  | 'all_lossless' | 'all_hidden' | 'nothing_here' | 'gone';
-/** A playlist service (`sources.py`): the one a playlist row, a link or a problem belongs to. */
-export type PlaylistService = 'spotify' | 'qobuz' | 'soundcloud' | 'youtube_music';
-/** A choice in Settings that a read needs (its key in settings.json): `setting_off` names it in `setting`. */
-export type SettingKey = 'read_liked_music';
-/** `service`: set when a playlist service caused the problem (a `SourceError`), absent for every other. `setting`:
- *  only with kind `setting_off` (add_playlist for a link that needs a Settings choice that is off). `kind` can also be
- *  `bad_args` for arguments only the command line sends (contract, Problem kinds). */
-export type Fail = {
-  ok: false; kind: ProblemKind; message: string; service?: PlaylistService; setting?: SettingKey;
-  /** The command line's view of the same problem (issue 39, `discjockey/hub/outcomes.py`); the window ignores it.
-   *  Always present on an answer of the engine, optional here so the fake bridge needs no change. */
-  outcome?: FailOutcome; reason?: string; next?: { run: string; why: string }[];
-  person_steps?: { id: string; say: string; then: string | null }[]; data?: Record<string, unknown> | null;
-};
-export type FailOutcome = 'failed' | 'bad_args' | 'busy' | 'needs_person' | 'stopped' | 'refused';
 export type Res<T> = ({ ok: true } & T) | Fail;
 export type JobStart = Res<{ job_id: string }>;
-export type ActionKey = [string, string, string];          // sent back unchanged to start_sync
-export type LibraryFilter = 'all' | 'lossless' | 'good_lossy' | 'weak' | 'fake' | 'upgrade_ready';
-/** `order` is a playlist's own order (its read record's); the engine's default there, and `artist` elsewhere. */
-export type LibrarySort = `${'' | '-'}${'title' | 'artist' | 'length' | 'source' | 'quality' | 'added' | 'folder' | 'order'}`;
-// The contract adds `rekordbox_check` (the plan's list predates it) and the import's `same_song` and `duplicate`.
-export type TodoFilter = 'all' | 'rekordbox_check' | 'missing_file' | 'same_song' | 'duplicate' | 'upgrade_ready' | 'cdj' | 'not_found'
-  | 'weak' | 'good_lossy' | 'fake' | 'other';
-export type Which = 'current' | 'upgrade';
-export type PlaylistLine = { folder: string; link: string; enabled: boolean };
 export const NOT_IN_PLAYLIST = '__not_in_playlist__';
 
-export type Status = 'lossless' | 'not_lossless' | 'fake_lossless' | 'missing';
-export type Source = 'qobuz' | 'youtube_music' | 'soundcloud' | 'youtube' | 'manual';
-/** How a download's source was found (the engine's `source_how`): the exact Qobuz track, its ISRC, a name search, the
- *  playlist's own upload, the fallback search, or picked by the user. */
-export type SourceHow = 'exact' | 'isrc' | 'name' | 'upload' | 'fallback' | 'chosen';
-export type ByQuality = Record<Quality, number>;
-
-export type TrackRow = {
-  track_id: string; artist: string; title: string; folder: string; duration_s: number;
-  status: Status; quality: Quality; quality_label: string; cutoff_hz: number | null;
-  source: Source | null; source_name: string | null; in_playlists: boolean;
-  /** a file of the user's own that the import found (no playlist holds it): the table never dims it */
-  own: boolean; hidden: boolean;
-  upgrade_ready: boolean; path: string | null; added: string | null; cover_url: string | null;
-};
 export type TodoGroupKey = Exclude<TodoFilter, 'all'>;
 /** `free`: the artist gives it away (see TrackDetail.free_downloads). `pair`: only the import's two groups
  *  (`same_song`, `duplicate`) have one; narrow with `isQuestion` / `isDuplicate`. `can_undo`: only `rekordbox_check`
@@ -301,14 +257,6 @@ export type RunSummary = {
   /** the run's Auto-upgrade phase and its one-line account (`line`: "Upgraded 2 tracks; your cues stayed. 1 waits for
    *  rekordbox to be closed."; null when nothing happened); null when the switch was off for the run */
   auto_upgrade: (AutoUpgradeBlock & { line: string | null }) | null;
-};
-export type ErrorKind = 'network' | 'qobuz' | 'other' | 'not_found';
-export type Result = {
-  section: string; folder: string; artist: string; title: string; track_id: string | null; note: string;
-  status: Status | null; source: Source | string | null; cutoff_hz: number | null; path: string | null;
-  error_kind: ErrorKind | null;
-  found_status?: Status | null;   // upgrade_ready: the found file's status (status is the current file's); missing in old runs
-  cover_url?: string | null;   // run(run_id) only: rows shown one by one
 };
 export type RunDetail = RunSummary & {
   sections: Record<string, Result[]>; needs_you: Result[];

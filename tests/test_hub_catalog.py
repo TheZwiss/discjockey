@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from discjockey.hub import catalog
+from discjockey.hub import catalog, shapes
 from discjockey.hub.api import CliApi, HubApi
 from discjockey.hub.catalog import Arg, Entry
 
@@ -164,7 +164,7 @@ def test_every_read_with_a_command_has_an_example_that_starts_with_it():
         if e.kind == "R" and e.command:
             assert e.example, f"{e.method} {e.command} has no example"
             assert e.example.startswith(" ".join(e.command)), e.example
-        assert e.schema is None  # phase 2 fills it
+        assert e.schema == shapes.ANSWERS.get(e.method), e
 
 
 def test_the_entries_are_well_formed():

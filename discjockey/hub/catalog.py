@@ -16,7 +16,8 @@ the entry when a command has several (`DISPATCH`).
 
 `planned` is "phase N" while the command is not built: T1 counts it as covered, the parser and `help --json` leave
 it out, and the last phase's test fails while any is left. `locks` (design §6.1) names the locks a command takes,
-per built entry (a later group fills it with its command; T10, tests/test_cli_locks.py, pins it); `schema` stays None in phase 1 (phase 2 fills it)."""
+per built entry (a later group fills it with its command; T10, tests/test_cli_locks.py, pins it); `schema` names the shape that
+answers the method (`shapes.ANSWERS`, read when the entry is made), None while none is mapped."""
 from __future__ import annotations
 
 import inspect
@@ -26,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from .. import missing as missing_rule
-from . import select
+from . import select, shapes
 
 Kind = Literal["R", "RJ", "J", "J-control", "B", "W", "dropped"]
 
@@ -62,7 +63,7 @@ class Entry:
     cli_first: bool = False             # a method the command line needs and the window does not have yet
     planned: str | None = None
     example: str = ""
-    schema: str | None = None
+    schema: str | None = None           # the shape of the method's answer (hub/shapes), from `_e`
 
 
 WINDOW_ONLY = {"pick_folder": "native_dialog", "quit": "closes_window"}
@@ -178,7 +179,8 @@ def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapp
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
                  params=params or {}, fixed=fixed or {}, cli_first=cli_first, locks=frozenset(locks),
                  partial=frozenset(partial), match=match or {},
-                 planned=None if built or kind in ("W", "dropped") else PHASE, example=example)
+                 planned=None if built or kind in ("W", "dropped") else PHASE, example=example,
+                 schema=shapes.ANSWERS.get(method))
 
 
 def _positional(resolve: str | None = None, *, many: bool = False, type: str = "str") -> Arg:
