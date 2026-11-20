@@ -1180,6 +1180,13 @@ Results:
         actual gaps 0.0137 s vs 0.02 s slots = wake-up jitter at 1/100 scale, slot order exact; step 2 via
         run.finish_quietly, no fallback). Repo untouched, scratch deleted. V2.6 group total: 244 + 165 + 118 + 107
         = 634k. E9 dispatched (cli2-16, exp. 165k).
+      - E9 done (Sonnet): logged 158k (exp. 165k), 63 calls, cache 6.9M, fresh in 143k, out 40k, advisor 0k. Commits
+        863a44c1 (event route: words.job_title/holder_text, holder text, ConsoleBusy.text) + a5b38db1 (shape route:
+        JobStatus.console / ConsoleHolder) + bb4b60e9 (window banner + Sync note) + c4532005 static; pytest 6411/4
+        skipped, timing set 5x, vitest 542, npm check 0. New shots library-console-tidy/-unknown (scenarios via
+        pageScenarios in fake/console.ts). Also updated the gallery banner example + design-language Start-Hint
+        line. Merged b48c5839, pushed. Shots E9 (Sonnet) dispatched: HEAD main checkout, BASE worktree shots-base
+        at 831c02d4, exp. ~130k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
