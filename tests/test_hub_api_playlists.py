@@ -5,13 +5,13 @@ from types import SimpleNamespace
 import pytest
 import yt_dlp
 from hub_helpers import (ID1, ID2, PLAYLISTS, QOBUZ_ID, QOBUZ_LINK, QOBUZ_UNREADABLE, TRACKS, fake_qobuz, fake_spotify,
-                         make_api, make_root, refreshed, stored, track, wait_job, window)
+                         make_api, make_root, refreshed, store_sync_read, stored, track, wait_job, window)
 
 from discjockey import db
 from discjockey import playlists_file as pf
 from discjockey import sources
 from discjockey.events import CancelToken
-from discjockey.models import FetchedPlaylist, PlaylistInfo
+from discjockey.models import FetchedPlaylist, PlaylistInfo, PlaylistLine
 from discjockey.sources.base import LoginState, SourceError
 from discjockey.sources import soundcloud, spotify, youtube_music
 from discjockey.hub.api import rows_from, suggest_folder
@@ -252,6 +252,25 @@ def test_preview_reads_an_unread_playlist_of_a_service_that_needs_no_login(root,
     refreshed(api, rec)
     added = api.preview_playlist_change(lines(HARD, POWER, ("Example_Set", SC_SET, True)))
     assert added["ok"] and added["kind"] == "add" and added["new_downloads"] == 1
+
+
+def test_a_preview_read_is_stamped_when_it_started_so_a_sync_read_that_started_during_it_keeps_its_record(root, monkeypatch):
+    fake_soundcloud(monkeypatch)
+    reader = sources.SOURCES["soundcloud"].open(root.support, CancelToken())
+    set_id = "example-label/sets/example-set"
+
+    def slow_fetch(line):  # a sync read starts and stores its record while this check read is still fetching
+        store_sync_read(root, [FetchedPlaylist(PlaylistLine("Example_Set", set_id, 3, "soundcloud"),
+                                               [track("900000202", "From The Sync", "Example Artist")], [])])
+        return FetchedPlaylist(line, [track("900000101", "From The Check", "Example Artist")], [])
+
+    monkeypatch.setattr(reader, "fetch", slow_fetch)
+    monkeypatch.setattr(sources.SOURCES["soundcloud"], "open", lambda paths, token: reader)
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    assert api.preview_playlist_change(lines(HARD, POWER, ("Example_Set", SC_SET, True)))["ok"]
+    tracks, _ = stored(root)
+    assert [t.title for t in tracks[f"soundcloud:{set_id}"]] == ["From The Sync"]
 
 
 def test_preview_does_not_open_soundcloud_for_a_you_likes_line(root, monkeypatch):

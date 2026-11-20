@@ -140,7 +140,12 @@ are held back until the user answers "Is this the same song?" (the plan's `quest
 there is no preview yet — see "Auto-upgrade" below. `read_id` names the stored read the plan is derived from
 (`read:<n>`; null before the first read). The plan is derived, never stored: every process that asks (the window, the
 command line, a second window) gets the plan for the stored read and the library as they are now, and asking writes
-nothing (so a dry run is this answer).
+nothing (so a dry run is this answer). A plan that can't be derived (a settings.json the planner refuses) is the error
+of `sync_preview`, `start_sync` and `never_download` (`config_invalid`, its words); every other page that shows the plan
+(the dashboard, Library, To-do, Playlists, Limits, the sidebar, `tidy_preview`) shows what it has without one, and
+`read_status` then says `problem: config_invalid` with the words. `job_status` derives no plan: its `read_status` is the
+stored read's head (and names a refused settings.json), and `lines_changed` also holds when every line was switched
+off or removed.
 Group `key`s/labels in order: `acquire:new` Download (new), `acquire:retry` Try again, `acquire:redownload` Download
 again (its file is missing; planned only for a song whose Download again the user asked for, issue 43: a missing file alone plans nothing), `adopt_bought` Add a bought file, `upgrade` Look for a better version (weekly check). There are no `move` or
 `adopt` groups, no `counts.moves` / `counts.adopts` (in `sync_preview` and in the dashboard's `ready.counts`) and no
@@ -172,7 +177,7 @@ playlists.txt changes on disk (mtime or size, checked every 2 s; retried until n
 session's one automatic read (the hub when it opens; the Sync page when it opens and `read_status.auto_read` is still
 false, e.g. the hub's own read could not start). It sets `read_status.auto_read` when it starts; later `auto=true` calls are
 refused (`refused`), so a stopped or failed automatic read is never redone by itself. Each playlist read emits
-`ReadingPlaylist`. Outcome: `JobFinished` kind `refresh`, result `RefreshResult` (`{actions}`); on problems (`offline`, ...) the
+`ReadingPlaylist`. Outcome: `JobFinished` kind `refresh`, result `RefreshResult` (`{actions, read_id}`; a read that could not be stored, e.g. the library was busy, ends `failed` since the plan is derived from the stored read); on problems (`offline`, ...) the
 last preview stays with `read_status.problem` set.
 `stop_refresh()` → `Stopped` (`{"stopped": bool}`; `stop()` and `stop_sign_in()` answer it too). The read's `JobFinished` (`stopped`) comes at once, also while one slow
 Spotify request is still under way; that request's late answer is dropped (the last preview stays).

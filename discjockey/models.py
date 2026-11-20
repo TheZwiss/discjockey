@@ -204,13 +204,15 @@ class StoredRead:
 class ReadHead:
     """The newest stored reads at a glance (`db.read_head`), one query and no track rebuilt: `current` the newest
     read's id (any kind); `sync_id` the newest sync read that has lines (None: no good read yet); `read_at` when it
-    was stored; `problem`, `problem_service` and `message` are the newest sync read's, failed or not."""
+    was stored; `problem`, `problem_service` and `message` are the newest sync read's, failed or not; `lines` the
+    good read's lines as (folder, ref) pairs (None with no good read)."""
     current: int
     sync_id: int | None
     read_at: datetime | None
     problem: str | None
     problem_service: str | None
     message: str
+    lines: tuple[tuple[str, str], ...] | None = None
 
 
 @dataclass(frozen=True)
