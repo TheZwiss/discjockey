@@ -1096,6 +1096,14 @@ Results:
         refused settings.json must not break dashboard/job_status (V2.2b made them fail; reads tolerate a bad
         settings file elsewhere) -> Important finding with stated fix in review-V2.2.md. Review V2.2 dispatched
         (BASE 85a4679b, HEAD 176c8d93, diff 57k).
+      - Review V2.2 (Sonnet): logged 199k (exp. 140k, 1.42x), 51 calls, cache 6.2M, advisor 0k. 0 Critical, 4
+        Important (F1 a refused settings.json breaks 9+ readers of _plan(), not only dashboard/job_status; job_status
+        should not derive at all; F2 a refresh whose read could not be stored ends ok with no plan; F3 unreadable
+        playlist keeps stale info; F4 a private SoundCloud set's s-token is stored in reads.lines/playlist_infos as the
+        ref: the stated fix narrows the wording + test, alternative masking = design), 8 Minor (F5-F12), 1 note (F13
+        commit order). Findings: .claude/issue39/phase2/review/findings-V2.2.md. All fixes stated; none PLANNED.
+      - PAUSED by the user (~18:40, "Pause after the agent is done"). Next on go: the V2.2 fix round (Sonnet
+        fix-round, F1-F12, from the phase branch 176c8d93), then V2.5a.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
