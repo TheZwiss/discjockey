@@ -862,6 +862,18 @@ Results:
     Plan stays in docs/ until the user's live test. Next: live test of issue 43 with the user (put a file away,
     scan, To-do Missing files, put it back, Download again with a parked version), then issue 39 phase 2 setup
     choice; issue 44 flake; archive issue 33's plans.
+    **2026-11-20:** screenshots of the real window (Terminal got Screen Recording): To-do Missing files + Missing tab
+    (`.claude/backups/issue43-live-2026-11-19/shots/`), song back after, still own. SCOPE SLIP found: issue 43 R2/FC moved
+    `headerSub` into the engine (plan v2 V6.3/V6.4 row 23) and I offered a CLI fix round for duplicates (V2.2+V4.5 own it):
+    guard built (`.claude/open-scope.md` register + "Done early", `.claude/scope-check.sh`, gate needs "Scope check:",
+    checklist item 11, review rule limited to logic the work added, fix-round/ui-build defs). **v1.3.0** tagged on 2ceb0d7c
+    (pytest 6034, verify 1249 ok), release workflow green, DRAFT waiting for the user's install + "publish". Issue 44
+    + muted check browsers (synth tones the user heard came from verify's cover-play shots): fix-round Sonnet **93k**,
+    merged main 126cfd24 (fixture `no_first_read`; `mutePlayback` in shot-lib.mjs incl. Web Audio gain 0).
+    **RESUME HERE (2026-11-20):** next = plan with the user how agents finish issue 39 phases 2–8 (Sonnet/Opus split,
+    group sizes from phase 1's record: builds 186-301k early, 512-783k for V1.10-V1.14 vs ~200k planned; reviews
+    163-221k; fix rounds 148-200k; rehearsals 96-133k). Then the phase 2 setup choice. Open: publish 1.3.0 on the user's
+    word; issue 43 Download-again live test when Qobuz is back; archive issue 33's plans.
     Merged into the phase branch: V1.1-V1.13 (each with review/fix; rehearsals V1.7, V1.11+12, V1.13 on made-up data).
     Phase branch head 3cafe9b9. V1.14a a52ce2fc + b 35901f1a + review + fix on feat/cli-1-14 (worktree cli1-14).
     NEW RULES (user 2026-11-16, standing, also for the future; dispatch checklist rule 6 + memory):
