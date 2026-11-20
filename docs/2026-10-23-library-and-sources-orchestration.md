@@ -898,6 +898,14 @@ Results:
       script's steps changed and never ran. So: V1.14 rehearse-sync on made-up data STAYS (RH2-RH6 moved, unrun;
       builder at scratchpad/rehearsal-v1.13/build_fake.py, stereo); V1.15 gets NO rehearsal; one real-copy session in
       the user's A-D morning covers rehearse, rehearse-convert and rehearse-sync.
+    2026-11-20 PLANNING TALK (phases 2-8): plan review dispatched as Fable, switched to Opus by the user (Fable is no
+    longer in the Pro plan): Opus **132k** (13 API calls, 1.2M cache reads) → scratchpad fable-review-result.md: plan
+    sound; phase 1 really ~11.4M logged (2.24x, the "phase 1 ~" figures used a wrong 2.12M baseline); main unnamed
+    causes = interfaces left to builders (V1.0's 8 open shapes) + contract work per shape (fake ~148k); advisor OFF.
+    MEASURED from transcripts (`.claude/agent-cost.py`): subagent_tokens = final context, not spend. 66 agents
+    2026-11-15..17: 5 182 API calls, 947M cache reads, 17.2M fresh input, 3.8M output, + advisor (Fable) 8.0M uncached
+    input / 0.54M output in 37 calls (max 450k per call), none of it in the log. Worst agent: suite speed, 503 calls,
+    123M cache reads (logged 332k). Advisor: user to run `/advisor off`.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
