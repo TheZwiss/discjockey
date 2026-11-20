@@ -1007,6 +1007,15 @@ Results:
         track (_check_rev in _batch_work); rev: null on no-record rows, duplicate-group and batch items. FOR PHASE
         REVIEW: the upgrade stale-rev refusal writes no operations-log line (the 5 other writes log `changed`);
         `plan_id` now required in Bridge.upgrade. Merged into feat/cli-2-foundations.
+      - V2.1b done (Sonnet): logged 142k (est. 210k), 52 calls, cache reads 5.3M, advisor 0k. Commits ccbc0ff9 +
+        2e378da9; pytest 6184/4 skipped; touched files 5x stable. FOR PHASE REVIEW: Jobs' music folder derived as
+        lock.parent.parent; a foreign job under 1 s sends no JobFinished; holder re-reads its state.json. Merged
+        b3ca2205.
+      - WAVE 1 BUILDS DONE: logged 1,178 (E7) + 195 + 204 + 142 = ~1,719k vs plan 1,627k (1.06x). My full pytest on
+        b3ca2205: 6185 passed, 3 skipped, green. Diff (excl. generated/static) ~209k tokens: shapes+contract ~145k
+        (mostly declarations + doc deletions), jobs/identity ~63k. Review: two Opus halves, briefs in
+        .claude/issue39/phase2/review/ (common.md, review-shapes.md, review-jobs.md), ~180k each, run on the main
+        checkout at feat/cli-2-foundations. V2.3's share of the planned phase review moves to wave 2's review.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
