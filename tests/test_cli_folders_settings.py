@@ -346,8 +346,9 @@ def test_no_engine_sentence_points_at_a_command_that_is_not_built_yet():
 def test_sync_scope_off_show_on_through_the_command_line(music, capsys):
     paths, _ = music
     code, text, _ = run(["sync", "scope", "show"], capsys)
-    assert code == OK
-    code, env = run_json(["sync", "scope", "off", "kind:weekly", "playlist:spotify:x", "folder:Library/Hard_Bounce"], capsys)
+    assert code == OK and "none" in text  # nothing left out
+    off = ["sync", "scope", "off", "kind:weekly", "playlist:spotify:x", "folder:Library/Hard_Bounce"]
+    code, env = run_json(off, capsys)
     assert (code, env["outcome"], env["command"]) == (OK, "ok", "sync scope off"), env
     assert env["data"] == {"off": [{"target": "playlist:spotify:x", "name": "playlist:spotify:x"},
                                    {"target": "folder:Library/Hard_Bounce", "name": "Hard_Bounce"}],
@@ -355,14 +356,20 @@ def test_sync_scope_off_show_on_through_the_command_line(music, capsys):
     s = load_settings(paths.settings_file)
     assert (s.scope_off, s.weekly_off) == (("playlist:spotify:x", "folder:Library/Hard_Bounce"), ("weekly",))
     code, env = run_json(["sync", "scope", "show"], capsys)
-    assert (code, env["command"], env["outcome"]) == (OK, "sync scope show", "ok") and env["data"]["weekly_off"] == [
-        {"kind": "weekly", "label": "Weekly checks"}]
+    assert (code, env["command"], env["outcome"]) == (OK, "sync scope show", "ok")
+    assert env["data"]["weekly_off"] == [{"kind": "weekly", "label": "Weekly checks"}]
     code, text, _ = run(["sync", "scope", "show"], capsys)
     assert code == OK and "Weekly checks" in text and "Hard_Bounce" in text
     code, env = run_json(["sync", "scope", "on", "kind:weekly", "folder:Library/Hard_Bounce"], capsys)
     assert (code, env["outcome"]) == (OK, "ok") and env["data"]["weekly_off"] == []
     assert [c["target"] for c in env["data"]["off"]] == ["playlist:spotify:x"]
     assert load_settings(paths.settings_file).weekly_off == ()
+
+
+def test_the_page_of_sync_scope_off_is_the_golden_text(music, capsys):
+    code, out, _ = run(["sync", "scope", "off", "kind:weekly", "playlist:spotify:x", "folder:Library/Hard_Bounce"], capsys)
+    assert code == OK
+    check_golden("sync_scope_off", out)
 
 
 def test_sync_scope_works_without_a_music_folder_and_keeps_the_other_settings(tmp_path, monkeypatch, capsys, inline_workers):
