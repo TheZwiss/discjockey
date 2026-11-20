@@ -870,7 +870,7 @@ Results:
     (pytest 6034, verify 1249 ok), release workflow green, DRAFT waiting for the user's install + "publish". Issue 44
     + muted check browsers (synth tones the user heard came from verify's cover-play shots): fix-round Sonnet **93k**,
     merged main 126cfd24 (fixture `no_first_read`; `mutePlayback` in shot-lib.mjs incl. Web Audio gain 0).
-    **RESUME HERE (LATEST, 2026-11-20):** next = plan with the user how agents finish issue 39 phases 2–8 (Sonnet/Opus split,
+    **RESUME HERE (superseded by the one below, 2026-11-20):** next = plan with the user how agents finish issue 39 phases 2–8 (Sonnet/Opus split,
     group sizes from phase 1's record: builds 186-301k early, 512-783k for V1.10-V1.14 vs ~200k planned; reviews
     163-221k; fix rounds 148-200k; rehearsals 96-133k). Then the phase 2 setup choice. Open: publish 1.3.0 on the user's
     word; issue 43 Download-again live test when Qobuz is back; archive issue 33's plans.
@@ -906,6 +906,14 @@ Results:
     2026-11-15..17: 5 182 API calls, 947M cache reads, 17.2M fresh input, 3.8M output, + advisor (Fable) 8.0M uncached
     input / 0.54M output in 37 calls (max 450k per call), none of it in the log. Worst agent: suite speed, 503 calls,
     123M cache reads (logged 332k). Advisor: user to run `/advisor off`.
+    **RESUME HERE (LATEST, 2026-11-20 late):** DECIDED: no Fable (not in Pro any more); `/advisor off` done by the user.
+    Phase 1 real logged total ~11.4M (2.24x), NOT 13.4M. PROPOSED, waiting for the user's go: (1) Opus phase 2
+    detailing run (est. 250-350k) whose sizing script counts edited functions, callers, ported tests AND every
+    changed bridge shape (+ contract doc, types.ts, contract.ts, fake); briefs end "Open: none" and carry exact read
+    lists (function + line range); legacy removal its own group only if counts exceed the cap; (2) a fresh Opus brief
+    check (~100-150k), judged by gaps it finds that the script missed; (3) Sonnet builds/reviews/fixes, advisor off,
+    phase review split from the measured diff; (4) cost checkpoint at the END of phase 2 with logged size AND
+    agent-cost.py consumption. Log calls + cache reads per agent from now on. Running total of this talk: 132k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
