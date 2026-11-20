@@ -179,6 +179,47 @@ def test_check_account_skips_a_song_whose_go_plus_stream_is_drm_protected(monkey
     assert src.check_account("soundcloud", "firefox") == {"ok": True, "problem": None, "kbps": 256, "detail": ""}
 
 
+class SpyPacer:
+    def __init__(self):
+        self.calls = []
+
+    def between_account_downloads(self, service):
+        self.calls.append(("between", service))
+
+    def downloaded(self, service):
+        self.calls.append(("downloaded", service))
+
+
+def test_each_logged_in_listing_of_an_account_check_is_one_claim(monkeypatch):
+    src = checker(monkeypatch, [Cookie("oauth_token", ".soundcloud.com")])
+    monkeypatch.setattr(src, "_extract", lambda url, flat: {"entries": [
+        {"id": i, "url": f"https://soundcloud.com/a/{i}", "title": "x", "duration": 1} for i in ("1", "2")]})
+
+    def kbps(source, source_id, account=False):
+        if source_id == "1":
+            raise RuntimeError("[soundcloud] 1: the Go+ stream is DRM protected")
+        return 256
+
+    monkeypatch.setattr(src, "stream_kbps", kbps)
+    pacer = SpyPacer()
+    assert src.check_account("soundcloud", "firefox", pacer=pacer)["ok"]
+    assert pacer.calls == [("between", "soundcloud"), ("downloaded", "soundcloud")] * 2
+
+
+def test_a_failed_listing_of_an_account_check_ends_its_claim_too(monkeypatch):
+    src = checker(monkeypatch, [Cookie("SAPISID", ".youtube.com")])
+    monkeypatch.setattr(src, "_extract", lambda url, flat: {"entries": [
+        {"id": "abcdefghijk", "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "x", "duration": 1}]})
+
+    def kbps(source, source_id, account=False):
+        raise RuntimeError("HTTP Error 403")
+
+    monkeypatch.setattr(src, "stream_kbps", kbps)
+    pacer = SpyPacer()
+    assert src.check_account("youtube", "chrome", pacer=pacer)["problem"] == "failed"
+    assert pacer.calls == [("between", "youtube"), ("downloaded", "youtube")]
+
+
 class PreviewOrFull(Recorder):
     """The listing through the login for a Go+-only upload: the format taken is a 30 s preview or a full stream."""
     format_id = "http_mp3_0_preview"

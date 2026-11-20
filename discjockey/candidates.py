@@ -92,11 +92,17 @@ def search(track: SourceTrack, entry: dict, qobuz, fallback,
     qobuz_found: list[Candidate] = []
     qobuz_notes: list[str] = []
 
+    pace_error: list[BaseException] = []  # what the pacer raised (Stop, or its file failing): re-raised in the caller
+
     def search_qobuz() -> None:
         for query in ([track.isrc] if track.isrc else []) + [f"{track.first_artist} {track.title}"]:
-            try:
-                if pace is not None:
+            if pace is not None:
+                try:
                     pace()
+                except BaseException as e:  # Cancelled is one: it must not end this thread unseen
+                    pace_error.append(e)
+                    break
+            try:
                 qobuz_found.extend(qobuz.search(query, limit=10))
             except Exception as e:
                 qobuz_notes.append(f"Qobuz search failed: {str(e)[:200]}")
@@ -116,6 +122,8 @@ def search(track: SourceTrack, entry: dict, qobuz, fallback,
     finally:
         if worker is not None:
             worker.join()
+    if pace_error:
+        raise pace_error[0]
     notes[:0] = qobuz_notes
     for c in qobuz_found + fallback_found:
         if c.key not in skip:

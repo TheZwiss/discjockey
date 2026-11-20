@@ -627,6 +627,32 @@ def test_every_qobuz_search_waits_for_its_slot(root):
     assert order and order[::2] == ["slot"] * (len(order) // 2) and order[1::2] == ["request"] * (len(order) // 2)
 
 
+class LinkQobuz:
+    def __init__(self, order):
+        self.order = order
+
+    def track(self, ref):
+        self.order.append("request")
+        raise ValueError("Qobuz has no such track.")
+
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize("url, expected", [("https://open.qobuz.com/track/123", ["slot", "request"]),
+                                           ("https://youtu.be/zzzzzzzzzzz", [])])
+def test_use_link_takes_its_slot_before_a_qobuz_track_lookup(root, url, expected):
+    order = []
+    api, rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=lambda p: LinkQobuz(order),
+                        pacer=lambda support, emit, token: types.SimpleNamespace(
+                            before_qobuz_search=lambda: order.append("slot"),
+                            between_account_downloads=lambda s: None, between_fallback_downloads=lambda: None,
+                            between_qobuz_downloads=lambda: None, downloaded=lambda s: None))
+    api.track("t2")
+    wait_job(api, rec, api.use_link("t2", url))
+    assert order == expected
+
+
 def test_a_paused_qobuz_is_left_out_of_a_search_with_a_note(root):
     calls = []
     state = load_state(root)

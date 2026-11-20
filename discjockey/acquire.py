@@ -130,8 +130,8 @@ class Acquirer:
         self.qobuz_trouble = True
         self.budget.failed(message, kind)
         if self.budget.stopped and not was_stopped:
-            self.emit(Message("warning", "Qobuz failed several times in a row, so it is paused for the rest of "
-                                         "this run. The remaining tracks wait for the next run."))
+            self.emit(Message("warning", "Qobuz failed several times in a row, so it is paused until the next "
+                                         "sync starts. The remaining tracks wait for the next run."))
 
     def acquire(self, track: SourceTrack, rejected: set[str], workdir: Path, lossless_only: bool,
                 tracker: Tracker | None = None, better_than: int | None = None, originals: bool = True,
@@ -174,8 +174,8 @@ class Acquirer:
                 if self.budget.stopped:  # paused by the auto-stop during this track: no further Qobuz requests
                     break
                 tracker.step("search")
+                self.pacer.before_qobuz_search()  # outside the try: a pacer error is not a failed Qobuz request
                 try:
-                    self.pacer.before_qobuz_search()
                     cands = self.qobuz.search(query, limit=10)
                 except Exception as e:
                     res.errors.append(f"Qobuz search by {label} failed: {e}")
@@ -278,8 +278,8 @@ class Acquirer:
         was_stopped = budget.stopped
         budget.failed(message, kind)
         if budget.stopped and not was_stopped:
-            self.emit(Message("warning", f"{budget.name} failed several times in a row, so it is paused for the rest "
-                                         "of this run. Tracks that need it wait for the next run."))
+            self.emit(Message("warning", f"{budget.name} failed several times in a row, so it is paused until the "
+                                         "next sync starts. Tracks that need it wait for the next run."))
 
     def _pause_for_account(self, service: str, tries: _Tries) -> None:
         """Before a logged-in request (a format listing, or the download of a stream listed already): the free sources'

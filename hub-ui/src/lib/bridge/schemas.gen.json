@@ -6858,7 +6858,7 @@
           "x-shown": true
         },
         "paused": {
-          "description": "An `auto_stop` happened today.",
+          "description": "Paused by the auto-stop: stored as stopped until the next sync starts. An account also counts an `auto_stop` signal of today.",
           "type": "boolean",
           "x-shown": true
         },

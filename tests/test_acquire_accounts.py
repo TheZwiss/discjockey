@@ -184,7 +184,8 @@ def test_three_failed_account_downloads_pause_it_and_say_so(tmp_path):
     run(a, tmp_path)
     assert a.accounts["youtube"].stopped
     assert [s["kind"] for s in state["youtube_usage"]["signals"]] == ["refused"] * 3 + ["auto_stop"]
-    assert any(isinstance(e, Message) and e.level == "warning" and "YouTube Premium" in e.text for e in events)
+    assert any(isinstance(e, Message) and e.level == "warning" and "YouTube Premium" in e.text
+               and "until the next sync starts" in e.text for e in events)
 
 
 def test_a_low_bitrate_artist_original_waits_behind_an_account_stream(tmp_path):
