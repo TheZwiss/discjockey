@@ -1197,18 +1197,26 @@ Results:
         in copy.ts used by the shell banner and Setup; npm check 0, vitest 20, rules setup 6 shots 0 problems. My
         full pytest after the merge: 6412 passed / 3 skipped. Merged f015d03f, pushed. E9 total: 158 + 132 + 57 =
         347k. E4a dispatched (cli2-17, exp. 185k).
-      - RESUME HERE (LATEST, 2026-11-21 ~00:xx): E4a (Sonnet, brief E4a.md) RUNNING on .claude/worktrees/cli2-17,
-        branch feat/cli-2-job-events from f015d03f. Phase branch feat/cli-2-foundations = f015d03f (pushed), main
-        checkout on it. On E4a's notice: ps, agent-cost (2026-11-20 and -21), commits, its green full pytest, merge
-        --no-ff, push, remove worktree, append "Landed in E4a" to E4b.md and shots-E4.md. Then E4b (ui-build Opus,
-        brief E4b.md, cli2-18, exp. ~300k, precise direction, no mockup: open-scope Decided) → shots E4 (Sonnet,
-        shots-E4.md, base worktree + own Vite cacheDirs) → fix if needed → wave 2 Opus phase review in 2 halves
-        (measure the wave 2 diff first; carry every "FOR PHASE REVIEW" note in this NIGHT LOG since FR-V2.2) →
-        Sonnet fix round(s) → `npm run verify` (mine, run_in_background) → CI green → STOP for the user: the
-        end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (rehearse-V2.2.md / -V2.5.md; user
-        present, Discjockey + rekordbox closed), the merge go into main. No release.
-        WAVE 2 SPENT (logged): V2.2 831 + V2.5 775 + V2.3 437 + V2.6 634 + E9 347 = 3,024k; left ≈ E4a 185 + E4b 300
-        + shots 120 + review 350 + fix 150 ≈ 1.1M → wave 2 ≈ 4.1M (B2 plan 3,860k).
+      - E4a done (Sonnet, brief E4a.md): logged **213k** (exp. 185k); agent-cost: 91 calls, cache_read 12.3M, fresh_in
+        199k, out 74k, advisor 0k. Commits 14e8d4ac (engine `job_events` read via `hub/registry.EventReader`, shape,
+        contract, client.ts, fake), 025722e7 (`lib/stores/follow.ts`), 02a8c6b8 static, ef008804 (lock-check driver for
+        job_events). Its full pytest on the last commit: 6427 passed, 4 skipped; vitest 1766; timing sets 5x no flake.
+        Merged 20c477e6, pushed, worktree removed. Deviations noted in E4b.md "Landed in E4a" (followRun polls only
+        while subscribed; own JobFinished applied one poll later; scenarios via pageScenarios(); sync fake's stop now
+        passes job_id). FOR PHASE REVIEW: the reader cache can disagree with a fresh reader once the rolling tail has
+        dropped lines (brief accepts it); positions count raw file lines (an unparseable line has a place, no event).
+      - RESUME HERE (LATEST, 2026-11-21 ~01:xx): E4b (ui-build Opus, brief E4b.md) RUNNING on .claude/worktrees/cli2-18,
+        branch feat/cli-2-terminal-live from 20c477e6 (node_modules symlinked). Phase branch feat/cli-2-foundations =
+        20c477e6 (pushed), main checkout on it. On E4b's notice: ps, agent-cost (2026-11-20 and -21), commits, its green
+        full pytest (else run it myself), merge --no-ff, push, remove worktree, append "Landed in E4b" (its report's
+        words + decisions) to shots-E4.md. Then shots E4 (Sonnet, shots-E4.md, BASE = f015d03f (before E4a) in its own
+        worktree + own Vite cacheDirs) → fix if needed → wave 2 Opus phase review in 2 halves (measure the wave 2 diff
+        first; carry every "FOR PHASE REVIEW" note in this NIGHT LOG since FR-V2.2) → Sonnet fix round(s) → `npm run
+        verify` (mine, run_in_background) → CI green → STOP for the user: the end-of-phase-2 cost checkpoint, the
+        real-copy rehearsals V2.2 + V2.5 (rehearse-V2.2.md / -V2.5.md; user present, Discjockey + rekordbox closed),
+        the merge go into main. No release.
+        WAVE 2 SPENT (logged): V2.2 831 + V2.5 775 + V2.3 437 + V2.6 634 + E9 347 + E4a 213 = 3,237k; left ≈ E4b 300
+        + shots 120 + review 350 + fix 150 ≈ 0.9M → wave 2 ≈ 4.2M (B2 plan 3,860k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
