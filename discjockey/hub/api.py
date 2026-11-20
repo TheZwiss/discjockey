@@ -27,6 +27,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
+from stat import S_ISREG
 import time
 from typing import Callable
 from urllib.parse import quote
@@ -95,6 +96,7 @@ NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "re
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_FILE = "There is no file at {path}."
+NEEDS_FULL_PATH = "Give the full path of the file: it starts with /. {path} is not one."
 NO_PATH = "A bought file needs the path of the file."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
@@ -301,9 +303,19 @@ def _paths_list(value: object) -> bool:
 
 def _file_problem(path: str | Path) -> str | None:
     """Why `path` can't be added as a file, None when it is an absolute path of a regular file this process can open
-    for reading: the words of a missing file (NO_FILE) or of one macOS doesn't let it read (`ops.NO_ACCESS`)."""
+    for reading: the words of a relative path (NEEDS_FULL_PATH), of a missing file or one that is no regular file
+    (NO_FILE), or of one macOS doesn't let it read (`ops.NO_ACCESS`). It stats before it opens, so a pipe is never
+    opened (that would wait for a writer)."""
     p = Path(path)
     if not p.is_absolute():
+        return NEEDS_FULL_PATH.format(path=path)
+    try:
+        st = os.stat(p)
+    except (FileNotFoundError, NotADirectoryError, ValueError):  # ValueError: a NUL byte in the path
+        return NO_FILE.format(path=path)
+    except OSError:
+        return ops.NO_ACCESS
+    if not S_ISREG(st.st_mode):
         return NO_FILE.format(path=path)
     try:
         with open(p, "rb"):
@@ -312,7 +324,7 @@ def _file_problem(path: str | Path) -> str | None:
         return NO_FILE.format(path=path)
     except OSError:
         return ops.NO_ACCESS
-    return None if p.is_file() else NO_FILE.format(path=path)
+    return None
 
 
 def _import_folders(paths: Paths | None) -> int:
@@ -1155,7 +1167,10 @@ class HubApi:
                                                           on_stopped=self._note_stopped))
         except BaseException:
             if stopped is not None:  # a start that failed leaves the stop as it was
-                self._store_import_stopped(datetime.fromisoformat(stopped))
+                try:
+                    self._store_import_stopped(datetime.fromisoformat(stopped))
+                except Exception:  # noqa: BLE001 - the start's own error is the one to show
+                    log.warning("could not put back that the import was stopped", exc_info=True)
             raise
 
     def _import_stopped_at(self) -> str | None:
@@ -1294,7 +1309,7 @@ class HubApi:
     @bridge
     def watched_folders(self) -> dict:
         """The watched folders (the Library first, then the import folders) with how far their import is, the files
-        it couldn't read, how many wait, and whether the user stopped the import this session (plan library stage 4
+        it couldn't read, how many wait, and whether the user stopped the import (kept in library.db until Continue import; plan library stage 4
         I11)."""
         paths = self._paths
         state = self._state()
@@ -1715,8 +1730,8 @@ class HubApi:
                                                         "from a Finder window."))
                 return
             path = Path(found["pywebviewFullPath"])
-            readable = _file_problem(path) is None
-            self._emit(FileDropped(path.name, str(path), readable, "" if readable else ops.NO_ACCESS))
+            problem = _file_problem(path)
+            self._emit(FileDropped(path.name, str(path), problem is None, problem or ""))
         except Exception:
             traceback.print_exc()
 
@@ -2137,8 +2152,8 @@ class HubApi:
 
     @bridge
     def start_import(self) -> dict:
-        """"Continue import": the import again, where it stopped (also after a Stop, which held the automatic start
-        for the session)."""
+        """"Continue import": the import again, where it stopped (also after a Stop, which holds the automatic start
+        back, in every window, until this is run)."""
         return {"job_id": self._start_import().id}
 
     @bridge
@@ -2186,8 +2201,8 @@ class HubApi:
         group goes to Superseded/, one engine job (`folders.keep_file`). `paths`: the group's files' paths as the card
         showed them (`changed` when they are not the group's any more, whatever its file ids say, and the group stays as
         it was). The result is `{results, recovered, kept_track}`: a report line per moved file, without a track's
-        row; a move that was refused stops the job, the files moved before it stay moved and the failed job's
-        result lists them."""
+        row; a move that was refused (or any error) stops the job, the files moved before it stay moved and the
+        failed job's result lists them."""
         if (not isinstance(group_id, str) or isinstance(file_id, bool) or not isinstance(file_id, int)
                 or not _paths_list(paths)):
             raise ValueError(NOT_ANSWERABLE)
@@ -2206,10 +2221,13 @@ class HubApi:
                         folders_mod.MOVED.format(dst=dst), e.get("status"), e.get("source"), e.get("cutoff_hz"), dst)))
                 return {"results": results, "recovered": [], "kept_track": kept.kept_track}
 
+            done: list[tuple[int, str]] = []  # the moves made so far, whatever ends the call
             try:
-                kept = folders_mod.keep_file(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now)
-            except folders_mod.KeepStopped as stopped:
-                ctx.failed_result = body(stopped.kept)
+                kept = folders_mod.keep_file(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now,
+                                             moved_out=done)
+            except BaseException as e:
+                if done or isinstance(e, folders_mod.KeepStopped):
+                    ctx.failed_result = body(folders_mod.KeptFile(list(done), None))
                 raise
             ctx.message = kept.words()
             return body(kept)
@@ -2877,8 +2895,8 @@ class HubApi:
         if self._bound is not None:
             try:
                 folders = {f"playlist:{r.ref}": r.folder for r in pf.load(self._bound.playlists_file).rows if r.ref}
-            except OSError:
-                folders = {}  # playlists.txt can't be read now: the targets name themselves
+            except (OSError, ValueError):  # not readable or not text (UnicodeDecodeError): the targets name themselves
+                folders = {}
 
         def name(target: str) -> str:
             if target in folders:

@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import time
 from datetime import datetime
@@ -9,6 +10,7 @@ from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder
                          refreshed, wait_job, write, window)
 
 from discjockey import db, importer, library, models, run
+from discjockey import report as report_mod
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
@@ -401,9 +403,12 @@ def test_add_bought_file_refuses_a_missing_or_unreadable_file_before_a_job_start
     api, rec = make_api(root)
     api.todo()
     src = a_bought_file(tmp_path)
-    for gone in (str(tmp_path / "nothing.wav"), "relative.wav", str(src.parent)):
+    for gone in (str(tmp_path / "nothing.wav"), str(src.parent), str(tmp_path / "a\0b.wav")):
         answer = api.add_bought_file("t2", gone)
         assert answer["kind"] == "refused" and answer["message"] == f"There is no file at {gone}."
+    relative = api.add_bought_file("t2", "./relative.wav")
+    assert relative["kind"] == "refused" and relative["message"] == (
+        "Give the full path of the file: it starts with /. ./relative.wav is not one.")
     src.chmod(0)
     try:
         locked = api.add_bought_file("t2", str(src))
@@ -414,6 +419,26 @@ def test_add_bought_file_refuses_a_missing_or_unreadable_file_before_a_job_start
         answer = api.add_bought_file("t2", bad)
         assert (answer["ok"], answer["kind"]) == (False, "refused")
     assert not api._jobs.running()
+
+
+def test_add_bought_file_refuses_a_pipe_at_once_without_opening_it(root, tmp_path):
+    api, rec = make_api(root)
+    api.todo()
+    fifo = tmp_path / "some.fifo"
+    os.mkfifo(fifo)
+    answer = api.add_bought_file("t2", str(fifo))  # opening a pipe would wait for a writer: this would hang
+    assert answer["kind"] == "refused" and answer["message"] == f"There is no file at {fifo}."
+    assert not api._jobs.running()
+
+
+def test_a_dropped_folder_or_vanished_file_says_there_is_no_file(root, tmp_path):
+    api, rec = make_api(root)
+    drop(api, tmp_path)
+    event = rec.events[-1]
+    assert event == jobs.FileDropped(tmp_path.name, str(tmp_path), False, f"There is no file at {tmp_path}.")
+    gone = tmp_path / "gone.wav"
+    drop(api, gone)
+    assert rec.events[-1].readable is False and rec.events[-1].message == f"There is no file at {gone}."
 
 
 def test_a_file_macos_does_not_let_us_read(root, tmp_path):
@@ -1132,10 +1157,33 @@ def test_a_refused_move_of_keep_file_fails_the_job_with_the_files_moved_so_far(l
         return real(*a, **kw)
     monkeypatch.setattr(library, "move_path", second_refused)
     done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
-    assert (done.ok, done.problem) == (False, "failed") and done.message.startswith("Nothing was moved: ")
+    assert (done.ok, done.problem) == (False, "failed") and done.message.startswith(
+        "Moved 1 of 2 files to Superseded/, then stopped.")
     assert len(done.result["results"]) == 1 and done.result["kept_track"] is None
     assert (paths.root / done.result["results"][0]["path"]).is_file()
     assert [Path(f["path"]).exists() for f in pair["files"]] == [False, True, True]
+
+
+def test_an_unexpected_error_between_the_moves_of_keep_file_still_lists_what_moved(lib, tmp_path, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][2]
+    real, calls = report_mod.write_not_lossless, []
+
+    def second_crashes(*a, **kw):
+        calls.append(a)
+        if len(calls) == 2:
+            raise OSError(5, "Input/output error")
+        return real(*a, **kw)
+    monkeypatch.setattr(report_mod, "write_not_lossless", second_crashes)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert not done.ok and done.problem == "crashed"
+    # both moved files are listed: the first, and the second whose report write failed after it had moved
+    assert len(done.result["results"]) == 2 and done.result["kept_track"] is None
+    assert all((paths.root / r["path"]).is_file() for r in done.result["results"])
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, False, True]
 
 
 def test_supersede_duplicate_is_no_bridge_method_any_more(lib):
@@ -1200,6 +1248,43 @@ def test_continue_import_clears_the_stop_before_the_job_can_be_stopped_again(lib
         assert db.import_stopped_at(conn) == before  # the very time that was stored
     monkeypatch.setattr(api._jobs, "start", real)
 
+
+def test_a_refused_start_whose_put_back_of_the_stop_fails_still_raises_the_start_error(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    with db.connect(paths.db_file) as conn:
+        db.set_import_stopped(conn, datetime(2026, 11, 20, 9, 30, 0))
+    real = api._store_import_stopped
+
+    def store(at):
+        if at is not None:  # clearing works, putting the stop back does not
+            raise OSError(5, "Input/output error")
+        real(at)
+
+    def start(kind, work, *a, **kw):
+        raise jobs.Busy("busy", "busy")
+    monkeypatch.setattr(api._jobs, "start", start)
+    monkeypatch.setattr(api, "_store_import_stopped", store)
+    assert api.start_import()["kind"] == "busy"  # the Busy, not the OSError of the put-back
+
+
+def test_a_stop_that_cannot_be_written_still_ends_the_import_stopped(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    real = spotify.fetch_playlist
+
+    def stopping(session, line):
+        api.stop()
+        return real(session, line)
+
+    def cannot_write(write):
+        raise OSError(5, "Input/output error")
+    monkeypatch.setattr(spotify, "fetch_playlist", stopping)
+    monkeypatch.setattr(api, "_brief_write", cannot_write)
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert (f.ok, f.problem, f.kind) == (False, "stopped", "import")  # logged, the job still ends as stopped
+    assert f.result["stopped"] is True
+    assert api.watched_folders()["stopped"] is False  # nothing was stored: the import starts by itself next window
 
 
 def test_an_import_folders_file_plays_through_its_file_id(lib):

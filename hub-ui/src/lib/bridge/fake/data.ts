@@ -149,7 +149,7 @@ export type FakeImport = {
   folders: FakeFolder[]; nextId: number;
   /** the files the import couldn't read, with their reason's words */
   unreadable: UnreadableFile[];
-  /** the user stopped an import this session */
+  /** the user stopped an import (kept in library.db until Continue import) */
   stopped: boolean;
   /** Setup's "Your existing music" was skipped */
   skipped: boolean;

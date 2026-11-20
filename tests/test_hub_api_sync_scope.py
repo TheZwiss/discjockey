@@ -100,3 +100,12 @@ def test_a_settings_file_that_cannot_be_read_shows_everything_on_and_refuses_the
     assert api.sync_scope()["off"] == []
     f = wait_job(api, rec, api.set_sync_scope([], [HARD]))
     assert not f.ok and paths.settings_file.read_text() == '{"auto_upgrade": "yes"}'
+
+
+def test_a_playlists_file_that_is_not_text_still_gives_the_scope_with_targets_as_names(tmp_path):
+    paths = make_root(tmp_path)
+    api, rec = make_api(paths)
+    assert wait_job(api, rec, api.set_sync_scope([], [TRANCE])).ok
+    paths.playlists_file.write_bytes(b"\xff\xfe\x00")
+    seen = api.sync_scope()
+    assert seen["ok"] is True and seen["off"] == [{"target": TRANCE, "name": TRANCE}]

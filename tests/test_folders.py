@@ -329,13 +329,77 @@ def test_keep_file_stops_at_a_refused_move_and_keeps_what_moved(paths, tmp_path,
     with pytest.raises(folders.KeepStopped) as stopped:
         folders.keep_file(paths, gid, files[2].file_id, seen(paths, gid), now=lambda: NOW)
     e = stopped.value
-    assert e.kind == "failed" and str(e).startswith("Nothing was moved: ")
+    assert e.kind == "failed" and str(e).startswith("Moved 1 of 2 files to Superseded/, then stopped.")
+    assert "Nothing was moved" not in str(e)
     assert [i for i, _ in e.kept.moved] == [files[0].file_id] and e.kept.kept_track is None
     assert (paths.root / e.kept.moved[0][1]).is_file()
     assert len(list(folder.rglob("*.aiff"))) == 2  # the first stays moved, the second is still where it was
     assert [line["result"] for line in log_lines(paths)] == ["done", "failed"]
     with db.connect(paths.db_file) as conn:
         assert db.pending_ops(conn) == []
+
+
+@needs_ffmpeg
+def test_keep_file_stopped_by_a_changed_file_between_moves_says_how_many_moved(paths, tmp_path, monkeypatch):
+    folder = three_copies(paths, tmp_path)
+    gid, files = group(paths)
+    real = library.move_path
+
+    def offline_after_first(*a, **kw):
+        real(*a, **kw)
+        (paths.root / files[1].path).unlink()  # the second file goes away between the moves
+    monkeypatch.setattr(library, "move_path", offline_after_first)
+    with pytest.raises(folders.KeepStopped) as stopped:
+        folders.keep_file(paths, gid, files[2].file_id, seen(paths, gid), now=lambda: NOW)
+    e = stopped.value
+    assert e.kind == "changed" and str(e).startswith("Moved 1 of 2 files to Superseded/, then stopped.")
+    assert [i for i, _ in e.kept.moved] == [files[0].file_id] and e.kept.kept_track is None
+    assert len(list(folder.rglob("*.aiff"))) == 1  # the kept file; the first went, the second is gone
+
+
+@needs_ffmpeg
+def test_keep_file_whose_first_move_is_refused_says_nothing_was_moved(paths, tmp_path, monkeypatch):
+    folder = three_copies(paths, tmp_path)
+    gid, files = group(paths)
+
+    def refused(*a, **kw):
+        raise PermissionError(13, "Permission denied")
+    monkeypatch.setattr(library, "move_path", refused)
+    with pytest.raises(folders.KeepStopped) as stopped:
+        folders.keep_file(paths, gid, files[2].file_id, seen(paths, gid), now=lambda: NOW)
+    e = stopped.value
+    assert e.kind == "failed" and str(e).startswith("Nothing was moved: ") and e.kept.moved == []
+    assert len(list(folder.rglob("*.aiff"))) == 3
+
+
+@needs_ffmpeg
+def test_keep_file_reports_the_moves_made_when_an_unexpected_error_ends_it(paths, tmp_path, monkeypatch):
+    three_copies(paths, tmp_path)
+    gid, files = group(paths)
+    calls = []
+
+    def second_crashes(*a, **kw):
+        calls.append(a)
+        if len(calls) == 2:
+            raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(folders.rep, "write_not_lossless", second_crashes)
+    done: list = []
+    with pytest.raises(sqlite3.OperationalError):
+        folders.keep_file(paths, gid, files[2].file_id, seen(paths, gid), now=lambda: NOW, moved_out=done)
+    assert [i for i, _ in done] == [files[0].file_id, files[1].file_id]  # the second is listed though its report failed
+    assert all((paths.root / dst).is_file() for _, dst in done)
+
+
+@needs_ffmpeg
+def test_keep_file_of_a_group_of_one_file_moves_nothing(paths, tmp_path):
+    playlist_song(paths)
+    with db.connect(paths.db_file) as conn:
+        file_id = conn.execute("SELECT id FROM files").fetchone()[0]
+    with pytest.raises(OpProblem) as lone:
+        folders.keep_file(paths, f"dup:{file_id}", file_id, [KEPT], now=lambda: NOW)
+    assert (type(lone.value), lone.value.kind, str(lone.value)) == (OpProblem, "changed", CHANGED)
+    assert (paths.root / KEPT).is_file() and not (paths.root / "Superseded").exists()
+    assert [line["result"] for line in log_lines(paths)] == ["changed"]
 
 
 def heir_setup(paths, tmp_path):

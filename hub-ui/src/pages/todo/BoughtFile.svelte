@@ -9,7 +9,7 @@
   import { Button, DropZone } from '$lib/components';
   import { get } from 'svelte/store';
   import { dragging, dropTarget } from '$lib/stores/drag';
-  import { dropDecision, filedAs } from './todoModel';
+  import { canRetryAdd, dropDecision, filedAs } from './todoModel';
 
   let { track }: { track: TrackDetail } = $props();
   let busy = $state(false);
@@ -31,7 +31,7 @@
     const o = await runJob(api.add_bought_file(track.track_id, filePath, track.rev), { quiet: true });
     busy = false;
     if (o.ok) { fileName = null; filePath = null; return; }      // success toast from runJob; the page re-fetches
-    error = o.message; canRetry = o.job_id === null;
+    error = o.message; canRetry = canRetryAdd(o);
   }
   const zone = $derived($dragging ? 'dragging' : busy ? 'busy' : error ? 'blocked' : 'idle');
 </script>
