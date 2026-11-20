@@ -15,6 +15,8 @@ import discjockey.cli as cli
 from discjockey.hub import jobs, registry
 from discjockey.hub.registry import Registry
 
+pytestmark = pytest.mark.shapes_unchecked  # stub work runs under real job kinds to pin the mechanics
+
 ROOTS = {"music": None, "support": "/s", "rekordbox": None, "rekordbox_share": None, "sandbox": None}
 
 

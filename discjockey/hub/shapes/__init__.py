@@ -17,7 +17,7 @@ from pathlib import Path
 
 from . import common
 from .kernel import (ALIASES, DEFAULT, SHAPES, F, Registry, ShapeError, alias, json_schema, shape, typescript,
-                     validate)
+                     validate, values)
 
 AREAS = (common,)
 

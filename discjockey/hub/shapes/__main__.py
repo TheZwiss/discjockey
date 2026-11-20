@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import FILES, generated
+from discjockey.hub import shapes
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -14,7 +14,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--export", action="store_true", help="write the generated files")
     group.add_argument("--check", action="store_true", help="exit 1 when a generated file is stale")
     args = parser.parse_args(argv)
-    made = generated()
+    made = shapes.generated()
     if args.export:
         for path, text in made.items():
             path.write_text(text, encoding="utf-8")

@@ -467,3 +467,171 @@ def test_every_field_of_every_product_shape_has_exactly_one_f():
         for key, hint in kernel.typing.get_type_hints(cls, include_extras=True).items():
             _, metas, _ = kernel._peel(hint)
             assert len([m for m in metas if isinstance(m, F)]) == 1, f"{name}.{key}"
+
+
+# --- the generated files and the maps ---
+
+def test_the_generated_files_are_fresh():
+    from discjockey.hub import shapes
+
+    for path, text in shapes.generated().items():
+        assert path.exists() and path.read_text(encoding="utf-8") == text, (
+            f"{path.name} is stale: run `uv run python -m discjockey.hub.shapes --export`")
+
+
+def test_the_check_command_says_what_is_stale(tmp_path, monkeypatch, capsys):
+    from discjockey.hub import shapes
+    from discjockey.hub.shapes import __main__ as export
+
+    assert export.main(["--check"]) == 0
+    stale = tmp_path / "types.gen.ts"
+    stale.write_text("old\n")
+    monkeypatch.setattr(shapes, "generated", lambda: {stale: "new\n", tmp_path / "missing.json": "x\n"})
+    assert export.main(["--check"]) == 1
+    err = capsys.readouterr().err
+    assert "types.gen.ts" in err and "missing.json" in err and "--export" in err
+    assert export.main(["--export"]) == 0
+    assert stale.read_text() == "new\n" and (tmp_path / "missing.json").read_text() == "x\n"
+
+
+def test_the_schemas_file_holds_every_shape_and_the_maps():
+    import json
+
+    from discjockey.hub import shapes
+
+    text = shapes.schemas_text()
+    body = json.loads(text)
+    assert text.endswith("\n") and text == json.dumps(body, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    assert set(body["$defs"]) == set(shapes.SHAPES) | set(shapes.ALIASES)
+    assert body["answers"] == shapes.ANSWERS and body["results"] == shapes.RESULTS
+
+
+def test_every_mapped_name_is_a_shape_and_every_answered_method_exists():
+    from discjockey.hub import shapes
+    from discjockey.hub.api import CliApi, HubApi
+
+    for name in [*shapes.ANSWERS.values(), *shapes.RESULTS.values()]:
+        assert name in shapes.SHAPES, name
+    methods = {m for cls in (HubApi, CliApi) for m in dir(cls) if getattr(getattr(cls, m), "is_bridge", False)
+               or getattr(getattr(cls, m), "is_cli_first", False)}
+    assert set(shapes.ANSWERS) <= methods
+
+
+def test_a_key_mapped_in_two_modules_is_refused(monkeypatch):
+    from types import SimpleNamespace
+
+    from discjockey.hub import shapes
+
+    twin = SimpleNamespace(ANSWERS={"freshness": "Freshness"}, RESULTS={})
+    monkeypatch.setattr(shapes, "AREAS", (*shapes.AREAS, twin))
+    with pytest.raises(ShapeError, match="freshness"):
+        shapes._merged("ANSWERS")
+    monkeypatch.setattr(shapes, "AREAS", (SimpleNamespace(ANSWERS={"x": "Nowhere"}, RESULTS={}),))
+    with pytest.raises(ShapeError, match="Nowhere"):
+        shapes._merged("ANSWERS")
+
+
+def test_the_catalogue_entry_of_a_method_names_its_shape():
+    from discjockey.hub import catalog, shapes
+
+    freshness = [e for e in catalog.ENTRIES if e.method == "freshness"]
+    assert freshness and all(e.schema == "Freshness" == shapes.ANSWERS["freshness"] for e in freshness)
+
+
+# --- test mode (T6, real outputs) ---
+
+@pytest.fixture
+def checking(monkeypatch):
+    """Check mode on with two methods mapped (a method and a job kind), and nothing left behind."""
+    from discjockey.hub import shapes
+
+    monkeypatch.setattr(shapes, "CHECKING", True)
+    monkeypatch.setitem(shapes.ANSWERS, "probe", "Freshness")
+    monkeypatch.setitem(shapes.RESULTS, "probe_job", "Freshness")
+    shapes.take_mismatches()
+    yield shapes
+    shapes.take_mismatches()
+
+
+def test_a_wrong_answer_of_a_mapped_method_is_recorded_and_fails_the_fixtures_check(checking):
+    from discjockey.hub import api
+
+    class Page:
+        def _need_library(self):
+            pass
+
+        @api.bridge
+        def probe(self):
+            return {"scanned_at": 5}
+
+    answer = Page().probe()
+    assert answer == {"ok": True, "scanned_at": 5}  # the page still gets the answer
+    assert checking.MISMATCHES == [("answer of probe", ["$.scanned_at: expected str, got int",
+                                                        "$.read_at: missing"])]
+    assert checking.take_mismatches() == [
+        "answer of probe: $.scanned_at: expected str, got int; $.read_at: missing"]
+    assert checking.take_mismatches() == []
+
+
+def test_a_right_answer_a_job_start_and_a_none_result_record_nothing(checking):
+    from discjockey.hub import api
+
+    class Page:
+        def _need_library(self):
+            pass
+
+        @api.bridge
+        def probe(self):
+            return {"scanned_at": None, "read_at": "2026-11-20T10:00:00"}
+
+    assert Page().probe()["ok"] is True
+    checking.note_answer("probe", {"job_id": "job:00000001"})  # a J method's start: its result is checked instead
+    checking.note_result("probe_job", None)
+    checking.note_answer("unmapped", {"anything": 1})
+    checking.note_result("unmapped_job", {"anything": 1})
+    assert checking.MISMATCHES == []
+
+
+def test_a_wrong_job_result_is_recorded_by_the_registry_when_an_ok_job_finishes(checking, tmp_path):
+    from discjockey.hub.jobs import Jobs
+    from discjockey.library import Paths
+
+    paths = Paths(tmp_path, support=tmp_path / ".support")
+    paths.data.mkdir()
+    js = Jobs(paths.lock, lambda event: None)
+    assert js.start("probe_job", lambda ctx: {"scanned_at": None, "read_at": None, "x": 1}).done.wait(5)
+    assert checking.take_mismatches() == ["result of job probe_job: $.x: unexpected key"]
+    assert js.start("probe_job", lambda ctx: None).done.wait(5)  # an ok job with no result
+    assert checking.MISMATCHES == []
+
+
+def test_with_checking_off_nothing_is_recorded(checking, monkeypatch):
+    monkeypatch.setattr(checking, "CHECKING", False)
+    checking.note_answer("probe", {"scanned_at": 5})
+    checking.note_result("probe_job", {"nope": 1})
+    assert checking.MISMATCHES == []
+
+
+def test_a_check_never_raises_from_product_code(checking, monkeypatch):
+    def broken(value, name):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(checking, "validate", broken)
+    checking.note_answer("probe", {"scanned_at": None, "read_at": None})
+    checking.note_result("probe_job", {})
+    assert [w for w, _ in checking.MISMATCHES] == ["answer of probe", "result of job probe_job"]
+    assert all("boom" in p for _, ps in checking.MISMATCHES for p in ps)
+    monkeypatch.setattr(checking, "ANSWERS", None)  # even a broken map
+    checking.note_answer("probe", {})
+
+
+@pytest.mark.shapes_unchecked
+def test_a_test_marked_shapes_unchecked_is_not_failed_for_its_mismatches(checking):
+    checking.note_answer("probe", {"scanned_at": 5})
+    assert checking.MISMATCHES  # the autouse fixture finds it and lets it pass
+
+
+def test_the_suite_runs_with_the_check_on():
+    from discjockey.hub import shapes
+
+    assert shapes.CHECKING  # tests/conftest.py sets DISCJOCKEY_CHECK_SHAPES before any discjockey import

@@ -1,3 +1,6 @@
+import os
+
+os.environ["DISCJOCKEY_CHECK_SHAPES"] = "1"  # before any discjockey import: every answer and job result is checked against its shape
 import subprocess
 import sys
 import webbrowser
@@ -6,6 +9,7 @@ import pytest
 import yt_dlp
 
 from discjockey import app_update, tool_updates
+from discjockey.hub import shapes
 from discjockey.rekordbox import process as rekordbox_process
 
 # Tests that do not wait for what a test does not need (each module says what it changes and the marker that turns it
@@ -61,6 +65,19 @@ def _no_real_pypi(monkeypatch):
     def offline(url):
         raise OSError(f"no network in tests: {url}")
     monkeypatch.setattr(tool_updates, "http_get", offline)
+
+
+@pytest.fixture(autouse=True)
+def _answers_fit_their_shapes(request):
+    """Every answer and job result of a mapped method or job kind is checked against its shape while the test runs
+    (`shapes.note_answer`, `note_result`; the check is on through DISCJOCKEY_CHECK_SHAPES, set at the top of this
+    file); a mismatch fails the test, naming where and what. A test whose job work or answer is a stub, not the
+    engine's, has the marker `shapes_unchecked`."""
+    shapes.take_mismatches()
+    yield
+    found = shapes.take_mismatches()
+    if found and request.node.get_closest_marker("shapes_unchecked") is None:
+        pytest.fail("an answer or job result does not fit its shape (hub/shapes):\n" + "\n".join(found), pytrace=False)
 
 
 @pytest.fixture(autouse=True)

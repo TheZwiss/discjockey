@@ -27,7 +27,7 @@ from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
 from ..problem import Problem
-from . import registry
+from . import registry, shapes
 
 log = logging.getLogger(__name__)
 
@@ -591,6 +591,8 @@ class Jobs:
                 finished = JobFinished(job.id, job.kind, ok, problem, message, None, service)
                 job.finished = event_dict(finished)
             job.done.set()
+        if ok:
+            shapes.note_result(job.kind, finished.result)  # test mode only: the result must fit its shape
         self.emit(finished)
         return True
 

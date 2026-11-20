@@ -12,6 +12,8 @@ from discjockey.models import Protected
 from discjockey.library import Paths, run_lock
 from discjockey.ops import OpProblem
 
+pytestmark = pytest.mark.shapes_unchecked  # stub work runs under real job kinds to pin the mechanics
+
 
 class Recorder:
     def __init__(self):

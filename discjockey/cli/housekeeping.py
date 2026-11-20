@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .. import REPO, __version__, tools
 from .. import words as engine_words
-from ..hub import catalog, ids, registry
+from ..hub import catalog, ids, registry, shapes
 from ..hub.catalog import Entry
 from ..hub.outcomes import REASONS
 from ..rekordbox.locate import locate
@@ -204,7 +204,7 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
     changes anything, `job` whether it runs as a job; `dry_run` whether `--dry-run` shows what it would do. `methods`
     are the bridge methods it runs (`call` takes their names), `dry_run_method` the one `--dry-run` runs; `songs` the
     ways to say which songs; `flag_values` the word of each flag's value; `required_flags` the flags it cannot run
-    without."""
+    without; `schema` the name of the shape of its data (null while none is mapped; `help <command> --json` adds it)."""
     primary = choose(entries)
     args = _args_of(entries)
     taken = {a["word"] for a in args if not a["positional"]}
@@ -217,7 +217,7 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
             "dry_run": any(e.dry_run for e in entries), "locks": sorted({lock for e in entries for lock in e.locks}),
             "methods": list(dict.fromkeys(e.method for e in entries)),
             "dry_run_method": next((e.dry_run for e in entries if e.dry_run), None), "songs": songs,
-            "flag_values": values, "required_flags": required,
+            "flag_values": values, "required_flags": required, "schema": primary.schema,
             "reasons": reasons_of(entries), "example": next((e.example for e in entries if e.example), ""),
             "usage": usage_of(command, args, flags, values, songs, required)}
 
@@ -228,7 +228,7 @@ def own_entry(command: tuple[str, ...]) -> dict:
     values = {"--args": "JSON|-"} if command == CALL else {}
     return {"command": " ".join(command), "kind": "words", "writes": command in (CALL, parser.JOB_STOP), "job": False, "args": args,
             "flags": flags, "needs_yes": False, "dry_run": False, "locks": [], "methods": [], "dry_run_method": None,
-            "songs": [], "flag_values": values, "required_flags": [],
+            "songs": [], "flag_values": values, "required_flags": [], "schema": None,
             "reasons": sorted(OWN_REASONS.get(command, LINE_REASONS)), "example": example,
             "usage": usage_of(command, args, flags, values), "says": says}
 
@@ -263,6 +263,15 @@ def _list_page() -> list[dict]:
     return rows
 
 
+def with_schemas(rows: list[dict]) -> list[dict]:
+    """The rows of `help <command> --json` with the schemas: `data_schema` (the JSON Schema of the shape that answers the
+    command, null when none is mapped) and `dry_run_schema` (the same for the method `--dry-run` runs)."""
+    def schema_of(name: str | None) -> dict | None:
+        return shapes.json_schema(name) if name else None
+    return [{**row, "data_schema": schema_of(row["schema"]),
+             "dry_run_schema": schema_of(shapes.ANSWERS.get(row["dry_run_method"] or ""))} for row in rows]
+
+
 def run_help(parsed: Parsed) -> dict:
     topic = parsed.args.get("topic") or []
     flags: Flags = parsed.flags
@@ -284,7 +293,7 @@ def run_help(parsed: Parsed) -> dict:
         words = sorted({c["command"].split()[0] for c in index()})
         return envelope.usage("help", f"There is no command called {' '.join(topic)}. The words so far: "
                                       f"{', '.join(words)}.")
-    return envelope.envelope("help", "ok", data={"commands": found if flags.json else [_short(c) for c in found]})
+    return envelope.envelope("help", "ok", data={"commands": with_schemas(found) if flags.json else [_short(c) for c in found]})
 
 
 # --- where ---

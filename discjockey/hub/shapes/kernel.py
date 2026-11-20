@@ -269,6 +269,13 @@ class Registry:
     def _refuse(tp, where: str):
         raise ShapeError(f"{where}: {tp!r} is not in the closed set of shape types")
 
+    def values(self, name: str) -> tuple:
+        """The words of a `Literal` alias, in the order they were written."""
+        node = self.aliases[name].node if name in self.aliases else None
+        if not isinstance(node, Lit):
+            raise KeyError(f"{name} is no alias of a Literal")
+        return node.values
+
     # --- JSON Schema ---
 
     def _schema(self, node) -> dict:
@@ -527,3 +534,4 @@ alias = DEFAULT.alias
 json_schema = DEFAULT.json_schema
 typescript = DEFAULT.typescript
 validate = DEFAULT.validate
+values = DEFAULT.values

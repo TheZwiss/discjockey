@@ -334,12 +334,13 @@ def test_the_sidebars_to_do_count_includes_a_missing_song(hub):
 # --- the contract: the window's types name what the views send ---
 
 TYPES_TS = Path(__file__).resolve().parents[1] / "hub-ui" / "src" / "lib" / "bridge" / "types.ts"
+TYPES_GEN_TS = TYPES_TS.with_name("types.gen.ts")  # the shapes (hub/shapes) are generated there
 CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "hub-bridge-contract.md"
 
 
 def ts_type(name):
     """The body of `export type <name> = ...;` in types.ts, up to its terminating semicolon."""
-    return re.search(rf"export type {name} =(.*?);\n(?=\n|/\*\*|export |type |//)", TYPES_TS.read_text(encoding="utf-8"), re.S).group(1)
+    return re.search(rf"export type {name} =(.*?);\n(?=\n|/\*\*|export |type |//)", TYPES_TS.read_text(encoding="utf-8") + TYPES_GEN_TS.read_text(encoding="utf-8"), re.S).group(1)
 
 
 def test_types_ts_names_the_filters_actions_reasons_and_fields_the_views_send():
