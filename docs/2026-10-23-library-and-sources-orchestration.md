@@ -943,7 +943,7 @@ Results:
     the check stays for wave 2 (it pays: one Critical would have cost a fix round or a live-test bug). The "beside"
     V2.4 run removed (one agent at a time). Wave 1 now 1 627k builds (~2 137k with review + fix). Planning total
     ~0.87M (132 + 95 + 371 + 271). Phase branch feat/cli-2-foundations (= main d18ceb5d+). Next: E7a.
-    **RESUME HERE (LATEST, 2026-11-20 night):** USER GO: "work through the night without me … orchestrating and not
+    **RESUME HERE (superseded by the NIGHT LOG entry marked LATEST below, 2026-11-20 night):** USER GO: "work through the night without me … orchestrating and not
     drifting". E7a (Sonnet, brief .claude/issue39/phase2/E7a.md, est. 215k, maybe 250-300k) RUNNING on
     feat/cli-2-shapes-kernel (worktree .claude/worktrees/cli2-1) from the phase branch feat/cli-2-foundations.
     NIGHT LOOP, one agent at a time, in phase2-dispatch.md's order (E7a → E7b → E7c → E7d → E7e → V2.1a → V2.4 →
@@ -1104,6 +1104,12 @@ Results:
         commit order). Findings: .claude/issue39/phase2/review/findings-V2.2.md. All fixes stated; none PLANNED.
       - PAUSED by the user (~18:40, "Pause after the agent is done"). Next on go: the V2.2 fix round (Sonnet
         fix-round, F1-F12, from the phase branch 176c8d93), then V2.5a.
+      - RESUME HERE (LATEST, 2026-11-20 ~19:xx, after a compact): the user said "continue" = go on from the pause
+        (open-scope Decided). Same night loop and stop points as the RESUME HERE above. FR-V2.2 (Sonnet fix-round,
+        brief .claude/issue39/phase2/review/FR-V2.2.md, F1-F12, F4 as stated) dispatched on worktree
+        .claude/worktrees/cli2-fv22, branch feat/cli-2-fix-v22 from 176c8d93; exp. ~170k. Then V2.5a (cli2-13),
+        V2.5b (cli2-14), review V2.5 + fix, then STOP for the real-copy rehearsals V2.2/V2.5 only when the user is
+        present (otherwise go on with V2.3a/b, V2.6, E9, E4a/b and rehearse them later together).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
