@@ -1069,6 +1069,13 @@ Results:
       - C2: fresh Opus check in two parts (brief-check-wave2.md): part A (V2.2, V2.5) dispatched; part B next.
       - Log edits now happen in the worktree .claude/worktrees/main-log (main), so the main checkout stays on the
         phase branch while agents read it.
+      - C2 part A (Opus): logged 290k, 116 calls, cache 20.7M, advisor 0k. 26 findings, all fixed in the briefs
+        (check-wave2-A.md): 1 CRITICAL (both real-copy rehearsal scripts used unbuilt CLI commands: the user session
+        would have stopped at step 1-2; now a Python driver via bind.default()), 7 Important (V2.2a read_refs so a
+        switched-off line is not planned; db.read_head keeps a first failed read's problem; V2.2b cache key covers
+        check reads; missing test sites; V2.5a catalog tests; V2.5b NEEDS_NO_LIBRARY + flips merged while a settings
+        job runs), 16 Minor, 2 size. 24 of 26 not catchable by size.py or "Open: none": the check stays. Part A
+        builds re-measured 795k (was 855k). Part B dispatched.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
