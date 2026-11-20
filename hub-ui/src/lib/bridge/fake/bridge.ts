@@ -811,7 +811,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         s.read_status = { ...readOk(0), auto_read: s.read_status.auto_read }; s.previewRead = true;
         lastRead += 1;
         emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: true, problem: null, message: '',
-          result: { actions: preview().actions, read_id: readId() }, service: null });
+          result: { actions: preview().actions, read_id: `read:${lastRead}` }, service: null });
       }, 2500 / speed) };
       return ok({ job_id: id });
     },

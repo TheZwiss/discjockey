@@ -14,10 +14,10 @@ import unicodedata
 import uuid
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict
-from datetime import date, datetime
+from dataclasses import asdict, fields
+from datetime import date, datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import NamedTuple
+from typing import NamedTuple, TypeVar
 
 from . import library as disk  # "library" is the Library/ path argument everywhere here
 from .events import Emit, Message
@@ -257,7 +257,11 @@ SCHEMA_V11_STEP = (
 # ever. `playlist_reads` says which read stored a record last; `playlist_tracks` gains the planner's SourceTrack facts
 # (NULL on rows from schema 11: such a playlist cannot be rebuilt until it is read again); `playlist_infos` holds a
 # playlist's name, owner and cover, apart from the reads because an info exists without tracks (an unreadable link).
-# Never stored: a SoundCloud private track's secret link token, nor the record label.
+# Never stored: a track's own link with its secret token (`_stored_link`), its `secret_token`, nor its record label. A
+# private SET's token is part of its playlists.txt ref (`user/sets/name/s-<token>`), the identity of the record (it is
+# in playlists.txt in the same folder), so the ref is stored in every column that names a record (`reads.lines`,
+# `reads.read_refs`, `playlist_reads.playlist`, `playlist_tracks.playlist`, `playlist_infos.playlist` / `.info`) and in
+# no track fact.
 SCHEMA_V12_STEP = (
     """CREATE TABLE reads (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2229,9 +2233,34 @@ def decisions(conn: sqlite3.Connection) -> dict:
 # busy timeout (connect), after which they raise sqlite3.OperationalError and nothing of theirs was written.
 
 def _stamp(moment: datetime) -> str:
-    """A time as the `reads` / `playlist_reads` start columns keep it: ISO with microseconds, so strings of one format
-    compare as the times do."""
-    return moment.isoformat(timespec="microseconds")
+    """A time as the `reads` / `playlist_reads` start columns keep it: UTC ISO with microseconds, so strings of one
+    format compare as the times do, also across a clock change (a naive local time is read as local, `fold` honoured)."""
+    return moment.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+_T = TypeVar("_T")
+
+
+def _rebuild(cls: type[_T], data: Mapping[str, object]) -> _T:
+    """A dataclass from stored JSON: the keys it has today; a key added or dropped since the row was stored does not
+    break the load (defaults fill the rest)."""
+    names = {f.name for f in fields(cls)}  # type: ignore[arg-type]
+    return cls(**{k: v for k, v in data.items() if k in names})  # type: ignore[call-arg]
+
+
+@contextmanager
+def read_snapshot(conn: sqlite3.Connection) -> Iterator[sqlite3.Connection]:
+    """One read transaction: every statement inside sees the database as it was at the first, whatever another
+    process stores meanwhile. Inside one already, it joins it."""
+    if conn.in_transaction:
+        yield conn
+        return
+    conn.execute("BEGIN")
+    try:
+        yield conn
+    finally:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
 
 
 def read_label(number: int) -> str:
@@ -2273,8 +2302,9 @@ def store_read(conn: sqlite3.Connection, read: StoredRead, keep: Collection[str]
     - `keep` (a sync read's): records and infos of refs not in it are dropped, with the tracks. A check read passes
       None: it never prunes (its ref is a pasted link, not in playlists.txt yet).
     - `reads` rows older than the newest good sync read that no record names are pruned.
-    Every column is written from named fields: the private SoundCloud link token and the record label never reach
-    library.db (`_stored_link`)."""
+    Every column is written from named fields: a track's own link with its secret token, its `secret_token` and its
+    record label never reach library.db (`_stored_link`). A private set's token is part of its ref (the record's
+    identity, as in playlists.txt) and is stored with it."""
     started = _stamp(read.started)
     stored = (now or datetime.now()).isoformat(timespec="seconds")
     with transaction(conn):
@@ -2317,11 +2347,14 @@ def store_read(conn: sqlite3.Connection, read: StoredRead, keep: Collection[str]
     return read_id
 
 
-def store_infos(conn: sqlite3.Connection, infos: Mapping[str, PlaylistInfo], at: datetime) -> None:
+def store_infos(conn: sqlite3.Connection, infos: Mapping[str, PlaylistInfo], at: datetime,
+                drop: Collection[str] = ()) -> None:
     """Keeps the playlists' names, owners and covers (`infos`: ref -> PlaylistInfo) as read at `at`, in one
-    transaction: a ref's info is replaced, the others stay. Not tied to a read: an info exists without tracks."""
+    transaction: a ref's info is replaced, the others stay, except the refs in `drop` (playlists the service now says
+    it can't show): theirs go. Not tied to a read: an info exists without tracks."""
     stamp = at.isoformat(timespec="seconds")
     with transaction(conn):
+        conn.executemany("DELETE FROM playlist_infos WHERE playlist = ?", [(ref,) for ref in drop])
         conn.executemany(
             "INSERT INTO playlist_infos (playlist, info, at) VALUES (?, ?, ?) "
             "ON CONFLICT (playlist) DO UPDATE SET info = excluded.info, at = excluded.at",
@@ -2336,17 +2369,19 @@ def current_read_id(conn: sqlite3.Connection) -> int | None:
 def read_head(conn: sqlite3.Connection) -> ReadHead | None:
     """The newest reads at a glance, in one query on `reads` (no track is rebuilt); None when none was stored. The
     problem, its service and the words are the newest sync read's, failed or not: a first read that failed (no good
-    one yet) shows its problem too."""
+    one yet) shows its problem too. `lines` are the good read's (folder, ref) pairs."""
     row = conn.execute(
-        "SELECT (SELECT MAX(id) FROM reads), g.id, g.stored, n.problem, n.problem_service, n.message "
-        "FROM (SELECT 1) LEFT JOIN (SELECT id, stored FROM reads WHERE kind = 'sync' AND lines IS NOT NULL "
+        "SELECT (SELECT MAX(id) FROM reads), g.id, g.stored, g.lines, n.problem, n.problem_service, n.message "
+        "FROM (SELECT 1) LEFT JOIN (SELECT id, stored, lines FROM reads WHERE kind = 'sync' AND lines IS NOT NULL "
         "ORDER BY id DESC LIMIT 1) g ON 1 LEFT JOIN (SELECT problem, problem_service, message FROM reads "
         "WHERE kind = 'sync' ORDER BY id DESC LIMIT 1) n ON 1").fetchone()
     if row[0] is None:
         return None
-    current, sync_id, stored, problem, service, message = row
+    current, sync_id, stored, lines, problem, service, message = row
+    pairs = None if lines is None else tuple((ln.folder, ln.ref) for ln in
+                                            (_rebuild(PlaylistLine, line) for line in json.loads(lines)))
     return ReadHead(current, sync_id, None if stored is None else datetime.fromisoformat(stored), problem, service,
-                    message or "")
+                    message or "", pairs)
 
 
 def stored_tracks(conn: sqlite3.Connection) -> dict[str, tuple[SourceTrack, ...]]:
@@ -2374,7 +2409,8 @@ def stored_tracks(conn: sqlite3.Connection) -> dict[str, tuple[SourceTrack, ...]
 
 def stored_infos(conn: sqlite3.Connection) -> dict[str, PlaylistInfo]:
     """Every stored playlist info by ref."""
-    return {ref: PlaylistInfo(**json.loads(info)) for ref, info in conn.execute("SELECT playlist, info FROM playlist_infos")}
+    return {ref: _rebuild(PlaylistInfo, json.loads(info))
+            for ref, info in conn.execute("SELECT playlist, info FROM playlist_infos")}
 
 
 def load_read(conn: sqlite3.Connection) -> LoadedRead | None:
@@ -2383,12 +2419,19 @@ def load_read(conn: sqlite3.Connection) -> LoadedRead | None:
     records as they are now (a check read may have replaced one); a playlist the read fetched whose stored tracks
     cannot be rebuilt (written before schema 12) or are gone is named in `unread` instead, so the plan treats it as a
     playlist not read this time. The problem is the newest sync read's: a failed read keeps the last good tracks."""
+    with read_snapshot(conn):  # the head, the row, the records and the infos are one read, whatever is stored meanwhile
+        return _load_read(conn)
+
+
+def _load_read(conn: sqlite3.Connection) -> LoadedRead | None:
     head = read_head(conn)
     if head is None or head.sync_id is None:
         return None
-    lines_json, unread_json, refs_json = conn.execute(
-        "SELECT lines, unread, read_refs FROM reads WHERE id = ?", (head.sync_id,)).fetchone()
-    lines = [PlaylistLine(**line) for line in json.loads(lines_json)]
+    row = conn.execute("SELECT lines, unread, read_refs FROM reads WHERE id = ?", (head.sync_id,)).fetchone()
+    if row is None:
+        return None
+    lines_json, unread_json, refs_json = row
+    lines = [_rebuild(PlaylistLine, line) for line in json.loads(lines_json)]
     by_ref = {line.ref: line for line in lines}
     checked, infos = stored_tracks(conn), stored_infos(conn)
     unread: list[str] = json.loads(unread_json)

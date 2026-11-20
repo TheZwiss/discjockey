@@ -9158,15 +9158,8 @@
           "x-shown": true
         },
         "read_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "The read this stored (`read:<n>`); null when it could not be stored (no library.db yet).",
+          "description": "The read this stored (`read:<n>`). A read that could not be stored ends the job `failed` instead (the plan is derived from the stored read).",
+          "type": "string",
           "x-shown": true
         }
       },

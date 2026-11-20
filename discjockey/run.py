@@ -204,10 +204,11 @@ def store_read(paths: Paths, read: StoredRead, *, keep: Collection[str] | None) 
     return _best_effort_write(paths, "playlists' read records", lambda conn: db.store_read(conn, read, keep))
 
 
-def store_infos(paths: Paths, infos: Mapping[str, PlaylistInfo], at: datetime) -> None:
-    """Keeps the playlists' names, owners and covers a read found (`db.store_infos`), best-effort like `store_read`."""
-    if infos:
-        _best_effort_write(paths, "playlists' names and covers", lambda conn: db.store_infos(conn, infos, at))
+def store_infos(paths: Paths, infos: Mapping[str, PlaylistInfo], at: datetime, drop: Collection[str] = ()) -> None:
+    """Keeps the playlists' names, owners and covers a read found (`db.store_infos`), best-effort like `store_read`.
+    `drop`: the refs of playlists the read found unreadable now, whose stored info goes."""
+    if infos or drop:
+        _best_effort_write(paths, "playlists' names and covers", lambda conn: db.store_infos(conn, infos, at, drop))
 
 
 def clear_read_problem(paths: Paths, service: str, kinds: frozenset[str] | None = None,

@@ -2660,8 +2660,11 @@ export type SpectrumAnswer = {
 export type RefreshResult = {
   /** How many actions the new plan has. */
   actions: number;
-  /** The read this stored (`read:<n>`); null when it could not be stored (no library.db yet). */
-  read_id: string | null;
+  /**
+   * The read this stored (`read:<n>`). A read that could not be stored ends the job `failed` instead (the plan
+   * is derived from the stored read).
+   */
+  read_id: string;
 };
 /**
  * The result of a sync (`start_sync`); a crashed sync carries one too: `exit_code` 1, `report` its crash note.

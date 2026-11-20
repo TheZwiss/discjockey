@@ -829,7 +829,8 @@ def refresh_work(paths: Paths, now: Callable[[], datetime] = datetime.now,
     stores itself (`run.prepare`); one that fails with a SetupProblem stores its problem too, beside the last good
     tracks (a stopped one stores nothing). With `infos` (a dict the read fills), also reads each playlist's name,
     owner and cover for the playlist page and stores what it found (a failure there is not a problem). The result
-    names the stored read (`read_id`, `read:<n>`; None when it could not be stored)."""
+    names the stored read (`read_id`, `read:<n>`). A read that could not be stored (library.db busy or not there yet)
+    ends `failed`: the plan is derived from the stored read, so without it the page would show no preview."""
     def work(ctx: JobContext) -> dict:
         started = datetime.now()  # the clock `prepare` stamps its reads with: the stored reads' order is by start
         try:
@@ -840,6 +841,9 @@ def refresh_work(paths: Paths, now: Callable[[], datetime] = datetime.now,
             if not ctx.token.cancelled:
                 run.store_read(paths, StoredRead("sync", started, [], None, [], e.kind, e.service, message), keep=None)
             raise
+        if prep.read_id is None:  # the plan lives in the stored read: one that could not be stored leaves no plan
+            raise OpProblem("Your playlists were read, but the read could not be saved just now (the library was busy). "
+                            "Read them again.", "failed")
         ctx.token.check()
         if infos is not None:
             # a source that learned the playlist's page while reading its tracks (Qobuz) has told us already: asking
@@ -847,23 +851,24 @@ def refresh_work(paths: Paths, now: Callable[[], datetime] = datetime.now,
             known = {fp.line.ref: fp.info for fp in prep.fetched if fp.info is not None}
             infos.update(known)
             signs: list[tuple[str, str, str]] = []  # a warning sign met by a Liked music read (recorded as a download's)
+            gone: set[str] = set()  # playlists that turned unreadable: what was stored of them goes too
             try:
                 read_infos(paths, [line.ref for line in prep.lines if line.ref not in known], infos, ctx.token,
-                           run.paused_now(paths, prep.state, date.today()), lambda *sign: signs.append(sign))
+                           run.paused_now(paths, prep.state, date.today()), lambda *sign: signs.append(sign), gone)
             finally:  # what was found stands, also when the read of the rest was stopped or failed
-                run.store_infos(paths, infos, now())
+                run.store_infos(paths, infos, now(), drop=gone)
                 if signs:
                     run.record_signs(paths, prep.state, signs, lock, True)
-        return {"actions": len(prep.plan.actions),
-                "read_id": None if prep.read_id is None else db.read_label(prep.read_id)}
+        return {"actions": len(prep.plan.actions), "read_id": db.read_label(prep.read_id)}
     return work
 
 
 def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken,
                paused: frozenset[str] = frozenset(),
-               on_signal: Callable[[str, str, str], None] | None = None) -> None:
-    """Fills `infos` (playlist ref -> PlaylistInfo) through each service's reader (sources.read_infos)."""
-    sources.read_infos(paths, refs, infos, token, paused, on_signal)
+               on_signal: Callable[[str, str, str], None] | None = None, dropped: set[str] | None = None) -> None:
+    """Fills `infos` (playlist ref -> PlaylistInfo) through each service's reader (sources.read_infos); `dropped`
+    gets the refs of playlists the service now says it can't show."""
+    sources.read_infos(paths, refs, infos, token, paused, on_signal, dropped)
 
 
 def sync_work(paths: Paths, plan: Callable[[], run.Prepared | None], ticked: set[tuple[str, str, str]],

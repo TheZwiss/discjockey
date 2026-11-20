@@ -149,6 +149,39 @@ def test_a_refresh_names_the_read_it_stored(env):
         assert db.load_read(conn).id == 2 and db.read_head(conn).problem is None
 
 
+def test_a_refresh_whose_read_could_not_be_stored_fails_with_a_message(env, monkeypatch):
+    paths, js, plan, rec, acq, logins, tracks = env
+    save_state(paths, empty_state())
+    monkeypatch.setattr(run, "store_read", lambda *a, **k: None)  # library.db busy: nothing was stored
+    refresh(js, paths)
+    done = rec.finished()
+    assert (done.ok, done.problem) == (False, "failed") and "could not be saved" in done.message
+    assert plan() is None  # and there is no plan to show: the page does not claim a read it has not got
+
+
+def test_a_playlist_that_turns_unreadable_loses_its_stored_name_and_cover(env, monkeypatch):
+    paths, js, plan, rec, acq, logins, tracks = env
+    save_state(paths, empty_state())
+    page = PlaylistInfo("spotify", "0DiscjockeyExampleList", "Hard Bounce", "me", "Me", False, "https://img.example/c.jpg",
+                        3, True, True)
+    monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: page)
+    monkeypatch.setattr(spotify, "current_user", lambda s: ("me", "Me"))
+    assert js.start_refresh(jobs.refresh_work(paths, infos={})).done.wait(5) and rec.finished().ok
+    assert list(stored_infos(paths)) == ["0DiscjockeyExampleList"]
+
+    def unreadable(s, pid, me):
+        raise spotify.SpotifyError("Spotify doesn't show this playlist.", "playlist_unreadable")
+
+    monkeypatch.setattr(spotify, "playlist_info", unreadable)
+    assert js.start_refresh(jobs.refresh_work(paths, infos={})).done.wait(5) and rec.finished().ok
+    assert stored_infos(paths) == {}
+
+
+def stored_infos(paths):
+    with db.connect(paths.db_file, read_only=True) as conn:
+        return db.stored_infos(conn)
+
+
 def test_a_failed_refresh_stores_its_problem_beside_the_last_good_tracks(env, monkeypatch):
     paths, js, plan, rec, acq, logins, tracks = env
     save_state(paths, empty_state())
@@ -596,3 +629,79 @@ def test_the_automatic_read_is_refused_the_second_time(hub):
     again = api.refresh(auto=True)
     assert (again["ok"], again["kind"]) == (False, "refused") and api.job_status()["read_status"]["auto_read"] is True
     assert make_api(paths)[0].job_status()["read_status"]["auto_read"] is False  # the window's own, not stored
+
+
+REFUSED = '{"auto_upgrade": 7}'  # a settings.json the planner refuses (and `HubApi._settings` falls back from)
+
+
+def answered(answer):
+    return not (isinstance(answer, dict) and answer.get("ok") is False)
+
+
+def test_a_refused_settings_file_leaves_every_page_but_the_sync_preview_answering(hub):
+    api, rec, paths, derived, loads = hub
+    refreshed(api, rec)
+    paths.settings_file.write_text(REFUSED)
+    for answer in (api.dashboard(), api.job_status(), api.sidebar(), api.todo(), api.library(), api.playlists(),
+                   api.limits(), api.tidy_preview()):
+        assert answered(answer), answer
+    for status in (api.dashboard()["read_status"], api.job_status()["read_status"]):
+        assert status["problem"] == "config_invalid" and "settings.json" in status["message"]
+        assert status["read_at"] is not None and status["lines_changed"] is False
+    assert api.dashboard()["ready"] is None  # no plan to count
+
+
+def test_a_refused_settings_file_is_the_error_of_the_sync_preview_and_of_a_sync(hub):
+    api, rec, paths, derived, loads = hub
+    refreshed(api, rec)
+    paths.settings_file.write_text(REFUSED)
+    refused = api.sync_preview()
+    assert refused["ok"] is False and "settings.json" in refused["message"]
+    f = wait_job(api, rec, api.start_sync([]))
+    assert (f.ok, f.problem) == (False, "config_invalid") and "Read your playlists first" not in f.message
+    assert api.never_download("t1", True)["ok"] is False
+
+
+def test_job_status_derives_no_plan(hub):
+    api, rec, paths, derived, loads = hub
+    refreshed(api, rec)
+    api.sync_preview()
+    assert len(derived) == 1
+    with db.connect(paths.db_file) as conn:
+        db._bump(conn)  # the records' generation moves on, as an import's or a sync's writes do
+    status = api.job_status()["read_status"]
+    assert status["read_at"] is not None and status["lines_changed"] is False and len(derived) == 1
+    paths.playlists_file.write_text("")  # no line on any more: the read's lines are gone from the file
+    assert api.job_status()["read_status"]["lines_changed"] is True and len(derived) == 1
+
+
+def test_a_plan_cached_for_another_library_is_a_miss(hub, tmp_path):
+    api, rec, paths, derived, loads = hub
+    refreshed(api, rec)
+    api.sync_preview()
+    assert len(derived) == 1
+    key, prep = api._plan_cache
+    other = (str(tmp_path / "elsewhere"), *key[1:])
+    api._plan_cache = (other, prep)  # a plan that finished for library A after the hub switched to B
+    api.sync_preview()
+    assert len(derived) == 2
+
+
+def test_playlists_changed_to_none_on_shows_as_changed(hub):
+    api, rec, paths, derived, loads = hub
+    refreshed(api, rec)
+    assert api.job_status()["read_status"]["lines_changed"] is False
+    paths.playlists_file.write_text("# Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n")
+    assert api.job_status()["read_status"]["lines_changed"] is True
+    assert api.sync_preview()["read_status"]["lines_changed"] is True
+
+
+@pytest.mark.parametrize("name", ["sync_preview", "library", "todo"])
+def test_a_page_asks_for_the_plan_once(hub, monkeypatch, name):
+    api, rec, paths, derived, loads = hub
+    refreshed(api, rec)
+    asked = []
+    real = api._derive
+    monkeypatch.setattr(api, "_derive", lambda *a, **k: asked.append(1) or real(*a, **k))
+    getattr(api, name)()
+    assert len(asked) == 1
