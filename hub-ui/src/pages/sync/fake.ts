@@ -12,7 +12,8 @@
 //   sync:crashed           a sync already running crashes; its crash note is filed as the run's report
 //   sync:stop-refused  a sync already running (as sync:converting) whose Stop safely fails
 //   sync:no-qobuz    the long plan for a colleague without Qobuz: YouTube Premium 30/day (26 used), SoundCloud Go+ 60/day
-//   sync:up-to-date-console  up to date while a sync runs in the terminal: no Start, so the shell's banner says it
+//   sync:up-to-date-console  up to date while a tidy-up runs in the Terminal: no Start, so the shell's banner says it (a
+//                    Terminal sync shows its live view instead: console:sync-*)
 //   sync:up-to-date-wait  up to date, and the last run's details take a minute to come (the panel's waiting state)
 //   sync:up-to-date-answers  up to date, with 2 songs that wait for an answer to "Is this the same song?" (issue 27)
 //   sync:qobuz-backup the long plan with Qobuz (10 left today) plus two limited backups behind it: YouTube Premium
@@ -37,6 +38,7 @@ import { numberPlan } from '$lib/bridge/fake/plan';
 import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
 import { addPastAutoRun, readyTracks, seedUpgrades } from '$lib/bridge/fake/auto';
 import { sampleQuestions } from '$lib/bridge/fake/folders';
+import { setConsole } from '$lib/bridge/fake/console';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
 import type { SyncPreview } from '$lib/bridge/types';
 import { DOWNLOAD_AGAIN_LABEL } from './planModel';
@@ -177,7 +179,7 @@ export const scenarios: PageFake['scenarios'] = {
   'auto-rekordbox-open'(s) { seedUpgrades(s, 3); s.rekordbox_running = true; },
   'auto-running'(s) { seedUpgrades(s, 7); },
   'up-to-date': (s) => { s.scenario = 'sync:up-to-date'; },
-  'up-to-date-console': (s) => { s.scenario = 'sync:up-to-date'; s.console_running = true; },
+  'up-to-date-console': (s) => { s.scenario = 'sync:up-to-date'; setConsole(s, true, 'tidy'); },
   'up-to-date-wait': (s) => { s.scenario = 'sync:up-to-date-wait'; },
   'up-to-date-answers': (s) => { s.scenario = 'sync:up-to-date'; s.imp.questions = sampleQuestions().slice(0, 2); },
   'crashed': (s) => { s.scenario = 'sync:crashed'; },

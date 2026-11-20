@@ -459,6 +459,8 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
   The Mac stays awake while it runs.
 - **Stopping:** **Stop safely** stops after the current track. Nothing is left half done, and the next sync
   continues where this one stopped.
+- **A sync started in the Terminal** (by you or an agent) shows on the Sync page as one started here does, track by
+  track, marked "In the Terminal", and ends on its results. **Stop safely** stops it from the window too.
 
 **Qobuz limit.** Discjockey downloads at most 60 tracks a day from Qobuz. Up to a third of
 yesterday's unused amount is added on top. The **Download limits** page changes the daily limit and can allow some
