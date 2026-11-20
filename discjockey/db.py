@@ -14,6 +14,7 @@ import unicodedata
 import uuid
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
@@ -23,12 +24,13 @@ from .events import Emit, Message
 from .identify import compare
 from .models import (FILE_AUDIO_KEYS, OWN_PREFIX, AddedFolder, AiffBatchRow, AiffItemRow, BatchRow, DupFile,
                      DuplicateGroup, FetchedPlaylist, FileAudio, ImportCounts, ImportRow, KnownFile, MoveRow,
-                     NOT_OPENABLE, OwnFacts, PlannedMove, PlaylistRecord, RecordedTrack, RemovalCounts, ScanResult,
-                     WatchedFolder, group_id, is_own, split_token, token)
+                     NOT_OPENABLE, LoadedRead, OwnFacts, PlannedMove, PlaylistInfo, PlaylistLine, PlaylistRecord,
+                     ReadHead, RecordedTrack, RemovalCounts, ScanResult, SourceTrack, StoredRead, WatchedFolder,
+                     group_id, is_own, split_token, token)
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -248,6 +250,34 @@ SCHEMA_V11_STEP = (
     "ALTER TABLE aiff_items_new RENAME TO aiff_items",
     "CREATE INDEX aiff_items_track ON aiff_items (track)",
 )
+# Issue 39 phase 2 (plan v2 V2.2a, D21, D22): every playlists read stores itself, whole enough that the Sync plan can
+# be worked out again from it. `reads`: one row per read (`kind` sync | check), `lines` / `unread` / `read_refs` as
+# JSON (`read_refs`: the refs the read fetched, in fetch order: a line the read left out is neither fetched nor
+# unread, and its old record stays). AUTOINCREMENT: a pruned id never comes back, `read:<n>` names one read for
+# ever. `playlist_reads` says which read stored a record last; `playlist_tracks` gains the planner's SourceTrack facts
+# (NULL on rows from schema 11: such a playlist cannot be rebuilt until it is read again); `playlist_infos` holds a
+# playlist's name, owner and cover, apart from the reads because an info exists without tracks (an unreadable link).
+# Never stored: a SoundCloud private track's secret link token, nor the record label.
+SCHEMA_V12_STEP = (
+    """CREATE TABLE reads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL CHECK (kind IN ('sync', 'check')),
+      started TEXT NOT NULL, stored TEXT NOT NULL,
+      problem TEXT, problem_service TEXT, message TEXT NOT NULL DEFAULT '',
+      lines TEXT, unread TEXT, read_refs TEXT)""",
+    "ALTER TABLE playlist_reads ADD COLUMN read_id INTEGER",
+    "ALTER TABLE playlist_reads ADD COLUMN started TEXT",
+    "ALTER TABLE playlist_tracks ADD COLUMN id TEXT",
+    "ALTER TABLE playlist_tracks ADD COLUMN artists TEXT",
+    "ALTER TABLE playlist_tracks ADD COLUMN album TEXT",
+    "ALTER TABLE playlist_tracks ADD COLUMN image_url TEXT",
+    "ALTER TABLE playlist_tracks ADD COLUMN isrc TEXT",
+    "ALTER TABLE playlist_tracks ADD COLUMN link TEXT",
+    "ALTER TABLE playlist_tracks ADD COLUMN streamable INTEGER",
+    "ALTER TABLE playlist_tracks ADD COLUMN account_only INTEGER",
+    "ALTER TABLE playlist_tracks ADD COLUMN service TEXT",
+    "CREATE TABLE playlist_infos (playlist TEXT PRIMARY KEY, info TEXT NOT NULL, at TEXT NOT NULL)",
+)
 _FACT_COLUMNS = (*FILE_AUDIO_COLUMNS, "facts_failed")  # what a row's old facts say nothing about once the audio changes
 
 
@@ -269,7 +299,8 @@ UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHE
                                                            7: _statements(SCHEMA_V8_STEP),
                                                            8: _statements(SCHEMA_V9_STEP),
                                                            9: _statements(SCHEMA_V10_STEP),
-                                                           10: _statements(SCHEMA_V11_STEP)}
+                                                           10: _statements(SCHEMA_V11_STEP),
+                                                           11: _statements(SCHEMA_V12_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -2191,33 +2222,200 @@ def decisions(conn: sqlite3.Connection) -> dict:
 
 
 # --- stage 5: what the hub shows beside the library (plan library stage 5, D1, D2, D15, I1, I2) ---
-# None of it is library state: the snapshot never holds it and no write here bumps the generation, so a read
-# record, a Favourite or a crate switch never makes a prepared step stale (STALE). The writers take no library lock
+# The playlists' reads are the stored read now (issue 39 phase 2, `store_read` / `load_read`): the Sync plan is worked
+# out from them, the Playlists page shows them. None of it is library state: the snapshot never holds it and no write
+# here bumps the generation, so a read, a Favourite or a crate switch never makes a prepared step stale (STALE). The writers take no library lock
 # (D15: they run while a sync or an import does); a write transaction of another connection makes them wait out the
 # busy timeout (connect), after which they raise sqlite3.OperationalError and nothing of theirs was written.
 
-def record_reads(conn: sqlite3.Connection, reads: Sequence[FetchedPlaylist], now: datetime,
-                 keep: Collection[str]) -> None:
-    """Records the playlists just read (D1), in one transaction. Each read (a successful one: an empty playlist is
-    one too) replaces its playlist's record, keyed by its line's ref: its service, `now`, and its tracks in
-    playlist order (token and display facts, D2). A playlist missing from `reads` (it couldn't be read, or it is
-    switched off) keeps its record. Records of refs not in `keep` (the refs of every playlists.txt line, on or
-    off) are dropped, with their tracks."""
-    stamp = now.isoformat(timespec="seconds")
-    keep = set(keep)
+def _stamp(moment: datetime) -> str:
+    """A time as the `reads` / `playlist_reads` start columns keep it: ISO with microseconds, so strings of one format
+    compare as the times do."""
+    return moment.isoformat(timespec="microseconds")
+
+
+def read_label(number: int) -> str:
+    """The name of stored read `number` that the window and the command line show: `read:<n>`."""
+    return f"read:{number}"
+
+
+def read_number(label: str) -> int:
+    """The number in a `read:<n>` name; ValueError for anything else."""
+    prefix, _, digits = label.partition(":")
+    if prefix != "read" or not digits.isdecimal() or not digits.isascii():
+        raise ValueError(f"{label!r} is not a read id (read:<n>)")
+    return int(digits)
+
+
+def _stored_link(t: SourceTrack) -> str | None:
+    """The track's page as stored. A private SoundCloud track's page link ends in its secret token (`.../s-<token>`):
+    that link is not stored (None: `SourceTrack` derives the player page from the id when loaded)."""
+    secret = t.secret()
+    return None if secret and t.link and secret in t.link else t.link
+
+
+def _newest_sync_id(conn: sqlite3.Connection) -> int | None:
+    """The id of the newest sync read that has lines, else of the newest sync read at all, else None."""
+    row = conn.execute("SELECT COALESCE((SELECT MAX(id) FROM reads WHERE kind = 'sync' AND lines IS NOT NULL), "
+                       "(SELECT MAX(id) FROM reads WHERE kind = 'sync'))").fetchone()
+    return row[0]
+
+
+def store_read(conn: sqlite3.Connection, read: StoredRead, keep: Collection[str] | None,
+               *, now: datetime | None = None) -> int:
+    """Stores one playlists read (D21, D22), in one transaction, and returns its id (`read_label`). It takes no library
+    lock and bumps no generation (see the section's header). `now` is when it is stored (the real clock when None).
+    - A sync read that started before the newest stored sync read (a slow read that finished after a newer one)
+      stores nothing and returns the id of the newest sync read that has lines.
+    - Otherwise it inserts its `reads` row and replaces the record (row and tracks) of each playlist it fetched,
+      unless the stored record was made by a read that started later (a check read of one playlist and a sync read
+      can interleave).
+    - `keep` (a sync read's): records and infos of refs not in it are dropped, with the tracks. A check read passes
+      None: it never prunes (its ref is a pasted link, not in playlists.txt yet).
+    - `reads` rows older than the newest good sync read that no record names are pruned.
+    Every column is written from named fields: the private SoundCloud link token and the record label never reach
+    library.db (`_stored_link`)."""
+    started = _stamp(read.started)
+    stored = (now or datetime.now()).isoformat(timespec="seconds")
     with transaction(conn):
-        for fp in reads:
+        newest = conn.execute("SELECT MAX(started) FROM reads WHERE kind = 'sync'").fetchone()[0]
+        if read.kind == "sync" and newest is not None and started < newest:
+            return _newest_sync_id(conn)
+        refs = [fp.line.ref for fp in read.fetched]
+        read_id = conn.execute(
+            "INSERT INTO reads (kind, started, stored, problem, problem_service, message, lines, unread, read_refs) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (read.kind, started, stored, read.problem, read.problem_service, read.message,
+             None if read.lines is None else json.dumps([asdict(line) for line in read.lines]),
+             json.dumps(read.unread) if read.lines is not None else None,
+             json.dumps(refs) if read.lines is not None or read.kind == "check" else None)).lastrowid
+        for fp in read.fetched:
             ref = fp.line.ref
+            old = conn.execute("SELECT started FROM playlist_reads WHERE playlist = ?", (ref,)).fetchone()
+            if old is not None and old[0] is not None and old[0] > started:
+                continue
             conn.execute("DELETE FROM playlist_reads WHERE playlist = ?", (ref,))  # its tracks go with it (CASCADE)
-            conn.execute("INSERT INTO playlist_reads (playlist, service, read_at) VALUES (?, ?, ?)",
-                         (ref, fp.line.service, stamp))
+            conn.execute("INSERT INTO playlist_reads (playlist, service, read_at, read_id, started) "
+                         "VALUES (?, ?, ?, ?, ?)", (ref, fp.line.service, stored, read_id, started))
             conn.executemany(
-                "INSERT INTO playlist_tracks (playlist, position, token, artist, title, duration_ms) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                [(ref, i, t.key, t.first_artist, t.title, t.duration_ms or None)
+                "INSERT INTO playlist_tracks (playlist, position, token, artist, title, duration_ms, id, artists, "
+                "album, image_url, isrc, link, streamable, account_only, service) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(ref, i, t.key, t.first_artist, t.title, t.duration_ms or None, t.id, json.dumps(list(t.artists)),
+                  t.album, t.image_url, t.isrc, _stored_link(t), int(t.streamable), int(t.account_only), t.service)
                  for i, t in enumerate(fp.tracks, start=1)])
-        gone = [(ref,) for (ref,) in conn.execute("SELECT playlist FROM playlist_reads") if ref not in keep]
-        conn.executemany("DELETE FROM playlist_reads WHERE playlist = ?", gone)
+        if keep is not None:
+            wanted = set(keep)
+            for table in ("playlist_reads", "playlist_infos"):
+                conn.executemany(f"DELETE FROM {table} WHERE playlist = ?",
+                                 [(ref,) for (ref,) in conn.execute(f"SELECT playlist FROM {table}")
+                                  if ref not in wanted])
+        newest_good = conn.execute("SELECT MAX(id) FROM reads WHERE kind = 'sync' AND lines IS NOT NULL").fetchone()[0]
+        if newest_good is not None:
+            conn.execute("DELETE FROM reads WHERE id < ? AND id NOT IN "
+                         "(SELECT read_id FROM playlist_reads WHERE read_id IS NOT NULL)", (newest_good,))
+    return read_id
+
+
+def store_infos(conn: sqlite3.Connection, infos: Mapping[str, PlaylistInfo], at: datetime) -> None:
+    """Keeps the playlists' names, owners and covers (`infos`: ref -> PlaylistInfo) as read at `at`, in one
+    transaction: a ref's info is replaced, the others stay. Not tied to a read: an info exists without tracks."""
+    stamp = at.isoformat(timespec="seconds")
+    with transaction(conn):
+        conn.executemany(
+            "INSERT INTO playlist_infos (playlist, info, at) VALUES (?, ?, ?) "
+            "ON CONFLICT (playlist) DO UPDATE SET info = excluded.info, at = excluded.at",
+            [(ref, json.dumps(asdict(info)), stamp) for ref, info in infos.items()])
+
+
+def current_read_id(conn: sqlite3.Connection) -> int | None:
+    """The newest stored read's id, of any kind (a check read may replace a record a plan reads); None before any."""
+    return conn.execute("SELECT MAX(id) FROM reads").fetchone()[0]
+
+
+def read_head(conn: sqlite3.Connection) -> ReadHead | None:
+    """The newest reads at a glance, in one query on `reads` (no track is rebuilt); None when none was stored. The
+    problem, its service and the words are the newest sync read's, failed or not: a first read that failed (no good
+    one yet) shows its problem too."""
+    row = conn.execute(
+        "SELECT (SELECT MAX(id) FROM reads), g.id, g.stored, n.problem, n.problem_service, n.message "
+        "FROM (SELECT 1) LEFT JOIN (SELECT id, stored FROM reads WHERE kind = 'sync' AND lines IS NOT NULL "
+        "ORDER BY id DESC LIMIT 1) g ON 1 LEFT JOIN (SELECT problem, problem_service, message FROM reads "
+        "WHERE kind = 'sync' ORDER BY id DESC LIMIT 1) n ON 1").fetchone()
+    if row[0] is None:
+        return None
+    current, sync_id, stored, problem, service, message = row
+    return ReadHead(current, sync_id, None if stored is None else datetime.fromisoformat(stored), problem, service,
+                    message or "")
+
+
+def stored_tracks(conn: sqlite3.Connection) -> dict[str, tuple[SourceTrack, ...]]:
+    """Every stored record's tracks by playlist ref, check reads included, as `SourceTrack`s in playlist order. One
+    query, so a record being replaced meanwhile is read whole. A record whose rows lack the planner's facts (written
+    before schema 12) is left out: it cannot be rebuilt until it is read again."""
+    tracks: dict[str, list[SourceTrack]] = {}
+    complete: dict[str, bool] = {}
+    for ref, position, id, title, artists, album, image, ms, isrc, service, link, streamable, account_only in \
+            conn.execute("SELECT r.playlist, t.position, t.id, t.title, t.artists, t.album, t.image_url, "
+                         "t.duration_ms, t.isrc, t.service, t.link, t.streamable, t.account_only "
+                         "FROM playlist_reads r LEFT JOIN playlist_tracks t ON t.playlist = r.playlist "
+                         "ORDER BY r.playlist, t.position"):
+        tracks.setdefault(ref, [])
+        complete.setdefault(ref, True)
+        if position is None:  # a playlist read empty has no track rows
+            continue
+        if id is None:
+            complete[ref] = False
+            continue
+        tracks[ref].append(SourceTrack(id, title, tuple(json.loads(artists)), album, image, ms or 0, isrc, service,
+                                       link, bool(streamable), bool(account_only)))
+    return {ref: tuple(found) for ref, found in tracks.items() if complete[ref]}
+
+
+def stored_infos(conn: sqlite3.Connection) -> dict[str, PlaylistInfo]:
+    """Every stored playlist info by ref."""
+    return {ref: PlaylistInfo(**json.loads(info)) for ref, info in conn.execute("SELECT playlist, info FROM playlist_infos")}
+
+
+def load_read(conn: sqlite3.Connection) -> LoadedRead | None:
+    """The newest good sync read, rebuilt whole enough to plan from with no new read (`run.prepared_from_read`); None
+    when there is none (`read_head(conn).sync_id` is None). `fetched` follows the read's own order and holds the
+    records as they are now (a check read may have replaced one); a playlist the read fetched whose stored tracks
+    cannot be rebuilt (written before schema 12) or are gone is named in `unread` instead, so the plan treats it as a
+    playlist not read this time. The problem is the newest sync read's: a failed read keeps the last good tracks."""
+    head = read_head(conn)
+    if head is None or head.sync_id is None:
+        return None
+    lines_json, unread_json, refs_json = conn.execute(
+        "SELECT lines, unread, read_refs FROM reads WHERE id = ?", (head.sync_id,)).fetchone()
+    lines = [PlaylistLine(**line) for line in json.loads(lines_json)]
+    by_ref = {line.ref: line for line in lines}
+    checked, infos = stored_tracks(conn), stored_infos(conn)
+    unread: list[str] = json.loads(unread_json)
+    fetched: list[FetchedPlaylist] = []
+    for ref in json.loads(refs_json):
+        if ref in checked:
+            fetched.append(FetchedPlaylist(by_ref[ref], list(checked[ref]), [], infos.get(ref)))
+        elif ref not in unread:
+            unread.append(ref)
+    return LoadedRead(head.sync_id, lines, fetched, unread, head.read_at, head.problem, head.problem_service,
+                      head.message, checked, infos)
+
+
+def clear_read_problem(conn: sqlite3.Connection, service: str, kinds: frozenset[str] | None,
+                       message: str | None) -> bool:
+    """A login for `service` was just made: the newest sync read's problem, when it is about that service, is out of
+    date. Cleared only when it is of one of `kinds` (a login cannot cure an offline service) and says exactly
+    `message` (a login cures SoundCloud's likes hint, not a private set's "doesn't show this playlist"), where those
+    are given. The tracks stay. True when it cleared one."""
+    with transaction(conn):
+        row = conn.execute("SELECT id, problem, problem_service, message FROM reads WHERE kind = 'sync' "
+                           "ORDER BY id DESC LIMIT 1").fetchone()
+        if row is None or row[1] is None or row[2] != service or (kinds is not None and row[1] not in kinds) \
+                or (message is not None and row[3] != message):
+            return False
+        conn.execute("UPDATE reads SET problem = NULL, problem_service = NULL, message = '' WHERE id = ?", (row[0],))
+        return True
 
 
 def playlist_records(conn: sqlite3.Connection) -> dict[str, PlaylistRecord]:

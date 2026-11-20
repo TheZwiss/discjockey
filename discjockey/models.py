@@ -6,6 +6,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -179,6 +180,57 @@ class FetchedPlaylist:
     # What the page shows for the playlist, when reading its tracks already told the source (Qobuz's first page does):
     # the hub then needs no second login to ask. Not part of what two reads of the same tracks compare by.
     info: PlaylistInfo | None = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class StoredRead:
+    """One playlists read as library.db keeps it (`db.store_read`): `kind` "sync" (the Sync page's and a run's read of
+    every playlists.txt line) or "check" (one pasted playlist, read for the Playlists page); when it started; the
+    playlists it fetched, in fetch order; the lines it was asked to read (None for a check read and a failed read);
+    the refs of the lines it did not read because of a pause (`sources.read`'s `unread`); and the problem a failed
+    read ended in. A failed read is a StoredRead with `fetched=[]`, `lines=None` and a `problem` (a SetupProblem's
+    kind, `message` the words the page shows). Not a secret's place: see `db.store_read`."""
+    kind: str
+    started: datetime
+    fetched: list[FetchedPlaylist]
+    lines: list[PlaylistLine] | None = None
+    unread: list[str] = field(default_factory=list)
+    problem: str | None = None
+    problem_service: str | None = None
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class ReadHead:
+    """The newest stored reads at a glance (`db.read_head`), one query and no track rebuilt: `current` the newest
+    read's id (any kind); `sync_id` the newest sync read that has lines (None: no good read yet); `read_at` when it
+    was stored; `problem`, `problem_service` and `message` are the newest sync read's, failed or not."""
+    current: int
+    sync_id: int | None
+    read_at: datetime | None
+    problem: str | None
+    problem_service: str | None
+    message: str
+
+
+@dataclass(frozen=True)
+class LoadedRead:
+    """The newest good sync read as `db.load_read` rebuilds it, whole enough to plan from: `id`; `lines`; `fetched`
+    (one per ref the read fetched, in order, tracks as the planner reads them; a playlist whose stored tracks lack
+    the planner's facts is left out and named in `unread` instead); `unread` (refs); `read_at` (when it was stored);
+    the newest sync read's `problem`, `problem_service` and `message` (a failed read keeps the last good tracks and
+    stores its problem beside them); `checked` every stored record's tracks by ref (check reads included), `infos`
+    every stored playlist info by ref."""
+    id: int
+    lines: list[PlaylistLine]
+    fetched: list[FetchedPlaylist]
+    unread: list[str]
+    read_at: datetime
+    problem: str | None
+    problem_service: str | None
+    message: str
+    checked: dict[str, tuple[SourceTrack, ...]]
+    infos: dict[str, PlaylistInfo]
 
 
 @dataclass(frozen=True)

@@ -234,7 +234,7 @@ def test_stop_ends_a_refresh_at_once_even_while_its_work_is_stuck(env):
         release.wait(10)
         ctx.emit(Message("info", "late"))
         ended.set()
-        return {"actions": 9}
+        return {"actions": 9, "read_id": None}
 
     job = js.start_refresh(work)
     time.sleep(0.05)
@@ -242,7 +242,7 @@ def test_stop_ends_a_refresh_at_once_even_while_its_work_is_stuck(env):
     assert js.stop_refresh() and job.done.wait(2) and time.monotonic() - t0 < 2
     assert rec.of(jobs.JobFinished)[-1].problem == "stopped" and not js.status()["refresh_running"]
     assert not js.stop_refresh()  # already stopped
-    again = js.start_refresh(lambda ctx: {"actions": 1})
+    again = js.start_refresh(lambda ctx: {"actions": 1, "read_id": None})
     assert again.done.wait(5)
     release.set()
     assert ended.wait(5)
