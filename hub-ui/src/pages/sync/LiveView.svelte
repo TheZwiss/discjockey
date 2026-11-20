@@ -15,10 +15,11 @@
   import { ColumnFrame } from '$lib/frames';
   import { api } from '$lib/bridge/client';
   import { markStopping, run } from '$lib/stores/run';
-  import { getPref } from '$lib/prefs';
+  import { hub } from '$lib/stores/hub';
+  import { latestOnly } from '$lib/latest';
   import { markReady } from '$lib/ready';
   import { cardState, liveUsage, qobuzFallback, upgradeProgress } from './cardState';
-  import { PREF_LAST_SELECTION, minutesLeft, type Picked } from './selection';
+  import { minutesLeft, pickedOf, type Picked } from './selection';
   import { coverMap, liveMessage } from './results';
   import SyncCard from './SyncCard.svelte';
   import RunList from './RunList.svelte';
@@ -27,7 +28,20 @@
   let qobuzToday = $state<{ used: number; allowance: number } | null>(null);
   let stopError = $state<string | null>(null);
   let asking = $state(false);
-  const selection = getPref<Picked[]>(PREF_LAST_SELECTION, []);
+  // The songs the sync was started with: until the run's own plan arrives (`$run.planned`, which wins), the engine's
+  // record of what was ticked (`last_sync`) named in the plan it was ticked from. One preview per started sync.
+  let selection = $state<Picked[]>([]);
+  const previews = latestOnly();
+  let asked: string | null = null;
+  $effect(() => {
+    const last = $hub.last_sync;
+    if (!last || $run.planned.length || asked === last.job) return;
+    asked = last.job;
+    const ticket = previews.next();
+    void api.sync_preview().then((r) => {
+      if (previews.isLatest(ticket) && r.ok) selection = pickedOf(r, last.args.selected);
+    });
+  });
 
   onMount(() => {
     markReady('sync');
@@ -78,7 +92,7 @@
     {#if message}<p class="message" data-test="sync-message" title={message}>{message}</p>{/if}
   </Surface>
   {#if card.kind !== 'upgrading'}<SyncCard {card} {covers} />{/if}
-  <RunList />
+  <RunList {selection} />
 {/snippet}
 
 {#snippet foot()}

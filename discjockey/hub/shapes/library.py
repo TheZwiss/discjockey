@@ -7,7 +7,7 @@ read the playlists, start a sync, save a limit or scan the library. The meanings
 maps a job kind to the shape of its `JobFinished.result`."""
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
-from .common import (ActionKey, ByQuality, EmptyKind, ErrorKind, LibraryFilter, PlaylistService, ProblemKind, Quality,
+from .common import (ByQuality, EmptyKind, ErrorKind, LibraryFilter, PlaylistService, ProblemKind, Quality,
                      Result, SettingKey, TrackRow, Which)
 from .kernel import F, alias, shape
 from .todo import AutoUpgradeBlock, FileState, TrackLink
@@ -408,7 +408,6 @@ class CratesSaved(TypedDict):
 # --- the Sync page's preview and the job snapshot ---
 
 PreviewAction = TypedDict("PreviewAction", {
-    "key": Annotated[ActionKey, F("The action's key, sent back ticked to `start_sync`.", shown=False)],
     "id": Annotated[str, F("The action's id in this plan (`act:<kind>:<track>:<n>`); sent back ticked to `start_sync`.",
                            shown=False)],
     "kind": Annotated[str, F("What the action does (acquire, adopt_bought, upgrade).")],
@@ -492,7 +491,7 @@ class SyncPreviewAutoUpgrade(TypedDict):
 
 @shape
 class SyncPreview(TypedDict):
-    """The check before Start. Each action's `key` is sent back ticked to `start_sync`. Before the first read the
+    """The check before Start. Each action's `id` is sent back ticked to `start_sync`. Before the first read the
     counts are 0, `counts` and `estimate` null and `collections` empty."""
     read_status: Annotated[ReadStatus, F("How the last playlists read went.")]
     counts: Annotated[PlanCounts | None, F("What the plan holds; null before a read.")]

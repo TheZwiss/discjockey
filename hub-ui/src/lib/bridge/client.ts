@@ -1,6 +1,6 @@
 // The only bridge to Python. Only this file touches window.pywebview (plan 64.4).
 import type {
-  ActionKey, AddedPlaylist, Empty, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
+  AddedPlaylist, Empty, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res,
   SetupStatus, SetupTools, Sidebar, SyncPreview, Todo, TodoFilter, TrackAnswer, WhatIf, Which,
   Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,

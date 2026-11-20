@@ -1,13 +1,13 @@
 // The Sync page's plan before the start (docs/archive/pre-public/hub-ui-pages/sync-REDESIGN.md): kinds and tags of the rows, the scope (playlists and kinds
 // in this run), the "how many" presets, the "next sync" tags and the "This run" summary. Pure, so it is tested.
 import type { SegOption } from '$lib/components/segmentedModel';
-import type { PlaylistRow, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
+import type { PlaylistRow, PlaylistService, PreviewAction, SyncAccount, SyncPreset, SyncPreview } from '$lib/bridge/types';
 import { daysToLoad } from '$lib/days';
 import type { DayBarInput } from '$lib/components/dayBarModel';
 import type { ToggleItem } from '$lib/components/toggleModel';
 import { estimate, foldText, plural, serviceName } from '$lib/format';
 import { PLAYLIST_SERVICE_NAMES } from '$lib/copy';
-import { allActions, keyId } from './selection';
+import { allActions } from './selection';
 
 /** Spotify is read by itself once per app session: only while the hub has not started its automatic read
  * (`read_status.auto_read`, kept in Python so a window reload doesn't read again), never while a read or a sync runs and
@@ -121,7 +121,7 @@ export const inScope = (a: PreviewAction, s: Scope) => memberOn(a, s) && !s.kind
 /** What Start sends: the ticked rows in scope, nothing else (a row ticked before its collections were switched off
  *  stays out). */
 export const chosenOf = (ordered: PreviewAction[], ticked: ReadonlySet<string>, s: Scope): PreviewAction[] =>
-  ordered.filter((a) => inScope(a, s) && ticked.has(keyId(a.key)));
+  ordered.filter((a) => inScope(a, s) && ticked.has(a.id));
 /** Every row is left out by the column's switches (not by the weekly checks). */
 export const everyOff = (ordered: PreviewAction[], s: Scope): boolean =>
   ordered.length > 0 && ordered.every((a) => !memberOn(a, s));
@@ -255,17 +255,20 @@ export function dayBarEmpty(inScope: number, ticked: number): string {
 export type HowMany = number | 'fits' | 'all';
 export type Preset = { value: HowMany; n: number; label: string };
 
-/** 5, 10, 25, 50 (only below the total), "L · fits today" (when 0 < L < total), "All N". */
-export function presets(total: number, left: number): Preset[] {
-  if (total <= 0) return [];
-  const fits = left > 0 && left < total;
-  const out: Preset[] = [5, 10, 25, 50].filter((n) => n < total && !(fits && n === left))
-    .map((n) => ({ value: n, n, label: String(n) }));
-  if (fits) out.push({ value: 'fits', n: left, label: `${left} · fits today` });
-  out.push({ value: 'all', n: total, label: `All ${total}` });
-  return out.sort((a, b) => a.n - b.n);
+/** The engine's "how many" choices (`SyncPreview.presets`) as the page's chips: `value` is the key as the page holds a
+ *  choice (a number for 5 · 10 · 25 · 50), `n` the downloads it ticks. */
+export const enginePresets = (list: SyncPreset[]): Preset[] => list.map((p) => ({
+  value: p.key === 'fits' || p.key === 'all' ? p.key : Number(p.key), n: p.downloads, label: p.label }));
+/** The first choice, the engine's `default_how_many`, as the page holds it; null when the plan offers no choice. */
+export const howManyOfKey = (key: string | null): HowMany | null =>
+  key === null ? null : key === 'fits' || key === 'all' ? key : readHowMany(Number(key));
+/** The ids a choice ticks (the engine's `selected`): the preset of that value, else the one with the same number of
+ *  downloads (a remembered 25 with 8 downloads ticks "All 8"); null when none matches (nothing changes). */
+export function presetSelected(list: SyncPreset[], h: HowMany, total: number, left: number): string[] | null {
+  const key = String(h);
+  const n = presetN(h, total, left);
+  return (list.find((p) => p.key === key) ?? list.find((p) => p.downloads === n))?.selected ?? null;
 }
-export const defaultHowMany = (total: number, left: number): HowMany => (left > 0 && left < total ? 'fits' : 'all');
 export function presetN(h: HowMany, total: number, left: number): number {
   return h === 'all' ? total : h === 'fits' ? Math.min(Math.max(left, 0), total) : Math.min(h, total);
 }
@@ -279,26 +282,13 @@ export function readHowMany(v: unknown): HowMany | null {
   return v === 'fits' || v === 'all' ? v : typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
 }
 
-/** A preset's ticks: every non-download action in scope plus the first n downloads in scope, in run order. */
-export function presetTicks(ordered: PreviewAction[], scope: Scope, n: number): Set<string> {
-  const out = new Set<string>();
-  let dl = 0;
-  for (const a of ordered) {
-    if (!inScope(a, scope)) continue;
-    if (!isDownload(a)) out.add(keyId(a.key));
-    else if (dl < n) { out.add(keyId(a.key)); dl++; }
-  }
-  return out;
-}
-
 /** Ticked downloads in scope that come after the first `left` in run order: they wait for the next sync. */
 export function nextSyncSet(ordered: PreviewAction[], ticked: Set<string>, scope: Scope, left: number): Set<string> {
   const out = new Set<string>();
   let dl = 0;
   for (const a of ordered) {
-    const id = keyId(a.key);
-    if (!isDownload(a) || !inScope(a, scope) || !ticked.has(id)) continue;
-    if (dl >= Math.max(left, 0)) out.add(id);
+    if (!isDownload(a) || !inScope(a, scope) || !ticked.has(a.id)) continue;
+    if (dl >= Math.max(left, 0)) out.add(a.id);
     dl++;
   }
   return out;
@@ -450,11 +440,11 @@ export type Section = { folder: string; rows: PreviewAction[]; total: number; ti
   downloads: number };
 
 /** A section's counts among `rows`, all its rows in scope: total, ticked, the ticked downloads that wait for the next
- *  sync (`nextSync`), and the ticked downloads (bought files and weekly checks are ticked but never wait). Sets hold keyIds. */
+ *  sync (`nextSync`), and the ticked downloads (bought files and weekly checks are ticked but never wait). Sets hold action ids. */
 export function sectionCounts(rows: PreviewAction[], ticked: ReadonlySet<string>, nextSync: ReadonlySet<string>)
   : Pick<Section, 'total' | 'ticked' | 'waiting' | 'downloads'> {
-  const on = rows.filter((a) => ticked.has(keyId(a.key)));
-  return { total: rows.length, ticked: on.length, waiting: on.filter((a) => nextSync.has(keyId(a.key))).length,
+  const on = rows.filter((a) => ticked.has(a.id));
+  return { total: rows.length, ticked: on.length, waiting: on.filter((a) => nextSync.has(a.id)).length,
     downloads: on.filter(isDownload).length };
 }
 

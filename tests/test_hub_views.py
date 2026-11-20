@@ -802,10 +802,10 @@ def test_sync_preview_groups_with_keys():
     p = views.sync_preview(read, st, Settings(), TODAY, NOW, False, cover)
     assert [g["key"] for g in p["groups"]] == ["acquire:new", "adopt_bought"]
     row = p["groups"][1]["actions"][0]
-    assert row["key"] == ["adopt_bought", "m1", "Library/Hard_Bounce"] and "from_folder" not in row
+    assert row["id"].startswith("act:adopt_bought:m1:") and "key" not in row and "from_folder" not in row
     assert (row["artist"], row["to_not_lossless"], row["cover_url"]) == ("DJ TALLBOY", False, "cover:m1")
     new_row = p["groups"][0]["actions"][0]
-    assert new_row["key"] == ["acquire", "n1", "Library/A"] and new_row["artist"] == "Artist"
+    assert new_row["id"].startswith("act:acquire:n1:") and new_row["to_dir"] == "Library/A" and new_row["artist"] == "Artist"
     assert p["estimate"]["qobuz_needed"] == 2 and p["counts"]["bought"] == 1
     assert p["dropped"] == [{"track_id": "m9", "artist": "Gone", "title": "Dropped", "folder": "A"}]
     assert p["notes"] == ["a note"] and p["empty"] is None and p["read_status"]["minutes_ago"] == 2

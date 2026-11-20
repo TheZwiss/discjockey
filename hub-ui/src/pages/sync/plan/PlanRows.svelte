@@ -16,7 +16,6 @@
   import type { PreviewAction } from '$lib/bridge/types';
   import { artistTitle } from '$lib/format';
   import { canNever, folderLabel, kindOf, sectionSummary, tagOf, waitsWhole, whyColumn, whyOf, type Section } from '../planModel';
-  import { keyId } from '../selection';
   import NeverButton from './NeverButton.svelte';
   import { Tick } from '$lib/components';
   import WhyMark from './WhyMark.svelte';
@@ -48,8 +47,8 @@
     sticky style={whyColumn(s.rows, mayWait) ? WIDE : COLS} data-test="sync-section" data-folder={s.folder}
     bulk={{ all: 'Tick all', allOff: s.ticked === s.total, noneOff: s.ticked === 0, test: 'sync-section',
       onall: (on) => onfolder(s.folder, on) }}>
-    {#each s.rows as a (keyId(a.key))}
-      {@const id = keyId(a.key)}
+    {#each s.rows as a (a.id)}
+      {@const id = a.id}
       {@const on = ticked.has(id)}
       {@const tag = tagOf(a)}
       {@const waits = on && nextSync.has(id)}

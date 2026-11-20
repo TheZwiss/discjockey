@@ -368,6 +368,14 @@ describe('fake backend', () => {
       args: { plan_id: p.plan_id, selected: [rows[0].id] }, ended: null });
     await until(evs, (e) => e.type === 'JobFinished');
   });
+  it('a scenario that shows a started sync names its ticked rows by id in last_sync, in the plan Start would check', async () => {
+    const f = createFakeBridge('sync:own-cover');
+    const p = (await f.sync_preview()) as SyncPreview & { ok: true };
+    const t5 = p.groups.flatMap((g) => g.actions).find((a) => a.track_id === 't5')!;
+    expect(((await f.job_status()) as { last_sync: unknown }).last_sync).toMatchObject({
+      args: { plan_id: p.plan_id, selected: [t5.id] }, ended: null });
+    expect(((await createFakeBridge('normal').job_status()) as { last_sync: unknown }).last_sync).toBeNull();
+  });
   it('stop ends a replayed sync with exit 130', async () => {
     const evs: HubEvent[] = [];
     const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });

@@ -1,15 +1,13 @@
-// Ticks, the saved selection and "Up next" (plan Task 65). Pure, so it is tested. The plan page's own logic is in
-// planModel.ts.
-import type { ActionKey, PlannedAction, PreviewAction, SyncPreview } from '$lib/bridge/types';
+// Ticks (by the action's id), the run's selection and "Up next" (plan Task 65). Pure, so it is tested. The plan page's
+// own logic is in planModel.ts.
+import type { PlannedAction, PreviewAction, SyncPreview } from '$lib/bridge/types';
 
-export const PREF_LAST_SELECTION = 'sync.lastSelection';
 export const SECONDS_PER_DOWNLOAD = 70;   // views formula (spec §6.9)
 
-/** A stored ticked action, for "Up next" and the time left during the run (gap G1). */
-export type Picked = { key: ActionKey; kind: string; track_id: string; title: string; artist: string; folder: string;
+/** A ticked action the sync was started with, for "Up next" and the time left during the run (gap G1). */
+export type Picked = { kind: string; track_id: string; title: string; artist: string; folder: string;
   cover_url?: string | null };
 
-export const keyId = (k: ActionKey | readonly string[]) => JSON.stringify(k);
 /** Every action of the preview in the order the sync works through them (the backend's `run` index). */
 export function allActions(p: SyncPreview | null): PreviewAction[] {
   if (!p) return [];
@@ -24,7 +22,7 @@ export function allActions(p: SyncPreview | null): PreviewAction[] {
 export function carryTicks(next: SyncPreview, prev: { ticked: Set<string>; known: Set<string> } | null): Set<string> {
   const out = new Set<string>();
   for (const a of allActions(next)) {
-    const id = keyId(a.key);
+    const id = a.id;
     if (!prev || !prev.known.has(id) || prev.ticked.has(id)) out.add(id);
   }
   return out;
@@ -32,9 +30,11 @@ export function carryTicks(next: SyncPreview, prev: { ticked: Set<string>; known
 
 const downloads = (kind: string) => kind === 'acquire' || kind === 'upgrade';
 
-/** The ticked actions in run order, saved at Start for "Up next" during the run. */
-export function picked(p: SyncPreview, ticked: Set<string>): Picked[] {
-  return allActions(p).filter((a) => ticked.has(keyId(a.key))).map((a) => ({ key: a.key, kind: a.kind,
+/** The rows of the preview with these ids (what the sync was started with: `job_status().last_sync.args.selected`), in
+ *  run order, for "Up next" while the run's own plan has not arrived. An id the preview no longer has is skipped. */
+export function pickedOf(p: SyncPreview | null, ids: Iterable<string>): Picked[] {
+  const want = new Set(ids);
+  return allActions(p).filter((a) => want.has(a.id)).map((a) => ({ kind: a.kind,
     track_id: a.track_id, title: a.title, artist: a.artist, folder: a.folder, cover_url: a.cover_url }));
 }
 

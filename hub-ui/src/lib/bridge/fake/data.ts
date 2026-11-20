@@ -220,6 +220,8 @@ export type FakeState = {
   batchSkip?: Record<string, string>;
   /** the sync's Auto-upgrade phase: the fake rekordbox is opened after this many tracks of the batch (the rest wait) */
   autoOpensAfter?: number;
+  /** a sync a scenario shows already started: the plan rows (kind, track) it was ticked with, as `job_status().last_sync` names them by id */
+  lastSyncRows?: { kind: string; track_id: string }[];
   /** who started a scenario's AIFF batch (batch id -> `aiff_batches.started_by`); unset: the user */
   batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade' | 'download_again'>;
   /** stage D: the room per drive (a folder on it, as `AiffPlan.space` says it) in bytes; a drive not listed has 400 GB */
@@ -771,7 +773,7 @@ export function previewAction(kind: string, reason: string | null, t: { track_id
   title: string; folder: string }, to_not_lossless = false, src: string | null = null,
   cover: number | null = null): PreviewAction {
   const to_dir = `Library/${t.folder}${to_not_lossless ? '/not_lossless' : ''}`;
-  return { key: [kind, t.track_id, to_dir], id: actionId({ kind, track_id: t.track_id, folder: t.folder }), kind, reason, track_id: t.track_id, artist: t.artist, title: t.title,
+  return { id: actionId({ kind, track_id: t.track_id, folder: t.folder }), kind, reason, track_id: t.track_id, artist: t.artist, title: t.title,
     folder: t.folder, to_dir, to_not_lossless, src, cover_url: coverUri(cover), in: [] };
 }
 

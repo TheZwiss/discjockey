@@ -147,8 +147,6 @@ export type Source = 'qobuz' | 'youtube_music' | 'soundcloud' | 'youtube' | 'man
 export type SourceHow = 'exact' | 'isrc' | 'name' | 'upload' | 'fallback' | 'chosen';
 /** What kind of error a report line holds (errors: network, qobuz or other; a song nobody has: not_found). */
 export type ErrorKind = 'network' | 'qobuz' | 'other' | 'not_found';
-/** The key of one planned action, three words; sent back unchanged to start_sync. */
-export type ActionKey = [string, string, string];
 /** One line of playlists.txt as the window edits it. */
 export type PlaylistLine = {
   /** The playlist's folder name in the library. */
@@ -2022,8 +2020,6 @@ export type CratesSaved = {
   shown: boolean | null;
 };
 export type PreviewAction = {
-  /** The action's key, sent back ticked to `start_sync`. */
-  key: ActionKey;
   /** The action's id in this plan (`act:<kind>:<track>:<n>`); sent back ticked to `start_sync`. */
   id: string;
   /** What the action does (acquire, adopt_bought, upgrade). */
@@ -2128,7 +2124,7 @@ export type SyncPreviewAutoUpgrade = {
   place_notes: PlaceNotes | null;
 };
 /**
- * The check before Start. Each action's `key` is sent back ticked to `start_sync`. Before the first read the
+ * The check before Start. Each action's `id` is sent back ticked to `start_sync`. Before the first read the
  * counts are 0, `counts` and `estimate` null and `collections` empty.
  */
 export type SyncPreview = {

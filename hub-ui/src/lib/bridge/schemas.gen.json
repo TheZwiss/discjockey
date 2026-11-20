@@ -191,24 +191,6 @@
       ],
       "type": "object"
     },
-    "ActionKey": {
-      "description": "The key of one planned action, three words; sent back unchanged to start_sync.",
-      "items": false,
-      "maxItems": 3,
-      "minItems": 3,
-      "prefixItems": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "string"
-        },
-        {
-          "type": "string"
-        }
-      ],
-      "type": "array"
-    },
     "AddedPlaylist": {
       "additionalProperties": false,
       "description": "`add_playlist(url)`: a pasted link read through its service's reader. Add the row with `link` and `suggested_folder`.",
@@ -8483,11 +8465,6 @@
           "type": "array",
           "x-shown": false
         },
-        "key": {
-          "$ref": "#/$defs/ActionKey",
-          "description": "The action's key, sent back ticked to `start_sync`.",
-          "x-shown": false
-        },
         "kind": {
           "description": "What the action does (acquire, adopt_bought, upgrade).",
           "type": "string",
@@ -8544,7 +8521,6 @@
         }
       },
       "required": [
-        "key",
         "id",
         "kind",
         "reason",
@@ -12699,7 +12675,7 @@
     },
     "SyncPreview": {
       "additionalProperties": false,
-      "description": "The check before Start. Each action's `key` is sent back ticked to `start_sync`. Before the first read the counts are 0, `counts` and `estimate` null and `collections` empty.",
+      "description": "The check before Start. Each action's `id` is sent back ticked to `start_sync`. Before the first read the counts are 0, `counts` and `estimate` null and `collections` empty.",
       "properties": {
         "ambiguous": {
           "description": "Songs whose files the sync cannot tell apart.",
