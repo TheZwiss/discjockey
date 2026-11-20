@@ -741,12 +741,13 @@ def test_a_foreign_job_that_holds_the_library_is_named_and_followed(watched):
     js.watch_registry(interval=0.05)
     try:
         other = Foreign(paths, reg)
-        assert wait_for(lambda: jobs.ConsoleBusy(True, other.id, "sync", "3 of 10") in rec.events)
+        assert wait_for(lambda: jobs.ConsoleBusy(True, other.id, "sync", "3 of 10", "Sync running in the Terminal · 3 of 10") in rec.events)
         assert js.console_running()
         other.line("4 of 10")
-        assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(True, other.id, "sync", "4 of 10"))
+        assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(True, other.id, "sync", "4 of 10",
+                                                                     "Sync running in the Terminal · 4 of 10"))
         other.end()
-        assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(False, None, None, None))
+        assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(False, None, None, None, None))
         assert not js.console_running()
     finally:
         js.close()
@@ -836,15 +837,17 @@ def test_a_bare_lock_without_a_registry_entry_is_still_a_console_run(watched):
     with run_lock(paths.lock):
         assert js.console_running()
         js._look()
-        assert rec.events[-1] == jobs.ConsoleBusy(True, None, None, None)
+        assert rec.events[-1] == jobs.ConsoleBusy(True, None, None, None,
+                                                  "A Discjockey command is running in the Terminal")
     js._look()
-    assert rec.events[-1] == jobs.ConsoleBusy(False, None, None, None) and not js.console_running()
+    assert rec.events[-1] == jobs.ConsoleBusy(False, None, None, None, None) and not js.console_running()
 
 
 def test_a_write_refused_while_a_foreign_job_holds_the_library_says_who(watched):
     paths, js, rec, reg = watched
     other = Foreign(paths, reg)
-    holder = {"job": other.id, "via": "terminal", "kind": "sync", "line": "3 of 10"}
+    holder = {"job": other.id, "via": "terminal", "kind": "sync", "line": "3 of 10",
+              "text": "Sync running in the Terminal · 3 of 10"}
     with pytest.raises(Busy) as excinfo:  # before the watch has looked
         js.start("hide", lambda ctx: pytest.fail("must not run"))
     assert (excinfo.value.kind, str(excinfo.value), excinfo.value.data) == ("console", jobs.CONSOLE_TEXT, {"holder": holder})
@@ -884,7 +887,8 @@ def test_the_holder_named_is_the_running_job_not_a_newer_queued_one(watched):
     with pytest.raises(Busy) as excinfo:
         js.start("hide", lambda ctx: pytest.fail("must not run"))
     assert excinfo.value.data["holder"]["job"] == running.id
-    assert rec.of(jobs.ConsoleBusy) == [jobs.ConsoleBusy(True, running.id, "sync", "2 of 9")]
+    assert rec.of(jobs.ConsoleBusy) == [jobs.ConsoleBusy(True, running.id, "sync", "2 of 9",
+                                                                      "Sync running in the Terminal · 2 of 9")]
     running.let_go()
     waiting.let_go()
 

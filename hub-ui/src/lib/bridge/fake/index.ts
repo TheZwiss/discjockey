@@ -6,6 +6,7 @@ import { CONTRACT_METHODS } from '../contract';
 import type { HubEvent } from '../events';
 import { DROP_BLOCKED } from '../../copy';
 import { dropTarget } from '../../stores/drag';
+import { consoleEvent, setConsole } from './console';
 import { SCENARIOS, createFakeBridge, pageScenarios, type FakeContext } from './bridge';
 
 export { SCENARIOS, pageScenarios };
@@ -14,7 +15,8 @@ const HIDDEN_ARGS = new Set(['setup_qobuz_login', 'setup_save_client_id']);
 
 export type FakeControl = {
   scenario: string; speed: number; ctx: FakeContext;
-  dropFile(readable: boolean): void; consoleBusy(running: boolean): void; readPlaylists(): void;
+  dropFile(readable: boolean): void; /** another process's `kind` job (`sync` or `tidy`) holds the library (true) or has ended (false): `ConsoleBusy` goes out */
+  consoleBusy(running: boolean, kind?: string): void; readPlaylists(): void;
   /** plugs the ejected drive back in (true) or ejects it again (false): its folders and files change state and
    *  DrivesChanged goes out, as the engine's drives watch sends it */
   drive(plugged: boolean): void;
@@ -57,10 +59,9 @@ export function installFake(scenario: string): FakeControl {
       const path = `/Users/you/Downloads/${name}`;
       emit({ type: 'FileDropped', name, path, readable, message: readable ? '' : DROP_BLOCKED });
     },
-    consoleBusy(running: boolean) {
-      ctx.s.console_running = running;
-      emit({ type: 'ConsoleBusy', running, job: running ? 'job:00000c0d' : null, kind: running ? 'sync' : null,
-        line: running ? '4 of 60' : null });
+    consoleBusy(running: boolean, kind = 'sync') {
+      setConsole(ctx.s, running, kind);
+      emit(consoleEvent(ctx.s));
     },
     readPlaylists() { void api.refresh(); },
     rekordboxOpen(on: boolean) {

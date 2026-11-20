@@ -26,6 +26,7 @@ import { toneUrl } from './audio';
 import { BROWSER_NAMES, defaultBrowsers } from './browsers';
 import { CRASHED_MESSAGE } from '../../copy';
 import { downloads } from './downloads';
+import { consoleScenarios } from './console';
 import { BAD_MISSING_ACTION, MISSING_ACTIONS, itemDetail, missingAll, missingDetail, missingScenarios, missingView, previewMissing,
   runMissing } from './missingFiles';
 import {
@@ -109,7 +110,7 @@ const DOWNLOAD_KINDS = ['sync', 'use_candidate', 'use_link'];
 /** Page extensions: src/pages/<page>/fake.ts may add scenarios and override handlers. */
 const pageFakes = import.meta.glob<PageFake>('/src/pages/*/fake.ts', { eager: true });
 export function pageScenarios(): Record<string, (s: FakeState) => void> {
-  const out: Record<string, (s: FakeState) => void> = { ...likedScenarios, ...missingScenarios };
+  const out: Record<string, (s: FakeState) => void> = { ...likedScenarios, ...missingScenarios, ...consoleScenarios };
   for (const [path, mod] of Object.entries(pageFakes)) {
     const page = path.split('/').at(-2)!;
     for (const [name, fn] of Object.entries(mod.scenarios ?? {})) out[`${page}:${name}`] = fn;

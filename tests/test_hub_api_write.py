@@ -232,7 +232,8 @@ def test_a_write_refused_for_a_terminal_job_names_it_in_the_answers_data(root):
     files.flush()
     answer = api.hide("t2", True)
     assert window(answer) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}  # the words stay
-    assert answer["data"] == {"holder": {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60"}}
+    assert answer["data"] == {"holder": {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60",
+                                         "text": "Sync running in the Terminal · 4 of 60"}}
     assert answer["outcome"] == "busy" and answer["reason"] == "console"
     files.release_claim()
     assert outcomes.KIND_OUTCOME["console"] == "busy"

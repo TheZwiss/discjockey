@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from .. import (batches, config, db, events as ev, folders, importer, library, playlists_file, qobuz, report as rep,
-                run, settings, sources, upgrades)
+                run, settings, sources, upgrades, words)
 from ..rekordbox import session as rbsession
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
@@ -57,11 +57,14 @@ class JobFinished:
 class ConsoleBusy:
     """Another process's job holds the library lock (the window goes read-only), or has finished. `job`, `kind` and
     `line` name the job from the registry (its id, its kind, its progress line); all None for a holder that has no
-    registry entry (an older Discjockey: the lock probe) and when nothing runs."""
+    registry entry (an older Discjockey: the lock probe) and when nothing runs. `text` is what the banner says
+    (`words.holder_text`; for a holder with no registry entry the sentence for one nobody can name); None when nothing
+    runs."""
     running: bool
     job: str | None = None
     kind: str | None = None
     line: str | None = None
+    text: str | None = None
 
 
 @dataclass(frozen=True)
@@ -416,11 +419,13 @@ class Jobs:
 
     @staticmethod
     def _holder_of(states: Iterable[Mapping]) -> dict | None:
-        """The newest running job among `states` (a queued one is still waiting for the lock) that holds the library lock, as `{job, via, kind, line}`."""
+        """The newest running job among `states` (a queued one is still waiting for the lock) that holds the library lock,
+        as `{job, via, kind, line, text}` (`text`: what the window says of it, `words.holder_text`)."""
         for state in states:
             if state.get("status") in registry.HOLDING and catalog.holds_library(state):
-                return {"job": state.get("id"), "via": state.get("via"), "kind": state.get("kind"),
-                        "line": (state.get("progress") or {}).get("line")}
+                via, kind, line = state.get("via"), state.get("kind"), (state.get("progress") or {}).get("line")
+                return {"job": state.get("id"), "via": via, "kind": kind, "line": line,
+                        "text": words.holder_text(kind, via, line)}
         return None
 
     def _foreign_holder(self) -> dict | None:
@@ -444,10 +449,19 @@ class Jobs:
         lock = self.lock
         return lock is not None and not lock_free(lock) and not self._brief and briefs == self._briefs
 
+    def console_holder(self) -> dict | None:
+        """Who holds the library lock besides this process, as `{job, via, kind, line, text}`: a foreign job of the
+        registry that does, else (a holder with no registry entry: an older Discjockey) the lock itself held by none of
+        this process's own job or brief save, whose fields are all None but its `text`. None when nothing else holds it."""
+        return self._foreign_holder() or (self._unnamed_holder() if self._console_probe() else None)
+
+    @staticmethod
+    def _unnamed_holder() -> dict:
+        return {"job": None, "via": None, "kind": None, "line": None, "text": words.holder_text(None, None, None)}
+
     def console_running(self) -> bool:
-        """Another process's job holds the library lock: a foreign job of the registry that does, else (a holder with
-        no registry entry: an older Discjockey) the lock itself held by none of this process's own job or brief save."""
-        return self._foreign_holder() is not None or self._console_probe()
+        """Another process's job holds the library lock (`console_holder`)."""
+        return self.console_holder() is not None
 
     def sync_running(self) -> bool:
         """Whether a sync of this support folder runs in any process (its accounts are the support folder's, whatever music
@@ -778,8 +792,8 @@ class Jobs:
         and the foreign jobs that ended since the last look (`JobFinished`, as for the window's own jobs)."""
         states = self._foreign_states()
         holder = self._holder_of(states)
-        running = holder is not None or self._console_probe()
-        tell = (running, holder["job"], holder["kind"], holder["line"]) if holder else (running, None, None, None)
+        shown = holder or (self._unnamed_holder() if self._console_probe() else {})  # {}: nothing holds the library
+        tell = (bool(shown), shown.get("job"), shown.get("kind"), shown.get("line"))  # `text` follows from these
         self._holder_seen, self._looked = holder, True
         by_id = {s["id"]: s for s in states if s.get("id")}
         ended = [(before, by_id.get(job_id)) for job_id, before in self._foreign.items()
@@ -790,7 +804,7 @@ class Jobs:
             self._foreign_ended(before, now)
         if tell != self._told:
             self._told = tell
-            self.emit(ConsoleBusy(*tell))
+            self.emit(ConsoleBusy(*tell, shown.get("text")))
 
     def _foreign_ended(self, before: Mapping, now: Mapping | None) -> None:
         """A foreign job seen active at the last look is done, lost or gone: the window's `JobFinished` for it, built
