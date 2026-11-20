@@ -25,20 +25,38 @@ STOP_CHECK_S = 0.5  # how often a stop file is looked for at most, and the longe
 
 class CancelToken:
     """Set from any thread (Ctrl-C handler, hub button) or, with a stop file, from any process (`job stop` writes the
-    file, design §6.4); checked by the core between and inside steps."""
+    file, design §6.4); checked by the core between and inside steps. `on_cancel` is called exactly once, the first time
+    the token is cancelled (by `cancel()` or by the stop file being seen); an exception in it is swallowed."""
 
-    def __init__(self, stop_file: Path | None = None) -> None:
+    def __init__(self, stop_file: Path | None = None, on_cancel: Callable[[], None] | None = None) -> None:
         self._event = threading.Event()
         self._stop_file = stop_file
         self._next_look = 0.0  # the monotonic time before which the file is not looked for again
+        self._on_cancel = on_cancel
+        self._told = False
+        self._told_lock = threading.Lock()
+
+    def _tell(self) -> None:
+        if self._told or self._on_cancel is None:
+            return
+        with self._told_lock:
+            if self._told or self._on_cancel is None:
+                return
+            self._told = True
+        try:
+            self._on_cancel()
+        except Exception:  # noqa: BLE001  a callback never stops the stop
+            pass
 
     def cancel(self) -> None:
         self._event.set()
+        self._tell()
 
     @property
     def cancelled(self) -> bool:
         """The event is set or the stop file exists (one `stat` at most every 0.5 s; once seen, it stays)."""
         if self._event.is_set():
+            self._tell()  # set by someone else (a sleep's wake-up): told at most once
             return True
         if self._stop_file is None:
             return False
@@ -48,6 +66,7 @@ class CancelToken:
         self._next_look = now + STOP_CHECK_S
         if self._stop_file.exists():
             self._event.set()
+            self._tell()
             return True
         return False
 

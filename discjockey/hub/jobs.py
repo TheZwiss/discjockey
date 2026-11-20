@@ -377,6 +377,7 @@ class Jobs:
         self._looked = False  # the registry watch has looked once
         self._told: tuple = (False, None, None, None)  # the last `ConsoleBusy` the watch sent
         self._foreign: dict[str, dict] = {}  # the foreign jobs seen active at the last look, by id
+        self._settled: set[str] = set()  # foreign jobs seen done or lost: final, so the watch no longer reads them
 
     def adopt(self, files: registry.JobFiles) -> None:
         """A worker process (`job _worker`) runs exactly one job, the one `files` is: `start` takes that job's id, runs
@@ -410,7 +411,7 @@ class Jobs:
         """The registry's jobs of this music folder (and those with none) that are not this process's, newest first."""
         if self.registry is None or self.lock is None:
             return []
-        return [s for s in self.registry.list(self._music()) if s.get("id") not in self.own_ids]
+        return [s for s in self.registry.list(self._music(), skip=self._settled) if s.get("id") not in self.own_ids]
 
     @staticmethod
     def _holder_of(states: Iterable[Mapping]) -> dict | None:
@@ -531,7 +532,9 @@ class Jobs:
                     files.release_claim()
                     shutil.rmtree(files.dir, ignore_errors=True)
             else:
-                return Job(files.id, kind, track_id, CancelToken(files.dir / "stop"), started, batch_kind, files=files,
+                token = CancelToken(files.dir / "stop",  # a stop shows as `stopping` in `job show` too (design §6.2)
+                                    on_cancel=lambda f=files: f.update_if(("queued", "running"), status="stopping"))
+                return Job(files.id, kind, track_id, token, started, batch_kind, files=files,
                            writer=writer, reducer=registry.ProgressReducer(files))
         return Job(registry.new_job_id(), kind, track_id, CancelToken(), started, batch_kind)
 
@@ -705,8 +708,8 @@ class Jobs:
                 job.finished = event_dict(finished)
             if job.files is not None:
                 self._end_files(job, finished)  # before `done`: whoever sees the job ended finds its files complete
+            shapes.note_result(job.kind, finished.result)  # test mode only (also a not-ok end's result must fit); before `done`, so it is never late
             job.done.set()
-        shapes.note_result(job.kind, finished.result)  # test mode only: also a not-ok end's result must fit
         self.emit(finished)
         return True
 
@@ -761,6 +764,7 @@ class Jobs:
         ended = [(before, by_id.get(job_id)) for job_id, before in self._foreign.items()
                  if job_id not in self.own_ids and (by_id.get(job_id) is None or by_id[job_id].get("status") not in registry.ACTIVE)]
         self._foreign = {job_id: s for job_id, s in by_id.items() if s.get("status") in registry.ACTIVE}
+        self._settled.update(job_id for job_id, s in by_id.items() if s.get("status") not in registry.ACTIVE)
         for before, now in ended:
             self._foreign_ended(before, now)
         if tell != self._told:
@@ -797,6 +801,11 @@ class Jobs:
         return self._closed
 
     def close(self) -> None:
+        self.stop_refresh()  # a read or a sign-in still running ends as `stopped`, not as `lost` (its lock goes with us)
+        sign_in = self.sign_in
+        if sign_in is not None and not sign_in.done.is_set():
+            sign_in.token.cancel()
+            self._finish(sign_in, False, *problem_of(Cancelled()), None)
         self._closed.set()
         if self._watch is not None:
             self._watch.join(2)

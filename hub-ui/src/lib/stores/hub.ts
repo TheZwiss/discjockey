@@ -103,6 +103,7 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
       }
     case 'JobFinished':
       if (e.kind === 'refresh') {
+        if (!s.refresh_running) return s;   // a terminal read that ended (stopped, say) is not the window's own read
         return { ...s, refresh_running: false, read_progress: null, read_stopped: e.problem === 'stopped',
           read_status: s.read_status ? { ...s.read_status, reading: false } : s.read_status };
       }

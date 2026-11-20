@@ -61,6 +61,12 @@ describe('reduceHub', () => {
     expect(reduceHub(s, { type: 'JobFinished', job_id: 'job:00000002', kind: 'refresh', ok: true, problem: null, message: '',
       result: null }).read_stopped).toBe(false);
   });
+  it('a terminal read that ended stopped leaves the window\'s own read flags alone', () => {
+    const ended = { type: 'JobFinished', job_id: 'job:00000009', kind: 'refresh', ok: false, problem: 'stopped',
+      message: 'Stopped.', result: null } as const;
+    expect(reduceHub({ ...EMPTY_HUB, refresh_running: false }, ended).read_stopped).toBe(false);
+    expect(reduceHub({ ...EMPTY_HUB, refresh_running: true }, ended).read_stopped).toBe(true);
+  });
   it('keeps which playlist is being read until the read ends', () => {
     let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 'job:00000001', kind: 'refresh', track_id: null, batch_kind: null });
     s = reduceHub(s, { type: 'ReadingPlaylist', index: 3, total: 7, folder: 'Powertrance' });
