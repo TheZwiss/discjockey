@@ -1134,6 +1134,13 @@ Results:
         gaps). No window logic added, no product decision. review/findings-V2.5.md. Carry to V4.6 (add-file
         resolves relative paths) in carry-items.md. FR-V2.5 (Sonnet fix-round, F1-F9) dispatched on cli2-fv25, exp.
         ~140k.
+      - FR-V2.5 done (Sonnet fix-round, resumed once for the bug it saw): logged 110k (exp. 140k), 45 calls, cache
+        3.5M, advisor 0k. Commits 81d26477, 92ad0572, 837a4425, 5748b72d (F8 shapes+generated), 513995f8 static,
+        b2cfe4f8 (supersede `on_moved`: a file moved before a failed report write is listed). F6 as `canRetryAdd` in
+        todoModel.ts (FOR PHASE REVIEW: a window retry rule by refusal kind, pre-existing logic narrowed; phase 6).
+        Left: a move the records refuse (NOT_RECORDED) is not listed; its words say "Moved to …, but". pytest
+        6311/4 skipped. Merged db786fc9, pushed. V2.5 group total: 214 + 271 + 180 + 110 = 775k.
+        Later briefs got "Landed in V2.5". V2.3a dispatched (cli2-11, exp. 200k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
