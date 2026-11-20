@@ -1175,6 +1175,11 @@ Results:
         Qobuz"); checks use self._support.support (Setup runs before a music folder). F7 words stay in acquire.py
         (words.py is CLI-only; import cycle). Merged 831c02d4, pushed. Rehearsal V2.6 (Sonnet, made-up services, 9
         steps incl. a new step 9: two pacers in one process) dispatched, exp. ~110k.
+      - Rehearsal V2.6 (Sonnet, made-up services): logged 107k (exp. 110k), 13 calls, cache 0.9M, advisor 0k. 9/9
+        PASS on 831c02d4 (step 6 first FAIL was its own script: the break count is a 10-15 draw; rerun PASS; step 5
+        actual gaps 0.0137 s vs 0.02 s slots = wake-up jitter at 1/100 scale, slot order exact; step 2 via
+        run.finish_quietly, no fallback). Repo untouched, scratch deleted. V2.6 group total: 244 + 165 + 118 + 107
+        = 634k. E9 dispatched (cli2-16, exp. 165k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
