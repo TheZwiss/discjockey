@@ -1149,6 +1149,14 @@ Results:
         (brief's decision: check the cost); sync_preview writes <support>/plans/ (doc notes it); generation from
         the preview's state; `sync plan` CLI not built (V4.1: add "command": "sync run" to the plan's extra).
         Notes to V2.3b.md. V2.3b dispatched (cli2-12, exp. 175k).
+      - V2.3b done (Sonnet): logged 155k (exp. 175k), 60 calls, cache 6.7M, fresh in 141k, out 34k, advisor 0k.
+        Commits 0db9cb92 (one commit) + db011bbf static; pytest 6331/4 skipped, npm check 0, vitest sync+store+fake
+        491 (+ fake.test 56 after its last case). key/ActionKey/keyId/presets/presetTicks/defaultHowMany/
+        sync.lastSelection gone. Deviations: refreshHub chained onto start_sync's answer; FakeState.lastSyncRows.
+        Visible: sync:own-cover shot's cover now from its plan row (seed folder fixed). FOR PHASE REVIEW: null
+        default_how_many leaves ticks as they were (Start still filters by scope); live view pickedOf (last_sync +
+        one sync_preview): check it computes no state. Merged 58e5820a, pushed. V2.3 total 282 + 155 = 437k.
+        Later briefs got "Landed in V2.3". V2.6 dispatched (cli2-15, exp. 215k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
