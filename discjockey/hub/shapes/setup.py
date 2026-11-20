@@ -566,7 +566,8 @@ SkippedMove = _record("SkippedMove", "A move that was not made.", {
 @shape
 class BatchResult(TypedDict):
     """What a move batch tells the page: `tidy_up`, `undo_moves` and each item of `save_playlists`' `batches` finish
-    with it (also with problem `stopped`, then `stopped` is true)."""
+    with it (also with problem `stopped`, then `stopped` is true). Files never change their names in a move batch: only
+    their folder changes."""
     batch_id: Annotated[int | None, F("The batch's id; null when nothing was asked to move.", shown=False)]
     title: Annotated[str, F("The batch's title.")]
     moved: Annotated[int, F("How many files moved (a folder rename counts the files it carried).")]

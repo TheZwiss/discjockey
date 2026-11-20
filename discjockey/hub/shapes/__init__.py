@@ -75,9 +75,22 @@ def note_answer(method: str, answer) -> None:
     if not CHECKING:
         return
     try:
-        if isinstance(answer, dict) and (set(answer) == {"job_id"} or answer.get("ok") is False):
-            return  # a job start, or a failure a method handed back whole (its fields are `Fail`'s, not an answer's)
+        if isinstance(answer, dict) and answer.get("ok") is False:
+            _note(f"failure handed back by {method}", "CliFail", answer)  # a failure a method handed back whole
+            return
+        if isinstance(answer, dict) and set(answer) == {"job_id"}:
+            return  # a job start
         _note(f"answer of {method}", ANSWERS.get(method), answer)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def note_fail(method: str, answer) -> None:
+    """Check a failed answer (`{ok: false, kind, message, ...}`) that `method` ended with against `CliFail`."""
+    if not CHECKING:
+        return
+    try:
+        _note(f"failure handed back by {method}", "CliFail", answer)
     except Exception:  # noqa: BLE001
         pass
 
@@ -94,6 +107,6 @@ def note_result(kind: str, result) -> None:
 
 def take_mismatches() -> list[str]:
     """What the checks found since the last call, one line per mismatch (`where: problem; problem`), and forget it."""
-    found = [f"{where}: " + "; ".join(problems) for where, problems in MISMATCHES]
-    MISMATCHES.clear()
-    return found
+    taken = MISMATCHES[:]
+    del MISMATCHES[:len(taken)]  # an append from a job thread between the copy and here stays for the next call
+    return [f"{where}: " + "; ".join(problems) for where, problems in taken]

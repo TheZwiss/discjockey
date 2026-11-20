@@ -112,7 +112,8 @@ const row = (id: string, artist: string, title: string, folder: string, duration
   quality: side?.quality ?? 'missing', quality_label: side?.quality_label ?? 'NOT FOUND', cutoff_hz: null, source: null,
   source_name: null, in_playlists: inPlaylists, own, hidden: false, upgrade_ready: false, path: side?.path ?? null, added: null,
   cover_url: null, rev: null });  // a question's or a duplicate group's row: its rev is the song's, set below
-const byName = (a: TrackRow, b: TrackRow) => `${a.folder}\u0000${a.artist}\u0000${a.title}`
+type Named = Pick<TrackRow, 'folder' | 'artist' | 'title'>;   // `TodoItemBase.own` is optional: sort by what the order reads
+const byName = (a: Named, b: Named) => `${a.folder}\u0000${a.artist}\u0000${a.title}`
   .localeCompare(`${b.folder}\u0000${b.artist}\u0000${b.title}`);
 export function questionItems(s: FakeState): QuestionItem[] {
   return s.imp.questions.map((q): QuestionItem => ({

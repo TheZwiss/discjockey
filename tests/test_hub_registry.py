@@ -15,8 +15,6 @@ import discjockey.cli as cli
 from discjockey.hub import jobs, registry
 from discjockey.hub.registry import Registry
 
-pytestmark = pytest.mark.shapes_unchecked  # stub work runs under real job kinds to pin the mechanics
-
 ROOTS = {"music": None, "support": "/s", "rekordbox": None, "rekordbox_share": None, "sandbox": None}
 
 
@@ -35,6 +33,7 @@ def test_new_job_ids_are_job_and_eight_hex():
     assert all(re.fullmatch(r"job:[0-9a-f]{8}", registry.new_job_id()) for _ in range(50))
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_the_window_jobs_carry_such_a_string_in_every_place_an_id_goes():
     got = []
     js = jobs.Jobs(None, got.append)

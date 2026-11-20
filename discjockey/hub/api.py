@@ -219,28 +219,42 @@ def _answering(fn):
             shapes.note_answer(fn.__name__, answer)  # test mode only: the answer must fit its shape
             return {"ok": True, **answer}
         except Busy as e:
-            return {"ok": False, "kind": e.kind, "message": str(e), **problem_fields(e.kind, e)}
+            out = {"ok": False, "kind": e.kind, "message": str(e), **problem_fields(e.kind, e)}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except StateError as e:
-            return {"ok": False, "kind": "config_invalid", "message": str(e), **problem_fields("config_invalid", e)}
+            out = {"ok": False, "kind": "config_invalid", "message": str(e), **problem_fields("config_invalid", e)}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except BadId as e:
-            return {"ok": False, "kind": "bad_args", "message": e.message, "outcome": "bad_args", "reason": e.reason,
-                    "next": [], "person_steps": [], "data": None}
+            out = {"ok": False, "kind": "bad_args", "message": e.message, "outcome": "bad_args", "reason": e.reason,
+                   "next": [], "person_steps": [], "data": None}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except plan_store.UnknownPlan as e:  # `--plan` with an id no dry run made (or one pruned long ago)
-            return {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": "unknown_id",
-                    "next": [], "person_steps": [], "data": None}
+            out = {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": "unknown_id",
+                   "next": [], "person_steps": [], "data": None}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except plan_store.PlanExpired as e:  # older than 24 hours, or made for another music folder
-            return {"ok": False, "kind": "refused", "message": str(e), **problem_fields("refused", e)}
+            out = {"ok": False, "kind": "refused", "message": str(e), **problem_fields("refused", e)}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except TypeError as e:  # the page called with wrong arguments
             traceback.print_exc()
-            return {"ok": False, "kind": "crashed", "message": UNEXPECTED, **problem_fields("crashed")}
+            out = {"ok": False, "kind": "crashed", "message": UNEXPECTED, **problem_fields("crashed")}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except BaseException as e:  # noqa: BLE001 - nothing may reach the page as a traceback
             kind, message = problem_of(e)
             if kind == "crashed":  # for whoever looks at the terminal; the page gets the plain message
                 traceback.print_exc()
             service = service_of(e)
             setting = getattr(e, "setting", None)  # setting_off: the choice in Settings that is off
-            return {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {}),
-                    **({"setting": setting} if setting else {}), **problem_fields(kind, e)}
+            out = {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {}),
+                   **({"setting": setting} if setting else {}), **problem_fields(kind, e)}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         finally:
             CALL.reset(token)
 

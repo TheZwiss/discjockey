@@ -145,7 +145,7 @@ function openFake(scenario: string): Fake {
 type Maps = { answers: Record<string, string>; results: Record<string, string> };
 
 /** Calls `method` on a fake of `scenario`; the problems of its answer against `maps.answers[method]`, or, for a job,
- *  of its ok result against `maps.results[kind]` ("" for a problem answer, which is the Fail shape's). */
+ *  of its result (ok or not) against `maps.results[kind]` ("" for a problem answer, which is the Fail shape's). */
 async function fakeProblems(method: string, how: Args, fake: Fake, maps: Maps): Promise<string> {
   const { bridge, events } = fake;
   const args = typeof how === 'function' ? await how(bridge) : how;
@@ -163,7 +163,7 @@ async function fakeProblems(method: string, how: Args, fake: Fake, maps: Maps): 
     for (let t = 0; t < STEPS && !finished(); t++) await vi.advanceTimersByTimeAsync(STEP_MS);
     const done = finished();
     if (done?.type !== 'JobFinished') return `${method}: the job never finished`;
-    if (!done.ok || done.result == null) return '';
+    if (done.result == null) return '';
     const name = maps.results[done.kind];
     return name ? problems(name, done.result) : `job kind ${done.kind} has no result shape`;
   }

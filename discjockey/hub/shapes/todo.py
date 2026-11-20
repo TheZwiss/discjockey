@@ -294,8 +294,7 @@ class RekordboxCheckView(TypedDict):
 class TodoItemBase(TrackRow):
     """One song of a To-do group: the row plus the group's own words. `pair`, `can_undo` and the others are set only on
     the groups that use them. `free` and `own` are NotRequired because the engine leaves them off some items (findings,
-    the window's types call both always there); the generated TypeScript still says `TrackRow & {...}`, where `own` is
-    required."""
+    the window's types call both always there)."""
     group: Annotated[TodoGroupKey, F("The group the item is in.")]
     detail: Annotated[str, F("The row's short line (what to do, or why it is here).")]
     free: NotRequired[Annotated[bool, F("The artist gives it away: a not found, weak, good lossy or fake track with a "
