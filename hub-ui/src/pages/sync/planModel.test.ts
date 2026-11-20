@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { ActionKey, EstimateAccount, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
 import {
-  chosenOf, everyOff, folderSwitch, memberOn, resolveLegacy, sectionOf,
+  chosenOf, everyOff, folderSwitch, memberOn, sectionOf,
   FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindShares, weeklyItems, planCounts, switchTip, dayBarEmpty, leftOutBody, stripLine,
-  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
+  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, leftOutTitle, startLabel, tagOf, whyOf, toggleScope, waitsWhole, whyColumn,
   DOWNLOAD_AGAIN, DOWNLOAD_AGAIN_LABEL, KINDS, KIND_SHARE, WHY,
@@ -146,14 +146,6 @@ describe('scope and sections', () => {
     const s = toggleScope(toggleScope(FULL_SCOPE, 'off', P('Ohne')), 'kinds', 'weekly');
     expect(s).toEqual({ off: [P('Ohne')], kinds: ['weekly'] });
     expect(toggleScope(s, 'off', P('Ohne')).off).toEqual([]);
-  });
-  it('reads a stored scope safely', () => {
-    expect(readScope(null)).toEqual(FULL_SCOPE);
-    // only the weekly checks switch as kinds now (issue 36): an older left-out kind is dropped, never kept unseen
-    expect(readScope({ off: ['playlist:x', 'folder:/m/T', 'junk', 3], kinds: ['new', 'bogus', 'retry'] }))
-      .toEqual({ off: ['playlist:x', 'folder:/m/T'], kinds: ['retry'] });
-    // before issue 37 the playlists switched off were stored by name: kept until the sidebar names their targets
-    expect(readScope({ folders: ['A', 3], kinds: [] })).toEqual({ off: [], kinds: [], legacy: ['A'] });
   });
   it('sections follow playlists.txt and keep the given order inside', () => {
     expect(sections(all, ['Voller', 'Ohne']).map((s) => [s.folder, s.rows.map((r) => r.track_id)]))
@@ -562,12 +554,6 @@ describe('playlists and folders in and out of the sync (issue 37)', () => {
       .toBe('2019 · left out with Techno · switch Techno on first');
     expect(switchTip('2019', { enabled: true, on: true, n: 3, running: false, follows: 'Techno' }))
       .toBe('2019 · not in the sidebar, so it goes with Techno');
-  });
-  it('turns the playlists an older version stored by name into targets, dropping names no playlist has', () => {
-    const s = readScope({ folders: ['A', 'Gone'], kinds: ['weekly'] });
-    expect(resolveLegacy(s, [{ name: 'A', ref: 'ra' }, { name: 'A', ref: 'ra2' }, { name: 'B', ref: 'rb' }]))
-      .toEqual({ off: ['playlist:ra', 'playlist:ra2'], kinds: ['weekly'] });
-    expect(resolveLegacy(FULL_SCOPE, [])).toBe(FULL_SCOPE);
   });
 });
 

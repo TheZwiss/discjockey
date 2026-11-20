@@ -939,7 +939,33 @@ class ScanResult(TypedDict):
     copies: Annotated[int, F("Copies of a file found.")]
 
 
+@shape
+class ScopeCollection(TypedDict):
+    """A playlist or folder left out of the Sync."""
+    target: Annotated[str, F("`playlist:<ref>` or `folder:<path>`: what `set_sync_scope` takes.", shown=False)]
+    name: Annotated[str, F("Its name: the playlists.txt line's folder name, or the last part of the folder's path; the "
+                           "target itself when no line or folder has it any more (a folder on a drive that is away "
+                           "comes back).")]
+
+
+@shape
+class ScopeKind(TypedDict):
+    """A weekly kind switched off."""
+    kind: Annotated[Literal["retry", "weekly"], F("The kind: `retry` (Not found last time) or `weekly` (Weekly checks).",
+                                                    shown=False)]
+    label: Annotated[str, F("Its words.")]
+
+
+@shape
+class SyncScope(TypedDict):
+    """The Sync scope (`sync_scope`; the result of `set_sync_scope`, the scope as saved): what the sync leaves out.
+    Nothing listed means everything is on."""
+    off: Annotated[list[ScopeCollection], F("The playlists and folders switched off, in the order they were switched.")]
+    weekly_off: Annotated[list[ScopeKind], F("The weekly kinds switched off.")]
+
+
 ANSWERS: dict[str, str] = {
+    "sync_scope": "SyncScope", "set_sync_scope": "SyncScope",
     "dashboard": "Dashboard", "sidebar": "Sidebar", "library": "Library", "sync_preview": "SyncPreview",
     "job_status": "JobStatus", "playlists": "Playlists", "limits": "Limits", "limits_what_if": "WhatIf",
     "runs": "Runs", "run": "RunAnswer", "spectrum": "SpectrumAnswer", "stop_refresh": "Stopped", "stop": "Stopped",
@@ -948,6 +974,7 @@ ANSWERS: dict[str, str] = {
     "save_limits": "SaveLimitsResult", "mark_warnings_seen": "WarningsSeenResult", "rescan_library": "ScanResult",
 }
 RESULTS: dict[str, str] = {
+    "set_sync_scope": "SyncScope",
     "refresh": "RefreshResult", "sync": "SyncResult", "save_limits": "SaveLimitsResult",
     "mark_warnings_seen": "WarningsSeenResult", "scan": "ScanResult",
 }

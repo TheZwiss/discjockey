@@ -362,6 +362,7 @@ def test_save_the_qobuz_limit(root):
                                                          "extra_today": {"date": "2026-10-20", "amount": 20},
                                                          "qobuz_skipped": False, "spotify_skipped": False, "import_skipped": False,
                                                          "read_liked_music": False, "auto_upgrade": True,
+                                                         "sync_scope": {"off": [], "weekly_off": []},
                                                              "warnings_seen": {},
                                                          "qobuz_last_check": None,
                                                          "accounts": {}}
@@ -976,8 +977,18 @@ def test_a_stop_holds_the_automatic_start_for_the_session(lib):
     api._auto_import()
     api._auto_import()
     assert len([e for e in rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]) == 1
+    assert api.watched_folders()["stopped"] is True
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.import_stopped_at(conn) is not None  # kept in library.db, not in this window
+    other, other_rec = make_api(paths)  # another window or process: it sees the stop and does not start the import
+    refreshed(other, other_rec)
+    assert other.watched_folders()["stopped"] is True
+    other._auto_import()
+    assert not [e for e in other_rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]
     assert wait_job(api, rec, api.start_import()).ok  # Continue import still works, and lets it start by itself again
-    assert api._import_stopped is False
+    assert api.watched_folders()["stopped"] is False and other.watched_folders()["stopped"] is False
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.import_stopped_at(conn) is None
 
 
 def test_the_import_links_the_playlists_and_asks_what_is_plausible(lib):
@@ -1171,18 +1182,22 @@ def test_removing_the_folder_of_a_playlist_songs_only_file_makes_it_download_aga
 def test_continue_import_clears_the_stop_before_the_job_can_be_stopped_again(lib, monkeypatch):
     paths, folder, fakes = lib
     api, rec = make_api(paths)
-    api._import_stopped = True
+    with db.connect(paths.db_file) as conn:
+        db.set_import_stopped(conn, datetime(2026, 11, 20, 9, 30, 0))
+        before = db.import_stopped_at(conn)
     seen = []
     real = api._jobs.start
 
     def start(kind, work, *a, **kw):
-        seen.append(api._import_stopped)
+        seen.append(api.watched_folders()["stopped"])
         raise jobs.Busy("busy", "busy")
 
     monkeypatch.setattr(api._jobs, "start", start)
     assert api.start_import()["kind"] == "busy"
     assert seen == [False]  # cleared before the job could stop itself again
-    assert api._import_stopped is True  # a refused start leaves the stop as it was
+    assert api.watched_folders()["stopped"] is True  # a refused start leaves the stop as it was
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.import_stopped_at(conn) == before  # the very time that was stored
     monkeypatch.setattr(api._jobs, "start", real)
 
 
@@ -1228,7 +1243,8 @@ def test_a_stop_while_the_import_reads_the_playlists_to_link_ends_it_stopped(lib
     f = wait_job(api, rec, api.add_watched_folder(str(folder)))
     assert (f.ok, f.problem, f.kind) == (False, "stopped", "import")
     assert f.result["stopped"] is True and f.message.startswith("Import stopped with")
-    assert api._import_stopped is True  # no automatic start again this session; Continue import is offered
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.import_stopped_at(conn) is not None  # no automatic start again; Continue import is offered
     assert api.watched_folders()["stopped"] is True
 
 

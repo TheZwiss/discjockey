@@ -54,7 +54,8 @@ from ..ops import OpProblem
 from .. import pending_signs, words as engine_words
 from ..pacing import Budget
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
-from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, extra_json, load_settings, update_settings_held
+from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, SettingsError, extra_json, is_scope_target,
+                        load_settings, update_settings_held)
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
 from . import catalog, media as media_mod, plan_store, registry, select, shapes, spectrum as spec, views
@@ -114,7 +115,7 @@ MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or
 # tests/test_hub_api_music.py and, against contract.ts, by hub-ui's contract test (keep the one-name-per-string form).
 LIBRARY_METHODS = frozenset((
     "dashboard", "sidebar", "sync_preview", "refresh", "library", "track", "todo", "playlists", "limits",
-    "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum", "media_url",
+    "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change", "start_sync", "save_playlists",
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
     "rekordbox_checked", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo", "aiff_plan", "convert",
@@ -434,8 +435,8 @@ class HubApi:
         # sync starts), not one per job, so that failed downloads in a row do pause Qobuz
         self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
         self._account_streaks: dict[str, dict] = {}  # service -> the same, for "Use this" through an account
-        # the user stopped an import this session: it starts by itself no more until Continue import (D14)
-        self._import_stopped = False
+        # the user stopping an import is in library.db (`import_state`: every process reads it): the import starts by
+        # itself no more until Continue import (D14). Only the window's automatic start once per session is kept here
         self._import_auto_done = False  # the window's automatic start has run (or had nothing to do) this session
 
     # --- helpers (not reachable from the page) ---
@@ -1128,11 +1129,14 @@ class HubApi:
 
     def _auto_import(self) -> None:
         """D14: the window opened and files wait for an import: it starts by itself, once per session, unless the
-        user stopped one this session or something else is writing (the import then waits for Continue import or the
-        next window). Only the window's own first read gets here, never a Sync page's ↻ Read playlists."""
-        if self._import_stopped or self._import_auto_done:
+        user stopped one (it stays stopped in library.db, for every window and process) or something else is writing (the
+        import then waits for Continue import or the next window). Only the window's own first read gets here, never a
+        Sync page's ↻ Read playlists."""
+        if self._import_auto_done:
             return
         try:
+            if self._import_stopped_at() is not None:
+                return
             if importer.files_waiting(self._paths) > 0:
                 self._start_import()
             self._import_auto_done = True
@@ -1143,16 +1147,37 @@ class HubApi:
 
     def _start_import(self, folder: Path | str | None = None):
         """The import as a write job (Busy when another job or a terminal run holds the library)."""
-        stopped, self._import_stopped = self._import_stopped, False  # before it starts: it may be stopped at once
+        stopped = self._import_stopped_at()
+        if stopped is not None:  # cleared before it starts: it may be stopped at once
+            self._store_import_stopped(None)
         try:
             return self._jobs.start("import", import_work(self._paths, self._plan, self._svc.now, folder=folder,
                                                           on_stopped=self._note_stopped))
         except BaseException:
-            self._import_stopped = stopped
+            if stopped is not None:  # a start that failed leaves the stop as it was
+                self._store_import_stopped(datetime.fromisoformat(stopped))
             raise
 
+    def _import_stopped_at(self) -> str | None:
+        """When the user stopped the import (library.db's `import_state`), None while none is stopped or there is no
+        library.db yet."""
+        if not self._paths.db_file.exists():
+            return None
+        with self._move_log() as conn:
+            return db.import_stopped_at(conn)
+
+    def _store_import_stopped(self, at: datetime | None) -> None:
+        if self._paths.db_file.exists():  # no records yet: nothing could have been stopped, nothing to clear
+            self._brief_write(lambda conn: db.set_import_stopped(conn, at))
+
     def _note_stopped(self) -> None:
-        self._import_stopped = True
+        """The import job was stopped: remembered in library.db so the window and every other process know (D14). A
+        write that can't be made must not replace the job's own `stopped` ending: it is logged, and the import then
+        starts by itself again at the next window."""
+        try:
+            self._store_import_stopped(self._svc.now())
+        except Exception:  # noqa: BLE001
+            log.warning("could not note that the import was stopped", exc_info=True)
 
     @bridge
     def stop_refresh(self) -> dict:
@@ -1278,9 +1303,11 @@ class HubApi:
         if job is not None and job.kind == "import":
             phase = (job.last.get("ImportProgress") or {}).get("phase", "scan")
         with self._move_log() as conn:
+            stopped = False
             if conn is None:  # no library.db yet: only the Library, nothing imported; its files as "All tracks" counts
                 rows, counts, unreadable, waiting, overrides = [WatchedFolder(0, paths.library, "library")], {}, [], 0, {}
             else:
+                stopped = db.import_stopped_at(conn) is not None
                 overrides = db.crate_overrides(conn)
                 rows, counts = db.watched_folders(conn), db.import_counts(conn)
                 waiting = db.import_left(conn)
@@ -1291,7 +1318,7 @@ class HubApi:
         files = [e["path"] for e in views.tracks_with_file(state)]
         crates = views.crates(files, [str(f.path) for f in rows if f.kind == "import"], overrides)
         return views.watched_folders(rows, counts, self._away_folders(rows), views.listed_counts(files, rows), unreadable,
-                                     waiting, self._import_stopped, phase, crates)
+                                     waiting, stopped, phase, crates)
 
     def _brief_write(self, write: Callable[[sqlite3.Connection], None]) -> None:
         """A write to the records the hub keeps beside the library (Favourites, crate switches; plan library stage 5
@@ -1445,15 +1472,6 @@ class HubApi:
         else:
             data = spec.spectrum(self._paths, self._file_of(track_id, which), decode=self._svc.decode)
         return {"spectrum": {**data, "which": which, "cutoff_hz": e.get("cutoff_hz") if which == "current" else None}}
-
-    @bridge
-    def media_url(self, track_id: str, which: str = "current") -> dict:
-        imported = self._imported(self._entry(self._state(), track_id), which)
-        rel = media_mod.file_address(imported[0]) if imported is not None else self._file_of(track_id, which)
-        url = self._media.url(rel) if self._media is not None else None
-        if url is None:
-            raise OpProblem("This file can't be played here.", "refused")
-        return {"url": url}
 
     @bridge
     def setup_status(self) -> dict:
@@ -2844,6 +2862,72 @@ class HubApi:
         return {"job_id": self._settings_job("set_auto_upgrade", work).id}
 
     @bridge
+    def sync_scope(self) -> dict:
+        """The Sync scope (issue 39 V2.5b; settings.json `sync_scope`): the playlists and folders left out of a sync
+        (`off`, each with its name) and the weekly kinds switched off (`weekly_off`, each with its label). The window and
+        an agent read the same value; nothing listed means everything is on. A settings.json that can't be read has
+        the defaults. Works with no music folder (the names then are the targets)."""
+        return self._scope_view(self._settings())
+
+    def _scope_view(self, settings: Settings) -> dict:
+        """A scope as `SyncScope` words it: a playlist target by its playlists.txt line's folder name, a folder target
+        by the last part of its path; one that no line or folder has any more keeps the target as its name (a folder on
+        a drive that is away comes back)."""
+        folders: dict[str, str] = {}
+        if self._bound is not None:
+            try:
+                folders = {f"playlist:{r.ref}": r.folder for r in pf.load(self._bound.playlists_file).rows if r.ref}
+            except OSError:
+                folders = {}  # playlists.txt can't be read now: the targets name themselves
+
+        def name(target: str) -> str:
+            if target in folders:
+                return folders[target]
+            last = target[len("folder:"):].rstrip("/").rsplit("/", 1)[-1] if target.startswith("folder:") else ""
+            return last or target
+
+        return {"off": [{"target": t, "name": name(t)} for t in settings.scope_off],
+                "weekly_off": [{"kind": k, "label": engine_words.SCOPE_KIND_LABELS[k]} for k in settings.weekly_off]}
+
+    @bridge
+    def set_sync_scope(self, on: list[str], off: list[str]) -> dict:
+        """Switches collections and weekly kinds in or out of the Sync scope (the browser column's and the Sync panel's
+        switches, `sync scope on|off`): `off` leaves each item out, `on` takes it back in; an item is a playlist or
+        folder target (`playlist:<ref>`, `folder:<path>`) or `kind:retry` / `kind:weekly`. A settings job (kind
+        `set_sync_scope`, no library lock for its run; the result is the `SyncScope` as saved). The order of what is
+        left out is kept, a new item goes last, none twice. A switch says the value wanted, so there is no `expect`:
+        the last write wins. Anything else, or an item in both lists, is `refused` before a job starts."""
+        ons, offs = self._scope_items(on, "on"), self._scope_items(off, "off")
+        both = next((i for i in ons if i in offs), None)
+        if both is not None:
+            raise OpProblem(f"{both} is in both lists: say on or off for it, not both.", "refused")
+
+        def work(ctx) -> dict:
+            def change(s: Settings) -> Settings:
+                targets = [t for t in offs if not t.startswith("kind:")]
+                kinds = [t[len("kind:"):] for t in offs if t.startswith("kind:")]
+                return replace(s, scope_off=tuple(dict.fromkeys([*(t for t in s.scope_off if t not in ons), *targets])),
+                               weekly_off=tuple(dict.fromkeys([*(k for k in s.weekly_off if f"kind:{k}" not in ons),
+                                                               *kinds])))
+
+            return self._scope_view(self._update_settings(change))
+
+        return {"job_id": self._settings_job("set_sync_scope", work).id}
+
+    @staticmethod
+    def _scope_items(items, which: str) -> list[str]:
+        """The items of one list of `set_sync_scope`, each a collection target or a weekly kind (`kind:retry` /
+        `kind:weekly`), repeats dropped; `refused` naming the first that is not."""
+        if not isinstance(items, list):
+            raise OpProblem(f"{which} must be a list of playlists, folders and kinds.", "refused")
+        for item in items:
+            if not isinstance(item, str) or not (is_scope_target(item) or (
+                    item.startswith("kind:") and item[len("kind:"):] in SCOPE_KINDS)):
+                raise OpProblem(f"{item!r} is not a playlist (playlist:<ref>), a folder (folder:<path>) or a weekly kind "
+                                f"(kind:retry, kind:weekly).", "refused")
+        return list(dict.fromkeys(items))
+
+    @bridge
     def add_liked_music(self) -> dict:
         """"Add Liked music to Playlists" (sources-round D8): appends `Liked_music = <its link>` to the end of
         playlists.txt (YouTube Music shares no link for it). Refused with `setting_off` while the choice is off and
@@ -2893,15 +2977,15 @@ class HubApi:
         if browser is not None and browser not in BROWSERS:
             raise ValueError(f"browser must be one of {', '.join(BROWSERS)}")
 
-    def _update_settings(self, change: Callable[[Settings], Settings]) -> None:
+    def _update_settings(self, change: Callable[[Settings], Settings]) -> Settings:
         """The file as it is now, changed, saved: every settings write in the hub goes through here. One writer at a
         time (spec settings-setup §13). Lock order is support, library, rekordbox.lock: the support lock is taken
         first and keeps every other process's saves of settings.json from being lost; the library lock is taken inside
         it for the moment of the save (`lock_briefly`: a settings job holds none for its run, a sign-in's or a page
         check's save holds none at all) and raises Busy (busy / console) instead of waiting. The mutex keeps this
-        process's saves in order."""
+        process's saves in order. Returns what it saved."""
         with self._settings_mutex, library.support_lock(self._support.support), self._jobs.lock_briefly():
-            update_settings_held(self._support.settings_file, change)
+            return update_settings_held(self._support.settings_file, change)
 
     @bridge
     def setup_skip_qobuz(self) -> dict:
@@ -3065,20 +3149,6 @@ class HubApi:
             return {}
 
         return {"job_id": self._settings_job("qobuz_check_login", work).id}
-
-    @bridge
-    def setup_check_account(self, service: str) -> dict:
-        """The saved login checked again (the Download limits page and the setup step show the answer)."""
-        self._account(service)
-        self._no_sync_running()
-        account = self._settings().accounts.get(service)
-        if account is None:
-            raise OpProblem(f"{SERVICE_NAMES[service]} is not set up.", "refused")
-        check = self._svc.fallback().check_account(service, account.browser, account.profile)
-        record = self._check_record(check)
-        self._update_settings(lambda s: s.with_check(service, record) if service in s.accounts else s)
-        return {"service": service, "check": {**{k: check[k] for k in ("ok", "problem", "kbps")},
-                                              "message": check_message(service, account.browser, check)}}
 
     @bridge
     def setup_forget_account(self, service: str) -> dict:

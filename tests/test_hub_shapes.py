@@ -1001,12 +1001,12 @@ def test_types_ts_declares_only_the_hand_helpers():
     assert sorted(declared) == sorted(["Res", "JobStart", "NOT_IN_PLAYLIST", "isBatch", "isQuestion", "isDuplicate"])
 
 
-def test_client_ts_has_no_inline_answer_type_but_the_window_only_and_dropped_methods():
+def test_client_ts_has_no_inline_answer_type_but_the_window_only_method():
     import re
 
     text = (BRIDGE_DIR / "client.ts").read_text(encoding="utf-8")
     inline = re.findall(r"(\w+)\([^()]*\): Promise<Res<\{", text)
-    kept = {"pick_folder", "media_url", "setup_check_account"}
+    kept = {"pick_folder"}
     assert sorted(m for m in inline if m not in kept) == []
     assert kept <= set(inline)
 

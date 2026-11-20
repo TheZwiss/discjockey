@@ -248,6 +248,8 @@ export type FakeState = {
   emptyRead: string[];
   /** hook: the brief saves (`set_favourites`, `set_crate_shown`) answer `busy`, as when a running job's write holds library.db */
   briefBusy: boolean;
+  /** settings.json's `sync_scope` (issue 39 V2.5b): the collection targets left out and the weekly kinds switched off */
+  scope: { off: string[]; weekly_off: ('retry' | 'weekly')[] };
 };
 
 // ---------- helpers ----------
@@ -933,7 +935,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
     errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
-    favourites: [], crateShown: {}, unread: [], emptyRead: [], briefBusy: false,
+    favourites: [], crateShown: {}, unread: [], emptyRead: [], briefBusy: false, scope: { off: [], weekly_off: [] },
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
   };
   if (scenario === 'first_run' || scenario === 'no_music' || scenario.startsWith('setup_existing')) {

@@ -1,0 +1,10 @@
+Off
+Target                      Name
+playlist:spotify:x          playlist:spotify:x
+folder:Library/Hard_Bounce  Hard_Bounce
+2 of 2 shown
+
+Weekly off
+Kind    Label
+weekly  Weekly checks
+1 of 1 shown

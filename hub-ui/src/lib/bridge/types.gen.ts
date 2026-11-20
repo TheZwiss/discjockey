@@ -2715,6 +2715,33 @@ export type ScanResult = {
   /** Copies of a file found. */
   copies: number;
 };
+/** A playlist or folder left out of the Sync. */
+export type ScopeCollection = {
+  /** `playlist:<ref>` or `folder:<path>`: what `set_sync_scope` takes. */
+  target: string;
+  /**
+   * Its name: the playlists.txt line's folder name, or the last part of the folder's path; the target itself
+   * when no line or folder has it any more (a folder on a drive that is away comes back).
+   */
+  name: string;
+};
+/** A weekly kind switched off. */
+export type ScopeKind = {
+  /** The kind: `retry` (Not found last time) or `weekly` (Weekly checks). */
+  kind: 'retry' | 'weekly';
+  /** Its words. */
+  label: string;
+};
+/**
+ * The Sync scope (`sync_scope`; the result of `set_sync_scope`, the scope as saved): what the sync leaves out.
+ * Nothing listed means everything is on.
+ */
+export type SyncScope = {
+  /** The playlists and folders switched off, in the order they were switched. */
+  off: ScopeCollection[];
+  /** The weekly kinds switched off. */
+  weekly_off: ScopeKind[];
+};
 /**
  * Where the music folder stands: `ok` (bound), `not_chosen` (Setup's first step) or `missing` (config.json
  * names a folder that is not there, e.g. an unplugged drive).

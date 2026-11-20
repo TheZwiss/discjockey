@@ -327,6 +327,8 @@ DRIVERS = {
     "make_aiff": _aiff_run("make_aiff"),
     "settings_view": lambda api, rec: api.settings_view(),  # a read of the support folder's file: no lock
     "set_auto_upgrade": lambda api, rec: wait_job(api, rec, api.set_auto_upgrade(False)),
+    "sync_scope": lambda api, rec: api.sync_scope(),  # a read of the support folder's file: no lock
+    "set_sync_scope": lambda api, rec: wait_job(api, rec, api.set_sync_scope([], ["kind:weekly"])),  # `sync scope on|off`
     "add_watched_folder": lambda api, rec: _watch(api, rec),
     "removal_preview": lambda api, rec: api.removal_preview(_watched_id(api, rec)),
     "missing_files": lambda api, rec: wait_job(api, rec, api.missing_files(["t3"], "download_again")),  # a skipped song: the job still takes its lock

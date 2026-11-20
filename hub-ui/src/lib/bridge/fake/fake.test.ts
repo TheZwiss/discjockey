@@ -781,3 +781,28 @@ describe('fake backend: Qobuz playlists (stage 3)', () => {
     expect(after.next_step).not.toBe('spotify');
   });
 });
+
+describe('fake Sync scope (issue 39 V2.5b)', () => {
+  it('a switch persists through sync_scope(): off adds in order with names and labels, on takes it back', async () => {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });
+    expect(await f.sync_scope()).toEqual({ ok: true, off: [], weekly_off: [] });
+    const first = await f.set_sync_scope([], ['playlist:0DiscjockeyExampleList', 'kind:weekly', 'folder:Library/Hard_Bounce']);
+    if (!first.ok) throw new Error();
+    const done = await until(evs, (e) => e.type === 'JobFinished' && e.job_id === first.job_id);
+    expect(done).toMatchObject({ kind: 'set_sync_scope', ok: true });
+    const want = { off: [{ target: 'playlist:0DiscjockeyExampleList', name: expect.any(String) },
+      { target: 'folder:Library/Hard_Bounce', name: 'Hard_Bounce' }], weekly_off: [{ kind: 'weekly', label: 'Weekly checks' }] };
+    expect(await f.sync_scope()).toMatchObject(want);
+    const second = await f.set_sync_scope(['kind:weekly', 'playlist:0DiscjockeyExampleList'], []);
+    if (!second.ok) throw new Error();
+    await until(evs, (e) => e.type === 'JobFinished' && e.job_id === second.job_id);
+    expect(await f.sync_scope()).toEqual({ ok: true, off: [{ target: 'folder:Library/Hard_Bounce', name: 'Hard_Bounce' }], weekly_off: [] });
+  });
+  it('refuses an item that is neither a target nor a weekly kind, and one in both lists, before a job', async () => {
+    const f = createFakeBridge('normal', { speed: 50, emit: () => {} });
+    expect(await f.set_sync_scope([], ['bogus'])).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.set_sync_scope(['kind:new'], [])).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.set_sync_scope(['kind:weekly'], ['kind:weekly'])).toMatchObject({ ok: false, kind: 'refused' });
+  });
+});

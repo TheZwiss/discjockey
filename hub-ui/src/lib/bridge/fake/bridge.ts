@@ -14,6 +14,7 @@ import {
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
 import { batchWords, progressWords, autoDetail, autoOn, autoPreview, autoBlock, backupId, placeTracks, markRefused, markWaiting, phaseEvents, phaseResults,
   planPhase, readyTracks, rekordboxStatus, REKORDBOX_STATE_TEXT, sameTrackReasonOf, stopRows, withPhase, AUTO_REFUSED_WORDS, type PhasePlan } from './auto';
+import { SCOPE_KIND_ITEMS, isScopeTarget, scopeOf } from './scope';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, lineOf, rewrite } from './replay';
@@ -907,11 +908,6 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return later(350, () => ok({ spectrum: fakeSpectrum(which === 'upgrade' ? null : t.cutoff_hz,
         Math.abs(hash(t.track_id)), t.duration_s, which) }));
     },
-    async media_url(track_id: string, which: Which) {
-      const t = track(track_id);
-      if (!t || t.status === 'missing') return fail('refused', 'This track has no file yet.');
-      return ok({ url: media(t, which) });
-    },
     async setup_status() {
       const status = (a: FakeAccount | null) => a && { browser: a.browser, browser_name: BROWSER_NAMES[a.browser],
         daily_limit: a.limit, profile: a.profile ?? null, profile_name: a.profileName ?? null,
@@ -1509,6 +1505,27 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { auto_upgrade: on });
       }, 300 / speed));
     },
+    async sync_scope() {
+      return ok(scopeOf(s));
+    },
+    async set_sync_scope(on: string[], off: string[]) {
+      const bad = [...(Array.isArray(on) ? on : []), ...(Array.isArray(off) ? off : [])]
+        .find((i) => typeof i !== 'string' || !(isScopeTarget(i) || SCOPE_KIND_ITEMS.includes(i)));
+      if (!Array.isArray(on) || !Array.isArray(off) || bad !== undefined) {
+        return fail('refused', `${JSON.stringify(bad)} is not a playlist (playlist:<ref>), a folder (folder:<path>) or a weekly kind (kind:retry, kind:weekly).`);
+      }
+      const both = on.find((i) => off.includes(i));
+      if (both !== undefined) return fail('refused', `${both} is in both lists: say on or off for it, not both.`);
+      return startJob('set_sync_scope', null, (finish) => setTimeout(() => {
+        const kinds = (items: string[]) => items.filter((i) => i.startsWith('kind:')).map((i) => i.slice(5) as 'retry' | 'weekly');
+        const keep = (cur: string[], gone: string[], more: string[]) => [...new Set([...cur.filter((x) => !gone.includes(x)), ...more])];
+        s.scope = {
+          off: keep(s.scope.off, on, off.filter(isScopeTarget)),
+          weekly_off: keep(s.scope.weekly_off, kinds(on), kinds(off)) as ('retry' | 'weekly')[],
+        };
+        finish(true, scopeOf(s));
+      }, 150 / speed));
+    },
     async add_liked_music() {
       return startJob('add_liked_music', null, (finish) => setTimeout(() => {
         if (!likedOn(s)) return finish(false, null, 'setting_off', LIKED_OFF);
@@ -1530,16 +1547,6 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startJob('setup_account', null, (finish) => setTimeout(() => {
         finish(true, accountResult(service, browser, profile, accountCheck(service, browser)));
       }, 600 / speed));
-    },
-    async setup_check_account(service: 'youtube' | 'soundcloud') {
-      const a = s.accounts[service];
-      if (!a) return fail('refused', `${NAMES[service]} is not set up.`);
-      if (syncRunning()) return fail('sync_running', MSG.sync_running);
-      if (s.console_running) return fail('console', MSG.console);
-      if (job?.running) return fail('busy', MSG.busy);  // the save takes the lock, as in the engine
-      const check = accountCheck(service, a.browser);
-      s.accounts[service] = { ...a, lastCheck: checkRecord(check) };
-      return ok({ service, check });
     },
     async setup_forget_account(service: 'youtube' | 'soundcloud') {
       return startJob('setup_forget_account', null, (finish) => setTimeout(() => {

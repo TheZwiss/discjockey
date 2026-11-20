@@ -449,6 +449,9 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
   and how many wait for later, with the days that takes.
 - **Weekly checks** on the right switch the two weekly checks on or off: songs not found last time, and files that
   aren't lossless yet.
+- **The switches are saved**, so they are the same the next time you open Discjockey and in the Terminal: `sync scope show`
+  says what is left out, `sync scope off <playlist:ref | folder:path | kind:retry | kind:weekly>…` leaves them out and
+  `sync scope on …` takes them back (the program path from [When something breaks](#when-something-breaks) in front).
 - Discjockey reads your playlists by itself once each time you open it and whenever `playlists.txt` changes;
   **Read playlists** at the top reads them again.
 
