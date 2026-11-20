@@ -232,8 +232,6 @@ export type FakeState = {
   /** app_update(): the update check's answer (scenario update_available: a newer version) */
   appUpdate: AppUpdate;
   previewRead: boolean;          // false → sync_preview empty 'no_preview'
-  selected: string | null;
-  dropped: { track_id: string; name: string } | null;
   errors: boolean;               // every write ends with a problem
   errorTurn: number;
   syncStarts: number;
@@ -934,7 +932,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
       last_download: iso(daysAgo(now, 0, 21, 47)) },
     setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
-    selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
+    errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
     favourites: [], crateShown: {}, unread: [], emptyRead: [], briefBusy: false,
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
   };

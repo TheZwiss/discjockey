@@ -369,8 +369,6 @@ counts with a YouTube account: forgetting that login turns it off for good; `set
 `add_liked_music` lists it. It never carries a secret, only whether it is there.
 Shape: `SetupStatus` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
-`select(track_id|null)` → `{}` — call whenever the to-do selection changes (drops go to this track).
-
 ### Tidy-up and the move log (read, any time; in `LIBRARY_METHODS`)
 
 `tidy_preview()` — every file the playlist order puts somewhere else ("Tidy up files"). Each row is a track row (as
@@ -470,7 +468,7 @@ same shape. Rules per method:
 | `mark_warnings_seen(service)` — "Got it" on Download limits; the service must be set up (else refused). Saves settings.json `warnings_seen[service]` = now: its signals up to now are no longer `new` | `mark_warnings_seen` | |
 | `hide(track_id, hidden, expect?)` | `hide` / `unhide` | |
 | `never_download(track_id, never)` — the track must be in the current preview (else `changed`) | `never_download` | |
-| `add_bought_file(track_id, expect?)` — after a `FileDropped` with `readable: true` for this track; when the call is refused (e.g. `busy`) the dropped file is kept, so "Add" can be tried again without a new drop | `add_bought_file` | |
+| `add_bought_file(track_id, path, expect?)` — `path` is an absolute path of a file this process can read (the `path` of a `FileDropped` with `readable: true`, or any file a command names); refused (`refused`, before a job starts) when there is no file at it or macOS doesn't let Discjockey read it; nothing is remembered between the drop and the call, so "Add" can be tried again with the same path | `add_bought_file` | |
 | `use_candidate(track_id, candidate, expect?)` | `use_candidate` | |
 | `use_link(track_id, url, expect?)` — Qobuz track / YouTube / YT Music / SoundCloud link | `use_link` | |
 | `reject_current(track_id, expect?)` — "None of these"; sets `rekordbox_check` (`wrong_song`) | `reject_current` | |
@@ -696,7 +694,7 @@ sides, and `hub-ui/src/lib/bridge/events.ts` (type and `EVENT_FIELDS`) follows i
 | `JobStarted` | `job_id` str (`job:<8 hex>`), `kind` str, `track_id` str\|null, `batch_kind` `"upgrade"\|"convert"\|"mixed"`\|null (an AIFF batch job's kind as the snapshot's; null for any other job) |
 | `JobFinished` | `job_id`, `kind`, `ok` bool, `problem` kind\|null, `message` str, `result` object\|null, `service` `spotify\|qobuz\|soundcloud\|youtube_music`\|null (the playlist service a failed job's problem is about — a sync or read that stops at a missing login, a rejected login, an unreadable playlist, a service not answering; null for everything else and for success) |
 | `ConsoleBusy` | `running` bool, `job`, `kind`, `line` (each a string or null: another process's job holds the library lock or has ended → banner, read-only). `job`, `kind` (a job kind, as `state.json`'s) and `line` (its progress line, "4 of 60") come from the registry; all null when `running` is false and for a holder with no registry entry (an older Discjockey: the lock probe). Sent when that set of four changes, so a changed `line` is a new event; the registry is looked at once a second, the first look sends only when something runs. A foreign job's end, any kind, is a `JobFinished` of the same shape the window sends for its own (rebuilt from the job's `result.json`; `worker_lost` words when it left none), so the pages re-read; a foreign `refresh` ending while the window's own refresh runs sends none. The banner's words do not change |
-| `FileDropped` | `track_id` str\|null, `name` str, `readable` bool, `message` str ("macOS didn't let Discjockey read this file…" / "Select the track…") |
+| `FileDropped` | `name` str, `path` str\|null (the full path the window gave, also for a file that can't be read; null when it gave none), `readable` bool, `message` str ("" when readable; else why not: "macOS didn't let Discjockey read this file…", or "…Drag it from a Finder window." when there is no path). The engine remembers no drop and no selection: the window knows which to-do item a drop belongs to and passes the `path` back in `add_bought_file` |
 | `SignInPhase` | `service` (`youtube\|soundcloud`), `phase` `waiting\|checking`, `browser`, `browser_name` — a sign-in through the browser (Settings, Setup) |
 | `AppUpdate` | `state`, `current`, `latest`, `url` as `app_update()` — sent when the update check's answer changes (at start, then at most daily) |
 | `DrivesChanged` | `away` int (how many watched folders are away now) — sent once when the set of import folders that are away (and why: `unmounted` or `missing`, `scanner.away_reason`) differs from the last look: a drive plugged in or ejected, a watched folder renamed or put back while the window is open. The hub's drives watch looks every 2 s, read only (no scan, no write); its first look is the baseline and sends nothing, and a look that can't read `library.db` sends nothing and keeps the last answer. The page re-reads what shows a file's or a watched folder's state (`library()` and the open `track()`, `todo()` and its panel, `watched_folders()`, `sidebar()`), not every page. A new event rather than `JobFinished` (no job ran) or `ConsoleBusy` (it means the window goes read-only) |

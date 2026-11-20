@@ -93,8 +93,8 @@ NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "re
                          "missing download", "missing remove"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
-NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
-NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
+NO_FILE = "There is no file at {path}."
+NO_PATH = "A bought file needs the path of the file."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
 FAVOURITE_KEYS = ("playlist:", "folder:")  # what a Favourite's key starts with (plan library stage 5, D3)
@@ -298,6 +298,22 @@ def _paths_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(p, str) for p in value)
 
 
+def _file_problem(path: str | Path) -> str | None:
+    """Why `path` can't be added as a file, None when it is an absolute path of a regular file this process can open
+    for reading: the words of a missing file (NO_FILE) or of one macOS doesn't let it read (`ops.NO_ACCESS`)."""
+    p = Path(path)
+    if not p.is_absolute():
+        return NO_FILE.format(path=path)
+    try:
+        with open(p, "rb"):
+            pass
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+        return NO_FILE.format(path=path)
+    except OSError:
+        return ops.NO_ACCESS
+    return None if p.is_file() else NO_FILE.format(path=path)
+
+
 def _import_folders(paths: Paths | None) -> int:
     """How many import folders the library watches (0 without a library or library.db: nothing to read)."""
     if paths is None or not paths.db_file.exists():
@@ -410,8 +426,6 @@ class HubApi:
         # what a file's tags said (plan stage D §0.7): (path, size, mtime_ns) -> audio.FileFacts, so reopening the panel
         # reads no file again; a changed file has a new key
         self._tag_cache: dict[tuple[str, int, int], audio.FileFacts] = {}
-        self._selected: str | None = None
-        self._dropped: dict | None = None
         self._drives_seen: dict[str, str] | None = None  # the away set the drives watch saw last (None: not yet)
         self._lock = threading.Lock()
         self._auto_lock = threading.Lock()
@@ -1455,13 +1469,6 @@ class HubApi:
         state = self._shown_state() if self._bound is not None else library.empty_state()
         return {"downloads": views.downloads(state, settings, qobuz_ok, names, self._today())}
 
-    @bridge
-    def select(self, track_id: str | None) -> dict:
-        """The to-do item the page shows, so a file dropped on the window goes to that track."""
-        with self._lock:
-            self._selected = track_id
-        return {}
-
     # --- other ---
 
     @bridge
@@ -1680,29 +1687,18 @@ class HubApi:
         return self._single(find.kind, track_id, do, expect)
 
     def _on_drop(self, event: dict) -> None:
-        """pywebview's drop handler on the page (app.py): remembers the file for the selected to-do item and tells the
-        page. Runs on a thread of its own; never raises."""
+        """pywebview's drop handler on the page (app.py): tells the page which file was dropped, remembering nothing
+        (the page passes the path back in `add_bought_file`). Runs on a thread of its own; never raises."""
         try:
             files = (event.get("dataTransfer") or {}).get("files") or []
             found = next((f for f in files if f.get("pywebviewFullPath")), None)
-            with self._lock:
-                track_id = self._selected
             if found is None:
-                self._emit(FileDropped(track_id, "", False, "Discjockey could not see where this file is. Drag it "
-                                                            "from a Finder window."))
+                self._emit(FileDropped("", None, False, "Discjockey could not see where this file is. Drag it "
+                                                        "from a Finder window."))
                 return
             path = Path(found["pywebviewFullPath"])
-            try:
-                with open(path, "rb"):
-                    readable = path.is_file()
-            except OSError:
-                readable = False
-            message = "" if readable else ops.NO_ACCESS
-            if readable and track_id is None:
-                readable, message = False, NOT_SELECTED
-            with self._lock:
-                self._dropped = {"track_id": track_id, "path": path} if readable else None
-            self._emit(FileDropped(track_id, path.name, readable, message))
+            readable = _file_problem(path) is None
+            self._emit(FileDropped(path.name, str(path), readable, "" if readable else ops.NO_ACCESS))
         except Exception:
             traceback.print_exc()
 
@@ -2189,17 +2185,15 @@ class HubApi:
         return {"job_id": self._jobs.start("supersede", change).id}
 
     @bridge
-    def add_bought_file(self, track_id: str, expect: str | None = None) -> dict:
-        with self._lock:
-            dropped = self._dropped
-            if not dropped or dropped["track_id"] != track_id:
-                raise OpProblem(NO_DROP, "refused")
-        answer = self._single("add_bought_file", track_id, lambda state, ctx: ops.add_bought_file(
-            self._paths, state, track_id, dropped["path"], analyze=self._svc.analyze, now=self._svc.now), expect)
-        with self._lock:  # only once the job runs: a refused job (busy) keeps the file for the next "Add"
-            if self._dropped is dropped:
-                self._dropped = None
-        return answer
+    def add_bought_file(self, track_id: str, path: str, expect: str | None = None) -> dict:
+        """Adds the file at `path` (the dropped file's, from `FileDropped`) as the bought version of the track
+        (a write job): the path must be absolute, of a file this process can read; refused before a job starts."""
+        if not isinstance(path, str) or not path:
+            raise ValueError(NO_PATH)
+        if (problem := _file_problem(path)) is not None:
+            raise OpProblem(problem, "refused")
+        return self._single("add_bought_file", track_id, lambda state, ctx: ops.add_bought_file(
+            self._paths, state, track_id, Path(path), analyze=self._svc.analyze, now=self._svc.now), expect)
 
     @bridge
     def use_candidate(self, track_id: str, candidate: dict, expect: str | None = None) -> dict:

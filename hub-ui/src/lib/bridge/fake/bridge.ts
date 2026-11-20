@@ -924,7 +924,6 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         accounts: { youtube: status(s.accounts.youtube), soundcloud: status(s.accounts.soundcloud) },
         youtube_music: likedStatus(s) });
     },
-    async select(track_id: string | null) { s.selected = track_id; return ok({}); },
     async rekordbox_status() {
       const st = rekordboxStatus(s);
       return ok({ ...st, state_text: REKORDBOX_STATE_TEXT[st.state], problem: null, problem_text: null, version: null,
@@ -1277,13 +1276,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { moved: 0, new: 0, gone: 0, missing: 0, back: 0, changed: 0, copies: 0 });
       }, 50 / speed));
     },
-    async add_bought_file(track_id: string, _expect?: string | null) {
+    async add_bought_file(track_id: string, path: string, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
-      if (s.dropped?.track_id !== track_id) return fail('refused', 'Drop the bought file on this track first.');
+      if (typeof path !== 'string' || !path.startsWith('/')) return fail('refused', `There is no file at ${path}.`);
       return startJob('add_bought_file', track_id, (finish) => setTimeout(() => {
-        const name = s.dropped?.name ?? '';
-        s.dropped = null;
+        const name = path.slice(path.lastIndexOf('/') + 1);
         Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'manual', codec: 'wav', upgrade: null });
         if (t.missing) { t.missing = undefined; t.fileGone = false; }  // the dropped file is the song's file: it leaves Missing files
         finish(true, opResult(t, 'bought', `bought file ${name}`));

@@ -379,7 +379,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("missing_files", "missing remove", "J", "missing remove --all --yes", params={"track_ids": TRACKS},
        fixed={"action": "remove"}, needs_yes=True, dry_run="missing_files_preview", built=True, locks={"library"},
        partial=MISSING_PARTIAL),
-    _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK}),
+    _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK, "path": _positional(type="str")}),
     _e("search_candidates", "version search", "RJ", params={"track_id": TRACK}),
     _e("preview", "version preview", "RJ", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),
     _e("use_candidate", "version use", "J", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),

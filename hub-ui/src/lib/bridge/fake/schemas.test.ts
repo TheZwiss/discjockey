@@ -53,11 +53,6 @@ async function planned(b: Bridge): Promise<string> {
   const p = (await b.sync_preview()) as { groups?: { actions?: { track_id: string }[] }[]; never?: { track_id: string }[] };
   return p.groups?.flatMap((g) => g.actions ?? [])[0]?.track_id ?? p.never?.[0]?.track_id ?? 't2';
 }
-/** `t2` with a bought file dropped on it (the window's drop sets this; the fake refuses `add_bought_file` without it). */
-async function dropped(b: Bridge): Promise<string[]> {
-  (b as unknown as { _ctx: { s: { dropped: { track_id: string; name: string } | null } } })._ctx.s.dropped = { track_id: 't2', name: 'Armin Hermann - Get Naughty.wav' };
-  return ['t2'];
-}
 const SAMPLE_ARGS: Record<string, Args> = {
   dashboard: [], sidebar: [], library: ['all', null, '', 'all', null], sync_preview: [], job_status: [], playlists: [],
   limits: ['qobuz'], limits_what_if: ['qobuz', 60, 0], runs: [], run: ['last'], spectrum: ['t1', 'current'],
@@ -69,7 +64,7 @@ const SAMPLE_ARGS: Record<string, Args> = {
   todo: ['all', true], track: ['t2'], missing_files_preview: [['t1', 't2'], 'download_again'],
   hide: ['t2', true], never_download: async (b) => [await planned(b), true], upgrade: [['t2'], 'same_track'], undo_upgrade: [['t2']],
   upgrade_all: [], rekordbox_checked: [['t2']], missing_files: [['t1', 't2'], 'download_again'],
-  add_bought_file: dropped, use_candidate: ['t2', CANDIDATE],
+  add_bought_file: ['t2', '/Users/you/Downloads/t2.flac'], use_candidate: ['t2', CANDIDATE],
   use_link: ['t2', 'https://www.youtube.com/watch?v=abcdefghijk'], reject_current: ['t2'],
   // E7d: setup, settings, the music folder, watched folders and the import, tidy-up, reads with network, AIFF
   setup_status: [], check_music_folder: ['/Users/you/Music/Discjockey'], retry_music_folder: [], rekordbox_status: [],

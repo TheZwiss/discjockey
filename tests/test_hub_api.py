@@ -17,7 +17,7 @@ from discjockey.sources import qobuz as qobuz_source, spotify
 CONTRACT = {
     "dashboard", "sidebar", "sync_preview", "refresh", "stop_refresh", "job_status", "library", "track", "todo",
     "playlists", "limits", "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum",
-    "media_url", "setup_status", "select",
+    "media_url", "setup_status",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change",
     "start_sync", "stop", "save_playlists", "hide", "never_download", "add_bought_file", "use_candidate",
     "use_link", "reject_current", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo",
@@ -397,9 +397,9 @@ def test_setup_status_names_the_downloads_step(root):
     assert s["next_step"] == "downloads" and not s["complete"]
 
 
-def test_select_remembers_the_shown_track(root):
+def test_the_window_s_selection_is_not_a_bridge_method(root):
     api, _ = make_api(root)
-    assert api.select("t2") == {"ok": True} and api._selected == "t2"
+    assert not hasattr(api, "select") and not hasattr(api, "_selected")
 
 
 def test_a_skipped_spotify_is_no_problem_until_playlists_txt_has_a_spotify_line(root, monkeypatch):

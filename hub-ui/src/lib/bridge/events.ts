@@ -38,7 +38,7 @@ export type HubEvent =
       result: any | null; service?: PlaylistService | null }
   /** another process's job holds the library (`job`, `kind` and `line` name it from the registry; all null for a holder with no registry entry, and when `running` is false) */
   | { type: 'ConsoleBusy'; running: boolean; job: string | null; kind: string | null; line: string | null }
-  | { type: 'FileDropped'; track_id: string | null; name: string; readable: boolean; message: string }
+  | { type: 'FileDropped'; name: string; path: string | null; readable: boolean; message: string }
   | { type: 'SignInPhase'; service: 'youtube' | 'soundcloud'; phase: 'waiting' | 'checking'; browser: Browser;
       browser_name: string }
   | { type: 'AppUpdate'; state: AppUpdate['state']; current: string; latest: string | null; url: string | null }
@@ -71,7 +71,7 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   JobStarted: ['type', 'job_id', 'kind', 'track_id', 'batch_kind'],
   JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result', 'service'],
   ConsoleBusy: ['type', 'running', 'job', 'kind', 'line'],
-  FileDropped: ['type', 'track_id', 'name', 'readable', 'message'],
+  FileDropped: ['type', 'name', 'path', 'readable', 'message'],
   SignInPhase: ['type', 'service', 'phase', 'browser', 'browser_name'],
   AppUpdate: ['type', 'state', 'current', 'latest', 'url'],
   DrivesChanged: ['type', 'away'],

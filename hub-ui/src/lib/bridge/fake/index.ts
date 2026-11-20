@@ -1,9 +1,11 @@
 // Fake mode only (VITE_FAKE=1): the whole backend in the browser, so every screen and state can be built and
 // screenshot-checked without Python. Reached only through `if (import.meta.env.VITE_FAKE === '1')` in main.ts.
+import { get } from 'svelte/store';
 import { installBridge } from '../client';
 import { CONTRACT_METHODS } from '../contract';
 import type { HubEvent } from '../events';
 import { DROP_BLOCKED } from '../../copy';
+import { dropTarget } from '../../stores/drag';
 import { SCENARIOS, createFakeBridge, pageScenarios, type FakeContext } from './bridge';
 
 export { SCENARIOS, pageScenarios };
@@ -49,19 +51,11 @@ export function installFake(scenario: string): FakeControl {
   const control: FakeControl = {
     scenario, speed, ctx,
     dropFile(readable: boolean) {
-      const t = ctx.s.tracks.find((x) => x.track_id === ctx.s.selected);
+      // the engine knows no selection: the file is named after the track the window has open (a made-up path)
+      const t = ctx.s.tracks.find((x) => x.track_id === get(dropTarget));
       const name = t ? `${t.artist} - ${t.title}.wav` : 'Some Artist - Some Track.wav';
-      if (!readable) {
-        emit({ type: 'FileDropped', track_id: ctx.s.selected, name, readable: false, message: DROP_BLOCKED });
-        return;
-      }
-      if (!t) {
-        emit({ type: 'FileDropped', track_id: null, name, readable: true,
-          message: 'Select the track this file belongs to, then drop it again.' });
-        return;
-      }
-      ctx.s.dropped = { track_id: t.track_id, name };
-      emit({ type: 'FileDropped', track_id: t.track_id, name, readable: true, message: '' });
+      const path = `/Users/you/Downloads/${name}`;
+      emit({ type: 'FileDropped', name, path, readable, message: readable ? '' : DROP_BLOCKED });
     },
     consoleBusy(running: boolean) {
       ctx.s.console_running = running;

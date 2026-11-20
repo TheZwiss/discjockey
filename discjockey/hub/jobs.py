@@ -65,11 +65,11 @@ class ConsoleBusy:
 
 @dataclass(frozen=True)
 class FileDropped:
-    """A file was dropped on the window. readable: Discjockey may read it (then add_bought_file can use it)."""
-    track_id: str | None  # the to-do item selected when it was dropped
+    """A file was dropped on the window. readable: Discjockey may read it (then add_bought_file can take its `path`)."""
     name: str
+    path: str | None  # the full path the window gave (also when it can't be read); None when it gave none
     readable: bool
-    message: str  # why it can't be used, else ""
+    message: str  # why it can't be read, else ""
 
 
 @dataclass(frozen=True)

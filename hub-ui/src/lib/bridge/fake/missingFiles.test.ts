@@ -580,8 +580,7 @@ describe('whether To-do lists a missing song, said by the engine (W3)', () => {
 describe('a bought file dropped on a missing song (M9, as tests/test_ops.py)', () => {
   it('puts the file in as the song\'s file: the song leaves Missing files', async () => {
     const { f, s, set, todo } = await setup();
-    s.dropped = { track_id: set.parked, name: 'Artist - Song.wav' };
-    const started = (await f.add_bought_file(set.parked)) as { ok: true; job_id: string };
+    const started = (await f.add_bought_file(set.parked, '/Users/you/Downloads/Artist - Song.wav')) as { ok: true; job_id: string };
     expect(started.ok).toBe(true);
     for (let i = 0; i < 400 && s.tracks.find((t: { track_id: string }) => t.track_id === set.parked).missing; i++) await new Promise((r) => setTimeout(r, 5));
     const t = s.tracks.find((x: { track_id: string }) => x.track_id === set.parked);

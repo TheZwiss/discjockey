@@ -39,14 +39,16 @@ BRIDGE = bridge_methods()
 EXISTING = [e for e in catalog.ENTRIES if not e.cli_first]
 
 
-def test_the_bridge_has_97_methods_and_each_has_an_entry():
-    assert len(BRIDGE) == 97
-    assert set(BRIDGE) == {e.method for e in EXISTING}
+def test_the_bridge_has_96_methods_and_each_has_an_entry():
+    # a dropped method (kind `dropped`) keeps its row for the command line's refusal; the bridge may have lost it
+    # (`select`) or not yet
+    assert len(BRIDGE) == 96
+    assert set(BRIDGE) - catalog.DROPPED == {e.method for e in EXISTING if e.kind != "dropped"}
 
 
 def test_an_entry_names_no_method_the_bridge_lacks():
     for e in EXISTING:
-        assert e.method in BRIDGE, e
+        assert e.kind == "dropped" or e.method in BRIDGE, e
     for e in catalog.ENTRIES:
         if e.cli_first:
             # a method that does not exist yet is planned until its group builds it
@@ -232,3 +234,8 @@ def test_a_job_holds_the_library_by_its_own_record_else_by_the_catalogue():
     assert not catalog.holds_library({"method": "rescan_library", "library_lock": False})
     assert catalog.holds_library({"method": "rescan_library"})  # a record without the field: the `locks` column
     assert not catalog.holds_library({"method": "settings_view"}) and not catalog.holds_library({})
+
+
+def test_add_bought_file_takes_the_files_path_after_the_track():
+    (entry,) = catalog.by_method("add_bought_file")
+    assert list(entry.params) == ["track_id", "path"] and entry.params["path"].positional and entry.params["path"].type == "str"

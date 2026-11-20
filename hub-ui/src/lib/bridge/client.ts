@@ -42,7 +42,7 @@ export interface Bridge {
   runs(): Promise<Res<Runs>>;   run(run_id: string): Promise<Res<RunAnswer>>;
   spectrum(track_id: string, which: Which): Promise<Res<SpectrumAnswer>>;
   media_url(track_id: string, which: Which): Promise<Res<{ url: string }>>;
-  setup_status(): Promise<Res<SetupStatus>>;      select(track_id: string | null): Promise<Res<Empty>>;
+  setup_status(): Promise<Res<SetupStatus>>;
   /** rekordbox on this Mac now; works without a music folder. The Sync page reads it when it opens and on window focus */
   rekordbox_status(): Promise<Res<RekordboxStatusAnswer>>;
   /** What Make all lossless files AIFF, a selection's Convert or the CDJ group's Convert all would do now (issue 33
@@ -67,7 +67,8 @@ export interface Bridge {
   mark_warnings_seen(service: Service): Promise<JobStart>;
   hide(track_id: string, hidden: boolean, expect?: string | null): Promise<JobStart>;
   never_download(track_id: string, never: boolean): Promise<JobStart>;
-  add_bought_file(track_id: string, expect?: string | null): Promise<JobStart>;
+  /** `path`: an absolute path of a file Discjockey can read, the `path` of a `FileDropped` event */
+  add_bought_file(track_id: string, path: string, expect?: string | null): Promise<JobStart>;
   use_candidate(track_id: string, candidate: Candidate, expect?: string | null): Promise<JobStart>;
   use_link(track_id: string, url: string, expect?: string | null): Promise<JobStart>;
   reject_current(track_id: string, expect?: string | null): Promise<JobStart>;
