@@ -1090,6 +1090,12 @@ Results:
         for V2.2b (clear_service line in _clear_read_problem) and for the V2.2 review (stale info of an unreadable
         playlist kept; stopped read stores finished tracks; two failed reads out of order; SoundCloud secret link
         stored NULL; contract commit before engine commit) appended to V2.2b.md / review-V2.2.md. V2.2b dispatched.
+      - V2.2b done (Sonnet): logged 251k (exp. 205k, 1.22x), 96 calls, cache 15.0M, advisor 0k. Commits 8bf0c79f +
+        baa6dc63 (static), merged 176c8d93. Its full run had 1 failure it fixed; my full pytest on the branch: 6236
+        passed. It fixed a V2.2a bug (stopped read stored when a hung request answered late). Decided by me: a
+        refused settings.json must not break dashboard/job_status (V2.2b made them fail; reads tolerate a bad
+        settings file elsewhere) -> Important finding with stated fix in review-V2.2.md. Review V2.2 dispatched
+        (BASE 85a4679b, HEAD 176c8d93, diff 57k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
