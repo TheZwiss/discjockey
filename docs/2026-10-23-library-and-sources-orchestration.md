@@ -1110,6 +1110,12 @@ Results:
         .claude/worktrees/cli2-fv22, branch feat/cli-2-fix-v22 from 176c8d93; exp. ~170k. Then V2.5a (cli2-13),
         V2.5b (cli2-14), review V2.5 + fix, then STOP for the real-copy rehearsals V2.2/V2.5 only when the user is
         present (otherwise go on with V2.3a/b, V2.6, E9, E4a/b and rehearse them later together).
+      - FR-V2.2 done (Sonnet fix-round): logged 160.5k (exp. 170k), 62 calls, cache 7.1M, fresh in 160k, advisor 0k.
+        Commit f17a5774 (one commit: shape + engine + generated + fake + doc), all F1-F12 (F1 via `_derive`;
+        never_download made strict too; F2 RefreshResult.read_id non-null; F4 token also in reads.read_refs and
+        playlist_tracks.playlist: identity columns, wording names all six). pytest 6256/4 skipped, npm check 0,
+        bridge vitest 285. Merged 52732e45, pushed. Remaining briefs got "Landed in the V2.2 fix round" (+ F13 one-
+        commit rule). V2.2 group total: 221 + 251 + 199 + 160 = 831k. V2.5a dispatched (cli2-13, exp. 195k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
