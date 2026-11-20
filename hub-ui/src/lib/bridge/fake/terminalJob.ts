@@ -7,6 +7,8 @@
 //   reading   frozen before RunStarted
 //   running   frozen mid-download (a first open of a job half done)
 //   ended     the whole file at once; the end is sent once the window has read it
+// Its run is filed like the window's own (`onEnded`, the bridge's afterSync) the moment its last line is in the file, as
+// the Terminal's sync writes its report before it ends, so its end screen loads that run.
 import type { FakeState } from './data';
 import type { HubEvent } from '../events';
 import type { JobEvents } from '../types';
@@ -18,7 +20,9 @@ export const PAGE = 500;
 /** The 1-based line of the recorded sync's RunStarted: "reading" is frozen right before it */
 const RUN_STARTED_LINE = lineOf(STREAMS.sync, (e) => e.type === 'RunStarted');
 
-export type TerminalOpts = { s: FakeState; speed: number; emit: (e: HubEvent) => void; reportPath: string; mode: TerminalMode };
+export type TerminalOpts = { s: FakeState; speed: number; emit: (e: HubEvent) => void; reportPath: string; mode: TerminalMode;
+  /** the job's whole file, once its last line is in: the fake files its run */
+  onEnded?: (lines: readonly HubEvent[]) => void };
 
 export class TerminalJob {
   /** the job's events.jsonl so far, one event a line */
@@ -32,10 +36,10 @@ export class TerminalJob {
     const upTo = { live: SYNC_START_LINE, reading: RUN_STARTED_LINE - 1, running: SYNC_LINES.downloading, ended: sync.length }[o.mode];
     if (o.s.console_running) o.s.console_line = '';   // it has not said how far it is yet
     for (let i = SYNC_START_LINE - 1; i < upTo; i++) this.push(rewrite(sync[i], JOB, o.reportPath), false);
-    if (o.mode === 'ended') { this.status = 'done'; return; }
+    if (o.mode === 'ended') { this.status = 'done'; o.onEnded?.(this.lines); return; }
     this.replay = new Replay({ events: sync, from: upTo + 1, jobId: JOB, speed: o.speed,
       freeze: o.mode === 'live' ? null : upTo, reportPath: o.reportPath, emit: (e) => this.push(e, true),
-      onDone: () => { this.status = 'done'; this.report(); } });
+      onDone: () => { this.status = 'done'; o.onEnded?.(this.lines); this.report(); } });
     this.replay.start();
   }
 

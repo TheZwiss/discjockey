@@ -5,6 +5,13 @@ import type { HubEvent } from '../events';
 import type { JobEvents } from '../types';
 import { createFakeBridge } from './bridge';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from './replay';
+import { get } from 'svelte/store';
+import { dispatch } from '../events';
+import { _resetBridge, installBridge } from '../client';
+import { hub, hubSyncRunning, refreshHub } from '../../stores/hub';
+import { followRun, terminalSync } from '../../stores/follow';
+import { run, type RunState } from '../../stores/run';
+import { dismissJob, dismissedJobs, whichView, type SyncView } from '../../../pages/sync/view';
 
 const JOB = 'job:00000c0d';
 const validate = new Ajv2020({ strict: false }).compile(schema);
@@ -136,5 +143,47 @@ describe('the Terminal sync a window can follow, in the fake backend', () => {
     expect(f.sent.at(-1)).toMatchObject({ type: 'ConsoleBusy', running: false });
     expect(await f.bridge.stop(JOB)).toEqual({ ok: true, stopped: false });   // over: nothing to stop
     expect(await f.bridge.stop()).toEqual({ ok: true, stopped: false });      // the window's own job is another thing
+  });
+});
+
+describe('the Sync page on a Terminal sync of the fake (console:sync-live), through the window\'s stores', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+
+  it('routes to its live view, follows it track by track, then to its end screen, whose run is filed', async () => {
+    (globalThis as any).window = new EventTarget();   // the bridge's window (node has no DOM)
+    _resetBridge();
+    const f = createFakeBridge('console:sync-live', { speed: 1, emit: dispatch });
+    installBridge(f);
+    await refreshHub();
+    const views: SyncView[] = [];
+    let sync = get(terminalSync), state: RunState | null = null;
+    expect(sync).toEqual({ job: JOB, running: true });
+    const offSync = terminalSync.subscribe((t) => { sync = t; });
+    const offRun = followRun(JOB).subscribe((s) => { state = s; });   // the page's subscription keeps it polling
+    const look = () => {
+      const v = whichView({ own: get(run), hubSyncRunning: get(hubSyncRunning), dismissed: get(dismissedJobs),
+        terminal: sync && { sync, run: state! }, newest: get(hub).last_sync?.job ?? null });
+      if (JSON.stringify(v) !== JSON.stringify(views.at(-1))) views.push(v);
+      return v;
+    };
+    expect(look()).toEqual({ view: 'live', source: 'terminal' });
+    await tick(4000);
+    expect(look()).toEqual({ view: 'live', source: 'terminal' });
+    expect(state!).toMatchObject({ job_id: JOB, job_kind: 'sync' });
+    expect(['running', 'preparing']).toContain(state!.phase);
+    for (let i = 0; i < 400 && !state!.results.length; i++) await tick(1000);
+    expect(state!.results.length).toBeGreaterThan(0);                  // a track done, the next one in work
+    expect(look()).toEqual({ view: 'live', source: 'terminal' });
+    for (let i = 0; i < 400 && look().view === 'live'; i++) await tick(5000);
+    const end = look();
+    expect(end).toMatchObject({ view: 'end', source: 'terminal' });
+    expect(views.map((v) => v.view)).toEqual(['live', 'end']);   // never the plan in between
+    const run_id = (end as { run_id: string | null }).run_id;
+    expect(run_id).toMatch(/^\d{4}-\d\d-\d\d_\d{6}$/);
+    expect(await f.run(run_id!)).toMatchObject({ ok: true });
+    expect(get(terminalSync)).toEqual({ job: JOB, running: false });
+    dismissJob(JOB);
+    expect(look()).toEqual({ view: 'before' });
+    offRun(); offSync();
   });
 });

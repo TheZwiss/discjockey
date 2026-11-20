@@ -151,8 +151,17 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   let replay: Replay | null = null;
   /** The Terminal's sync as a job the window follows (`job_events`): made by its console scenario, else at the first call */
   let terminal: TerminalJob | null = null;
-  const terminalJob = (mode: 'live' | 'reading' | 'running' | 'ended' = 'live'): TerminalJob =>
-    terminal ??= new TerminalJob({ s, speed, emit, mode, reportPath: reportPath(runId(new Date())) });
+  const terminalJob = (mode: 'live' | 'reading' | 'running' | 'ended' = 'live'): TerminalJob => {
+    if (terminal) return terminal;
+    const started = new Date(), rid = runId(started);
+    // its run goes into the reports as the window's own sync's does (afterSync), from the job's file
+    const onEnded = (lines: readonly HubEvent[]) => {
+      const rec = new JobRecord(TERMINAL_JOB, 'sync', null, isoLocal(started));
+      for (const e of lines) rec.record(e);
+      afterSync(rid, rec);
+    };
+    return terminal = new TerminalJob({ s, speed, emit, mode, reportPath: reportPath(rid), onEnded });
+  };
   let pendingFinish: Finish | null = null;   // a job that only ends by itself or with stop() (Spotify login)
   let signIn: JobRecord | null = null;         // the sign-in slot (beside the write jobs, as Jobs.start_sign_in)
   let signInStop: (() => void) | null = null;
