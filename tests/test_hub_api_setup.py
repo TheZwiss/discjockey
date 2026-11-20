@@ -424,15 +424,6 @@ def test_a_youtube_login_without_premium_is_saved_for_liked_music_only(root):
         CheckingFallback.answer = {"ok": True, "problem": None, "kbps": 256, "detail": ""}
 
 
-def test_checking_a_free_youtube_login_again_finds_premium_and_it_downloads(root):
-    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
-    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, last_check=free)}))
-    api, rec = make_api(root, fallback=CheckingFallback)
-    assert "youtube" not in load_settings(root.settings_file).download_accounts
-    assert api.setup_check_account("youtube")["ok"]  # the stub finds 256 kbps
-    assert "youtube" in load_settings(root.settings_file).download_accounts
-
-
 def test_checking_a_free_youtube_login_again_with_no_login_keeps_it_as_today(root):
     free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
     save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, last_check=free)}))
@@ -446,22 +437,6 @@ def test_checking_a_free_youtube_login_again_with_no_login_keeps_it_as_today(roo
         assert api.downloads_view()["downloads"]["youtube"]["state"] == "off"
     finally:
         CheckingFallback.answer = {"ok": True, "problem": None, "kbps": 256, "detail": ""}
-
-
-def test_a_free_youtube_login_checked_again_while_offline_stays_out_of_downloads(root):
-    free = {"ok": False, "problem": "no_premium", "kbps": 129, "at": "2026-10-20T21:47:00"}
-    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, last_check=free)}))
-    api, rec = make_api(root, fallback=CheckingFallback)
-    CheckingFallback.answer = {"ok": False, "problem": "failed", "kbps": None, "detail": "offline"}
-    try:
-        assert api.setup_check_account("youtube")["check"]["problem"] == "failed"
-        s = load_settings(root.settings_file)
-        assert s.accounts["youtube"].last_check["problem"] == "failed" and "youtube" not in s.download_accounts
-        assert api.setup_status()["youtube_music"]["can_turn_on"]  # the login is still there for Liked music
-    finally:
-        CheckingFallback.answer = {"ok": True, "problem": None, "kbps": 256, "detail": ""}
-    assert api.setup_check_account("youtube")["ok"]
-    assert "youtube" in load_settings(root.settings_file).download_accounts
 
 
 def test_skip_qobuz_and_log_in_again(root):
@@ -608,13 +583,6 @@ def test_a_failed_check_of_the_saved_login_is_recorded(root):
         assert api.downloads_view()["downloads"]["youtube"]["state"] == "off"
     finally:
         CheckingFallback.answer = {"ok": True, "problem": None, "kbps": 256, "detail": ""}
-
-
-def test_check_account_stores_the_last_check(root):
-    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30, profile="Profile 2")}))
-    api, _ = make_api(root, fallback=CheckingFallback)
-    assert api.setup_check_account("youtube")["ok"]
-    assert load_settings(root.settings_file).accounts["youtube"].last_check["kbps"] == 256
 
 
 class QobuzCheckSource:
@@ -771,21 +739,6 @@ def test_a_sign_in_save_never_races_a_write_job(root, chrome_home, monkeypatch):
     assert not done.ok and done.problem == "busy" and "couldn't save it" in done.message
     s = load_settings(root.settings_file)
     assert s.daily_qobuz_limit == 90 and dict(s.accounts) == {}
-
-
-def test_check_account_from_the_page_answers_busy_while_a_write_job_holds_the_lock(root):
-    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30)}))
-    api, _ = make_api(root, fallback=CheckingFallback)
-    release = threading.Event()
-    job = api._jobs.start("save_limits", lambda ctx: release.wait(5) and None)
-    try:
-        r = api.setup_check_account("youtube")
-        assert r["ok"] is False and r["kind"] == "busy"
-    finally:
-        release.set()
-        assert job.done.wait(5)
-    assert load_settings(root.settings_file).accounts["youtube"].last_check is None
-    assert api.setup_check_account("youtube")["ok"]  # fine again afterwards
 
 
 def test_sign_in_with_firefox_accepts_a_login_in_any_profile(root, chrome_home, monkeypatch):

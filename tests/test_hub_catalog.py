@@ -40,10 +40,10 @@ EXISTING = [e for e in catalog.ENTRIES if not e.cli_first]
 
 
 def test_the_bridge_has_96_methods_and_each_has_an_entry():
-    # a dropped method (kind `dropped`) keeps its row for the command line's refusal; the bridge may have lost it
-    # (`select`) or not yet
+    # a dropped method (kind `dropped`) keeps its row for the command line's refusal; the bridge has none of them
     assert len(BRIDGE) == 96
-    assert set(BRIDGE) - catalog.DROPPED == {e.method for e in EXISTING if e.kind != "dropped"}
+    assert not set(BRIDGE) & catalog.DROPPED
+    assert set(BRIDGE) == {e.method for e in EXISTING if e.kind != "dropped"}
 
 
 def test_an_entry_names_no_method_the_bridge_lacks():
@@ -173,7 +173,7 @@ def test_the_entries_are_well_formed():
     seen = set()
     for e in catalog.ENTRIES:
         assert e.kind in ("R", "RJ", "J", "J-control", "B", "W", "dropped"), e
-        key = (e.method, e.command, e.cli_first, tuple(sorted(e.fixed.items(), key=str)))
+        key = (e.method, e.command, e.cli_first, repr(sorted(e.fixed.items(), key=str)))  # a fixed value may be a list
         assert key not in seen, e
         seen.add(key)
         assert e.planned is None or e.planned.startswith("phase "), e

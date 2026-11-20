@@ -3,8 +3,8 @@ import type {
   ActionKey, AddedPlaylist, Empty, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res,
   SetupStatus, SetupTools, Sidebar, SyncPreview, Todo, TodoFilter, TrackAnswer, WhatIf, Which,
-  AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
-  RemovalPreview, MissingAction, MissingPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, RekordboxStatusAnswer, AiffPlan, AiffScope,
+  Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
+  RemovalPreview, MissingAction, MissingPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, RekordboxStatusAnswer, SyncScope, AiffPlan, AiffScope,
   AiffPlanAnswer, PreviewAnswer, DownloadsViewAnswer, MusicFolderSet, MusicFolderAnswer,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
@@ -41,7 +41,6 @@ export interface Bridge {
   limits_what_if(service: Service, limit: number, extra_today: number): Promise<Res<WhatIf>>;
   runs(): Promise<Res<Runs>>;   run(run_id: string): Promise<Res<RunAnswer>>;
   spectrum(track_id: string, which: Which): Promise<Res<SpectrumAnswer>>;
-  media_url(track_id: string, which: Which): Promise<Res<{ url: string }>>;
   setup_status(): Promise<Res<SetupStatus>>;
   /** rekordbox on this Mac now; works without a music folder. The Sync page reads it when it opens and on window focus */
   rekordbox_status(): Promise<Res<RekordboxStatusAnswer>>;
@@ -121,9 +120,15 @@ export interface Bridge {
   /** "Upgrade automatically when I sync" (job `set_auto_upgrade`); on by default */
   set_auto_upgrade(on: boolean): Promise<JobStart>;
   add_liked_music(): Promise<JobStart>;
+  /** The Sync scope (settings.json `sync_scope`): the playlists and folders left out and the weekly kinds switched off.
+   *  Works without a music folder */
+  sync_scope(): Promise<Res<SyncScope>>;
+  /** Switches collections (`playlist:<ref>` / `folder:<path>`) and weekly kinds (`kind:retry` / `kind:weekly`) out of
+   *  the sync (`off`) or back in (`on`): a settings job (`set_sync_scope`, result: the scope as saved). The last write
+   *  wins; an item that is none of those, or in both lists, is `refused` before a job starts */
+  set_sync_scope(on: string[], off: string[]): Promise<JobStart>;
   setup_skip_import(): Promise<Res<Empty>>;
   setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
-  setup_check_account(service: 'youtube' | 'soundcloud'): Promise<Res<{ service: Service; check: AccountCheck }>>;
   downloads_view(): Promise<Res<DownloadsViewAnswer>>;
   find_logins(service: 'youtube' | 'soundcloud'): Promise<Res<FindLogins>>;
   account_sign_in(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;

@@ -469,23 +469,18 @@ def test_a_file_of_an_import_folder_gives_its_embedded_artwork_as_the_cover(tmp_
     assert api._cover({without: "https://example.com/c.jpg"})(without, by_name[without]) == "https://example.com/c.jpg"
 
 
-def test_the_sound_picture_and_the_player_open_a_file_of_an_import_folder(tmp_path, monkeypatch):
+def test_the_sound_picture_opens_a_file_of_an_import_folder(tmp_path, monkeypatch):
     import numpy as np
-    from discjockey.hub.media import MediaServer
     from hub_helpers import fake_import, fake_spotify, import_folder, music_root
     fake_spotify(monkeypatch)
     fake_import(monkeypatch)
     paths = music_root(tmp_path)
     folder = import_folder(tmp_path, 2)
     api, rec = make_api(paths, decode=lambda p: (np.zeros(44100, dtype=np.float32), 44100))
-    api._media = MediaServer(paths)
-    api._media.bind(paths, api._file_path)
     wait_job(api, rec, api.add_watched_folder(str(folder)))
-    track_id, e = own_track(api)
+    track_id, _ = own_track(api)
     pic = api.spectrum(track_id)
     assert pic["ok"] and pic["spectrum"]["cols"] == 400 and pic["spectrum"]["which"] == "current"
-    url = api.media_url(track_id)["url"]
-    assert url.startswith(f"http://127.0.0.1:{api._media.port}/{api._media.token}/file/{e['file_id']}?v=")
     other = next(k for k, v in api._state()["tracks"].items() if (v.get("path") or "").startswith("/") and k != track_id)
     assert len(list((paths.cache / "spectrum").iterdir())) == 1  # one picture so far
     api.spectrum(other)
@@ -504,6 +499,5 @@ def test_an_import_file_that_is_offline_is_refused_though_its_path_still_exists(
     with db.connect(paths.db_file) as conn:  # its drive is marked offline, the file is still on disk
         conn.execute("UPDATE files SET online = 0 WHERE id = ?", (e["file_id"],))
     assert open(e["path"], "rb").read()
-    for call in (api.spectrum, api.media_url):
-        r = call(track_id)
-        assert (r["ok"], r["kind"]) == (False, "refused")
+    r = api.spectrum(track_id)
+    assert (r["ok"], r["kind"]) == (False, "refused")

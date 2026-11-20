@@ -30,7 +30,7 @@ from .models import (FILE_AUDIO_KEYS, OWN_PREFIX, AddedFolder, AiffBatchRow, Aif
 from .names import expected_stem
 from .planner import ENTRY_KEYS
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 NEWER = ("This music folder was last used by a newer Discjockey. Update Discjockey, then try again. "
          "Nothing was changed.")
@@ -282,6 +282,13 @@ SCHEMA_V12_STEP = (
     "ALTER TABLE playlist_tracks ADD COLUMN service TEXT",
     "CREATE TABLE playlist_infos (playlist TEXT PRIMARY KEY, info TEXT NOT NULL, at TEXT NOT NULL)",
 )
+# Import state (issue 39 V2.5b): the one row (`id = 1`) that remembers "Import stopped". `stopped_at` is the UTC time
+# the user stopped an import (`_stamp`), NULL (or no row) while none is stopped; it outlives the window, so every
+# process reads it. How many files are left is counted live (`import_left`), never stored. Not library state, like the
+# stored read: no generation bump, not in the snapshot.
+SCHEMA_V13_STEP = (
+    "CREATE TABLE import_state (id INTEGER PRIMARY KEY CHECK (id = 1), stopped_at TEXT)",
+)
 _FACT_COLUMNS = (*FILE_AUDIO_COLUMNS, "facts_failed")  # what a row's old facts say nothing about once the audio changes
 
 
@@ -304,7 +311,8 @@ UPGRADES: dict[int, Callable[[sqlite3.Connection], None]] = {1: _statements(SCHE
                                                            8: _statements(SCHEMA_V9_STEP),
                                                            9: _statements(SCHEMA_V10_STEP),
                                                            10: _statements(SCHEMA_V11_STEP),
-                                                           11: _statements(SCHEMA_V12_STEP)}
+                                                           11: _statements(SCHEMA_V12_STEP),
+                                                           12: _statements(SCHEMA_V13_STEP)}
 
 
 class _Connection(sqlite3.Connection):
@@ -2475,6 +2483,22 @@ def playlist_records(conn: sqlite3.Connection) -> dict[str, PlaylistRecord]:
             tracks.setdefault(ref, []).append(RecordedTrack(*track))
     return {ref: PlaylistRecord(service, read_at, tuple(tracks.get(ref, ())))
             for ref, (service, read_at) in reads.items()}
+
+
+def import_stopped_at(conn: sqlite3.Connection) -> str | None:
+    """When the user stopped an import (a UTC ISO time), None while no import is stopped: the import then starts by
+    itself no more until Continue import (D14)."""
+    row = conn.execute("SELECT stopped_at FROM import_state WHERE id = 1").fetchone()
+    return None if row is None else row[0]
+
+
+def set_import_stopped(conn: sqlite3.Connection, at: datetime | None) -> None:
+    """Notes that an import was stopped at `at`, or (None) clears it: one transaction, outside library state like the
+    stored read (no generation bump, not in the snapshot, no library lock)."""
+    with transaction(conn):
+        conn.execute("INSERT INTO import_state (id, stopped_at) VALUES (1, ?) "
+                     "ON CONFLICT (id) DO UPDATE SET stopped_at = excluded.stopped_at",
+                     (None if at is None else _stamp(at),))
 
 
 def favourites(conn: sqlite3.Connection) -> list[str]:

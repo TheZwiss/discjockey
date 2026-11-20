@@ -11229,6 +11229,51 @@
       ],
       "type": "object"
     },
+    "ScopeCollection": {
+      "additionalProperties": false,
+      "description": "A playlist or folder left out of the Sync.",
+      "properties": {
+        "name": {
+          "description": "Its name: the playlists.txt line's folder name, or the last part of the folder's path; the target itself when no line or folder has it any more (a folder on a drive that is away comes back).",
+          "type": "string",
+          "x-shown": true
+        },
+        "target": {
+          "description": "`playlist:<ref>` or `folder:<path>`: what `set_sync_scope` takes.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "target",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ScopeKind": {
+      "additionalProperties": false,
+      "description": "A weekly kind switched off.",
+      "properties": {
+        "kind": {
+          "description": "The kind: `retry` (Not found last time) or `weekly` (Weekly checks).",
+          "enum": [
+            "retry",
+            "weekly"
+          ],
+          "x-shown": false
+        },
+        "label": {
+          "description": "Its words.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "kind",
+        "label"
+      ],
+      "type": "object"
+    },
     "SelectListingAnswer": {
       "additionalProperties": false,
       "description": "The songs a listing selects.",
@@ -12838,6 +12883,33 @@
         "report",
         "actions",
         "new_since_preview"
+      ],
+      "type": "object"
+    },
+    "SyncScope": {
+      "additionalProperties": false,
+      "description": "The Sync scope (`sync_scope`; the result of `set_sync_scope`, the scope as saved): what the sync leaves out. Nothing listed means everything is on.",
+      "properties": {
+        "off": {
+          "description": "The playlists and folders switched off, in the order they were switched.",
+          "items": {
+            "$ref": "#/$defs/ScopeCollection"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "weekly_off": {
+          "description": "The weekly kinds switched off.",
+          "items": {
+            "$ref": "#/$defs/ScopeKind"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "off",
+        "weekly_off"
       ],
       "type": "object"
     },
@@ -16620,6 +16692,7 @@
     "set_favourites": "FavouritesSaved",
     "set_music_folder": "MusicFolderSet",
     "set_read_liked_music": "Empty",
+    "set_sync_scope": "SyncScope",
     "settings_view": "SettingsView",
     "setup_account": "AccountSaved",
     "setup_check_tools": "SetupTools",
@@ -16641,6 +16714,7 @@
     "stop_refresh": "Stopped",
     "stop_sign_in": "Stopped",
     "sync_preview": "SyncPreview",
+    "sync_scope": "SyncScope",
     "tidy_preview": "TidyPreview",
     "tidy_up": "BatchResult",
     "todo": "Todo",
@@ -16698,6 +16772,7 @@
     "scan": "ScanResult",
     "set_auto_upgrade": "AutoUpgradeSet",
     "set_read_liked_music": "Empty",
+    "set_sync_scope": "SyncScope",
     "setup_account": "AccountSaved",
     "setup_forget_account": "AccountForgotten",
     "setup_qobuz_login": "Empty",

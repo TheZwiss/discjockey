@@ -9,8 +9,6 @@ import { estimate, foldText, plural, serviceName } from '$lib/format';
 import { PLAYLIST_SERVICE_NAMES } from '$lib/copy';
 import { allActions, keyId } from './selection';
 
-export const PREF_SCOPE = 'sync.scope';
-
 /** Spotify is read by itself once per app session: only while the hub has not started its automatic read
  * (`read_status.auto_read`, kept in Python so a window reload doesn't read again), never while a read or a sync runs and
  * never before setup. A stopped or failed read stays as it is; the page offers "↻ Read Spotify". */
@@ -91,11 +89,11 @@ export const inRunOrder = (p: SyncPreview | null): PreviewAction[] => allActions
 
 // ---------- scope: which playlists, folders and kinds are in this run ----------
 /** Left out: the playlists and folders switched off in the browser column (`off`, by their targets: `playlist:<ref>`,
- *  `folder:<path>`, issue 37) and the weekly checks switched off in the panel (remembered, so new ones come in
+ *  `folder:<path>`, issue 37) and the weekly checks switched off in the panel (kept, so new ones come in
  *  switched on). Only the two weekly checks switch as kinds (issue 36): new songs, downloads again and bought files are
- *  left out row by row or per section with the plan's ticks. `legacy`: playlists switched off before issue 37, by
- *  name, until `resolveLegacy` turns them into targets. */
-export type Scope = { off: string[]; kinds: KindKey[]; legacy?: string[] };
+ *  left out row by row or per section with the plan's ticks. The value lives in settings.json (`sync_scope`, issue 39
+ *  V2.5b) and is read and written through the `syncScope` store. */
+export type Scope = { off: string[]; kinds: KindKey[] };
 export const FULL_SCOPE: Scope = { off: [], kinds: [] };
 export const isPlaylistTarget = (t: string): boolean => t.startsWith('playlist:');
 export const isFolderTarget = (t: string): boolean => t.startsWith('folder:');
@@ -131,28 +129,6 @@ export const everyOff = (ordered: PreviewAction[], s: Scope): boolean =>
 export function toggleScope(s: Scope, what: 'off' | 'kinds', v: string): Scope {
   const list = s[what] as string[];
   return { ...s, [what]: list.includes(v) ? list.filter((x) => x !== v) : [...list, v] };
-}
-export function readScope(v: unknown): Scope {
-  const o = (v && typeof v === 'object' ? v : {}) as Partial<Scope> & { folders?: unknown };
-  const strings = (x: unknown) => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string') : []);
-  // a kind left out before issue 36 that no longer has a switch is dropped, so nothing stays out unseen
-  const out: Scope = { off: strings(o.off).filter((t) => isPlaylistTarget(t) || isFolderTarget(t)),
-    kinds: strings(o.kinds).filter((k): k is KindKey => isWeeklyKind(k)) };
-  // before issue 37 the scope held the names of the playlists switched off (`folders`)
-  const legacy = [...strings(o.folders), ...strings(o.legacy)];
-  return legacy.length ? { ...out, legacy } : out;
-}
-/** The playlists switched off before issue 37 (by name) as targets, once the playlists are known: every line with
- *  that name; a name no playlist has any more is dropped (it has no switch). */
-export function resolveLegacy(s: Scope, playlists: readonly { name: string; ref: string }[]): Scope {
-  if (!s.legacy?.length) return s;
-  const names = new Set(s.legacy);
-  const off = [...s.off];
-  for (const p of playlists) {
-    const t = `playlist:${p.ref}`;
-    if (names.has(p.name) && !off.includes(t)) off.push(t);
-  }
-  return { off, kinds: s.kinds };
 }
 
 /** The section a row is listed under: its `folder`, as before, while the collection of that name is on; else the

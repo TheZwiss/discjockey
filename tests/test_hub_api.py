@@ -17,7 +17,7 @@ from discjockey.sources import qobuz as qobuz_source, spotify
 CONTRACT = {
     "dashboard", "sidebar", "sync_preview", "refresh", "stop_refresh", "job_status", "library", "track", "todo",
     "playlists", "limits", "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum",
-    "media_url", "setup_status",
+    "setup_status",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change",
     "start_sync", "stop", "save_playlists", "hide", "never_download", "add_bought_file", "use_candidate",
     "use_link", "reject_current", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo",
@@ -25,14 +25,14 @@ CONTRACT = {
     "show_in_finder", "reveal", "open_report", "open_external", "app_update",
     "setup_check_tools", "setup_save_client_id", "setup_spotify_login", "setup_qobuz_login",
     "open_licenses", "update_tools", "rollback_tools", "quit",
-    "setup_skip_qobuz", "setup_skip_spotify", "setup_account", "setup_check_account", "setup_forget_account", "downloads_view",
+    "setup_skip_qobuz", "setup_skip_spotify", "setup_account", "setup_forget_account", "downloads_view",
     "find_logins", "account_sign_in", "stop_sign_in", "open_privacy_settings", "qobuz_check_login", "spotify_sign_out",
     "pick_folder", "check_music_folder", "set_music_folder", "retry_music_folder",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "keep_file", "setup_skip_import",
     "set_favourites", "set_crate_shown", "set_crates_shown", "set_read_liked_music", "add_liked_music",
-    "set_auto_upgrade", "rekordbox_status", "missing_files_preview", "missing_files",
+    "set_auto_upgrade", "rekordbox_status", "missing_files_preview", "missing_files", "sync_scope", "set_sync_scope",
 }
 READ_ONLY = ["dashboard", "sidebar", "sync_preview", "job_status", "library", "todo", "limits",
              "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches", "watched_folders"]
@@ -341,23 +341,14 @@ def test_runs_and_one_run(root):
     assert api.run("../../etc/passwd")["kind"] == "refused"
 
 
-def test_spectrum_and_media_need_a_file(root):
+def test_spectrum_needs_a_file(root):
     import numpy as np
     api, _ = make_api(root, decode=lambda p: (np.zeros(44100, dtype=np.float32), 44100))
     s = api.spectrum("t2")["spectrum"]
     assert s["cols"] == 400 and s["cutoff_hz"] == 16000 and s["which"] == "current"
     assert api.spectrum("t2", "upgrade")["spectrum"]["cutoff_hz"] is None
     assert api.spectrum("t3")["kind"] == "refused"  # not found: no file
-    assert api.media_url("t2")["kind"] == "refused"  # no media server in this test
     assert api.spectrum("t2", "elsewhere")["kind"] == "refused"
-
-
-def test_media_url_through_the_server(root):
-    from discjockey.hub.media import MediaServer
-    api, _ = make_api(root)
-    api._media = MediaServer(root)
-    url = api.media_url("t2", "upgrade")["url"]
-    assert url.startswith(f"http://127.0.0.1:{api._media.port}/{api._media.token}/Upgrades%20ready/")
 
 
 def test_show_in_finder_reveal_and_links(root):

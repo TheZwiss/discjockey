@@ -140,8 +140,8 @@ DISPATCH: dict[str, str] = {
 
 # The built methods that work without a bound music folder (every other one answers `refused`, `no_library` first): a
 # fact `help --json` lists as the `no_library` reason. tests/test_cli_housekeeping.py runs every built read with none
-# chosen to pin it (`set_auto_upgrade` is a write: probed by hand, it answers `ok` with none chosen).
-NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade"))  # Settings works before a folder is chosen
+# chosen to pin it (`set_auto_upgrade` and `set_sync_scope` are writes: probed by hand, they answer `ok` with none chosen).
+NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope"))  # Settings works before a folder is chosen
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
@@ -310,6 +310,11 @@ ENTRIES: tuple[Entry, ...] = (
     _e("setup_skip_spotify", "login skip", "J", match={"service": "spotify"}),
     _e("set_auto_upgrade", "settings set auto-upgrade", "J", "settings set auto-upgrade off",
        params={"on": _positional(type="bool")}, built=True, locks={"library", "support"}),
+    _e("sync_scope", "sync scope show", "R", "sync scope show", built=True),
+    _e("set_sync_scope", "sync scope off", "J", "sync scope off kind:weekly", params={"off": _positional(many=True)},
+       fixed={"on": []}, built=True, locks={"library", "support"}),
+    _e("set_sync_scope", "sync scope on", "J", "sync scope on kind:weekly", params={"on": _positional(many=True)},
+       fixed={"off": []}, built=True, locks={"library", "support"}),
     _e("setup_check_tools", "tools status", "R", "tools status"),
     _e("update_tools", "tools update", "J"),
     _e("rollback_tools", "tools rollback", "J", needs_yes=True),

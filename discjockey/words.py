@@ -147,6 +147,9 @@ LIKED_MUSIC_LABEL = "Read my Liked music"
 AUTO_UPGRADE_SET = {True: "Upgrade automatically when I sync: on. Nothing moves until the next sync.",
                     False: "Upgrade automatically when I sync: off. The upgrades that are ready wait in your to-do list."}
 
+# The Sync scope's weekly kinds (`sync scope show|on|off`; the Sync page's two weekly switches)
+SCOPE_KIND_LABELS = {"retry": "Not found last time", "weekly": "Weekly checks"}
+
 # Watched folders (`folder add`, `folder remove`): the words of the window's remove question (`removeWords`), and what the
 # command says once the folder is no longer watched
 REMOVAL_FORGETS = "Discjockey forgets its {files}. The files stay where they are."

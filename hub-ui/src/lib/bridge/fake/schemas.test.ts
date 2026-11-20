@@ -84,6 +84,7 @@ const SAMPLE_ARGS: Record<string, Args> = {
   batch_resume: async (b) => [await batchId(b)], batch_undo: async (b) => [await batchId(b)],
   save_playlists: async (b) => [LINES, ((await b.playlists()) as { version: string }).version, null],
   set_read_liked_music: [true], add_liked_music: [], set_auto_upgrade: [true],
+  sync_scope: [], set_sync_scope: [[], ['kind:weekly']],
   setup_account: ['youtube', 'chrome', null], account_sign_in: ['soundcloud', 'chrome', null], qobuz_check_login: [],
   setup_save_client_id: ['0123456789abcdef0123456789abcdef'], setup_spotify_login: [],
   setup_qobuz_login: ['dj@example.com', 'secret'], update_tools: [], rollback_tools: [],
