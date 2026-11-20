@@ -1187,6 +1187,11 @@ Results:
         pageScenarios in fake/console.ts). Also updated the gallery banner example + design-language Start-Hint
         line. Merged b48c5839, pushed. Shots E9 (Sonnet) dispatched: HEAD main checkout, BASE worktree shots-base
         at 831c02d4, exp. ~130k.
+      - Shots E9 (Sonnet): logged 132k (exp. 130k), 42 calls, cache 3.0M, advisor 0k. 11 of 12 states OK (diffs vs
+        BASE only in the banner strip / Sync note); PROBLEM: Setup keeps its own hardcoded console banner
+        (setup/Page.svelte:116), so setup-console / setup-music-console show the old words. Note: the dev FAKE badge
+        overlaps the banner's first letters in every shot (BASE too; dev-only, not shipped). shots-base worktree
+        removed. Fix E9 (Sonnet fix-round, Setup banner from the holder text) dispatched on cli2-fe9, exp. ~60k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
