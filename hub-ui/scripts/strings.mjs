@@ -9,7 +9,7 @@ import { webkit } from 'playwright';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runSteps } from './shot-lib.mjs';
+import { mutePlayback, runSteps } from './shot-lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -56,6 +56,7 @@ function collect() {
 
 const browser = await webkit.launch();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+await mutePlayback(ctx);
 const result = {};
 const shell = new Set();
 let failed = 0;

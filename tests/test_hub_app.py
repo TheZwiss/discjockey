@@ -232,6 +232,17 @@ def no_update_watch(monkeypatch):
     monkeypatch.setattr(HubApi, "_watch_app_update", lambda self, interval=3600.0: None)
 
 
+_FIRST_READ = HubApi._first_read
+
+
+@pytest.fixture(autouse=True)
+def no_first_read(monkeypatch):
+    """app.main ends in HubApi._start, whose first read starts a `hub-refresh-` thread for the Spotify read. Only the
+    test that is about that read lets it run (issue 44: under a loaded parallel run the thread of another test was
+    still working when the teardown check joined it for 5 s)."""
+    monkeypatch.setattr(HubApi, "_first_read", lambda self: None)
+
+
 def test_main_starts_the_update_check(tmp_path, monkeypatch):
     fake_spotify(monkeypatch)
     paths = make_root(tmp_path)
@@ -254,6 +265,7 @@ def test_main_reads_spotify_once_by_itself_when_it_opens(tmp_path, monkeypatch):
     paths = make_root(tmp_path)
     window = FakeWindow()
     seen = []
+    monkeypatch.setattr(HubApi, "_first_read", _FIRST_READ)
     monkeypatch.setattr(HubApi, "refresh", lambda self, auto=False: seen.append(("refresh", auto)) or {"ok": True})
     app.main(Resolved(paths.support, paths, None, paths.root), webview=FakeWebview(window))
     assert seen == [("refresh", True)]  # the session's one automatic read
