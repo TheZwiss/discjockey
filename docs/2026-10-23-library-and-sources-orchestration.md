@@ -1028,6 +1028,10 @@ Results:
       - FIX ROUNDS (Sonnet fix-round, sequential, each from the phase branch): FR3 (C1 M1 I1 I2 M3 M4 M8) → FR1 (S1 S4
         T1 T2 K1-3 D1 D2) → FR4 (I3 M2 M5 M6 M7) → FR2 (S3 S2). Briefs review/FR*.md + fix-common.md. Four, not the
         planned one: 23 stated findings incl. 1 Critical, split by area so each stays ~150-200k.
+      - FR3 done (Sonnet fix-round): logged 101k, 27 calls, cache 1.9M, advisor 0k. Commit 1b4f270d, all 7 fixed
+        (C1 rev now covers source/source_id and the parked version; I1 registry.HOLDING; I2+M3 own id before
+        create, half-made folder removed; M1 M4 M8); pytest 6192/4 skipped; reverting the engine fails 11 new/changed
+        tests. Merged cd8c7353. FR1 dispatched (worktree cli2-f1, feat/cli-2-fix-shapes-check).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
