@@ -27,6 +27,7 @@ from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected, StoredRead
 from ..ops import OpProblem
+from ..pacing import SharedPacer
 from ..problem import Problem
 from . import catalog, outcomes, registry, shapes
 
@@ -447,6 +448,26 @@ class Jobs:
         """Another process's job holds the library lock: a foreign job of the registry that does, else (a holder with
         no registry entry: an older Discjockey) the lock itself held by none of this process's own job or brief save."""
         return self._foreign_holder() is not None or self._console_probe()
+
+    def sync_running(self) -> bool:
+        """Whether a sync of this support folder runs in any process (its accounts are the support folder's, whatever music
+        folder the sync is for): this process's own running job is one, or the registry has a `sync` job that is queued,
+        running or stopping (a queued one is about to send paced downloads: unlike the library holder this counts it; a
+        terminal job's registry kind is its method name until it runs, so `start_sync` counts too), or the library lock
+        is held by a process the registry knows nothing of (an older Discjockey's or the legacy console's sync). What a
+        search or a preview asks before it sends anything; it only refuses, nothing waits on it."""
+        job = self.running()
+        if job is not None and job.kind == "sync":
+            return True
+        if self.registry is not None:
+            try:
+                if any(state.get("status") in registry.ACTIVE and
+                       (state.get("kind") == "sync" or state.get("method") == "start_sync")
+                       for state in self.registry.list(all=True)):
+                    return True
+            except Exception:  # noqa: BLE001  the registry only informs; the library lock is looked at next
+                log.warning("the registry could not be read for a running sync", exc_info=True)
+        return self._foreign_holder() is None and self._console_probe()
 
     def _console_busy(self) -> Busy | None:
         """The `console` Busy for a foreign holder (`data.holder` names it, when the registry knows it), else None."""
@@ -872,7 +893,8 @@ def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken,
 
 
 def sync_work(paths: Paths, planned: Mapping[str, tuple[str, str, str]], selected: Sequence[str],
-              now: Callable[[], datetime] = datetime.now, rekordbox: dict | None = None):
+              now: Callable[[], datetime] = datetime.now, rekordbox: dict | None = None, *,
+              pacer: Callable = SharedPacer):
     """A sync from a plan (issue 39 phase 2): a fresh plan (recovery, .tmp cleanup, new Spotify read), only the actions
     of the plan the user chose, filtered before open_qobuz; nothing left -> finish_quietly. `planned`: the plan's actions
     by their ids (`run.action_ids`) as `(kind, track_id, to_dir)` (`run.action_key`), the plan the person saw
@@ -884,7 +906,8 @@ def sync_work(paths: Paths, planned: Mapping[str, tuple[str, str, str]], selecte
     Auto-upgrade (issue 33 stage C): both ways a sync ends (`execute` after the actions, `finish_quietly` when there
     were none) get the job's Stop token and `rekordbox`, the hub's services for the phase (`running`, `place`,
     `compare`, `now`: HubApi._rekordbox_services; None: the real ones), so Stop reaches a quiet sync's phase too and a
-    test's fake rekordbox is the one the phase asks."""
+    test's fake rekordbox is the one the phase asks. `pacer`: `(support, emit, token)` -> the run's pacer (HubApi's
+    `Services.pacer`: tests give one that never waits)."""
     previewed = set(planned.values())
     ticked = {planned[act] for act in selected}
 
@@ -912,7 +935,7 @@ def sync_work(paths: Paths, planned: Mapping[str, tuple[str, str, str]], selecte
                 step = "signing in to Qobuz"
                 qobuz_source = run.open_qobuz(prep)
                 code, report = run.execute(prep, qobuz_source, emit=ctx.emit, token=ctx.token, where=where,
-                                           rekordbox=rekordbox)
+                                           rekordbox=rekordbox, pacer=pacer(paths.support, ctx.emit, ctx.token))
         except run.RunCrashed as e:  # execute filed the run with its crash note and sent RunFinished
             ctx.failed_result = outcome(1, e.report)
             raise

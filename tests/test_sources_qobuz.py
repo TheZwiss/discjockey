@@ -355,7 +355,7 @@ def test_a_read_touches_no_download_protection(make_reader, monkeypatch):
     """Reads are not downloads: no pacing, no budget, no usage, no auto-stop. The reader is built from the source
     alone, and a failed read is an error to show, never a failure to count."""
     import discjockey.sources.qobuz as module
-    assert not any(hasattr(module, name) for name in ("Pacer", "Budget", "Acquirer", "budget", "pacer"))
+    assert not any(hasattr(module, name) for name in ("Pacer", "SharedPacer", "Budget", "Acquirer", "budget", "pacer"))
     reader, _ = make_reader((200, fixture("playlist_page2.json")), (404, fixture("private.json")))
     reader.fetch(LINE)
     with pytest.raises(SourceError):

@@ -35,7 +35,10 @@ A user's data never sits in the repo and none of it is in git — never test aga
   config), `Library/<Folder>/` (+ `not_lossless/`), `Superseded/`, `Upgrades ready/`, and the hidden `.discjockey/`
   (`library.db`, `state.v1.json` (the old records, kept as a copy after the migration), `reports/`, `not_lossless.md`, the lock).
 - **The support folder** `~/Library/Application Support/Discjockey/`: logins, `settings.json`, `config.json` (names
-  the music folder), caches, `tools/` (updated yt-dlp, spec public-release §6.4). For a developer run against a
+  the music folder), caches, `tools/` (updated yt-dlp, spec public-release §6.4), `pace.json` + `pace.lock` (the one
+  pacing of every Qobuz and account request of this Mac: `pacing.SharedPacer`, an `flock` held only to read and write,
+  never while waiting; the failure streak and its pause live in each service's `usage` row in library.db and end when
+  the next sync starts, in any process). For a developer run against a
   scratch library set `DISCJOCKEY_SUPPORT=<scratch folder>` (Setup then asks for a music folder). Tests point it at a
   temp folder by themselves.
 

@@ -15,6 +15,8 @@ from discjockey.hub.api import HubApi, Services
 from discjockey.library import Paths, empty_state, save_state
 from discjockey.models import FetchedPlaylist, PlaylistInfo, SourceTrack
 from discjockey.planner import ENTRY_KEYS
+from pace_helpers import fast_pacer
+
 
 def cmd(text: str) -> str:
     """A command as the command line prints it in `next[].run` and `person_steps[].then`: behind the program's path."""
@@ -214,6 +216,7 @@ def services(**kw):
                  reveal=calls["reveal"].append, which=lambda tool: f"/opt/homebrew/bin/{tool}",
                  now=lambda: __import__("datetime").datetime(2026, 10, 20, 21, 47),
                  home=Path("/nonexistent-home"),  # never the real browsers
+                 pacer=fast_pacer,  # the pacing logic on a clock that only moves when it waits
                  open_in=lambda browser, url, profile=None: calls["open_in"].append((browser, url, profile)))
     for k, v in kw.items():
         setattr(s, k, v)

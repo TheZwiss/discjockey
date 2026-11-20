@@ -45,7 +45,7 @@ from ..acquire import make_ready
 from ..candidates import current_key
 from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
-from ..events import BatchProgress, Cancelled, CancelToken, Result
+from ..events import BatchProgress, Cancelled, CancelToken, Result, no_emit
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatchRow, BatchResult, BatchRow, Candidate,
                       PlaylistLine,
                       PlaylistRecord, ReadHead, SaveChoice, SourceTrack, WatchedFolder, file_missing, token)
@@ -53,7 +53,7 @@ from ..names import fold, search_fold
 from ..words import SCAN_OLDER, preview_words, rekordbox_words
 from ..ops import OpProblem
 from .. import pending_signs, words as engine_words
-from ..pacing import Budget
+from ..pacing import Budget, SharedPacer, streak_stopped
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
 from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, SettingsError, extra_json, is_scope_target,
                         load_settings, update_settings_held)
@@ -95,6 +95,7 @@ CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any m
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
 NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove",
                          "missing download", "missing remove"))  # run on what is there when --yes comes: no plan to run
+QOBUZ_PAUSED_NOTE = "Qobuz was not searched: it is paused after 3 failed requests in a row."
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_FILE = "There is no file at {path}."
@@ -152,6 +153,7 @@ class Services:
     analyze: Callable = quality.inspect
     probe: Callable = quality.probe  # ffprobe's answer for one file: the facts a fill or a dry run reads
     process: Callable = make_ready
+    pacer: Callable = SharedPacer  # (support folder, emit, token) -> the pacer of a sync's or "Use this"'s requests
     compare: Callable = align.compare_files
     timeline_offset: Callable = rekordbox.timeline_offset  # where rekordbox's timeline sits for a file (New track)
     # whether rekordbox runs and where its library is (late-bound: tests and the fake never touch a real one)
@@ -447,10 +449,6 @@ class HubApi:
         self._lock = threading.Lock()
         self._auto_lock = threading.Lock()
         self._quit: Callable[[], None] | None = None  # set by app.main: closes the window
-        # the Qobuz auto-stop for "Use this" and links: one failure streak for the whole hub session (reset when a
-        # sync starts), not one per job, so that failed downloads in a row do pause Qobuz
-        self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
-        self._account_streaks: dict[str, dict] = {}  # service -> the same, for "Use this" through an account
         # the user stopping an import is in library.db (`import_state`: every process reads it): the import starts by
         # itself no more until Continue import (D14). Only the window's automatic start once per session is kept here
         self._import_auto_done = False  # the window's automatic start has run (or had nothing to do) this session
@@ -1692,9 +1690,9 @@ class HubApi:
     # --- what the network reads and the write jobs share ---
 
     def _no_sync_running(self) -> None:
-        """Searches and previews would send unpaced requests next to a paced sync (the hub's or the console's)."""
-        job = self._jobs.running()
-        if (job is not None and job.kind == "sync") or self._jobs.console_running():
+        """Searches and previews would send requests next to a paced sync of this support folder (this window's, a
+        terminal's or the console's): `Jobs.sync_running`."""
+        if self._jobs.sync_running():
             raise Busy(SYNC_RUNNING, "sync_running")
 
     def _spotify_track(self, track_id: str, e: dict) -> SourceTrack:
@@ -1713,32 +1711,13 @@ class HubApi:
             raise OpProblem(f"Could not log in to Qobuz: {login_problem(e)}", "failed") from None
 
     def _budget(self, state: dict) -> Budget:
-        """Today's Qobuz budget, carrying this session's failure streak."""
-        budget = Budget(state, lambda: library.save_state(self._paths, state), self._settings())
-        with self._lock:
-            for name, value in self._qobuz_streak.items():
-                setattr(budget, name, value)
-        return budget
-
-    def _keep_streak(self, budget: Budget) -> None:
-        with self._lock:
-            self._qobuz_streak = {name: getattr(budget, name) for name in self._qobuz_streak}
+        """Today's Qobuz budget (it carries the stored failure streak: a Qobuz that failed three times in a row, in any
+        process, stays paused until the next sync starts)."""
+        return Budget(state, lambda: library.save_state(self._paths, state), self._settings())
 
     def _account_budgets(self, state: dict) -> dict[str, Budget]:
-        """Today's budget of each account that is set up, carrying this session's failure streak (a paused account
-        stays paused for "Use this" until the next sync)."""
-        accounts = run.account_budgets(state, lambda: library.save_state(self._paths, state),
-                                       self._settings())
-        with self._lock:
-            for service, budget in accounts.items():
-                for name, value in self._account_streaks.get(service, {}).items():
-                    setattr(budget, name, value)
-        return accounts
-
-    def _keep_account_streaks(self, accounts: dict[str, Budget]) -> None:
-        with self._lock:
-            for service, budget in accounts.items():
-                self._account_streaks[service] = {name: getattr(budget, name) for name in self._qobuz_streak}
+        """Today's budget of each account that is set up (a paused account stays paused until the next sync)."""
+        return run.account_budgets(state, lambda: library.save_state(self._paths, state), self._settings())
 
     def _single(self, kind: str, track_id: str, do, expect: str | None = None) -> dict:
         """A single operation as a write job (spec 6.7): recovery first, precondition (the record's `rev` is `expect`,
@@ -1768,10 +1747,9 @@ class HubApi:
                 return ops.use_candidate(self._paths, state, track_id, cand, qobuz=qobuz, fallback=fallback,
                                          budget=budget, track=self._spotify_track(track_id, e), emit=ctx.emit,
                                          token=ctx.token, process=self._svc.process, accounts=accounts,
-                                         now=self._svc.now)
+                                         now=self._svc.now,
+                                         pacer=self._svc.pacer(self._paths.support, ctx.emit, ctx.token))
             finally:
-                self._keep_streak(budget)
-                self._keep_account_streaks(accounts)
                 if qobuz is not None:
                     qobuz.close()
         return self._single(find.kind, track_id, do, expect)
@@ -2061,19 +2039,25 @@ class HubApi:
     @bridge
     def search_candidates(self, track_id: str) -> dict:
         self._no_sync_running()
-        e = self._entry(self._state(), track_id)
+        state = self._state()
+        e = self._entry(state, track_id)
         track = self._spotify_track(track_id, e)
         notes = []
-        try:
-            qobuz = self._svc.open_qobuz(self._support)
-        except QobuzNotSetUp:
-            qobuz = None  # candidates.search says so itself
-        except QobuzError as err:
+        if streak_stopped(state):  # paused after failed requests in a row (any process's): not asked at all
             qobuz = None
-            notes.append(f"Qobuz was not searched: {login_problem(err)}")
+            notes.append(QOBUZ_PAUSED_NOTE)
+        else:
+            try:
+                qobuz = self._svc.open_qobuz(self._support)
+            except QobuzNotSetUp:
+                qobuz = None  # candidates.search says so itself
+            except QobuzError as err:
+                qobuz = None
+                notes.append(f"Qobuz was not searched: {login_problem(err)}")
         try:
+            pacer = self._svc.pacer(self._paths.support, no_emit, CancelToken())
             found, more = candidates.search(track, e, qobuz, self._svc.fallback(),
-                                            skip=candidates.protected(self._paths))
+                                            skip=candidates.protected(self._paths), pace=pacer.before_qobuz_search)
         finally:
             if qobuz is not None:
                 qobuz.close()
@@ -2118,10 +2102,7 @@ class HubApi:
             if not isinstance(act, str) or act not in planned:
                 raise ValueError(f"{act!r} is not an action of the plan {plan_id}.")
         job = self._jobs.start("sync", sync_work(self._paths, planned, chosen, self._svc.now,
-                                                 self._rekordbox_services()))
-        with self._lock:  # the sync has its own auto-stop; "Use this" starts a new streak after it
-            self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
-            self._account_streaks = {}
+                                                 self._rekordbox_services(), pacer=self._svc.pacer))
         return {"job_id": job.id}
 
     @bridge

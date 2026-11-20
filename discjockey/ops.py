@@ -30,7 +30,7 @@ from .fallback import short_error
 from .library import NameReserver, Paths, delete_parked, full_fsync, run_op
 from .models import Action, Candidate, FileAudio, Protected, SourceTrack, track_of
 from .names import expected_stem, split_name, strip_id_suffix
-from .pacing import NoPacer
+from .pacing import SharedPacer
 from .planner import replacement_dir, superseded_dir
 from .problem import Problem
 
@@ -278,24 +278,34 @@ def refusal(paths: Paths, e: dict, cand: Candidate | None, budget, qobuz: bool) 
     return None
 
 
-def _premium(cand: Candidate, service: str, account, fallback, track: SourceTrack, emit: Emit) -> bool:
+def _premium(cand: Candidate, service: str, account, fallback, track: SourceTrack, emit: Emit, pacer) -> bool:
     """Before "Use this" downloads through an account: its formats, listed through the login exactly like in a run
     (Acquirer.premium: the same warning signs, and the same "premium_missing" when there's no ~256 kbps stream).
-    It's the operation's first logged-in request, so no protection pause comes before it, as in a run."""
-    return Acquirer(None, fallback, None, NoPacer(), make_ready, emit=emit,
-                    accounts={service: account}).premium(cand, service, track)
+    The listing waits for the account's protection pause like any other request of the service (`pacer`, shared with
+    every process), and is one claim with the download that follows: it ends here when the answer is no (the free
+    stream is taken then), else with the download."""
+    pause = Acquirer(None, fallback, None, pacer, make_ready, emit=emit, accounts={service: account})
+    pacer.between_account_downloads(service)
+    answer = False
+    try:
+        answer = pause.premium(cand, service, track)
+    finally:
+        if answer is not True:
+            pacer.downloaded(service)
+    return answer is True
 
 
 def use_candidate(paths: Paths, state: dict, track_id: str, cand: Candidate, *, qobuz, fallback, budget,
                   track: SourceTrack | None = None, emit: Emit = no_emit, token: CancelToken | None = None,
                   process: Callable = make_ready, accounts: dict | None = None,
-                  now: Callable[[], datetime] = datetime.now) -> Result:
+                  now: Callable[[], datetime] = datetime.now, pacer=None) -> Result:
     """"Use this" (or a pasted link): download exactly this version, check its length, convert, analyse and place it
     through run_op. The previous file goes to Superseded/ and its source is never used again for this track. A Qobuz
     download counts toward today's limit and the failure streak like any other (`budget`); a YouTube Music or SoundCloud
     version goes through its account (`accounts`: service -> Budget) while that has downloads left today and its
     formats show a ~256 kbps stream through the login; otherwise it is the free stream. `track`: the track as last read
-    from Spotify (album and cover for the tags), else what state.json knows."""
+    from Spotify (album and cover for the tags), else what state.json knows. `pacer`: the Qobuz download and the account's
+    listing and download wait for their protection pause on it, as in a sync (default: this Mac's `SharedPacer`)."""
     e = state["tracks"][track_id]
     problem = refusal(paths, e, cand, budget, cand.source == "qobuz")
     if problem:
@@ -311,17 +321,26 @@ def use_candidate(paths: Paths, state: dict, track_id: str, cand: Candidate, *, 
     old_dst = _superseded_name(paths, state, track_id, e) if e.get("path") else None
     track = track or track_of(track_id, e)
     token = token or CancelToken()
+    pacer = pacer or SharedPacer(paths.support, emit, token)
     tracker = Tracker(emit, token, track_id)
     workdir = paths.tmp / track_id
     workdir.mkdir(parents=True, exist_ok=True)
     try:
         tracker.emit(SourceChosen(track_id, cand.source, "chosen", cand.title, cand.duration_s))
-        if account is not None and not _premium(cand, service, account, fallback, track, emit):
+        if account is not None and not _premium(cand, service, account, fallback, track, emit, pacer):
             account = None  # no ~256 kbps stream through the login: the free stream, without using up the account
-        tracker.step("download")
+        claimed = service if account is not None else None  # the claim this download ends (an account's was made above)
         try:
-            downloaded = source.download(cand, workdir, **({"account": True} if account else {}),
-                                         progress=lambda done, total: tracker.progress(done, total, "bytes"))
+            try:
+                if cand.source == "qobuz":
+                    pacer.between_qobuz_downloads()
+                    claimed = "qobuz"
+                tracker.step("download")
+                downloaded = source.download(cand, workdir, **({"account": True} if account else {}),
+                                             progress=lambda done, total: tracker.progress(done, total, "bytes"))
+            finally:
+                if claimed:
+                    pacer.downloaded(claimed)
         except Protected:
             mark_protected(paths, cand.key)
             raise  # the page says so plainly (problem "protected") and takes the version off the list

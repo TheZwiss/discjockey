@@ -1,14 +1,21 @@
-"""Human-like pauses between downloads, and the usage model of each account service (daily limit, carry-over,
-auto-stop)."""
+"""Human-like pauses between requests to the accounts (one pacer for every process of this Mac: `SharedPacer`), and
+the usage model of each account service (daily limit, carry-over, auto-stop, kept in the service's `usage` row)."""
 from __future__ import annotations
 
+import fcntl
+import json
+import math
+import os
 import random
 import time
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Callable
 
 from .accounts import ACCOUNTS, SERVICE_NAMES
 from .events import CancelToken, Emit, Waiting, no_emit
+from .library import write_json_atomic
 from .settings import Settings
 
 KEEP_DAYS = 60
@@ -48,13 +55,22 @@ def paused_accounts(state: dict, today: date) -> frozenset[str]:
     return frozenset(s for s in ACCOUNTS if account_paused(state, s, today))
 
 
+def streak_stopped(state: dict, service: str = "qobuz") -> bool:
+    """Whether `service` is paused by the auto-stop (a stored streak with `stopped`): what a search outside a sync reads
+    before it asks the service anything. Pure."""
+    streak = state.get(f"{service}_usage", {}).get("streak")
+    return isinstance(streak, dict) and streak.get("stopped") is True
+
+
 class Budget:
     """How many downloads one service (Qobuz, YouTube Premium, SoundCloud Go+) may make today.
 
     Allowance = daily limit + carry-over + one-time extra. Carry-over: whatever of yesterday's limit was not used,
     at most a third of the limit (60/day -> up to 80 after a quiet day). Unused days are never banked further,
     because one big burst after a break looks more like a bot than steady use.
-    After AUTO_STOP_AFTER failed searches/downloads in a row, the service is paused for the rest of this run.
+    After AUTO_STOP_AFTER failed searches/downloads in a row, the service is paused until the next sync starts
+    (`run.clear_streaks`), for every process: the row of failures is the service's `usage` row's `streak`, loaded
+    here and saved with every change, under the caller's library lock.
     A successful download ends the row; a successful search ends it only if no download in it failed, because
     every track starts with a search and a working search does not show that the service lets us download.
     """
@@ -64,9 +80,17 @@ class Budget:
                  service: str = "qobuz"):
         self.state, self.save, self.settings, self.today, self.now = state, save, settings, today, now
         self.service, self.name = service, SERVICE_NAMES[service]
-        self.failures_in_a_row = 0
-        self.download_failed_in_row = False
-        self.stopped = False
+        streak = state.get(f"{service}_usage", {}).get("streak")
+        streak = streak if isinstance(streak, dict) else {}
+        failures = streak.get("failures_in_a_row")
+        self.failures_in_a_row = failures if isinstance(failures, int) and not isinstance(failures, bool) else 0
+        self.download_failed_in_row = streak.get("download_failed_in_row") is True
+        self.stopped = streak.get("stopped") is True
+
+    def _keep_streak(self) -> None:
+        usage(self.state, self.service)["streak"] = {"failures_in_a_row": self.failures_in_a_row,
+                                                     "download_failed_in_row": self.download_failed_in_row,
+                                                     "stopped": self.stopped}
 
     def _days(self) -> dict:
         return usage(self.state, self.service)["days"]
@@ -106,13 +130,16 @@ class Budget:
             del days[day]
         self.failures_in_a_row = 0
         self.download_failed_in_row = False
+        self._keep_streak()
         self.save()
 
     def succeeded(self) -> None:
         """A search (or a format listing) worked (see the class docstring for why it does not end a row of failed
-        downloads)."""
-        if not self.download_failed_in_row:
+        downloads). Saved only when it ended a row: a working search must not write library.db every time."""
+        if not self.download_failed_in_row and self.failures_in_a_row:
             self.failures_in_a_row = 0
+            self._keep_streak()
+            self.save()
 
     def failed(self, message: str, kind: str = "download_rejected") -> None:
         """A search or download failed. kind: a warning sign of this service (record_signal)."""
@@ -123,7 +150,8 @@ class Budget:
         if self.failures_in_a_row >= AUTO_STOP_AFTER and not self.stopped:
             self.stopped = True
             record_signal(self.state, "auto_stop", f"{AUTO_STOP_AFTER} {self.name} requests failed in a row; "
-                                                   f"{self.name} paused for this run.", self.now(), self.service)
+                                                   f"{self.name} paused until the next sync.", self.now(), self.service)
+        self._keep_streak()
         self.save()
 
     def note(self, kind: str, message: str) -> None:
@@ -143,49 +171,210 @@ class Budget:
         return f"{self.name} today: {self.used_today()} of {self.allowance()} used{detail}."
 
 
-class Pacer:
-    def __init__(self, emit: Emit = no_emit, token: CancelToken | None = None,
-                 sleep: Callable[[float], None] = time.sleep, rng: random.Random | None = None):
-        self.emit, self.token, self.sleep = emit, token or CancelToken(), sleep
+PACE_FILE, PACE_LOCK = "pace.json", "pace.lock"  # in the support folder: the accounts belong to it, not to a library
+SEARCH_GAP = (2, 5)  # seconds between two Qobuz requests of this Mac
+DOWNLOAD_GAP = (20, 60)  # seconds from the end of a download of an account service to the start of the next
+BREAK_GAP = (120, 300)  # the gap that replaces it after BREAK_EVERY downloads
+BREAK_EVERY = (10, 15)  # downloads of one service between two breaks (drawn again after each)
+IDLE_RESTARTS_COUNT_S = 600  # a service without a download for this long starts counting toward its break again
+IN_FLIGHT_STALE_S = 1800  # a claimed download that has not ended after this long is taken as lost
+WATCH_STEP_S = 1.0  # how often a wait looks at the file again (and at Stop)
+CLOCK_SKEW_S = 60  # the wall clock stepped back: a stored time further ahead than this is not believed
+
+
+def _number(value: object) -> float | None:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) \
+        else None
+
+
+class SharedPacer:
+    """The pacing of every request that could make Qobuz or an account service doubt the account, for all processes of
+    this Mac (design §7.5): one `<support>/pace.json`, read and written under an exclusive `flock` of `<support>/pace.lock`
+    that is held only for that, never while waiting. Per service the file holds the time of its last request
+    (Qobuz searches), the end of its last download, the download that has been claimed and not yet ended
+    (`in_flight`: the process's pid and the time) and the count toward the next break.
+
+    A search takes a slot 2-5 s after the previous Qobuz request. A download of Qobuz, YouTube Premium or SoundCloud Go+
+    is claimed (`between_*`) once the gap since the previous download's end has passed, 20-60 s, or a 2-5 minute break
+    after every 10-15 downloads of that service, and ended with `downloaded(service)`: the gap counts from there, so
+    two processes asking at once start a gap apart. A claim of another live process (its pid answers, under 30
+    minutes old) leaves the end, and so the gap's target, unknown: the wait looks again every second. Free YouTube and
+    SoundCloud downloads keep their 3-8 s in this process only (`between_fallback_downloads`): they protect no account.
+
+    Every `between_*` that returns must be followed by `downloaded` for the same service (a `finally`), and none whose
+    wait ended in Cancelled has a claim to end. `clock` is the wall clock (times are shared by processes), `sleep` waits
+    one step."""
+
+    def __init__(self, support: Path, emit: Emit = no_emit, token: CancelToken | None = None, *,
+                 sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.time,
+                 rng: random.Random | None = None):
+        self.support = Path(support)
+        self.emit, self.token, self.sleep, self.clock = emit, token or CancelToken(), sleep, clock
         self.rng = rng or random.Random()
-        self.since_break = 0
-        self.next_break = self.rng.randint(10, 15)
-        self.account_breaks: dict[str, list[int]] = {}
+
+    # --- the file ---
+
+    @contextmanager
+    def _locked(self):
+        """Yields the `services` of pace.json (each one complete) under the exclusive lock, and writes the file back
+        when the block changed it, or when it could not be read (an unreadable file counts as empty and is rewritten).
+        Nothing is written when the block raises."""
+        self.support.mkdir(parents=True, exist_ok=True)
+        with open(self.support / PACE_LOCK, "a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            data, readable = self._read()
+            before = json.dumps(data, sort_keys=True)
+            yield data["services"]
+            if not readable or json.dumps(data, sort_keys=True) != before:
+                write_json_atomic(self.support / PACE_FILE, data)
+
+    def _read(self) -> tuple[dict, bool]:
+        """(the file's content with every service complete, whether the file was readable). No file is readable and empty."""
+        try:
+            raw = json.loads((self.support / PACE_FILE).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {"v": 1, "services": {}}, True
+        except (OSError, ValueError):
+            return {"v": 1, "services": {}}, False
+        services = raw.get("services") if isinstance(raw, dict) and raw.get("v") == 1 else None
+        if not isinstance(services, dict):
+            return {"v": 1, "services": {}}, False
+        return {"v": 1, "services": {name: self._complete(entry) for name, entry in services.items()
+                                     if isinstance(name, str)}}, True
+
+    def _complete(self, entry: object) -> dict:
+        """One service's record with every field there and of its type (what could not be read is as if never set)."""
+        entry = entry if isinstance(entry, dict) else {}
+        flight = entry.get("in_flight")
+        pid, since = (flight.get("pid"), _number(flight.get("since"))) if isinstance(flight, dict) else (None, None)
+        held = {"pid": pid, "since": since} if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0 \
+            and since is not None else None
+        count, due = entry.get("since_break"), entry.get("next_break")
+        return {"last_request_at": _number(entry.get("last_request_at")),
+                "last_download_end_at": _number(entry.get("last_download_end_at")),
+                "in_flight": held,
+                "since_break": count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else 0,
+                "next_break": due if isinstance(due, int) and not isinstance(due, bool) and due > 0
+                else self.rng.randint(*BREAK_EVERY)}
+
+    def _service(self, services: dict, name: str) -> dict:
+        if name not in services:
+            services[name] = self._complete(None)
+        return services[name]
+
+    def _blocked_by(self, flight: dict | None, now: float) -> bool:
+        """Whether `flight` is a download of another process that is still going on."""
+        if flight is None or flight["pid"] == os.getpid() or now - flight["since"] >= IN_FLIGHT_STALE_S:
+            return False
+        try:
+            os.kill(flight["pid"], 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:  # it exists, and is another user's
+            return True
+        except OSError:
+            return False
+        return True
+
+    # --- the requests ---
 
     def before_qobuz_search(self) -> None:
-        self.wait(self.rng.uniform(2, 5), "search", "Short pause before searching Qobuz", "qobuz")
+        """Reserves the next slot 2-5 s after the previous Qobuz request (any process's: search or download) and waits
+        for it."""
+        with self._locked() as services:
+            now = self.clock()
+            s = self._service(services, "qobuz")
+            last = s["last_request_at"]
+            slot = now if last is None else max(now, min(last, now + CLOCK_SKEW_S) + self.rng.uniform(*SEARCH_GAP))
+            s["last_request_at"] = slot
+        self._wait_until(slot, slot - now, "search", "Short pause before searching Qobuz", "qobuz")
 
     def between_qobuz_downloads(self) -> None:
-        self.wait(self.rng.uniform(20, 60), "between", "Protection pause between Qobuz downloads", "qobuz")
-        self.since_break += 1
-        if self.since_break >= self.next_break:
-            self.wait(self.rng.uniform(120, 300), "break", "Longer break so the account looks less like a bot", "qobuz")
-            self.since_break = 0
-            self.next_break = self.rng.randint(10, 15)
+        self._claim("qobuz", "Protection pause between Qobuz downloads",
+                    "Longer break so the account looks less like a bot")
 
     def between_account_downloads(self, service: str) -> None:
-        """Qobuz's protection for YouTube Premium and SoundCloud Go+: 20-60 s, and a 2-5 min break every 10-15
-        downloads, counted per service."""
+        """YouTube Premium and SoundCloud Go+ get Qobuz's protection: 20-60 s, and a 2-5 min break every 10-15
+        downloads, counted per service (a format listing is a logged-in request too and is one claim with its download)."""
         name = SERVICE_NAMES[service]
-        self.wait(self.rng.uniform(20, 60), "between", f"Protection pause between {name} downloads", service)
-        if service not in self.account_breaks:
-            self.account_breaks[service] = [0, self.rng.randint(10, 15)]
-        count = self.account_breaks[service]
-        count[0] += 1
-        if count[0] >= count[1]:
-            self.wait(self.rng.uniform(120, 300), "break", f"Longer break so your {name} account looks less like a bot",
-                      service)
-            self.account_breaks[service] = [0, self.rng.randint(10, 15)]
+        self._claim(service, f"Protection pause between {name} downloads",
+                    f"Longer break so your {name} account looks less like a bot")
 
     def between_fallback_downloads(self) -> None:
         self.wait(self.rng.uniform(3, 8), "fallback", "Pause before the next YouTube/SoundCloud download")
 
+    def downloaded(self, service: str) -> None:
+        """The download (or format listing) that the last `between_*` for `service` started has ended, whatever came of
+        it: the next gap counts from now, and this process's claim is let go."""
+        with self._locked() as services:
+            s = self._service(services, service)
+            s["last_download_end_at"] = self.clock()
+            if s["in_flight"] is not None and s["in_flight"]["pid"] == os.getpid():
+                s["in_flight"] = None
+
+    def _claim(self, service: str, label: str, break_label: str) -> None:
+        """Waits until the download may start, then claims it (`in_flight`). The gap is drawn once, here; a break is
+        due (and is the gap) when this claim would be the 10th-15th since the last one."""
+        with self._locked() as services:
+            s = self._service(services, service)
+            end = s["last_download_end_at"]
+            if end is not None and self.clock() - end > IDLE_RESTARTS_COUNT_S:
+                s["since_break"] = 0  # ten minutes without a download count as the break
+            due = s["since_break"] + 1 >= s["next_break"]
+        kind, label = ("break", break_label) if due else ("between", label)
+        gap = self.rng.uniform(*(BREAK_GAP if due else DOWNLOAD_GAP))
+        waited = False
+        while True:
+            self.token.check()
+            wait = None  # seconds to the next look: the target is known, or the claim of another process is unknown
+            with self._locked() as services:
+                now = self.clock()
+                s = self._service(services, service)
+                if self._blocked_by(s["in_flight"], now):
+                    wait, left = WATCH_STEP_S, gap
+                else:
+                    end = s["last_download_end_at"]
+                    left = 0.0 if end is None else min(end, now) + gap - now
+                    if left > 0:
+                        wait = min(WATCH_STEP_S, left)
+                    else:
+                        s["in_flight"] = {"pid": os.getpid(), "since": now}
+                        s["since_break"] += 1
+                        if s["since_break"] >= s["next_break"]:
+                            s["since_break"], s["next_break"] = 0, self.rng.randint(*BREAK_EVERY)
+                        if service == "qobuz":  # a download is a request too: a search follows it 2-5 s later
+                            s["last_request_at"] = max(now, s["last_request_at"] or now)
+            if wait is None:
+                if waited:
+                    self.emit(Waiting(kind, label, 0.0, gap, service))
+                return
+            waited = True
+            self.emit(Waiting(kind, label, left, gap, service))
+            self.sleep(wait)
+
+    # --- waiting ---
+
+    def _wait_until(self, target: float, total: float, kind: str, label: str, service: str) -> None:
+        """Counts down to `target` on the wall clock, a step a second, looking at Stop before each (nothing at all when
+        there is nothing to wait for)."""
+        remaining = target - self.clock()
+        if remaining <= 0:
+            return
+        while remaining > 0:
+            self.token.check()
+            self.emit(Waiting(kind, label, remaining, total, service))
+            self.sleep(min(WATCH_STEP_S, remaining))
+            remaining = target - self.clock()
+        self.emit(Waiting(kind, label, 0.0, total, service))
+        self.token.check()
+
     def wait(self, seconds: float, kind: str, label: str, service: str = "") -> None:
+        """A pause of this process alone (no file): the countdown of `Waiting` events, a step a second."""
         remaining = seconds
         while remaining > 0:
             self.token.check()
             self.emit(Waiting(kind, label, remaining, seconds, service))
-            step = min(1.0, remaining)
+            step = min(WATCH_STEP_S, remaining)
             self.sleep(step)
             remaining -= step
         self.emit(Waiting(kind, label, 0.0, seconds, service))
@@ -193,6 +382,8 @@ class Pacer:
 
 
 class NoPacer:
+    """The tests' pacer that never waits (product code builds a SharedPacer)."""
+
     def before_qobuz_search(self) -> None:
         pass
 
@@ -203,4 +394,7 @@ class NoPacer:
         pass
 
     def between_account_downloads(self, service: str) -> None:
+        pass
+
+    def downloaded(self, service: str) -> None:
         pass

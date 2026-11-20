@@ -31,7 +31,7 @@ from .hub import views
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
 from .models import Action, FetchedPlaylist, LoadedRead, Plan, PlaylistInfo, PlaylistLine, StoredRead, file_missing, split_token
-from .pacing import Budget, Pacer, paused_accounts, record_signal
+from .pacing import Budget, SharedPacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .rekordbox import process
 from .rekordbox.locate import locate
@@ -481,6 +481,14 @@ def account_budgets(state: dict, save: Callable[[], None], settings: Settings) -
     return {s: Budget(state, save, settings, service=s) for s in ACCOUNTS if s in settings.download_accounts}
 
 
+def clear_streaks(state: dict) -> None:
+    """The pause after failed requests in a row ends when a sync starts, in any process (design §7.5): every service's
+    stored streak goes. The caller holds the library lock and saves."""
+    for key, row in state.items():
+        if key.endswith("_usage") and isinstance(row, dict):
+            row.pop("streak", None)
+
+
 def budget_text(prep: Prepared) -> str:
     lines = [] if prep.settings.qobuz_skipped else [Budget(prep.state, lambda: None, prep.settings).describe()]
     lines += [b.describe() for b in account_budgets(prep.state, lambda: None, prep.settings).values()]
@@ -554,6 +562,8 @@ def finish_quietly(prep: Prepared, emit: Emit = no_emit, token: CancelToken | No
     not_lossless.md, write the report. Stop or Ctrl-C during the phase ends it with exit code 130; an unexpected
     error in it is filed like execute's (the report holds the crash note, RunFinished is sent, RunCrashed raised)."""
     token = token or CancelToken()
+    clear_streaks(prep.state)  # a sync with nothing to download is still the next sync the person started
+    library.save_state(prep.paths, prep.state)
     fill_kbps(prep.state, FallbackSource(emit=emit), emit)
     code, crash = 0, None
     try:
@@ -675,11 +685,14 @@ def action_step(event: ActionStarted) -> str:
 
 def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken | None = None,
             limit: int | None = None, verbose: bool = False,
-            where: Callable[[str], str] | None = None, rekordbox: dict | None = None) -> tuple[int, Path]:
+            where: Callable[[str], str] | None = None, rekordbox: dict | None = None,
+            pacer: SharedPacer | None = None) -> tuple[int, Path]:
     """Runs the plan, then the Auto-upgrade phase, `auto_upgrade.run_phase` (the switch on, or placements to make for
     songs the user asked to download again: the planner has saved their playlist folders by then): only when the plan ran to
     its end, never after Stop, Ctrl-C or a crash (`rekordbox` as for `upgrade_phase`). Returns (exit code, report
     path); 130 when stopped through the token (or a KeyboardInterrupt), also during the phase.
+    `pacer`: the pacing of the run's Qobuz and account requests (default: this Mac's `SharedPacer`, shared with every other
+    process); the run's start ends the pause an earlier run's failed requests in a row left (`clear_streaks`).
     State, not_lossless.md and the report are always written, whatever happens. An unexpected error files the run
     with a crash note as its report (exit code 1, RunFinished sent) and raises RunCrashed."""
     token = token or CancelToken()
@@ -695,6 +708,7 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
     def save() -> None:
         library.save_state(paths, state)
 
+    clear_streaks(state)
     save()
     if qobuz:
         qobuz.check = token.check  # a stalled Qobuz request still reacts to Stop
@@ -702,7 +716,8 @@ def execute(prep: Prepared, qobuz, *, emit: Emit = no_emit, token: CancelToken |
     accounts = account_budgets(state, save, prep.settings)
     fallback = FallbackSource(verbose=verbose, emit=emit, check=token.check,
                               logins={s: (a.browser, a.profile) for s, a in prep.settings.download_accounts.items()})
-    acquirer = Acquirer(qobuz, fallback, budget, Pacer(emit, token), make_ready, emit=emit, accounts=accounts)
+    acquirer = Acquirer(qobuz, fallback, budget, pacer or SharedPacer(paths.support, emit, token), make_ready,
+                        emit=emit, accounts=accounts)
     executor = Executor(paths, state, prep.log, acquirer, quality.inspect, emit=tracking, token=token, limit=limit,
                         where=where)
     code, crash = 0, None

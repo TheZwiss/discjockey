@@ -408,7 +408,10 @@ Shape: `UndoPreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjock
 
 `search_candidates(track_id)` — the versions the sources offer for a song. The current version is first (`current: true`,
 "you marked it as wrong" when `rejected`); colour `length_diff_s` green within ±3 s. Send a Candidate back unchanged to
-`preview` / `use_candidate`.
+`preview` / `use_candidate`. Each Qobuz request waits its slot in the one pacing of this Mac (2-5 s after the previous Qobuz
+request of any process); a Qobuz that three failed requests in a row paused (until the next sync starts, in any process)
+is not asked at all: `notes` says "Qobuz was not searched: it is paused after 3 failed requests in a row." A search never
+changes that streak. "Any sync" is any process's (the registry, a queued one too), whatever music folder it is for.
 Shape: `Candidates` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 `preview(track_id, candidate)` — 30 s AIFF for youtube_music/soundcloud/youtube only (`can_preview`); qobuz → refused

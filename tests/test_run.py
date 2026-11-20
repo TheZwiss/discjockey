@@ -19,6 +19,7 @@ from discjockey.events import (
     ActionFinished, BatchProgress, Cancelled, CancelToken, Message, ReadingPlaylist, Result, RunFinished,
 )
 from discjockey.library import Paths, empty_state, save_state
+from discjockey.pacing import SharedPacer
 from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack, StoredRead
 from discjockey.report import RunLog
 from discjockey.settings import Account, Settings, save_settings
@@ -471,6 +472,51 @@ def test_a_free_youtube_login_is_not_handed_to_downloads(paths, monkeypatch):
     assert seen["fallback"]["logins"] == {"soundcloud": ("firefox", None)}  # no cookies for YouTube
     assert list(seen["accounts"]) == ["soundcloud"]  # no YouTube budget: no usage row, no limit, no auto-stop
     assert [line.split(" today")[0] for line in run.budget_text(prep).splitlines()] == ["Qobuz", "SoundCloud Go+"]
+
+
+STOPPED = {"failures_in_a_row": 3, "download_failed_in_row": True, "stopped": True}
+
+
+def stop_services(paths):
+    """Qobuz and YouTube stored as paused by the auto-stop (a failed run, in any process)."""
+    state = library.open_state(paths)
+    for service in ("qobuz", "youtube"):
+        state[f"{service}_usage"] = {"days": {}, "signals": [], "streak": dict(STOPPED)}
+    library.save_state(paths, state)
+
+
+def test_execute_ends_the_pause_of_an_earlier_run_before_any_download(paths, monkeypatch):
+    save_settings(paths.settings_file, Settings(accounts={"youtube": Account("chrome", 30)}))
+    stop_services(paths)
+    seen = {}
+
+    def acquirer(qobuz, fallback, budget, pacer, *a, **kw):
+        seen.update(qobuz=budget.stopped, youtube=kw["accounts"]["youtube"].stopped, pacer=pacer)
+        return FakeAcquirer()
+
+    monkeypatch.setattr(run, "Acquirer", acquirer)
+    run.execute(run.prepare(paths), None)
+    assert seen["qobuz"] is False and seen["youtube"] is False
+    state = library.load_state(paths)
+    assert "streak" not in state["qobuz_usage"] and "streak" not in state["youtube_usage"]
+
+
+def test_execute_builds_this_macs_pacer_unless_given_one(paths, monkeypatch):
+    seen = []
+    monkeypatch.setattr(run, "Acquirer", lambda qobuz, fallback, budget, pacer, *a, **kw: seen.append(pacer) or FakeAcquirer())
+    run.execute(run.prepare(paths), None)
+    given = object()
+    run.execute(run.prepare(paths), None, pacer=given)
+    assert isinstance(seen[0], SharedPacer) and seen[0].support == paths.support and seen[1] is given
+
+
+def test_finish_quietly_ends_the_pause_too(paths, monkeypatch):
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, [], []))
+    stop_services(paths)
+    run.finish_quietly(run.prepare(paths))
+    state = library.load_state(paths)
+    assert "streak" not in state["qobuz_usage"] and "streak" not in state["youtube_usage"]
+    assert state["qobuz_usage"]["signals"] == []  # the warning signs themselves stay
 
 
 # --- the scan before planning (plan library stage 1, task 3.3) ---
