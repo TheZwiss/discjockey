@@ -1192,6 +1192,11 @@ Results:
         (setup/Page.svelte:116), so setup-console / setup-music-console show the old words. Note: the dev FAKE badge
         overlaps the banner's first letters in every shot (BASE too; dev-only, not shipped). shots-base worktree
         removed. Fix E9 (Sonnet fix-round, Setup banner from the holder text) dispatched on cli2-fe9, exp. ~60k.
+      - Fix E9 done (Sonnet fix-round): logged 57k (exp. 60k), advisor 0k. Commit 8f864657 (source + static in one:
+        the hook refused a separate static commit after the rebuild deleted old assets): `consoleBanner(text, tail)`
+        in copy.ts used by the shell banner and Setup; npm check 0, vitest 20, rules setup 6 shots 0 problems. My
+        full pytest after the merge: 6412 passed / 3 skipped. Merged f015d03f, pushed. E9 total: 158 + 132 + 57 =
+        347k. E4a dispatched (cli2-17, exp. 185k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
