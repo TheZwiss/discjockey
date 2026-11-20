@@ -914,6 +914,11 @@ Results:
     check (~100-150k), judged by gaps it finds that the script missed; (3) Sonnet builds/reviews/fixes, advisor off,
     phase review split from the measured diff; (4) cost checkpoint at the END of phase 2 with logged size AND
     agent-cost.py consumption. Log calls + cache reads per agent from now on. Running total of this talk: 132k.
+    GO given ("ok get it done", 2026-11-20). Drift guards built: open-scope "## Decided", numbers/decisions rules +
+    stale-resume warning in after-compact.sh, advisor gate in dispatch-check.sh (4 cases tested), checklist 8 logs
+    agent-cost.py. Phase 2 targets measured: engine 144k in 9 files, window 147k in 38 → planning split: (A) Sonnet
+    sizing script `.claude/issue39/phase2/brief-sizing.md` → size.py, groups.json, sizing.md (est. 100-150k) RUNNING;
+    (B) Opus detailing from sizing.md (est. 220-300k); (C) fresh Opus brief check (est. 100-150k); then V2.1.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
