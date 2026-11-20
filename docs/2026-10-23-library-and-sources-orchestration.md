@@ -1116,6 +1116,12 @@ Results:
         playlist_tracks.playlist: identity columns, wording names all six). pytest 6256/4 skipped, npm check 0,
         bridge vitest 285. Merged 52732e45, pushed. Remaining briefs got "Landed in the V2.2 fix round" (+ F13 one-
         commit rule). V2.2 group total: 221 + 251 + 199 + 160 = 831k. V2.5a dispatched (cli2-13, exp. 195k).
+      - V2.5a done (Sonnet): logged 214k (exp. 195k, 1.10x), 104 calls, cache 14.5M, fresh in 201k, out 63k, advisor
+        0k. Commits cb9d0196 (path travels, select/_selected/_dropped gone) + 6a627827 (folders.keep_file, bridge
+        keep_file/KeepFileResult, supersede_duplicate gone) + cf14691c static + 1fd6dd34 (test fix after its suite);
+        my full pytest on the final commit: 6268 passed / 4 skipped. Two whole commits instead of events/payloads
+        (F13 rule). Notes to V2.5b.md (catalog-count test, LIBRARY_METHODS) and review-V2.5.md. Merged 32e8aeb6,
+        pushed. V2.5b dispatched (cli2-14, exp. 200k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
