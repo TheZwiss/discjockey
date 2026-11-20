@@ -1162,6 +1162,13 @@ Results:
         7 deliberate deviations + notes appended to review-V2.6.md; the bug it saw (Cancelled inside the Qobuz
         worker's except Exception, latent) DECIDED as a finding for the V2.6 fix round. Merged 66635561, pushed.
         Review V2.6 (Sonnet) dispatched: BASE 58e5820a, HEAD 66635561, diff 29k tokens, exp. ~150k.
+      - Review V2.6 (Sonnet): logged 165k (exp. 150k), 41 calls, cache 4.6M, fresh in 147k, advisor 0k. 0 Critical,
+        5 Important (F1 two pacers in one process don't see each other's claim; F2 Use link's Qobuz lookup unpaced;
+        F3 Settings login checks unpaced; F4 Limits card "paused" from the day's signal, not the stored pause), 4
+        Minor (F5 pace error in candidates.search [my premise half wrong: Cancelled is BaseException]; F6 pacer
+        error counts as a failed Qobuz search; F7 "rest of this run" words; F8 future-stamped claim; F9 stale
+        break count). No window logic, no PLANNED. review/findings-V2.6.md. Decided (mine, open-scope): F3 as
+        stated. FR-V2.6 (Sonnet fix-round, F1-F9) dispatched on cli2-fv26, exp. ~150k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
