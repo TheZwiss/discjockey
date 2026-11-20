@@ -9,7 +9,7 @@ import {
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, leftOutTitle, startLabel, tagOf, whyOf, toggleScope, waitsWhole, whyColumn,
   DOWNLOAD_AGAIN, DOWNLOAD_AGAIN_LABEL, KINDS, KIND_SHARE, WHY,
-  WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine, startNote, rekordboxOpenLine, autoPlanLine, NOTHING_TODAY, CONSOLE_RUNNING,
+  WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine, startNote, rekordboxOpenLine, autoPlanLine, NOTHING_TODAY,
 } from './planModel';
 
 // the engine's words for the Download again kind are the report's plan label (discjockey/report.py PLAN_LABELS)
@@ -572,7 +572,7 @@ describe('playlists and folders in and out of the sync (issue 37)', () => {
 });
 
 describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
-  const idle = { consoleRunning: false, nothingToday: false, auto: { on: true, ready: 4, places: 0, place_notes: null }, rekordboxRunning: true };
+  const idle = { consoleText: null, nothingToday: false, auto: { on: true, ready: 4, places: 0, place_notes: null }, rekordboxRunning: true };
   it('says the sync would put the ready upgrades in place at its end, in rekordbox\'s words (singular for 1)', () => {
     expect(rekordboxOpenLine(4)).toBe('rekordbox is open: quit it before the sync ends, so the sync can put 4 upgrades in place.');
     expect(rekordboxOpenLine(1)).toBe('rekordbox is open: quit it before the sync ends, so the sync can put 1 upgrade in place.');
@@ -592,9 +592,12 @@ describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
     expect(startNote({ ...idle, rekordboxRunning: false, auto: { on: true, ready: 1, places: 0, place_notes: null } })?.text).toBe(autoPlanLine(1));
   });
   it('comes after the console-running and nothing-today notes, which are the start\'s own', () => {
-    expect(startNote({ ...idle, consoleRunning: true, nothingToday: true })).toEqual({ kind: 'console', text: CONSOLE_RUNNING, place: null });
+    const holder = 'Sync running in the Terminal · 4 of 60';
+    expect(startNote({ ...idle, consoleText: holder, nothingToday: true })).toEqual({ kind: 'console', text: holder, place: null });
     expect(startNote({ ...idle, nothingToday: true })).toEqual({ kind: 'nothing-today', text: NOTHING_TODAY, place: null });
-    expect(startNote({ ...idle, consoleRunning: true, rekordboxRunning: false })?.kind).toBe('console');
+    // the words are the engine's, whatever job holds the library: the note says them as they came
+    expect(startNote({ ...idle, consoleText: 'Tidy-up running in another window · 12 of 80' })?.text).toBe('Tidy-up running in another window · 12 of 80');
+    expect(startNote({ ...idle, consoleText: 'Tidy-up running in the Terminal', rekordboxRunning: false })?.kind).toBe('console');
     expect(startNote({ ...idle, nothingToday: true, rekordboxRunning: false })?.kind).toBe('nothing-today');
   });
 });
@@ -602,7 +605,7 @@ describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
 describe('the placement line under Start sync (issue 43 §7.4a: the engine\'s sentence, verbatim)', () => {
   const notes = { closed: '2 missing songs get their better version at the end of the sync.',
     open: '2 missing songs get their better version at the end of the sync, once rekordbox is closed.' };
-  const base = { consoleRunning: false, nothingToday: false, rekordboxRunning: false as boolean | null };
+  const base = { consoleText: null, nothingToday: false, rekordboxRunning: false as boolean | null };
   const auto = (over: Partial<NonNullable<Parameters<typeof startNote>[0]['auto']>> = {}) =>
     ({ on: true, ready: 0, places: 2, place_notes: notes, ...over });
 
@@ -624,7 +627,7 @@ describe('the placement line under Start sync (issue 43 §7.4a: the engine\'s se
     expect(startNote({ ...base, auto: auto({ places: 0, place_notes: null }) })).toBeNull();
     expect(startNote({ ...base, auto: auto({ places: 2, place_notes: null }) })).toBeNull();
     expect(startNote({ ...base, auto: null })).toBeNull();
-    expect(startNote({ ...base, consoleRunning: true, auto: auto() })).toMatchObject({ kind: 'console', place: null });
+    expect(startNote({ ...base, consoleText: 'A Discjockey command is running in the Terminal', auto: auto() })).toMatchObject({ kind: 'console', place: null });
     expect(startNote({ ...base, nothingToday: true, auto: auto() })).toMatchObject({ kind: 'nothing-today', place: null });
   });
   it('the fake\'s preview carries the sentences the engine wrote (scenario missing_files)', async () => {

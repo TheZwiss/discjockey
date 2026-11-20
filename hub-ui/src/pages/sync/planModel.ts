@@ -369,9 +369,6 @@ export function runsNothingToday(chosen: number, downloads: number, uses: number
 }
 /** The reason beside the switched-off Start. */
 export const NOTHING_TODAY = 'Nothing to run today · downloads start tomorrow';
-/** The note beside Start while a sync runs in the terminal. */
-export const CONSOLE_RUNNING = 'A sync is running in the terminal';
-
 /** Auto-upgrade's line before a start (plan stage C §3, as auto_upgrade.before_start_line): rekordbox is open, so the
  *  upgrades the sync would put in place at its end would wait. `n` is `sync_preview().auto_upgrade.ready`. */
 export const rekordboxOpenLine = (n: number): string =>
@@ -382,8 +379,9 @@ export const rekordboxOpenLine = (n: number): string =>
  *  cut in the 280 px the panel's text has at 1100, so the same promise is said in 40. */
 export const autoPlanLine = (n: number): string => `${n} ${n === 1 ? 'upgrade goes' : 'upgrades go'} in at the end; cues stay.`;
 
-/** The one note of Start sync (plan stage C §6.4, amended by the stage review B7; issue 43 §7.4a). `console` and
- *  `nothing-today` come first when they apply, as Hints under Start. With the Auto-upgrade switch on and at least one
+/** The one note of Start sync (plan stage C §6.4, amended by the stage review B7; issue 43 §7.4a). `console` (`consoleText`: the engine's
+ *  words for the job that holds the library, `HubState.console.text`; null while none does) and `nothing-today` come first
+ *  when they apply, as Hints under Start. With the Auto-upgrade switch on and at least one
  *  upgrade ready, the page says what the sync will do: `rekordbox-open` (rekordbox runs now: a warn NoteCard above
  *  Start, so the button does not jump when rekordbox quits) or `auto-plan` (rekordbox is closed: a Hint under Start).
  *  `place`: the engine's sentence for the missing songs that get their parked better version at the end of the sync
@@ -393,9 +391,9 @@ export const autoPlanLine = (n: number): string => `${n} ${n === 1 ? 'upgrade go
  *  (the sentence for rekordbox closed names no state). */
 export type StartNote = { kind: 'console' | 'nothing-today' | 'rekordbox-open' | 'auto-plan' | 'place' | 'place-open';
   text: string; place: string | null };
-export function startNote(o: { consoleRunning: boolean; nothingToday: boolean; auto: SyncPreview['auto_upgrade'];
+export function startNote(o: { consoleText: string | null; nothingToday: boolean; auto: SyncPreview['auto_upgrade'];
   rekordboxRunning: boolean | null }): StartNote | null {
-  if (o.consoleRunning) return { kind: 'console', text: CONSOLE_RUNNING, place: null };
+  if (o.consoleText) return { kind: 'console', text: o.consoleText, place: null };
   if (o.nothingToday) return { kind: 'nothing-today', text: NOTHING_TODAY, place: null };
   const place = o.auto && o.auto.places >= 1 && o.auto.place_notes
     ? (o.rekordboxRunning === true ? o.auto.place_notes.open : o.auto.place_notes.closed) : null;

@@ -1379,7 +1379,7 @@
   <section data-test="gallery-banner">
     {@render head('Banner · Toast', 'The shell\'s banners under the title bar; toasts confirm what just happened')}
     <div class="col bordered">
-      <Banner tone="warn" text="A sync is running in the terminal. You can look around; changes wait until it's finished." />
+      <Banner tone="warn" text="Sync running in the Terminal · 4 of 60. You can look around; changes wait until it's finished." />
       <Banner tone="info" text="Spotify isn't connected." action={{ label: 'Set up →', href: '#/setup/spotify' }} />
     </div>
     <div class="row top">
