@@ -1248,6 +1248,43 @@ def test_continue_import_clears_the_stop_before_the_job_can_be_stopped_again(lib
     monkeypatch.setattr(api._jobs, "start", real)
 
 
+def test_a_refused_start_whose_put_back_of_the_stop_fails_still_raises_the_start_error(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    with db.connect(paths.db_file) as conn:
+        db.set_import_stopped(conn, datetime(2026, 11, 20, 9, 30, 0))
+    real = api._store_import_stopped
+
+    def store(at):
+        if at is not None:  # clearing works, putting the stop back does not
+            raise OSError(5, "Input/output error")
+        real(at)
+
+    def start(kind, work, *a, **kw):
+        raise jobs.Busy("busy", "busy")
+    monkeypatch.setattr(api._jobs, "start", start)
+    monkeypatch.setattr(api, "_store_import_stopped", store)
+    assert api.start_import()["kind"] == "busy"  # the Busy, not the OSError of the put-back
+
+
+def test_a_stop_that_cannot_be_written_still_ends_the_import_stopped(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    real = spotify.fetch_playlist
+
+    def stopping(session, line):
+        api.stop()
+        return real(session, line)
+
+    def cannot_write(write):
+        raise OSError(5, "Input/output error")
+    monkeypatch.setattr(spotify, "fetch_playlist", stopping)
+    monkeypatch.setattr(api, "_brief_write", cannot_write)
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert (f.ok, f.problem, f.kind) == (False, "stopped", "import")  # logged, the job still ends as stopped
+    assert f.result["stopped"] is True
+    assert api.watched_folders()["stopped"] is False  # nothing was stored: the import starts by itself next window
+
 
 def test_an_import_folders_file_plays_through_its_file_id(lib):
     from discjockey.hub.media import MediaServer

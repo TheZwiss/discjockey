@@ -1167,7 +1167,10 @@ class HubApi:
                                                           on_stopped=self._note_stopped))
         except BaseException:
             if stopped is not None:  # a start that failed leaves the stop as it was
-                self._store_import_stopped(datetime.fromisoformat(stopped))
+                try:
+                    self._store_import_stopped(datetime.fromisoformat(stopped))
+                except Exception:  # noqa: BLE001 - the start's own error is the one to show
+                    log.warning("could not put back that the import was stopped", exc_info=True)
             raise
 
     def _import_stopped_at(self) -> str | None:
@@ -1306,7 +1309,7 @@ class HubApi:
     @bridge
     def watched_folders(self) -> dict:
         """The watched folders (the Library first, then the import folders) with how far their import is, the files
-        it couldn't read, how many wait, and whether the user stopped the import this session (plan library stage 4
+        it couldn't read, how many wait, and whether the user stopped the import (kept in library.db until Continue import; plan library stage 4
         I11)."""
         paths = self._paths
         state = self._state()
@@ -2149,8 +2152,8 @@ class HubApi:
 
     @bridge
     def start_import(self) -> dict:
-        """"Continue import": the import again, where it stopped (also after a Stop, which held the automatic start
-        for the session)."""
+        """"Continue import": the import again, where it stopped (also after a Stop, which holds the automatic start
+        back, in every window, until this is run)."""
         return {"job_id": self._start_import().id}
 
     @bridge
@@ -2892,8 +2895,8 @@ class HubApi:
         if self._bound is not None:
             try:
                 folders = {f"playlist:{r.ref}": r.folder for r in pf.load(self._bound.playlists_file).rows if r.ref}
-            except OSError:
-                folders = {}  # playlists.txt can't be read now: the targets name themselves
+            except (OSError, ValueError):  # not readable or not text (UnicodeDecodeError): the targets name themselves
+                folders = {}
 
         def name(target: str) -> str:
             if target in folders:

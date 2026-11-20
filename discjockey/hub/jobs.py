@@ -937,7 +937,7 @@ def import_work(paths: Paths, plan: Callable[[], run.Prepared | None], now: Call
     Its last phase links the playlists (D6) from the plan derived from the stored read (`plan`), or from a read of its
     own when there is none yet; the next plan is derived on the linked library (the To-do questions and the Sync counts
     are right at once). A Stop ends it ImportStopped: JobFinished.result is the import as far as it went, `stopped` true,
-    and `on_stopped` tells the hub that the import must not start by itself again this session (D14). The result of
+    and `on_stopped` tells the hub that the import must not start by itself again (the stop is kept in library.db until Continue import, D14). The result of
     a finished one is ImportResult as a dict; JobFinished.message is W6's line ("Imported 3 files.")."""
     def work(ctx: JobContext) -> dict:
         if folder is not None:

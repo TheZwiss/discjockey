@@ -688,7 +688,7 @@ class WatchedFolders(TypedDict):
     unreadable: Annotated[list[UnreadableFile], F("The files it could not read, in the Library and every import "
                                                   "folder.")]
     waiting: Annotated[int, F("The files an import would work through now (offline drives' left out).")]
-    stopped: Annotated[bool, F("The user stopped an import this session: offer Continue import.")]
+    stopped: Annotated[bool, F("The user stopped an import (kept in library.db until Continue import): offer Continue import.")]
 
 
 @shape

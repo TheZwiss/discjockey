@@ -2315,7 +2315,7 @@ def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, Impor
     db.import_counts; `away`: folder id -> why its path isn't there now ("unmounted" |
     "missing", scanner.away_reason); `listed`: `listed_counts`' answer,
     the tracks each folder lists (the sidebar's number: one definition for both); `unreadable`: db.import_unreadable (path, reason); `waiting`: db.import_left, the files an import would work
-    through now (offline drives' left out); `stopped`: the user stopped an import this session (Continue import);
+    through now (offline drives' left out); `stopped`: the user stopped an import (kept in library.db until Continue import);
     `phase`: the running import's phase (ImportProgress.phase), None when none runs; `crates`: `crates()`' answer by
     folder path (Settings' switches): each import row gets `crates` (all of them, label order) and `too_many`, the
     Library row none ([], False).

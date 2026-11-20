@@ -16526,7 +16526,7 @@
           "x-shown": true
         },
         "stopped": {
-          "description": "The user stopped an import this session: offer Continue import.",
+          "description": "The user stopped an import (kept in library.db until Continue import): offer Continue import.",
           "type": "boolean",
           "x-shown": true
         },

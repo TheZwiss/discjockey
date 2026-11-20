@@ -3577,7 +3577,7 @@ export type WatchedFolders = {
   unreadable: UnreadableFile[];
   /** The files an import would work through now (offline drives' left out). */
   waiting: number;
-  /** The user stopped an import this session: offer Continue import. */
+  /** The user stopped an import (kept in library.db until Continue import): offer Continue import. */
   stopped: boolean;
 };
 /** What `check_import_folder(path)` found; it changes nothing. */
