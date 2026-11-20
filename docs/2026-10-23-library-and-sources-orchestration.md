@@ -1040,6 +1040,17 @@ Results:
         5 (I3 stopping via CancelToken.on_cancel + update_if; M2 _settled skip; M5 note inside finishing, unconditional
         after FR1; M6 hub.ts refresh guard; M7 close stops reads/sign-ins). Touched files 5x stable; pytest 6201/4
         skipped; npm check 0; hub.test 44. Merged. FR2 dispatched (cli2-f2).
+      - FR2 done (Sonnet fix-round): logged 163k, 64 calls, cache 7.1M, advisor 0k. Commits 6ae905c1 (S3: harness
+        checks refusals vs Fail/CliFail, every sampled method answered once, ONLY_REFUSED empty) + 99a8c394 (S2:
+        CLI_DATA shapes, note_cli_data; found + fixed 4 more shape mismatches in correct answers). pytest 6202/4
+        skipped; npm check 0; bridge vitest 285. Merged f3bbe361.
+      - WAVE 1 COMPLETE on feat/cli-2-foundations f3bbe361: `npm run verify` 1724 vitest, 1249 shots, 0 problems (a
+        first run showed 2 problems because I switched the main checkout to main mid-run: never switch the checkout
+        while verify runs; re-run clean). CI green (44707870926).
+        WAVE 1 COST (logged): builds ~1,719k + review 472k + fix rounds 474k (FR3 101, FR1 127, FR4 83, FR2 163) =
+        ~2,665k vs plan ~2,137k (1.25x). advisor 0k throughout.
+      - NEXT: B2 Opus wave 2 detailing (brief .claude/issue39/phase2/brief-detail-wave2.md; carry-items.md), then C2
+        fresh Opus brief check, then wave 2 builds.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
