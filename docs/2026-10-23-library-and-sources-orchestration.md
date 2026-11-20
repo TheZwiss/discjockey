@@ -1051,6 +1051,14 @@ Results:
         ~2,665k vs plan ~2,137k (1.25x). advisor 0k throughout.
       - NEXT: B2 Opus wave 2 detailing (brief .claude/issue39/phase2/brief-detail-wave2.md; carry-items.md), then C2
         fresh Opus brief check, then wave 2 builds.
+      - B2 run 1 (Opus; cut by the 5-hour limit 09:3x-12:50, resumed): logged 246k, 66 calls, cache 9.3M, fresh in
+        379k, advisor 0k. Wrote V2.2a (205k), V2.2b (235k: 24 old preview-store sites in test_hub_views.py), V2.5a
+        (215k), V2.5b (200k), review-V2.2/-V2.5 (130k each + fix 130k each), rehearse-V2.2/-V2.5 (APFS clones, stop
+        unless `where` shows the clones; user present; closes Discjockey + rekordbox). Cuts moved: Playlists from
+        the store (_infos/_extra_tracks) V2.2b → V2.2a; media_url/setup_check_account removal V2.5a → V2.5b. Its
+        decisions checked and kept (lines_changed keeps the "changed since" hint; cache key includes today;
+        FileDropped loses track_id; keep_file without expect; dropped methods keep catalogue rows). Run 1 total
+        ~1,525k expected. B2 run 2 dispatched (V2.3a/b, V2.6, E9, E4a/b + review/rehearse V2.6, shots E9/E4).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
