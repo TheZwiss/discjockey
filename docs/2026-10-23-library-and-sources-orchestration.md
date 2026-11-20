@@ -1032,6 +1032,10 @@ Results:
         (C1 rev now covers source/source_id and the parked version; I1 registry.HOLDING; I2+M3 own id before
         create, half-made folder removed; M1 M4 M8); pytest 6192/4 skipped; reverting the engine fails 11 new/changed
         tests. Merged cd8c7353. FR1 dispatched (worktree cli2-f1, feat/cli-2-fix-shapes-check).
+      - FR1 done (Sonnet fix-round): logged 127k, advisor 0k (row a42ceb1b). Commit e542b08c, all 9 (S1 changed:
+        Fail keeps ProblemKind for the window; new CliFail(Fail) with FailKind incl. bad_args checks every failure;
+        S4 every job end checked; T1 12 per-test marks; K1 Omit<Base>; K2 K3 T2 D1 D2). New checks found NO engine
+        mismatch. pytest 6195/4 skipped, npm check 0, bridge vitest 284. Merged. FR4 dispatched (cli2-f4).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
