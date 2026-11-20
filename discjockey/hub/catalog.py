@@ -128,7 +128,7 @@ DISPATCH: dict[str, str] = {
     "sync run": "`--auto-upgrade-only` runs auto_upgrade_run; the whole sync (start_sync) is phase 4's",
     "batch undo": "the id kind of the first word: `aiff:N` runs batch_undo, `moves:N` runs undo_moves",
     "version use": "`--link URL` runs use_link, else a candidate runs use_candidate",
-    "duplicate keep": "a file id as the second word runs supersede_duplicate, `--all` runs keep_duplicates",
+    "duplicate keep": "a file id as the second word runs keep_file, `--all` runs keep_duplicates",
     "folder crates show": "several folders run set_crates_shown, one runs set_crate_shown",
     "folder crates hide": "several folders run set_crates_shown, one runs set_crate_shown",
     "folder crates default": "several folders run set_crates_shown, one runs set_crate_shown",
@@ -333,7 +333,7 @@ ENTRIES: tuple[Entry, ...] = (
         "song_key": _derived("question"), "own_key": _derived("question"), "same": _positional(type="bool")}),
     _e("keep_duplicates", "duplicate keep", "J", params={
         "group_id": _positional("duplicate"), "paths": Arg("--all", type="bool", resolve="duplicate_paths")}),
-    _e("supersede_duplicate", "duplicate keep", "J", params={
+    _e("keep_file", "duplicate keep", "J", params={
         "group_id": _positional("duplicate"), "file_id": _positional("file", type="int"),
         "paths": _derived("duplicate_paths", "list")}),
     # `aiff convert` is three entries of one command: `convert` (named or --rows songs), `make_aiff` (--all [--in C | --todo

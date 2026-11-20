@@ -11,12 +11,12 @@ import os
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path, PurePosixPath
-from typing import Callable
+from typing import Callable, NamedTuple
 
 from . import db, identify, library, ops, report as rep
 from .events import Emit, Message, no_emit
 from .library import FolderCheck, NameReserver, Paths
-from .models import AddedFolder, DupFile, RemovalCounts, is_own
+from .models import AddedFolder, DupFile, RemovalCounts, group_id as group_id_of, is_own
 from .names import fold, split_name, strip_id_suffix
 from .ops import OpProblem
 from .planner import superseded_dir
@@ -36,6 +36,7 @@ IMPORT_PROBLEMS = {**library.FOLDER_PROBLEMS, "music": IN_MUSIC, "holds_music": 
 
 SUPERSEDE = "move_to_superseded"  # the operation's name in reports/operations.jsonl
 MOVED = "Moved to {dst}."
+MOVED_MANY = "Moved {n} files to Superseded/."
 NOT_MOVED = "Nothing was moved: {detail}."
 NOT_RECORDED = "Moved to {dst}, but Discjockey's records couldn't follow. The next sync catches up."
 PENDING_HERE = ("Discjockey still has an unfinished change for this folder. Connect its drive and open Discjockey "
@@ -223,6 +224,16 @@ def _target(paths: Paths, state: dict, moved: DupFile, watched: str | None) -> s
     return NameReserver(paths.root, state).choose(superseded_dir(moved.path, watched), stem, ext, playlist_key)
 
 
+def _current_logged(paths: Paths, conn, state: dict, group_id: str, file_id: int, shown: list[str],
+                    now: Callable[[], datetime]) -> list[DupFile]:
+    """`_current`, a refusal also written to reports/operations.jsonl as a move to Superseded/ that did not happen."""
+    try:
+        return _current(conn, state, group_id, file_id, shown)
+    except OpProblem as p:
+        ops.log_operation(paths, now(), "", None, SUPERSEDE, p.kind, str(p))
+        raise
+
+
 def supersede(paths: Paths, group_id: str, file_id: int, shown: list[str], *, emit: Emit = no_emit,
               now: Callable[[], datetime] = datetime.now) -> str:
     """Duplicates' "Move to Superseded" (D10): like replacing a file, the file `file_id` of the group goes to
@@ -235,11 +246,7 @@ def supersede(paths: Paths, group_id: str, file_id: int, shown: list[str], *, em
     for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
         emit(Message("info" if ok else "warning", message))
     with db.connect(paths.db_file) as conn:
-        try:
-            files = _current(conn, state, group_id, file_id, shown)
-        except OpProblem as p:
-            ops.log_operation(paths, now(), "", None, SUPERSEDE, p.kind, str(p))
-            raise
+        files = _current_logged(paths, conn, state, group_id, file_id, shown, now)
         moved = next(f for f in files if f.file_id == file_id)
         watched = db.watched_root(conn, moved.path)
     key = moved.song_key or ""
@@ -265,3 +272,55 @@ def supersede(paths: Paths, group_id: str, file_id: int, shown: list[str], *, em
     rep.write_not_lossless(paths, library.load_state(paths))
     emit(Message("info", message))
     return dst
+
+
+class KeptFile(NamedTuple):
+    """What `keep_file` did: the other files of the group that went to Superseded/ (file id, where it went), in the
+    order they moved, and the key of the song the kept file belongs to afterwards (None: linked to no song, or the
+    job stopped before the end)."""
+    moved: list[tuple[int, str]]
+    kept_track: str | None
+
+    def words(self) -> str:
+        """The one line that says what was done."""
+        if len(self.moved) == 1:
+            return MOVED.format(dst=self.moved[0][1])
+        return MOVED_MANY.format(n=len(self.moved))
+
+
+class KeepStopped(OpProblem):
+    """A move of `keep_file` was refused or failed after `kept.moved` had gone (they stay moved): the problem of that
+    move, with what was done so far attached."""
+
+    def __init__(self, problem: OpProblem, kept: KeptFile):
+        super().__init__(str(problem), problem.kind, reason=problem.reason, next=problem.next,
+                         person_steps=problem.person_steps, data=problem.data)
+        self.kept = kept
+
+
+def keep_file(paths: Paths, group_id: str, file_id: int, shown: list[str], *, emit: Emit = no_emit,
+              now: Callable[[], datetime] = datetime.now) -> KeptFile:
+    """Duplicates' "keep this file" (design D10): every other file of the group goes to Superseded/ through `supersede`,
+    one by one (never deleted). The group is the one of the files left after each move (`models.group_id`; its `shown`
+    paths narrowed the same way), so each move is checked as the window's own single move was. OpProblem(CHANGED)
+    before anything moves when `file_id` is not in the group or the group isn't as shown (see _current); a refused or
+    failed move stops it with KeepStopped: the files moved so far stay moved. No Stop check between the moves (each
+    is one short, journaled move)."""
+    state = library.open_state(paths, emit)
+    for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
+        emit(Message("info" if ok else "warning", message))
+    with db.connect(paths.db_file) as conn:
+        files = _current_logged(paths, conn, state, group_id, file_id, shown, now)
+    left = [f.file_id for f in files]
+    left_paths = list(shown)
+    moved: list[tuple[int, str]] = []
+    for other in (f for f in files if f.file_id != file_id):
+        try:
+            dst = supersede(paths, group_id_of(left), other.file_id, left_paths, emit=emit, now=now)
+        except OpProblem as p:
+            raise KeepStopped(p, KeptFile(moved, None)) from None
+        moved.append((other.file_id, dst))
+        left.remove(other.file_id)
+        left_paths.remove(other.path)
+    with db.connect(paths.db_file) as conn:
+        return KeptFile(moved, db.file_songs(conn, [file_id]).get(file_id))

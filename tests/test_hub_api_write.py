@@ -1033,8 +1033,8 @@ def test_an_answer_the_records_cannot_take_fails_in_plain_words(lib):
         assert (a["ok"], a["kind"]) == (False, "refused")
     for call in (lambda: api.keep_duplicates("not a group", []), lambda: api.keep_duplicates(5, []),
                  lambda: api.keep_duplicates("dup:1-2", "x"), lambda: api.keep_duplicates("dup:1-2", [1]),
-                 lambda: api.supersede_duplicate("dup:1-2", "x", []), lambda: api.supersede_duplicate("nope", 1, []),
-                 lambda: api.supersede_duplicate("dup:1-2", 1, None)):
+                 lambda: api.keep_file("dup:1-2", "x", []), lambda: api.keep_file("nope", 1, []),
+                 lambda: api.keep_file("dup:1-2", 1, None), lambda: api.keep_file("dup:1-2", True, [])):
         assert call()["kind"] == "refused"
 
 
@@ -1065,25 +1065,72 @@ def test_a_group_of_copies_is_one_duplicate_item_and_keep_all_answers_the_whole_
     assert api.todo()["chips"]["duplicate"] == 0 and api.sidebar()["todo"] == before - 1  # one answer, all three
 
 
-def test_moving_a_duplicate_to_superseded_keeps_the_file_and_the_others(lib, tmp_path):
+def test_keeping_one_file_of_a_duplicate_moves_the_other_to_superseded(lib, tmp_path):
     paths, folder, fakes = lib
     api, rec = make_api(paths)
     copy_dir = copies(paths, tmp_path, fakes, 2)
     wait_job(api, rec, api.add_watched_folder(str(copy_dir)))
     pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
-    moving = pair["files"][1]
+    kept, moving = pair["files"]
     shown = [f["path"] for f in pair["files"]]
-    other = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"], [shown[0], "/x/else.aiff"]))
+    other = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [shown[0], "/x/else.aiff"]))
     assert (other.ok, other.problem) == (False, "changed") and Path(moving["path"]).is_file()
-    done = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"], shown))
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], shown))
     assert (done.ok, done.kind) == (True, "supersede")
-    assert done.result["recovered"] == [] and done.result["result"]["section"] == "replaced"
-    moved_to = paths.root / done.result["result"]["path"]
+    assert done.result["recovered"] == [] and [r["section"] for r in done.result["results"]] == ["replaced"]
+    moved_to = paths.root / done.result["results"][0]["path"]
     assert moved_to.is_file() and not Path(moving["path"]).exists()  # moved, never deleted
-    assert Path(pair["files"][0]["path"]).is_file()
+    assert done.message == f"Moved to {done.result['results'][0]['path']}."
+    assert done.result["results"][0]["track_id"] == moving["song_key"]
+    assert done.result["kept_track"] == kept["song_key"] and Path(kept["path"]).is_file()
     assert api.todo()["chips"]["duplicate"] == 0
-    stale = api.supersede_duplicate(pair["group_id"], moving["file_id"], shown)
+    stale = api.keep_file(pair["group_id"], kept["file_id"], shown)
     assert wait_job(api, rec, stale).problem == "changed"
+
+
+def test_keeping_one_file_of_three_is_one_job_that_moves_the_other_two(lib, tmp_path):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][1]
+    started = len(rec.events)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert done.ok and done.message == "Moved 2 files to Superseded/."
+    assert len([e for e in rec.events[started:] if isinstance(e, jobs.JobStarted)]) == 1
+    assert sorted(r["track_id"] for r in done.result["results"]) == sorted(
+        f["song_key"] for f in pair["files"] if f is not kept)
+    assert all((paths.root / r["path"]).is_file() for r in done.result["results"])
+    assert done.result["kept_track"] == kept["song_key"] and Path(kept["path"]).is_file()
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, True, False]
+    assert api.todo()["chips"]["duplicate"] == 0
+
+
+def test_a_refused_move_of_keep_file_fails_the_job_with_the_files_moved_so_far(lib, tmp_path, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][2]
+    real, calls = library.move_path, []
+
+    def second_refused(*a, **kw):
+        calls.append(a)
+        if len(calls) == 2:
+            raise PermissionError(13, "Permission denied")
+        return real(*a, **kw)
+    monkeypatch.setattr(library, "move_path", second_refused)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert (done.ok, done.problem) == (False, "failed") and done.message.startswith("Nothing was moved: ")
+    assert len(done.result["results"]) == 1 and done.result["kept_track"] is None
+    assert (paths.root / done.result["results"][0]["path"]).is_file()
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, True, True]
+
+
+def test_supersede_duplicate_is_no_bridge_method_any_more(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    assert not hasattr(api, "supersede_duplicate") and callable(api.keep_file)
 
 
 def test_removing_a_folder_forgets_its_files_and_reports_what_downloads_again(lib):

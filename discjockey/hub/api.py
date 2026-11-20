@@ -121,7 +121,7 @@ LIBRARY_METHODS = frozenset((
     "rename", "make_aiff", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
-    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
+    "start_import", "answer_same_song", "keep_duplicates", "keep_file", "add_liked_music",
     "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
@@ -2163,24 +2163,38 @@ class HubApi:
         return {"job_id": self._jobs.start("answer", change).id}
 
     @bridge
-    def supersede_duplicate(self, group_id: str, file_id: int, paths: list[str]) -> dict:
-        """Duplicates' "Move to Superseded" for one file of the group (a write job, kind "supersede"; nothing is
-        deleted). `paths`: the group's files' paths as the card showed them (`changed` when they are not the group's
-        any more, whatever its file ids say). The result is `{result, recovered}` as an operation's, without a
-        track."""
+    def keep_file(self, group_id: str, file_id: int, paths: list[str]) -> dict:
+        """Duplicates' "keep this file" (a write job, kind "supersede"; nothing is deleted): every other file of the
+        group goes to Superseded/, one engine job (`folders.keep_file`). `paths`: the group's files' paths as the card
+        showed them (`changed` when they are not the group's any more, whatever its file ids say, and the group stays as
+        it was). The result is `{results, recovered, kept_track}`: a report line per moved file, without a track's
+        row; a move that was refused stops the job, the files moved before it stay moved and the failed job's
+        result lists them."""
         if (not isinstance(group_id, str) or isinstance(file_id, bool) or not isinstance(file_id, int)
                 or not _paths_list(paths)):
             raise ValueError(NOT_ANSWERABLE)
-        db.group_ids(group_id)
+        ids = db.group_ids(group_id)
 
         def change(ctx) -> dict:
-            key, e = next(((k, t) for k, t in self._state()["tracks"].items() if t.get("file_id") == file_id),
-                          (None, None))
-            dst = folders_mod.supersede(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now)
-            result = Result("replaced", (e or {}).get("folder") or "", (e or {}).get("artist") or "",
-                            (e or {}).get("title") or "", key, folders_mod.MOVED.format(dst=dst),
-                            (e or {}).get("status"), (e or {}).get("source"), (e or {}).get("cutoff_hz"), dst)
-            return {"result": asdict(result), "recovered": []}
+            tracks = self._state()["tracks"]
+            held = {t.get("file_id"): (k, t) for k, t in tracks.items() if t.get("file_id") in ids}
+
+            def body(kept: folders_mod.KeptFile) -> dict:
+                results = []
+                for moved_id, dst in kept.moved:
+                    key, e = held.get(moved_id, (None, {}))
+                    results.append(asdict(Result(
+                        "replaced", e.get("folder") or "", e.get("artist") or "", e.get("title") or "", key,
+                        folders_mod.MOVED.format(dst=dst), e.get("status"), e.get("source"), e.get("cutoff_hz"), dst)))
+                return {"results": results, "recovered": [], "kept_track": kept.kept_track}
+
+            try:
+                kept = folders_mod.keep_file(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now)
+            except folders_mod.KeepStopped as stopped:
+                ctx.failed_result = body(stopped.kept)
+                raise
+            ctx.message = kept.words()
+            return body(kept)
 
         return {"job_id": self._jobs.start("supersede", change).id}
 

@@ -36,7 +36,7 @@ import { NONE_CHANGEABLE, NOTHING_TO_CHANGE, SKIP_WORDS as AIFF_SKIP_WORDS, appl
 import { SERVICES, NAMES, RECOMMENDED, serviceOf, limits as limitsOf, whatIf as whatIfOf, gate, syncSplit, cards } from './limits';
 import {
   IMPORTING_BUSY, NO_FOLDER, answerSameSong, checkImportFolder, duplicateItems, folderOf, keepDuplicates, questionItems,
-  removalPreview, removeFolder, runImport, seedImport, supersedeDuplicate, watchedFolders, type ImportRun,
+  removalPreview, removeFolder, runImport, seedImport, keepFile, watchedFolders, type ImportRun,
 } from './folders';
 
 /** library.FOLDER_PROBLEMS verbatim: what a refused folder says */
@@ -1199,8 +1199,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return answerSameSong(ctx, song_key, own_key, same);
     },
     async keep_duplicates(group_id: string, paths: string[]) { return keepDuplicates(ctx, group_id, paths); },
-    async supersede_duplicate(group_id: string, file_id: number, paths: string[]) {
-      return supersedeDuplicate(ctx, group_id, file_id, paths);
+    async keep_file(group_id: string, file_id: number, paths: string[]) {
+      return keepFile(ctx, group_id, file_id, paths);
     },
     async setup_skip_import() {
       if (s.console_running) return fail('console', MSG.console);

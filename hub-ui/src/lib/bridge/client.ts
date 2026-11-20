@@ -62,7 +62,8 @@ export interface Bridge {
   start_import(): Promise<JobStart>;
   answer_same_song(song_key: string, own_key: string, same: boolean): Promise<JobStart>;
   keep_duplicates(group_id: string, paths: string[]): Promise<JobStart>;
-  supersede_duplicate(group_id: string, file_id: number, paths: string[]): Promise<JobStart>;
+  /** "Keep this file" of a duplicate group: every other file goes to Superseded/ in one job (`paths`: the files as the card showed them) */
+  keep_file(group_id: string, file_id: number, paths: string[]): Promise<JobStart>;
   save_limits(service: Service, limit: number, extra_today: number): Promise<JobStart>;
   mark_warnings_seen(service: Service): Promise<JobStart>;
   hide(track_id: string, hidden: boolean, expect?: string | null): Promise<JobStart>;
@@ -219,7 +220,8 @@ export function _resetBridge(): void {
 }
 
 export type JobOutcome<R> =
-  | { ok: true; job_id: string; result: R }
+  /** `message`: the engine's own line for a job that ends well (a duplicate's "Moved 2 files to Superseded/."), "" for most */
+  | { ok: true; job_id: string; result: R; message?: string }
   /** `result`: what a job that ended with a problem still carries (a stopped move batch: the moves it made), else null */
   | { ok: false; job_id: string | null; kind: ProblemKind; message: string; result?: R | null };
 
@@ -260,5 +262,5 @@ export async function runJob<R = unknown>(start: Promise<JobStart>,
     const text = typeof opts.success === 'string' ? opts.success : successCopy(fin.kind);
     if (text) toasts.show({ tone: 'success', title: text });
   }
-  return { ok: true, job_id, result: fin.result as R };
+  return { ok: true, job_id, result: fin.result as R, message: fin.message };
 }

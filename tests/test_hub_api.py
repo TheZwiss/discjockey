@@ -30,7 +30,7 @@ CONTRACT = {
     "pick_folder", "check_music_folder", "set_music_folder", "retry_music_folder",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
-    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "setup_skip_import",
+    "start_import", "answer_same_song", "keep_duplicates", "keep_file", "setup_skip_import",
     "set_favourites", "set_crate_shown", "set_crates_shown", "set_read_liked_music", "add_liked_music",
     "set_auto_upgrade", "rekordbox_status", "missing_files_preview", "missing_files",
 }

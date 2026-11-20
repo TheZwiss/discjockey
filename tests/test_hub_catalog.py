@@ -239,3 +239,11 @@ def test_a_job_holds_the_library_by_its_own_record_else_by_the_catalogue():
 def test_add_bought_file_takes_the_files_path_after_the_track():
     (entry,) = catalog.by_method("add_bought_file")
     assert list(entry.params) == ["track_id", "path"] and entry.params["path"].positional and entry.params["path"].type == "str"
+
+
+def test_duplicate_keep_with_a_file_id_runs_keep_file_and_all_runs_keep_duplicates():
+    by_method = {e.method: e for e in catalog.ENTRIES if e.command == "duplicate keep"}
+    assert set(by_method) == {"keep_duplicates", "keep_file"} and "supersede_duplicate" not in BRIDGE
+    assert list(by_method["keep_file"].params) == ["group_id", "file_id", "paths"]
+    assert by_method["keep_file"].params["file_id"].positional and by_method["keep_file"].params["paths"].resolve == "duplicate_paths"
+    assert catalog.DISPATCH["duplicate keep"] == ("a file id as the second word runs keep_file, `--all` runs keep_duplicates")

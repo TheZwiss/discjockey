@@ -78,7 +78,7 @@ const SAMPLE_ARGS: Record<string, Args> = {
     return [(rows ?? []).filter((r) => r.ticked).map((r) => [r.file_id, r.from_path])];
   },
   undo_moves: [1], start_import: [], answer_same_song: ['t7', 'own:211', true],
-  supersede_duplicate: async (b) => { const d = await duplicate(b); return [d.group_id, d.files[d.files.length - 1].file_id, d.files.map((f) => f.path)]; },
+  keep_file: async (b) => { const d = await duplicate(b); return [d.group_id, d.files[0].file_id, d.files.map((f) => f.path)]; },
   keep_duplicates: async (b) => { const d = await duplicate(b); return [d.group_id, d.files.map((f) => f.path)]; },
   convert: [['t2'], 'library'], rename: [['t2']], make_aiff: [{ kind: 'lossless', view: 'all', key: null }],
   batch_resume: async (b) => [await batchId(b)], batch_undo: async (b) => [await batchId(b)],
