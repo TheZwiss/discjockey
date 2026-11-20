@@ -1169,6 +1169,12 @@ Results:
         error counts as a failed Qobuz search; F7 "rest of this run" words; F8 future-stamped claim; F9 stale
         break count). No window logic, no PLANNED. review/findings-V2.6.md. Decided (mine, open-scope): F3 as
         stated. FR-V2.6 (Sonnet fix-round, F1-F9) dispatched on cli2-fv26, exp. ~150k.
+      - FR-V2.6 done (Sonnet fix-round): logged 118k (exp. 150k), 46 calls, cache 3.9M, advisor 0k. Commits e692acd4
+        (F1, F5-F9) + 6e0ba0e1 (F2-F4 + shapes); pytest 6383/4 skipped, pacing files 5x. F3 changed: the Qobuz
+        check's slot is taken before the login request (outside the try: a pacer OSError is not "Couldn't reach
+        Qobuz"); checks use self._support.support (Setup runs before a music folder). F7 words stay in acquire.py
+        (words.py is CLI-only; import cycle). Merged 831c02d4, pushed. Rehearsal V2.6 (Sonnet, made-up services, 9
+        steps incl. a new step 9: two pacers in one process) dispatched, exp. ~110k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
