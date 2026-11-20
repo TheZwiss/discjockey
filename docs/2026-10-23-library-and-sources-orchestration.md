@@ -906,7 +906,7 @@ Results:
     2026-11-15..17: 5 182 API calls, 947M cache reads, 17.2M fresh input, 3.8M output, + advisor (Fable) 8.0M uncached
     input / 0.54M output in 37 calls (max 450k per call), none of it in the log. Worst agent: suite speed, 503 calls,
     123M cache reads (logged 332k). Advisor: user to run `/advisor off`.
-    **RESUME HERE (LATEST, 2026-11-20 late):** DECIDED: no Fable (not in Pro any more); `/advisor off` done by the user.
+    **RESUME HERE (superseded below, 2026-11-20 late):** DECIDED: no Fable (not in Pro any more); `/advisor off` done by the user.
     Phase 1 real logged total ~11.4M (2.24x), NOT 13.4M. PROPOSED, waiting for the user's go: (1) Opus phase 2
     detailing run (est. 250-350k) whose sizing script counts edited functions, callers, ported tests AND every
     changed bridge shape (+ contract doc, types.ts, contract.ts, fake); briefs end "Open: none" and carry exact read
@@ -937,6 +937,154 @@ Results:
     (types.ts re-exports types.gen.ts; shapes package per area; +3 allowed types; F(shown) default True; events
     outside shapes; T6 real-output = suite in test mode; no secrets in window jobs' state.json; ConsoleBusy.job).
     Next (C): fresh Opus brief check.
+    (C) done: Opus **271k** (est. 110-160k; 113 API calls, 18.5M cache reads, 104k out) → check-wave1.md: 27 findings
+    (2 Critical: J answers validated against the wrong shape; V2.4's positional rev landing in plan_id in the real
+    window; 11 Important, 14 Minor), ALL fixed in the briefs, NONE catchable by the sizing script or "Open: none" →
+    the check stays for wave 2 (it pays: one Critical would have cost a fix round or a live-test bug). The "beside"
+    V2.4 run removed (one agent at a time). Wave 1 now 1 627k builds (~2 137k with review + fix). Planning total
+    ~0.87M (132 + 95 + 371 + 271). Phase branch feat/cli-2-foundations (= main d18ceb5d+). Next: E7a.
+    **RESUME HERE (LATEST, 2026-11-20 night):** USER GO: "work through the night without me … orchestrating and not
+    drifting". E7a (Sonnet, brief .claude/issue39/phase2/E7a.md, est. 215k, maybe 250-300k) RUNNING on
+    feat/cli-2-shapes-kernel (worktree .claude/worktrees/cli2-1) from the phase branch feat/cli-2-foundations.
+    NIGHT LOOP, one agent at a time, in phase2-dispatch.md's order (E7a → E7b → E7c → E7d → E7e → V2.1a → V2.4 →
+    V2.1b):
+      on each notice: `ps aux | grep -E 'pytest|vite|job _worker'` (kill leftovers I or it started); log
+      subagent_tokens + `.claude/agent-cost.py 2026-11-20` (calls, cache reads) here; check its commits
+      (`git log`), that it reported a green full pytest; merge --no-ff into feat/cli-2-foundations, push, remove the
+      worktree; then dispatch the next brief with Dispatch/Scope check lines (material from phase2-dispatch.md).
+      An agent that stopped on a brief gap: decide it myself by the goals (plan v2 G1-G5), write the decision into
+      the brief and phase2-plan.md, fresh Sonnet. Cut by the usage limit: resume by message. Over ~300k: it stops at
+      its next green commit, a fresh agent takes the rest (E7a has commit 1 as hand-over).
+    After V2.1b: measure the wave 1 diff, Opus phase review split in two (shapes+surface / jobs+identity, ~180k
+    each, sized at ~3x the measured diff), ONE Sonnet fix round per half (fix-round agent), `npm run verify` once on
+    the phase branch (run_in_background, mine), CI green. Then (B2) Opus wave 2 detailing against the code (briefs
+    V2.2-V2.6, E9, E4, as wave 1's brief-detail-wave1.md) and (C2) a fresh Opus brief check; then wave 2 builds in
+    order, own Sonnet reviews for V2.2, V2.5, V2.6 (+ V2.6's fake-service rehearsal), E9/E4 shots passes, E4b Opus UI.
+    STOP POINTS (wait for the user): the real-copy rehearsals of V2.2/V2.5 (need the user present, rekordbox
+    closed); the merge of phase 2 into main; the cost checkpoint at the end of phase 2 (logged + agent-cost.py); any
+    real product decision; no release. Never a real sync/download; real library.db read-only.
+    NIGHT LOG:
+      - E7a done (Sonnet): logged 180.5k (est. 215k), 47 calls, cache reads 6.0M, fresh in 179k, out 67k, advisor 0k.
+        Commits c9ced660 (kernel) + fcc85be4 (contract); pytest 6093 passed / 4 skipped, npm check 0/0, vitest bridge
+        284. 9 small deviations (alias → Annotated, values(), take_mismatches(), tuple min/maxItems, with_schemas,
+        test_missing_* ts_type reads types.gen.ts): all additive, noted in E7b-E7e "Landed in E7a". Merged 2a148971.
+        Advisor tag still in message metadata after a 2nd `/advisor off` (03:02); rule: prompts say never call it,
+        agent-cost advisor must stay 0k.
+      - E7b done (Sonnet): logged 295.5k (est. 210k, 1.4x), 120 calls, cache reads 23.5M, fresh in 282k, out 107k,
+        advisor 0k. Commit 2166665b; pytest 6097/4 skipped, npm check 0/0, NO_SAMPLE empty. Over plan cause: the E7a
+        fake harness could not run real samples (>300 s), rebuilt (one fake per scenario, ~48 s). It ran one pgrep
+        waiter in a Monitor briefly (stopped; ps clean). FOR PHASE REVIEW: generated TS shows `own` required on
+        TodoItemBase though the engine omits it on duplicate items (NotRequired override not carried into TS);
+        harness vitest time ~48 s. Notes added to E7c-E7e. Merged 52a49962.
+      - E7c done (Sonnet): logged 234k (est. 200k, 1.17x), 75 calls, cache reads 11.7M, fresh in 220k, out 65k,
+        advisor 0k. Commit 49545f62; pytest 6103/4 skipped (71 s), npm check 0/0, vitest full 1720 (28 s), harness
+        ~3 s, NO_SAMPLE empty. FOR PHASE REVIEW: RunSummary.id now required; Dashboard.next_checks nullable (window
+        `?? 0` in dashboardModel.ts L70); golden page cli_golden/report_show.txt changed via fuller fixture rows;
+        fake `run` accepts last / report:<stamp>. Merged 6929df67.
+      - E7d done (Sonnet): logged 268k (est. 215k, 1.24x), 102 calls, cache reads 17.5M, fresh in 672k (two cut-offs:
+        the 5-hour limit at ~04:0x until 07:50, then a network error; each resume re-read cold), out 81k, advisor 0k.
+        Commit 02142333; pytest 6106/4 skipped, npm check 0/0, bridge+setup+settings vitest 374, harness ~18 s,
+        NO_SAMPLE empty. FOR PHASE REVIEW: convert key-assertion tests and tests/fixtures/hub_convert_shapes.json
+        deleted (shapes replace them; behaviour asserts kept); optional→required fields on SetupStatus; it trimmed a
+        contract-doc bullet outside its ranges (rekordbox_status). Merged d7e3fa74.
+      - E7e done (Sonnet): logged 200k (est. 170k, 1.18x), 73 calls, cache reads 8.8M, fresh in 186k, out 50k, advisor
+        0k. Commits f7d0a87f (contract) + eb2ee0a0 (CLAUDE.md Contract rule, CONTRIBUTING); pytest 6112/4 skipped,
+        npm check 0/0, bridge vitest 284 (harness ~19 s). Completeness test: every bridge/cli_first method in ANSWERS
+        or a named exception, every job kind in RESULTS. FOR PHASE REVIEW: test-mode `note_answer` skips ok:false
+        dicts (auto_upgrade_run passes on a Fail); Res<{}> kept for Empty methods (Res<Empty> makes ok never).
+        Merged 2e28e0b2.
+        E7 TOTAL: logged 1,178k vs plan 1,010k (1.17x); calls 417; cache reads 67.5M. V2 briefs got "Landed in E7".
+      - V2.1a done (Sonnet): logged 195k incl. a resumed fix (est. 215k), advisor 0k (calls/cache: see agent-cost
+        row ad4abf3f). Commits 197fbb83 + 0232fcdb. My own full pytest found a NEW flake (JobStarted now emitted after
+        the registry files are written; test_hub_api_convert.py:415 read it right after batch_resume: 1/4 runs vs
+        0/8 on base); test fixed by the same agent; its full pytest 6129/4 skipped green. FOR PHASE REVIEW:
+        test_hub_api.py:232 stops a refresh right after start (JobStarted can be dropped; older race); window job
+        state never says `stopping`; SECRET_PARAMS keyed by method; new catalog.holds_library, Jobs.record_of.
+        Merged into feat/cli-2-foundations.
+      - V2.4 done (Sonnet): logged 204k (est. 192k, 1.06x), advisor 0k (agent-cost row a52ed3ba). Commits 285e02c0
+        (contract) + 9e0bea03 (static); pytest 6148/4 skipped, npm check 0/0, vitest 1721, no goldens changed.
+        Decided by it (kept, by the goal "every write checks the rev"): `upgrade` with `expect` also checks Same
+        track (_check_rev in _batch_work); rev: null on no-record rows, duplicate-group and batch items. FOR PHASE
+        REVIEW: the upgrade stale-rev refusal writes no operations-log line (the 5 other writes log `changed`);
+        `plan_id` now required in Bridge.upgrade. Merged into feat/cli-2-foundations.
+      - V2.1b done (Sonnet): logged 142k (est. 210k), 52 calls, cache reads 5.3M, advisor 0k. Commits ccbc0ff9 +
+        2e378da9; pytest 6184/4 skipped; touched files 5x stable. FOR PHASE REVIEW: Jobs' music folder derived as
+        lock.parent.parent; a foreign job under 1 s sends no JobFinished; holder re-reads its state.json. Merged
+        b3ca2205.
+      - WAVE 1 BUILDS DONE: logged 1,178 (E7) + 195 + 204 + 142 = ~1,719k vs plan 1,627k (1.06x). My full pytest on
+        b3ca2205: 6185 passed, 3 skipped, green. Diff (excl. generated/static) ~209k tokens: shapes+contract ~145k
+        (mostly declarations + doc deletions), jobs/identity ~63k. Review: two Opus halves, briefs in
+        .claude/issue39/phase2/review/ (common.md, review-shapes.md, review-jobs.md), ~180k each, run on the main
+        checkout at feat/cli-2-foundations. V2.3's share of the planned phase review moves to wave 2's review.
+      - REVIEW half 1 shapes (Opus): logged 216k, 80 calls, cache 10.0M, advisor 0k: 0 Critical, 4 Important (S1 no
+        Fail answer ever validated + bad_args missing in Fail.kind; S2 CLI `data` vs help schema; S3 fake harness
+        counts a refused call as passing; S4 not-ok job results never validated), 7 Minor. Subagents cannot write
+        report files (harness): findings returned as text, saved by me to review/findings-shapes.md.
+      - REVIEW half 2 jobs (Opus): logged 256k, 87 calls, cache 13.4M, advisor 0k: 1 CRITICAL (C1 rev misses
+        source/source_id and the parked version's identity: stale --if-rev passes after use_candidate), 3 Important
+        (I1 queued job counts as holder, two terminal writes refuse each other; I2 watch can report the window's own
+        new job failed; I3 window jobs never `stopping`), 8 Minor; PLANNED V4.7 (login --password-stdin args through
+        public_args), E9 (job_status lacks the terminal job's name on reload). review/findings-jobs.md.
+      - FIX ROUNDS (Sonnet fix-round, sequential, each from the phase branch): FR3 (C1 M1 I1 I2 M3 M4 M8) → FR1 (S1 S4
+        T1 T2 K1-3 D1 D2) → FR4 (I3 M2 M5 M6 M7) → FR2 (S3 S2). Briefs review/FR*.md + fix-common.md. Four, not the
+        planned one: 23 stated findings incl. 1 Critical, split by area so each stays ~150-200k.
+      - FR3 done (Sonnet fix-round): logged 101k, 27 calls, cache 1.9M, advisor 0k. Commit 1b4f270d, all 7 fixed
+        (C1 rev now covers source/source_id and the parked version; I1 registry.HOLDING; I2+M3 own id before
+        create, half-made folder removed; M1 M4 M8); pytest 6192/4 skipped; reverting the engine fails 11 new/changed
+        tests. Merged cd8c7353. FR1 dispatched (worktree cli2-f1, feat/cli-2-fix-shapes-check).
+      - FR1 done (Sonnet fix-round): logged 127k, advisor 0k (row a42ceb1b). Commit e542b08c, all 9 (S1 changed:
+        Fail keeps ProblemKind for the window; new CliFail(Fail) with FailKind incl. bad_args checks every failure;
+        S4 every job end checked; T1 12 per-test marks; K1 Omit<Base>; K2 K3 T2 D1 D2). New checks found NO engine
+        mismatch. pytest 6195/4 skipped, npm check 0, bridge vitest 284. Merged. FR4 dispatched (cli2-f4).
+      - FR4 done (Sonnet fix-round): logged 83k, advisor 0k (row a3187716). Commits 1587fc82 (static) + 8755809c, all
+        5 (I3 stopping via CancelToken.on_cancel + update_if; M2 _settled skip; M5 note inside finishing, unconditional
+        after FR1; M6 hub.ts refresh guard; M7 close stops reads/sign-ins). Touched files 5x stable; pytest 6201/4
+        skipped; npm check 0; hub.test 44. Merged. FR2 dispatched (cli2-f2).
+      - FR2 done (Sonnet fix-round): logged 163k, 64 calls, cache 7.1M, advisor 0k. Commits 6ae905c1 (S3: harness
+        checks refusals vs Fail/CliFail, every sampled method answered once, ONLY_REFUSED empty) + 99a8c394 (S2:
+        CLI_DATA shapes, note_cli_data; found + fixed 4 more shape mismatches in correct answers). pytest 6202/4
+        skipped; npm check 0; bridge vitest 285. Merged f3bbe361.
+      - WAVE 1 COMPLETE on feat/cli-2-foundations f3bbe361: `npm run verify` 1724 vitest, 1249 shots, 0 problems (a
+        first run showed 2 problems because I switched the main checkout to main mid-run: never switch the checkout
+        while verify runs; re-run clean). CI green (44707870926).
+        WAVE 1 COST (logged): builds ~1,719k + review 472k + fix rounds 474k (FR3 101, FR1 127, FR4 83, FR2 163) =
+        ~2,665k vs plan ~2,137k (1.25x). advisor 0k throughout.
+      - NEXT: B2 Opus wave 2 detailing (brief .claude/issue39/phase2/brief-detail-wave2.md; carry-items.md), then C2
+        fresh Opus brief check, then wave 2 builds.
+      - B2 run 1 (Opus; cut by the 5-hour limit 09:3x-12:50, resumed): logged 246k, 66 calls, cache 9.3M, fresh in
+        379k, advisor 0k. Wrote V2.2a (205k), V2.2b (235k: 24 old preview-store sites in test_hub_views.py), V2.5a
+        (215k), V2.5b (200k), review-V2.2/-V2.5 (130k each + fix 130k each), rehearse-V2.2/-V2.5 (APFS clones, stop
+        unless `where` shows the clones; user present; closes Discjockey + rekordbox). Cuts moved: Playlists from
+        the store (_infos/_extra_tracks) V2.2b → V2.2a; media_url/setup_check_account removal V2.5a → V2.5b. Its
+        decisions checked and kept (lines_changed keeps the "changed since" hint; cache key includes today;
+        FileDropped loses track_id; keep_file without expect; dropped methods keep catalogue rows). Run 1 total
+        ~1,525k expected. B2 run 2 dispatched (V2.3a/b, V2.6, E9, E4a/b + review/rehearse V2.6, shots E9/E4).
+      - B2 run 2 (Opus): logged 329k, 124 calls, cache 24.2M, advisor 0k. Wrote V2.3a (215k), V2.3b (175k), V2.6
+        (225k), E9 (185k), E4a (175k), E4b (Opus, 300k), review-V2.6 (130k), rehearse-V2.6 (80k, made-up services),
+        shots-E9 (100k), shots-E4 (120k); wave 2 phase review 2 x 175k + fix 150k. Wave 2 expected ~3,860k. ORDER
+        CHANGED: V2.5a/b before V2.3a/b (presets need the engine's scope). Flagged to C2: PlanExpired.next names
+        `sync run --dry-run` (exists only from V4.1); V2.6 counts a queued sync as running (check no mutual
+        block, cf. I1); E9 adds ConsoleBusy.text; E4b has no Stop for a Terminal sync. DECIDED (mine): E4b from a
+        precise direction, no mockup (open-scope Decided).
+      - C2: fresh Opus check in two parts (brief-check-wave2.md): part A (V2.2, V2.5) dispatched; part B next.
+      - Log edits now happen in the worktree .claude/worktrees/main-log (main), so the main checkout stays on the
+        phase branch while agents read it.
+      - C2 part A (Opus): logged 290k, 116 calls, cache 20.7M, advisor 0k. 26 findings, all fixed in the briefs
+        (check-wave2-A.md): 1 CRITICAL (both real-copy rehearsal scripts used unbuilt CLI commands: the user session
+        would have stopped at step 1-2; now a Python driver via bind.default()), 7 Important (V2.2a read_refs so a
+        switched-off line is not planned; db.read_head keeps a first failed read's problem; V2.2b cache key covers
+        check reads; missing test sites; V2.5a catalog tests; V2.5b NEEDS_NO_LIBRARY + flips merged while a settings
+        job runs), 16 Minor, 2 size. 24 of 26 not catchable by size.py or "Open: none": the check stays. Part A
+        builds re-measured 795k (was 855k). Part B dispatched.
+      - C2 part B (Opus): logged 349k (exp. 250k, 1.4x), 144 calls, cache 31.5M, advisor 0k. 32 findings (11
+        Important: V2.3a action ids shifting/unticked songs coming back, hint naming an unbuilt command (plan stores
+        no command now; carry to V4.1), missed callers; V2.6 queued sync recorded as `start_sync`, pacer injection,
+        hub fixture importing the deleted `Pacer`; E9 four fakes -> "undefined." banner; E4a unknown id `crashed`
+        instead of `bad_args`, end screen losing its job, method-count test), 16 Minor, 4 size. Queued-sync deadlock:
+        no cycle. Decided by me (open-scope): E4a `stop(job_id=None)` + E4b "Stop safely" for a Terminal sync (design
+        6.2/6.4). Run 2 builds 1 240k (was 1 275k).
+      - User 2026-11-20: "This codebase is yours" rule -> CLAUDE.md section, fix-round/ui-build agents, checklist
+        line 12 (every prompt carries the ownership line), memory. Next: V2.2a.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
