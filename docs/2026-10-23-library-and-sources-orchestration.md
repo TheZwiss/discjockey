@@ -919,6 +919,11 @@ Results:
     agent-cost.py. Phase 2 targets measured: engine 144k in 9 files, window 147k in 38 → planning split: (A) Sonnet
     sizing script `.claude/issue39/phase2/brief-sizing.md` → size.py, groups.json, sizing.md (est. 100-150k) RUNNING;
     (B) Opus detailing from sizing.md (est. 220-300k); (C) fresh Opus brief check (est. 100-150k); then V2.1.
+    (A) done: Sonnet **95k** (24 API calls, 1.6M cache reads, 94k fresh, 29k out; est. 100-150k). size.py (11 s),
+    groups.json, sizing.md (19k tokens). By ranges: V2.1 229k (whole test files 168k of it), V2.2 273k, V2.3 207k,
+    V2.4 19k (floor: rev/expect too common to grep), V2.5 167k, V2.6 109k; tests by hit windows: 96/80/75/6/63/28k.
+    Hand check by me: PreviewStore 8 engine + 19 test hit lines = script. BEFORE (B): the user ticks extras E2-E9
+    (plan v2 §7; E7 changes how phase 2-6 contract work is done) + the Qobuz "Use this" note (V2.6).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
