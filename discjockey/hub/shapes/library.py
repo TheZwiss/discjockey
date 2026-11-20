@@ -578,11 +578,28 @@ class LastSync(TypedDict):
 
 
 @shape
+class ConsoleHolder(TypedDict):
+    """Another process that holds the library lock: what the window's banner says and the job it names (`ConsoleBusy`
+    carries the same fields)."""
+    job: Annotated[str | None, F("The holder's job id in the registry; null for a holder with no registry entry.",
+                                 shown=False)]
+    via: Annotated[Literal["terminal", "window"] | None, F(
+        "Where the holder runs: the Terminal or another window; null for a holder with no registry entry.")]
+    kind: Annotated[str | None, F("The holder's job kind (`sync`, `tidy`, ...); null for a holder with no registry "
+                                  "entry.")]
+    line: Annotated[str | None, F("How far the holder is (\"4 of 60\"); null before it says.")]
+    text: Annotated[str, F("What the window says while it holds the library: the job, where it runs, how far it is.")]
+
+
+@shape
 class JobStatus(TypedDict):
     """The snapshot after a window reload."""
     job: Annotated[JobSnap | None, F("The running write job; null when none runs.")]
     refresh_running: Annotated[bool, F("A playlists read is running.")]
     console_running: Annotated[bool, F("A console command is running.")]
+    console: Annotated[ConsoleHolder | None, F("Who holds the library lock besides this window, the Terminal's job or "
+                                               "another window's; null when nothing does. After a reload the banner "
+                                               "names the job from it at once.")]
     read_status: Annotated[ReadStatus, F("How the last playlists read went.")]
     last_sync: Annotated[LastSync | None, F("The newest sync of this music folder, the window's or the terminal's: what "
                                             "was ticked, and when it ended; null with none.")]

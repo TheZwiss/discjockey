@@ -114,7 +114,7 @@
   // states have no Start, so the console banner stays there (final review I1). While loading, both are claimed: the
   // body says them in nearly every outcome, and a banner drawn over the skeleton would jump away when the plan comes
   $effect(() => sayInBody({ console: loading || hasPlan, readStatus: loading || (!problem && !!preview) }));
-  const startTitle = $derived($hub.console_running ? 'A sync is running in the terminal. Its progress shows there.'
+  const startTitle = $derived($hub.console ? `${$hub.console.text}. Its progress shows there.`
     : scoped.length === 0 ? 'Everything is switched off' : chosen.length === 0 ? 'Nothing ticked' : nothingToday ? NOTHING_TODAY : undefined);
 
   /** Ticks what the engine's preset for this choice holds; a choice the plan doesn't offer changes nothing. */
@@ -182,7 +182,7 @@
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   });
-  const note = $derived(startNote({ consoleRunning: $hub.console_running, nothingToday, auto: preview?.auto_upgrade ?? null,
+  const note = $derived(startNote({ consoleText: $hub.console?.text ?? null, nothingToday, auto: preview?.auto_upgrade ?? null,
     rekordboxRunning: rekordbox ? rekordbox.running : null }));
   let seen = -1;
   $effect(() => {

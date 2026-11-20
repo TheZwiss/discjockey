@@ -32,3 +32,36 @@ def test_short_day_never_follows_the_locale(monkeypatch):
 ])
 def test_job_line_says_the_count_then_the_message(fields, said):
     assert words.job_line(fields) == said
+
+
+@pytest.mark.parametrize("kind, said", [
+    ("sync", "Sync"), ("refresh", "Playlists read"), ("tidy", "Tidy-up"), ("scan", "Library scan"),
+    ("import", "Import"), ("aiff_batch", "AIFF conversion"), ("batch_resume", "AIFF batch"),
+    ("upgrade_batch", "Upgrade"), ("auto_upgrade", "Auto-upgrade"), ("missing_files", "Missing files"),
+    ("undo_moves", "Undo of a tidy-up"), ("undo_upgrade", "Undo of an upgrade"),
+    ("use_candidate", "Download of a version"), ("use_link", "Download from a link"),
+    ("supersede", "Same-song choice"), ("update_tools", "Tools update"), ("rollback_tools", "Tools rollback"),
+    ("hide", "Hide"),  # a kind with no entry says its own name
+    ("set_sync_scope", "Set sync scope"),
+])
+def test_job_title_names_the_job_kind_in_sentence_case(kind, said):
+    assert words.job_title(kind) == said
+
+
+def test_every_job_kind_with_a_result_has_a_title():
+    from discjockey.hub import shapes
+    titles = {kind: words.job_title(kind) for kind in shapes.RESULTS}
+    assert all(title and "_" not in title and title[0].isupper() for title in titles.values()), titles
+
+
+@pytest.mark.parametrize("kind, via, line, said", [
+    ("sync", "terminal", "4 of 60", "Sync running in the Terminal · 4 of 60"),
+    ("sync", "terminal", None, "Sync running in the Terminal"),  # no progress yet: no dangling dot
+    ("tidy", "window", "12 of 80 · Techno", "Tidy-up running in another window · 12 of 80 · Techno"),
+    ("scan", "window", None, "Library scan running in another window"),
+    ("sync", None, "1 of 2", "Sync running in the Terminal · 1 of 2"),  # a record without `via` is told as the Terminal's
+    (None, None, None, "A Discjockey command is running in the Terminal"),  # no registry entry: nobody can name it
+    (None, "terminal", "4 of 60", "A Discjockey command is running in the Terminal"),  # a line alone names nothing
+])
+def test_holder_text_says_which_job_where_and_how_far(kind, via, line, said):
+    assert words.holder_text(kind, via, line) == said

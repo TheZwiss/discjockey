@@ -106,14 +106,22 @@ describe('reduceHub', () => {
     expect(reduceHub(t, { type: 'JobFinished', job_id: 'job:00000005', kind: 'download_track', ok: true, problem: null, message: '',
       result: null }).read_progress).not.toBeNull();
   });
-  it('follows the console', () => {
-    const busy = { type: 'ConsoleBusy' as const, running: true, job: 'job:00000007', kind: 'sync', line: '4 of 60' };
-    expect(reduceHub(EMPTY_HUB, busy).console_running).toBe(true);
-    expect(reduceHub(reduceHub(EMPTY_HUB, busy), { type: 'ConsoleBusy', running: false, job: null, kind: null, line: null })
-      .console_running).toBe(false);
-    // a holder with no registry entry (an older Discjockey) names nothing
-    expect(reduceHub(EMPTY_HUB, { type: 'ConsoleBusy', running: true, job: null, kind: null, line: null }).console_running)
-      .toBe(true);
+  it('follows the console: the engine\'s words and what they name, until the holder ends', () => {
+    const busy = { type: 'ConsoleBusy' as const, running: true, job: 'job:00000007', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60' };
+    const held = reduceHub(EMPTY_HUB, busy);
+    expect(held.console_running).toBe(true);
+    expect(held.console).toEqual({ job: 'job:00000007', kind: 'sync', line: '4 of 60', text: 'Sync running in the Terminal · 4 of 60' });
+    const ended = reduceHub(held, { type: 'ConsoleBusy', running: false, job: null, kind: null, line: null, text: null });
+    expect([ended.console_running, ended.console]).toEqual([false, null]);
+    // a changed line is a new event: the words follow it
+    expect(reduceHub(held, { ...busy, line: '5 of 60', text: 'Sync running in the Terminal · 5 of 60' }).console?.text)
+      .toBe('Sync running in the Terminal · 5 of 60');
+    // a holder with no registry entry (an older Discjockey) names nothing but still has its sentence
+    const unnamed = reduceHub(EMPTY_HUB, { type: 'ConsoleBusy', running: true, job: null, kind: null, line: null,
+      text: 'A Discjockey command is running in the Terminal' });
+    expect([unnamed.console_running, unnamed.console]).toEqual([true, { job: null, kind: null, line: null,
+      text: 'A Discjockey command is running in the Terminal' }]);
   });
   it('AppUpdate replaces the update answer', () => {
     const url = 'https://github.com/TheZwiss/discjockey/releases/tag/v1.1.0';
@@ -496,5 +504,27 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
     expect(r).toMatchObject({ ok: true });
     expect(get(hub).sidebar?.favourites.map((f) => f.key)).toEqual(['playlist:b']);
     expect(hung.sidebars).toBeGreaterThan(0);
+  });
+});
+
+describe('a reloaded window while another process holds the library', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it("learns the holder's words from job_status at once, and drops them when it has ended", async () => {
+    (globalThis as any).window = new EventTarget();
+    let holder: unknown = { job: 'job:00000007', via: 'terminal', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60' };
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: holder !== null, console: holder,
+        read_status: null, sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+    await refreshHub();
+    expect([get(hub).console_running, get(hub).console]).toEqual([true, { job: 'job:00000007', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60' }]);
+    holder = null;
+    await refreshHub();
+    expect([get(hub).console_running, get(hub).console]).toEqual([false, null]);
   });
 });

@@ -133,8 +133,10 @@ export const WRITE_BLOCKED = {
   console: 'A sync is running in the terminal.',
 } as const;
 
+/** The banner while another process holds the library says the engine's words for the holder (`HubState.console.text`),
+ *  then this. */
 export const BANNER = {
-  console: "A sync is running in the terminal. You can look around; changes wait until it's finished.",
+  console_tail: "You can look around; changes wait until it's finished.",
 } as const;
 
 export const DROP_BLOCKED = "macOS didn't let Discjockey read this file. Move it to Downloads, or allow access in "

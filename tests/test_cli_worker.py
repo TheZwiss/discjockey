@@ -331,7 +331,8 @@ def test_two_workers_for_writes_at_once_one_runs_one_is_busy(env):
     wait_for(second.ended)
     result = second.result()
     assert (result["outcome"], result["reason"]) == ("busy", "library_lock") and envelope.exit_code(result) == 3
-    assert result["data"]["holder"] == {"job": first.id, "via": "terminal", "kind": "scan", "line": None}
+    assert result["data"]["holder"] == {"job": first.id, "via": "terminal", "kind": "scan", "line": None,
+                                          "text": "Library scan running in the Terminal"}
     assert second.process.wait(10) == 3 and first.state()["status"] == "running"
     first.open_gate()
     wait_for(first.ended)
@@ -361,7 +362,8 @@ def test_a_terminal_write_while_a_window_job_holds_the_library_is_busy_naming_th
         wait_for(w.ended)
         result = w.result()
         assert (result["outcome"], result["reason"]) == ("busy", "library_lock")
-        assert result["data"]["holder"] == {"job": answer["job_id"], "via": "window", "kind": "hide", "line": None}
+        assert result["data"]["holder"] == {"job": answer["job_id"], "via": "window", "kind": "hide", "line": None,
+                                          "text": "Hide running in another window"}
     finally:
         release.set()
         assert api._jobs.wait(10)

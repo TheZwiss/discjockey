@@ -281,3 +281,36 @@ def job_line(fields: dict) -> str | None:
         line = f"{fields.get('done') or 0} of {total}"
         return f"{line} · {fields['item']}" if fields.get("item") else line
     return fields.get("message") or None
+
+
+# A job kind as the window names it, sentence case (the banner "Sync running in the Terminal · 4 of 60"); a kind not
+# listed says its own name (`job_title`)
+JOB_TITLES = {
+    "sync": "Sync", "refresh": "Playlists read", "tidy": "Tidy-up", "scan": "Library scan", "import": "Import",
+    "aiff_batch": "AIFF conversion", "batch_resume": "AIFF batch", "upgrade_batch": "Upgrade",
+    "auto_upgrade": "Auto-upgrade", "missing_files": "Missing files", "undo_moves": "Undo of a tidy-up",
+    "undo_upgrade": "Undo of an upgrade", "use_candidate": "Download of a version", "use_link": "Download from a link",
+    "supersede": "Same-song choice", "update_tools": "Tools update", "rollback_tools": "Tools rollback",
+}
+# what the banner says of a holder nobody can name: an older Discjockey or the legacy console, which may run a sync, a
+# setup or an update
+UNNAMED_HOLDER = "A Discjockey command is running in the Terminal"
+HOLDER_PLACES = {"terminal": "the Terminal", "window": "another window"}
+
+
+def job_title(kind: str) -> str:
+    """The job kind as the window names it: its entry of `JOB_TITLES`, else its words with `_` as a space and a capital
+    first letter ("auto_upgrade_run" says "Auto upgrade run")."""
+    return JOB_TITLES.get(kind) or kind.replace("_", " ").capitalize()
+
+
+def holder_text(kind: str | None, via: str | None, line: str | None) -> str:
+    """What the window says while another process's job holds the library (design §8.3, a data word next to its facts):
+    "<job> running in the Terminal" (`via` terminal) or "... in another window" (`via` window), with " · <line>" when the
+    job's progress is known; for a holder with no registry entry (`kind` None) `UNNAMED_HOLDER`. A `via` the registry
+    does not say counts as the Terminal (the registry only knows `terminal` and `window`)."""
+    if not kind:
+        return UNNAMED_HOLDER
+    place = HOLDER_PLACES.get(via or "terminal", HOLDER_PLACES["terminal"])
+    text = f"{job_title(kind)} running in {place}"
+    return f"{text} · {line}" if line else text

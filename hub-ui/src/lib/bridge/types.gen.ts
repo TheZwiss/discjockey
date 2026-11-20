@@ -2252,6 +2252,22 @@ export type LastSync = {
   /** When it ended, an ISO time; null while it runs. */
   ended: string | null;
 };
+/**
+ * Another process that holds the library lock: what the window's banner says and the job it names
+ * (`ConsoleBusy` carries the same fields).
+ */
+export type ConsoleHolder = {
+  /** The holder's job id in the registry; null for a holder with no registry entry. */
+  job: string | null;
+  /** Where the holder runs: the Terminal or another window; null for a holder with no registry entry. */
+  via: 'terminal' | 'window' | null;
+  /** The holder's job kind (`sync`, `tidy`, ...); null for a holder with no registry entry. */
+  kind: string | null;
+  /** How far the holder is ("4 of 60"); null before it says. */
+  line: string | null;
+  /** What the window says while it holds the library: the job, where it runs, how far it is. */
+  text: string;
+};
 /** The snapshot after a window reload. */
 export type JobStatus = {
   /** The running write job; null when none runs. */
@@ -2260,6 +2276,11 @@ export type JobStatus = {
   refresh_running: boolean;
   /** A console command is running. */
   console_running: boolean;
+  /**
+   * Who holds the library lock besides this window, the Terminal's job or another window's; null when nothing
+   * does. After a reload the banner names the job from it at once.
+   */
+  console: ConsoleHolder | null;
   /** How the last playlists read went. */
   read_status: ReadStatus;
   /**

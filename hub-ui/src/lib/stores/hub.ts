@@ -2,7 +2,7 @@
 import { derived, get, writable, type Readable } from 'svelte/store';
 import { onEvent } from '../bridge/events';
 import { api, onNoLibrary } from '../bridge/client';
-import type { AppUpdate, CrateSaved, CratesSaved, FavouritesSaved, JobSnap, LastSync, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
+import type { AppUpdate, ConsoleHolder, CrateSaved, CratesSaved, FavouritesSaved, JobSnap, LastSync, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
 import { WRITE_BLOCKED } from '../copy';
 
 export type HubState = {
@@ -13,6 +13,9 @@ export type HubState = {
   /** what the newest sync of this music folder was started with, from the engine's job registry (job_status); null with none */
   last_sync: LastSync | null;
   refresh_running: boolean; console_running: boolean;
+  /** who holds the library besides the window, from ConsoleBusy and job_status: the engine's words for the banner
+   *  (`text`, "Sync running in the Terminal · 4 of 60") next to what they name; null while none does */
+  console: ConsoleState | null;
   read_status: ReadStatus | null;  setup: SetupStatus | null;  sidebar: Sidebar | null;
   /** while Spotify is read (a refresh or a sync's start): which playlist, from ReadingPlaylist */
   read_progress: ReadProgress | null;
@@ -23,9 +26,13 @@ export type HubState = {
   /** counts the AppUpdate events reduced so far, so refreshHub can tell an answer that an event has overtaken */
   app_update_seq: number;
 };
+export type ConsoleState = { job: string | null; kind: string | null; line: string | null; text: string };
+/** The holder of job_status as the store keeps it (the one `via` the window does not need is left out) */
+const consoleOf = (c: ConsoleHolder | null): ConsoleState | null =>
+  c ? { job: c.job, kind: c.kind, line: c.line, text: c.text } : null;
 export type ReadProgress = { index: number; total: number; folder: string };
 export const EMPTY_HUB: HubState = { booted: false, fake: false, job: null, sign_in: null, last_sync: null, refresh_running: false,
-  console_running: false, read_status: null, setup: null, sidebar: null, read_progress: null, read_stopped: false, app_update: null,
+  console_running: false, console: null, read_status: null, setup: null, sidebar: null, read_progress: null, read_stopped: false, app_update: null,
   app_update_seq: 0 };
 
 const state = writable<HubState>({ ...EMPTY_HUB });
@@ -125,7 +132,8 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
     case 'RunStarted':
       return s.job?.running ? { ...s, read_progress: null, job: { ...s.job, actions: e.actions ?? [] } } : s;
     case 'ConsoleBusy':
-      return { ...s, console_running: e.running };
+      return { ...s, console_running: e.running,
+        console: e.running && e.text !== null ? { job: e.job, kind: e.kind, line: e.line, text: e.text } : null };
     case 'AppUpdate':
       return { ...s, app_update: { state: e.state, current: e.current, latest: e.latest, url: e.url },
         app_update_seq: s.app_update_seq + 1 };
@@ -177,7 +185,7 @@ export function refreshHub(): Promise<void> {
       state.update((s) => ({
         ...s,
         ...(js.ok ? { job: (js.job && js.job.kind !== SCAN_KIND ? js.job : null) ?? (s.job && !s.job.running ? s.job : null), refresh_running: js.refresh_running,
-          console_running: js.console_running, read_status: js.read_status, last_sync: js.last_sync ?? null,
+          console_running: js.console_running, console: consoleOf(js.console), read_status: js.read_status, last_sync: js.last_sync ?? null,
           sign_in: js.sign_in ?? (s.sign_in && !s.sign_in.running ? s.sign_in : null) } : {}),
         setup: setup.ok ? stripOk(setup) : s.setup,
         sidebar: side.ok && turn === sidebarTurn ? stripOk(side) : s.sidebar,

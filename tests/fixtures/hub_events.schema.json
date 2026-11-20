@@ -594,6 +594,12 @@
             "string",
             "null"
           ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -601,7 +607,8 @@
         "running",
         "job",
         "kind",
-        "line"
+        "line",
+        "text"
       ],
       "additionalProperties": false
     },

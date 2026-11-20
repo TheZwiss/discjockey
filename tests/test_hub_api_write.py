@@ -232,10 +232,30 @@ def test_a_write_refused_for_a_terminal_job_names_it_in_the_answers_data(root):
     files.flush()
     answer = api.hide("t2", True)
     assert window(answer) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}  # the words stay
-    assert answer["data"] == {"holder": {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60"}}
+    assert answer["data"] == {"holder": {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60",
+                                         "text": "Sync running in the Terminal · 4 of 60"}}
     assert answer["outcome"] == "busy" and answer["reason"] == "console"
     files.release_claim()
     assert outcomes.KIND_OUTCOME["console"] == "busy"
+
+
+def test_a_reloaded_window_learns_who_holds_the_library_from_job_status_at_once(root):
+    nothing, _ = make_api(root)
+    status = nothing.job_status()
+    assert status["console_running"] is False and status["console"] is None
+    with registered_job(root, "sync", "sync_run", library_lock=True) as files, run_lock(root.lock):
+        files.update(via="terminal", progress={"line": "4 of 60"})
+        files.flush()
+        reloaded, _ = make_api(root)  # a new HubApi: no `ConsoleBusy` has been sent to it yet
+        status = reloaded.job_status()
+        assert status["console_running"] is True
+        assert status["console"] == {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60",
+                                     "text": "Sync running in the Terminal · 4 of 60"}
+    with run_lock(root.lock):  # a holder the registry knows nothing of: nobody can name it
+        status = make_api(root)[0].job_status()
+        assert status["console_running"] is True
+        assert status["console"] == {"job": None, "via": None, "kind": None, "line": None,
+                                     "text": "A Discjockey command is running in the Terminal"}
 
 
 def test_rescan_library_answers_busy_and_console_at_once(root):

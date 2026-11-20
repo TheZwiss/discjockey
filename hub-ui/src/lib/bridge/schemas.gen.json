@@ -3543,6 +3543,76 @@
       ],
       "type": "object"
     },
+    "ConsoleHolder": {
+      "additionalProperties": false,
+      "description": "Another process that holds the library lock: what the window's banner says and the job it names (`ConsoleBusy` carries the same fields).",
+      "properties": {
+        "job": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The holder's job id in the registry; null for a holder with no registry entry.",
+          "x-shown": false
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The holder's job kind (`sync`, `tidy`, ...); null for a holder with no registry entry.",
+          "x-shown": true
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How far the holder is (\"4 of 60\"); null before it says.",
+          "x-shown": true
+        },
+        "text": {
+          "description": "What the window says while it holds the library: the job, where it runs, how far it is.",
+          "type": "string",
+          "x-shown": true
+        },
+        "via": {
+          "anyOf": [
+            {
+              "enum": [
+                "terminal",
+                "window"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the holder runs: the Terminal or another window; null for a holder with no registry entry.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "job",
+        "via",
+        "kind",
+        "line",
+        "text"
+      ],
+      "type": "object"
+    },
     "CountedGroup": {
       "additionalProperties": false,
       "description": "Every group but `missing_file`. `upgrade_ready` and `cdj` carry `all` and `stopped`.",
@@ -6014,6 +6084,18 @@
       "additionalProperties": false,
       "description": "The snapshot after a window reload.",
       "properties": {
+        "console": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConsoleHolder"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Who holds the library lock besides this window, the Terminal's job or another window's; null when nothing does. After a reload the banner names the job from it at once.",
+          "x-shown": true
+        },
         "console_running": {
           "description": "A console command is running.",
           "type": "boolean",
@@ -6070,6 +6152,7 @@
         "job",
         "refresh_running",
         "console_running",
+        "console",
         "read_status",
         "last_sync"
       ],

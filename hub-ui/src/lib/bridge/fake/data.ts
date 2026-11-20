@@ -210,6 +210,11 @@ export type FakeState = {
   licensesMissing?: boolean;
   read_status: ReadStatus;
   console_running: boolean;
+  /** what the Terminal's job is (`console_running` true): its kind and progress line; null means a sync at "4 of 60" */
+  console_kind: string | null;
+  console_line: string | null;
+  /** the holder is one the registry knows nothing of (an older Discjockey): no job, the unnamed sentence */
+  console_unnamed: boolean;
   /** the fake rekordbox is open: Same track on a file that isn't AIFF stops with `rekordbox_open` */
   rekordbox_running?: boolean;
   /** the fake rekordbox library: `none` (no rekordbox on this Mac) or `unreadable`; unset is `ready` */
@@ -942,7 +947,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
       signals: [{ time: iso(daysAgo(now, 3, 22, 12)), kind: 'search_failed', message: 'Qobuz search did not answer twice' },
         { time: iso(daysAgo(now, 6, 21, 58)), kind: 'duration_mismatch', message: 'Length 3:12 vs Spotify 4:28' }],
       last_download: iso(daysAgo(now, 0, 21, 47)) },
-    setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, offline: false, previewRead: true,
+    setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, console_kind: null, console_line: null, console_unnamed: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
     errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
     favourites: [], crateShown: {}, unread: [], emptyRead: [], briefBusy: false, scope: { off: [], weekly_off: [] },

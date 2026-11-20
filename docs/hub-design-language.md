@@ -337,7 +337,7 @@ remove it on every page, not just yours.
   The shell imports no page. A view never loses the warning: it claims a banner only while it really shows its own.
 - **Sync's use of it:** the before-start view shows reading and Spotify problems as cards in its body
   (`readStatusInBody`), so the slot keeps only the control. It claims `console` only while it shows a plan (Start
-  off, with its Hint "A sync is running in the terminal"), and `readStatus` only while the card above the plan can
+  off, with its Hint, the engine's words for the holder: "Sync running in the Terminal · 4 of 60"), and `readStatus` only while the card above the plan can
   show. The up-to-date, empty and preview-error views keep the console banner (`sync-before-up-to-date-console`);
   the running and end views keep both banners.
 
