@@ -357,7 +357,7 @@ class CheckingFallback:
     def __init__(self, **kw):
         pass
 
-    def check_account(self, service, browser, profile=None):
+    def check_account(self, service, browser, profile=None, pacer=None):
         return dict(CheckingFallback.answer)
 
 
@@ -616,6 +616,48 @@ def test_qobuz_check_login_records_the_outcome(root):
     assert stored_problem(root)[0] == "not_set_up"  # ...a refused one doesn't
 
 
+def test_the_qobuz_check_takes_its_slot_before_asking_qobuz(root):
+    order = []
+
+    class Source(QobuzCheckSource):
+        def search(self, query, limit=10):
+            order.append("request")
+            return ["hit"]
+
+    api, rec = make_api(root, open_qobuz=lambda p: order.append("login") or Source(),
+                        pacer=lambda support, emit, token: SimpleNamespace(
+                            before_qobuz_search=lambda: order.append("slot")))
+    assert wait_job(api, rec, api.qobuz_check_login()).ok
+    assert order == ["slot", "login", "request"]
+
+
+def test_a_pacer_that_cannot_write_is_not_a_qobuz_that_cannot_be_reached(root):
+    def broken(support, emit, token):
+        def slot():
+            raise OSError("pace.json is locked")
+
+        return SimpleNamespace(before_qobuz_search=slot)
+
+    api, rec = make_api(root, open_qobuz=lambda p: QobuzCheckSource(["hit"]), pacer=broken)
+    done = wait_job(api, rec, api.qobuz_check_login())
+    assert not done.ok and "Couldn't reach Qobuz" not in done.message
+    assert load_settings(root.settings_file).qobuz_last_check is None
+
+
+def test_a_setup_account_check_hands_the_pacer_to_the_listing(root):
+    given = []
+
+    class Fallback(CheckingFallback):
+        def check_account(self, service, browser, profile=None, pacer=None):
+            given.append(pacer)
+            return super().check_account(service, browser, profile)
+
+    spy = object()
+    api, rec = make_api(root, fallback=Fallback, pacer=lambda support, emit, token: spy)
+    assert wait_job(api, rec, api.setup_account("youtube", "chrome")).result["saved"]
+    assert given == [spy]
+
+
 def test_qobuz_check_login_logged_in_but_the_search_finds_nothing(root):
     api, rec = make_api(root, open_qobuz=lambda p: QobuzCheckSource([]))
     done = wait_job(api, rec, api.qobuz_check_login())
@@ -662,7 +704,7 @@ class NoCheckFallback:
     def __init__(self, **kw):
         pass
 
-    def check_account(self, service, browser, profile=None):
+    def check_account(self, service, browser, profile=None, pacer=None):
         pytest.fail("no account check beside a sync")
 
 

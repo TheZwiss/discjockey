@@ -24,7 +24,7 @@ from ..names import expected_stem, fold, search_fold
 from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
                       AiffBatchRow, BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
                       PlaylistRecord, Question, WatchedFolder, file_missing, is_own, rev as record_rev, split_token, track_link as key_link)
-from ..pacing import KEEP_SIGNALS, Budget
+from ..pacing import KEEP_SIGNALS, Budget, streak_stopped
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PART_LABELS, PLAN_LABELS, SECTIONS, auto_upgrade_line, check_text, result_folder
@@ -418,7 +418,9 @@ def _signals(state: dict, today: date, service: str = "qobuz", seen: str | None 
 
 
 def limit_cards(state: dict, settings: Settings, today: date) -> list[dict]:
-    """The three cards on top of the Download limits page, always all three (spec §6)."""
+    """The three cards on top of the Download limits page, always all three (spec §6). A card is `paused` while the
+    service's stored streak says stopped (until the next sync starts); an account's also on a day it signalled an
+    auto-stop, because that day the reads of Liked music stay away from it too (`pacing.account_paused`)."""
     up = services_of(settings)
     out = []
     for service in SERVICES:
@@ -429,7 +431,8 @@ def limit_cards(state: dict, settings: Settings, today: date) -> list[dict]:
             signals = _signals(state, today, service, settings.warnings_seen.get(service))
             card.update(used=m["used"], allowance=m["allowance"], warnings=len(signals),
                         new_warnings=sum(1 for s in signals if s["new"]),
-                        paused=any(s["kind"] == "auto_stop" and s["time"][:10] == today.isoformat() for s in signals))
+                        paused=streak_stopped(state, service) or (service in ACCOUNTS and any(
+                            s["kind"] == "auto_stop" and s["time"][:10] == today.isoformat() for s in signals)))
         out.append(card)
     return out
 

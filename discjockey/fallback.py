@@ -293,10 +293,11 @@ class FallbackSource:
     def _browser_cookies(self, browser: str, profile: str | None = None):
         return yt_dlp.cookies.extract_cookies_from_browser(browser, profile)
 
-    def check_account(self, service: str, browser: str, profile: str | None = None) -> dict:
+    def check_account(self, service: str, browser: str, profile: str | None = None, pacer=None) -> dict:
         """Setup's "Check": can yt-dlp read the login from this browser, and does the account give ~256 kbps? Looks
         only at the names of the browser's cookies; a cookie value is never shown or kept. A song whose stream is
-        DRM-protected is passed over."""
+        DRM-protected is passed over. `pacer`: each logged-in format listing is one claim of the shared pacer
+        (`between_account_downloads`, then `downloaded`), so a second or third listing waits its gap."""
         def answer(ok: bool, problem: str | None, kbps: int | None = None, detail: str = "") -> dict:
             return {"ok": ok, "problem": problem, "kbps": kbps, "detail": detail}
 
@@ -314,12 +315,17 @@ class FallbackSource:
             for entry in entries:
                 c = entry_to_candidate(source, entry)
                 if c is not None:
+                    if pacer is not None:
+                        pacer.between_account_downloads(service)
                     try:
                         best = max(best, self.stream_kbps(source, c.id, account=True) or 0)
                     except Exception as e:
                         if not drm_protected(e):
                             raise
                         continue  # says nothing about the account: the next song is checked
+                    finally:
+                        if pacer is not None:
+                            pacer.downloaded(service)
                 if best >= PREMIUM_MIN_KBPS:
                     break
         except Exception as e:

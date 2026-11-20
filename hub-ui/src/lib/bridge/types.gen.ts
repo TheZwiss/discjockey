@@ -1816,7 +1816,10 @@ export type LimitCard = {
   warnings: number;
   /** Those after the last "Got it". */
   new_warnings: number;
-  /** An `auto_stop` happened today. */
+  /**
+   * Paused by the auto-stop: stored as stopped until the next sync starts. An account also counts an
+   * `auto_stop` signal of today.
+   */
   paused: boolean;
 };
 /** The dashboard's tiles. */

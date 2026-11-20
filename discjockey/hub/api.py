@@ -1743,12 +1743,14 @@ class HubApi:
             try:
                 fallback = self._svc.fallback(emit=ctx.emit, check=ctx.token.check,
                                               logins={s: (a.browser, a.profile) for s, a in self._settings().download_accounts.items()})
+                pacer = self._svc.pacer(self._paths.support, ctx.emit, ctx.token)
+                if find.needs_qobuz and find.cand is None and qobuz is not None:
+                    pacer.before_qobuz_search()  # a pasted Qobuz link: its track lookup is a Qobuz request
                 cand = find(qobuz, fallback)
                 return ops.use_candidate(self._paths, state, track_id, cand, qobuz=qobuz, fallback=fallback,
                                          budget=budget, track=self._spotify_track(track_id, e), emit=ctx.emit,
                                          token=ctx.token, process=self._svc.process, accounts=accounts,
-                                         now=self._svc.now,
-                                         pacer=self._svc.pacer(self._paths.support, ctx.emit, ctx.token))
+                                         now=self._svc.now, pacer=pacer)
             finally:
                 if qobuz is not None:
                     qobuz.close()
@@ -3075,7 +3077,8 @@ class HubApi:
         self._account(service, browser)
 
         def work(ctx) -> dict:
-            check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(service, browser, profile)
+            check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(
+                service, browser, profile, self._svc.pacer(self._support.support, ctx.emit, ctx.token))
             return self._account_result(service, browser, profile, check)
 
         return {"job_id": self._settings_job("setup_account", work).id}
@@ -3156,7 +3159,8 @@ class HubApi:
                 raise OpProblem("A sync started while you signed in. Check again after the sync.",
                                 "sync_running") from None
             ctx.emit(SignInPhase(service, "checking", browser, name))
-            check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(service, browser, found)
+            check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(
+                service, browser, found, self._svc.pacer(self._support.support, ctx.emit, ctx.token))
             try:
                 return self._account_result(service, browser, found, check)
             except Busy as e:  # a write job or the console holds the lock: the save would race it
@@ -3188,6 +3192,8 @@ class HubApi:
 
         def work(ctx) -> dict:
             source = None
+            # the check's two Qobuz requests (login, search) take their slot first: a pacer error is not "couldn't reach"
+            self._svc.pacer(self._support.support, ctx.emit, ctx.token).before_qobuz_search()
             try:
                 source = self._svc.open_qobuz(self._support)
                 found = bool(source.search("Daft Punk One More Time", limit=1))

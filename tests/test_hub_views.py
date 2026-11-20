@@ -1221,6 +1221,26 @@ def test_limit_cards():
     assert cards[2]["set_up"] is False
 
 
+def test_a_card_is_paused_by_the_stored_streak_until_the_next_sync_starts():
+    s = state()
+    s["qobuz_usage"] = {"days": {}, "signals": [{"time": "2026-10-19T10:00:00", "kind": "auto_stop", "message": "x"}],
+                        "streak": {"failures_in_a_row": 3, "download_failed_in_row": False, "stopped": True}}
+    assert views.limit_cards(s, YT, TODAY)[0]["paused"] is True  # yesterday's signal, today still paused
+    s["qobuz_usage"]["streak"] = None  # a sync started and cleared it
+    s["qobuz_usage"]["signals"].append({"time": "2026-10-20T08:00:00", "kind": "auto_stop", "message": "y"})
+    assert views.limit_cards(s, YT, TODAY)[0]["paused"] is False  # Qobuz: the streak only
+
+
+def test_an_account_card_is_also_paused_on_the_day_of_its_auto_stop_signal():
+    s = state()
+    s["youtube_usage"] = {"days": {}, "signals": [{"time": "2026-10-20T10:01:00", "kind": "auto_stop", "message": "y"}]}
+    assert views.limit_cards(s, YT, TODAY)[1]["paused"] is True  # no streak: the signal of today still counts
+    s["youtube_usage"]["signals"][0]["time"] = "2026-10-19T10:01:00"
+    assert views.limit_cards(s, YT, TODAY)[1]["paused"] is False
+    s["youtube_usage"]["streak"] = {"failures_in_a_row": 3, "download_failed_in_row": False, "stopped": True}
+    assert views.limit_cards(s, YT, TODAY)[1]["paused"] is True
+
+
 def test_limits_for_youtube_use_its_own_zones_signals_and_numbers():
     s = state()
     s["youtube_usage"] = {"days": {"2026-10-19": 30, "2026-10-20": 3}, "signals": [

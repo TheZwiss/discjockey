@@ -250,7 +250,8 @@ class LimitCard(TypedDict):
     allowance: Annotated[int, F("Today's allowance.")]
     warnings: Annotated[int, F("Warning signs of the last 14 days.")]
     new_warnings: Annotated[int, F("Those after the last \"Got it\".")]
-    paused: Annotated[bool, F("An `auto_stop` happened today.")]
+    paused: Annotated[bool, F("Paused by the auto-stop: stored as stopped until the next sync starts. An account also counts an "
+                                 "`auto_stop` signal of today.")]
 
 
 @shape
