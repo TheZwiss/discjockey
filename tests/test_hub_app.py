@@ -384,7 +384,7 @@ def test_quit_from_the_page_destroys_the_window(tmp_path, monkeypatch):
 def test_main_without_a_music_folder_starts_nothing_of_the_library(tmp_path, monkeypatch):
     seen = []
     monkeypatch.setattr(HubApi, "refresh", lambda self, auto=False: seen.append("refresh") or {"ok": True})
-    monkeypatch.setattr(jobs.Jobs, "watch_console", lambda self, interval=3.0: seen.append("watch"))
+    monkeypatch.setattr(jobs.Jobs, "watch_registry", lambda self, interval=1.0: seen.append("watch"))
     web = FakeWebview(FakeWindow())
     support = tmp_path / "support"
     assert app.main(library.resolve_in(support), webview=web) == 0

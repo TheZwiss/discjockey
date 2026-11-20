@@ -27,7 +27,7 @@ from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
 from ..problem import Problem
-from . import outcomes, registry, shapes
+from . import catalog, outcomes, registry, shapes
 
 log = logging.getLogger(__name__)
 
@@ -53,8 +53,13 @@ class JobFinished:
 
 @dataclass(frozen=True)
 class ConsoleBusy:
-    """A Discjockey run in the terminal holds the lock (the window goes read-only), or has finished."""
+    """Another process's job holds the library lock (the window goes read-only), or has finished. `job`, `kind` and
+    `line` name the job from the registry (its id, its kind, its progress line); all None for a holder that has no
+    registry entry (an older Discjockey: the lock probe) and when nothing runs."""
     running: bool
+    job: str | None = None
+    kind: str | None = None
+    line: str | None = None
 
 
 @dataclass(frozen=True)
@@ -367,6 +372,10 @@ class Jobs:
         self._brief = False  # lock_briefly or a scan holds (or is about to take) the engine lock: no terminal run
         self._scanning = False  # scan_lock holds the engine lock (without the mutex): writers answer busy
         self._briefs = 0  # how many times lock_briefly has taken it (a probe that overlapped one doesn't count)
+        self._holder_seen: dict | None = None  # the foreign holder of the registry watch's last look (None: none)
+        self._looked = False  # the registry watch has looked once
+        self._told: tuple = (False, None, None, None)  # the last `ConsoleBusy` the watch sent
+        self._foreign: dict[str, dict] = {}  # the foreign jobs seen active at the last look, by id
 
     def adopt(self, files: registry.JobFiles) -> None:
         """A worker process (`job _worker`) runs exactly one job, the one `files` is: `start` takes that job's id, runs
@@ -392,13 +401,57 @@ class Jobs:
             return Busy(BUSY_WORDS.get(job.kind, BUSY_TEXT), "busy")
         return Busy(SCANNING_TEXT, "busy") if self._scanning else None
 
-    def console_running(self) -> bool:
-        """A terminal run holds the lock (our own job, or our own brief save, holding it does not count)."""
+    def _music(self) -> Path | None:
+        """The music folder of the bound library (its lock is `<music>/.discjockey/.lock`)."""
+        return self.lock.parent.parent if self.lock is not None else None
+
+    def _foreign_states(self) -> list[dict]:
+        """The registry's jobs of this music folder (and those with none) that are not this process's, newest first."""
+        if self.registry is None or self.lock is None:
+            return []
+        return [s for s in self.registry.list(self._music()) if s.get("id") not in self.own_ids]
+
+    @staticmethod
+    def _holder_of(states: Iterable[Mapping]) -> dict | None:
+        """The newest active job among `states` that holds the library lock, as `{job, via, kind, line}`."""
+        for state in states:
+            if state.get("status") in registry.ACTIVE and catalog.holds_library(state):
+                return {"job": state.get("id"), "via": state.get("via"), "kind": state.get("kind"),
+                        "line": (state.get("progress") or {}).get("line")}
+        return None
+
+    def _foreign_holder(self) -> dict | None:
+        """The foreign job that holds the library lock: the registry watch's last look (checked again, one state read,
+        so a job that has just ended no longer counts), before its first look a direct read of the registry."""
+        try:
+            if not self._looked:
+                return self._holder_of(self._foreign_states())
+            seen = self._holder_seen
+            if seen is None:
+                return None
+            return self._holder_of([registry.JobFiles(self.registry.root / seen["job"]).state()])
+        except Exception:  # noqa: BLE001  the registry only informs; the lock is the arbiter
+            return None
+
+    def _console_probe(self) -> bool:
+        """The library lock is held by someone that is neither this process's job nor its brief save."""
         if self.running() is not None or self._brief:
             return False
         briefs = self._briefs
         lock = self.lock
         return lock is not None and not lock_free(lock) and not self._brief and briefs == self._briefs
+
+    def console_running(self) -> bool:
+        """Another process's job holds the library lock: a foreign job of the registry that does, else (a holder with
+        no registry entry: an older Discjockey) the lock itself held by none of this process's own job or brief save."""
+        return self._foreign_holder() is not None or self._console_probe()
+
+    def _console_busy(self) -> Busy | None:
+        """The `console` Busy for a foreign holder (`data.holder` names it, when the registry knows it), else None."""
+        holder = self._foreign_holder()
+        if holder is not None:
+            return Busy(CONSOLE_TEXT, "console", data={"holder": holder})
+        return Busy(CONSOLE_TEXT, "console") if self._console_probe() else None
 
     @contextmanager
     def lock_briefly(self):
@@ -419,7 +472,8 @@ class Jobs:
                 if self.lock is not None:
                     stack.enter_context(library.run_lock(self.lock))
             except LockHeld:
-                raise Busy(CONSOLE_TEXT, "console") from None
+                holder = self._foreign_holder()
+                raise Busy(CONSOLE_TEXT, "console", data={"holder": holder} if holder else None) from None
             yield
 
     @contextmanager
@@ -487,8 +541,8 @@ class Jobs:
         with self._mutex:
             if (busy := self._busy()) is not None:
                 raise busy
-            if self.console_running():
-                raise Busy(CONSOLE_TEXT, "console")
+            if (console := self._console_busy()) is not None:
+                raise console
             if self.registry is not None and self.inline is None:
                 self.registry.prune(self.now())  # as every terminal job does: `start` only, never the minute's read
             job = self.current = self._new(kind, track_id, batch_kind, library_lock=hold_library and self.lock is not None)
@@ -671,19 +725,62 @@ class Jobs:
                                  data={**(finished.result or {}), **(fields["data"] or {})} or None, next=fields["next"],
                                  person_steps=fields["person_steps"], job=job.id)
 
-    # --- console detection (spec 6.2): poll the lock every few seconds ---
+    # --- other processes' jobs (design §6.6): the registry, once a second; the lock probe for a holder it doesn't know ---
 
-    def watch_console(self, interval: float = 3.0) -> None:
+    def watch_registry(self, interval: float = 1.0) -> None:
         def loop() -> None:
-            last = False
-            while not self._closed.wait(interval):
-                now = self.console_running()
-                if now != last:
-                    last = now
-                    self.emit(ConsoleBusy(now))
+            while True:
+                try:
+                    self._look()
+                except Exception:  # noqa: BLE001  a look that fails is the next look's to do again
+                    log.warning("the registry watch could not look", exc_info=True)
+                if self._closed.wait(interval):
+                    return
 
-        self._watch = threading.Thread(target=loop, name="hub-console-watch", daemon=True)
+        self._watch = threading.Thread(target=loop, name="hub-registry-watch", daemon=True)
         self._watch.start()
+
+    def _look(self) -> None:
+        """One look at the registry: the foreign holder of the library lock (`ConsoleBusy` when what it says changed)
+        and the foreign jobs that ended since the last look (`JobFinished`, as for the window's own jobs)."""
+        states = self._foreign_states()
+        holder = self._holder_of(states)
+        running = holder is not None or self._console_probe()
+        tell = (running, holder["job"], holder["kind"], holder["line"]) if holder else (running, None, None, None)
+        self._holder_seen, self._looked = holder, True
+        by_id = {s["id"]: s for s in states if s.get("id")}
+        ended = [(before, by_id.get(job_id)) for job_id, before in self._foreign.items()
+                 if by_id.get(job_id) is None or by_id[job_id].get("status") not in registry.ACTIVE]
+        self._foreign = {job_id: s for job_id, s in by_id.items() if s.get("status") in registry.ACTIVE}
+        for before, now in ended:
+            self._foreign_ended(before, now)
+        if tell != self._told:
+            self._told = tell
+            self.emit(ConsoleBusy(*tell))
+
+    def _foreign_ended(self, before: Mapping, now: Mapping | None) -> None:
+        """A foreign job seen active at the last look is done, lost or gone: the window's `JobFinished` for it, built
+        from its `result.json`. A `refresh` ending while this process's own refresh runs says nothing (the window's
+        reader is not told by job id: its own end re-reads)."""
+        kind = before.get("kind") or ""
+        if kind == "refresh" and self.refresh is not None and not self.refresh.done.is_set():
+            return
+        job_id = before["id"]
+        envelope = None
+        if now is not None:
+            try:
+                envelope = registry.JobFiles(self.registry.root / job_id).result()
+            except OSError:
+                envelope = None
+        if envelope is None:  # lost without a word, or its folder is gone (pruned)
+            reason = outcomes.REASONS["worker_lost"]
+            event = JobFinished(job_id, kind, False, "failed", reason.text, None)
+        else:
+            ok = envelope.get("outcome") in ("ok", "partial")
+            reason = outcomes.REASONS.get(envelope.get("reason") or "")
+            message = envelope.get("message") or (reason.text if reason is not None else "")
+            event = JobFinished(job_id, kind, ok, outcomes.finished_problem(envelope), message, envelope.get("data"))
+        self.emit(event)
 
     @property
     def closed(self) -> threading.Event:

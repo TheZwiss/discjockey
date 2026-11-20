@@ -8,7 +8,7 @@ import pytest
 
 from discjockey import events as ev, library, qobuz, run
 from discjockey.events import AccountUsage, ActionFinished, Cancelled, Message, PlannedAction, Progress, Result, RunStarted
-from discjockey.hub import jobs, registry
+from discjockey.hub import jobs, outcomes, registry
 from discjockey.hub.api import HubApi, bridge
 from discjockey.hub.jobs import Busy, Jobs
 from discjockey.models import Protected
@@ -102,7 +102,7 @@ def test_a_console_run_makes_jobs_wait(env):
 
 def test_a_console_run_that_starts_in_the_same_moment(env, monkeypatch):
     paths, js, rec, _ = env
-    monkeypatch.setattr(js, "console_running", lambda: False)  # the check came just before the console took the lock
+    monkeypatch.setattr(js, "_console_busy", lambda: None)  # the check came just before the console took the lock
     with run_lock(paths.lock):
         job = js.start("hide", lambda ctx: pytest.fail("must not run"))
         assert job.done.wait(5)
@@ -260,17 +260,6 @@ def test_refresh_is_refused_while_the_hubs_own_sync_runs(env):
         js.start_refresh(lambda ctx: None)
     release.set()
     job.done.wait(5)
-
-
-def test_console_watch_reports_changes(env):
-    paths, js, rec, _ = env
-    js.watch_console(interval=0.05)
-    try:
-        with run_lock(paths.lock):
-            assert wait_for(lambda: jobs.ConsoleBusy(True) in rec.events)
-        assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(False))
-    finally:
-        js.close()
 
 
 def wait_for(cond, timeout=3):
@@ -745,3 +734,183 @@ def test_a_window_job_carries_the_same_words_a_workers_does(hub, monkeypatch):
     assert env["outcome"] == "ok" and env["command"] == "upgrade apply"
     assert env["next"] == words["next"] and env["person_steps"] == words.get("person_steps", [])
     assert env["data"]["batch_id"] == "aiff:5" and env["message"] == "1 of 1 song done."
+
+
+# --- other processes' jobs, from the registry (issue 39 phase 2, V2.1b) ---
+
+@pytest.fixture
+def watched(env):
+    """The `env` jobs with a registry; `foreign` makes a job of another process in it."""
+    paths, _, rec, awake = env
+    reg = registry.Registry(paths.support)
+    js = Jobs(paths.lock, rec.emit, registry=reg)
+    return paths, js, rec, reg
+
+
+class Foreign:
+    """A job of another process: made with `Registry.create` in the test and kept alive by its claim, not through the
+    `Jobs` under test."""
+
+    def __init__(self, paths, reg, kind="sync", method="sync_run", library_lock=True, music="own", line="3 of 10"):
+        roots = {"music": str(paths.root) if music == "own" else music}
+        self.files = reg.create(kind, "sync run", {}, "terminal", roots)
+        self.files.update(method=method, library_lock=library_lock, status="running", progress={"line": line})
+        self.files.flush()
+
+    @property
+    def id(self):
+        return self.files.id
+
+    def line(self, text):
+        self.files.update(progress={"line": text})
+        self.files.flush()
+
+    def end(self, outcome="ok", reason=None, message=None, data=None):
+        self.files.write_result(outcomes.envelope("sync run", outcome, reason=reason, message=message, data=data,
+                                                  job=self.id))
+        self.files.update(status="done", ended="now")
+        self.files.release_claim()
+
+    def let_go(self):
+        self.files.release_claim()  # the process died: nobody holds `alive`, the state still says running
+
+
+def test_a_foreign_job_that_holds_the_library_is_named_and_followed(watched):
+    paths, js, rec, reg = watched
+    js.watch_registry(interval=0.05)
+    try:
+        other = Foreign(paths, reg)
+        assert wait_for(lambda: jobs.ConsoleBusy(True, other.id, "sync", "3 of 10") in rec.events)
+        assert js.console_running()
+        other.line("4 of 10")
+        assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(True, other.id, "sync", "4 of 10"))
+        other.end()
+        assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(False, None, None, None))
+        assert not js.console_running()
+    finally:
+        js.close()
+    assert [e for e in rec.of(jobs.JobFinished)][0].job_id == other.id
+
+
+def test_the_first_look_sends_nothing_when_nothing_runs(watched):
+    paths, js, rec, reg = watched
+    js._look()
+    js._look()
+    assert rec.events == []
+
+
+@pytest.mark.parametrize("outcome, reason, message, ok, problem", [
+    ("ok", None, "Done.", True, None),
+    ("partial", None, None, True, None),
+    ("failed", "offline", None, False, "offline"),
+    ("failed", "failed", "It broke.", False, "failed"),
+    ("stopped", "stop", None, False, "stopped"),
+])
+def test_a_foreign_end_is_the_windows_job_finished(watched, outcome, reason, message, ok, problem):
+    paths, js, rec, reg = watched
+    other = Foreign(paths, reg)
+    js._look()
+    other.end(outcome, reason, message, {"actions": 4})
+    js._look()
+    [finished] = rec.of(jobs.JobFinished)
+    assert (finished.job_id, finished.kind, finished.ok, finished.problem) == (other.id, "sync", ok, problem)
+    assert finished.result == {"actions": 4}
+    assert finished.message == (message or (outcomes.REASONS[reason].text if reason else ""))
+    js._look()
+    assert len(rec.of(jobs.JobFinished)) == 1  # once
+
+
+def test_a_lost_foreign_job_and_a_gone_one_finish_as_failed_with_the_worker_lost_words(watched):
+    paths, js, rec, reg = watched
+    lost, gone = Foreign(paths, reg), Foreign(paths, reg, library_lock=False)
+    js._look()
+    lost.let_go()
+    shutil_rmtree(gone.files.dir)  # pruned between two looks
+    js._look()
+    words = outcomes.REASONS["worker_lost"].text
+    finished = {e.job_id: e for e in rec.of(jobs.JobFinished)}
+    assert set(finished) == {lost.id, gone.id}
+    for event in finished.values():
+        assert (event.ok, event.problem, event.message, event.result) == (False, "failed", words, None)
+
+
+def test_a_foreign_read_job_finishes_without_a_console_banner(watched):
+    paths, js, rec, reg = watched
+    other = Foreign(paths, reg, kind="scan", method="scan", library_lock=False)
+    js._look()
+    assert rec.events == []  # holds no library: nothing to wait for
+    other.end()
+    js._look()
+    assert [type(e) for e in rec.events] == [jobs.JobFinished] and rec.events[0].kind == "scan"
+
+
+def test_a_foreign_refresh_ending_during_the_windows_own_refresh_says_nothing(watched):
+    paths, js, rec, reg = watched
+    other = Foreign(paths, reg, kind="refresh", method="refresh", library_lock=False)
+    js._look()
+    release = threading.Event()
+    own = js.start_refresh(lambda ctx: release.wait(5) and None)
+    other.end()
+    js._look()
+    assert rec.of(jobs.JobFinished) == []
+    release.set()
+    assert own.done.wait(5)
+
+
+def test_the_windows_own_jobs_are_never_foreign(watched):
+    paths, js, rec, reg = watched
+    release = threading.Event()
+    job = js.start("sync", lambda ctx: release.wait(5) and None)
+    js._look()
+    assert js.console_running() is False and rec.of(jobs.ConsoleBusy) == []
+    release.set()
+    assert job.done.wait(5)
+    js._look()
+    assert [e.job_id for e in rec.of(jobs.JobFinished)] == [job.id]  # its own, from `start`, and no second one
+
+
+def test_a_bare_lock_without_a_registry_entry_is_still_a_console_run(watched):
+    paths, js, rec, reg = watched
+    js._look()
+    with run_lock(paths.lock):
+        assert js.console_running()
+        js._look()
+        assert rec.events[-1] == jobs.ConsoleBusy(True, None, None, None)
+    js._look()
+    assert rec.events[-1] == jobs.ConsoleBusy(False, None, None, None) and not js.console_running()
+
+
+def test_a_write_refused_while_a_foreign_job_holds_the_library_says_who(watched):
+    paths, js, rec, reg = watched
+    other = Foreign(paths, reg)
+    holder = {"job": other.id, "via": "terminal", "kind": "sync", "line": "3 of 10"}
+    with pytest.raises(Busy) as excinfo:  # before the watch has looked
+        js.start("hide", lambda ctx: pytest.fail("must not run"))
+    assert (excinfo.value.kind, str(excinfo.value), excinfo.value.data) == ("console", jobs.CONSOLE_TEXT, {"holder": holder})
+    js._look()
+    with pytest.raises(Busy) as excinfo:
+        js.start("hide", lambda ctx: pytest.fail("must not run"))
+    assert excinfo.value.data == {"holder": holder}
+    with run_lock(paths.lock):  # the lock itself held as well: a brief save is refused with the holder too
+        with pytest.raises(Busy) as excinfo:
+            with js.lock_briefly():
+                pytest.fail("must not run")
+    assert excinfo.value.kind == "console" and excinfo.value.data == {"holder": holder}
+    other.end()
+    assert not js.console_running()  # a holder that has just ended is not waited for, though the look is a second old
+    js.start("hide", lambda ctx: None).done.wait(5)
+
+
+def test_close_ends_the_registry_watch(watched):
+    paths, js, rec, reg = watched
+    js.watch_registry(interval=0.05)
+    thread = js._watch
+    assert thread.is_alive()
+    t0 = time.monotonic()
+    js.close()
+    assert not thread.is_alive() and time.monotonic() - t0 < 2
+
+
+def shutil_rmtree(path):
+    import shutil
+    shutil.rmtree(path)

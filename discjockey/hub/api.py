@@ -451,7 +451,7 @@ class HubApi:
             if self._bound is not None:
                 raise RuntimeError("A library is bound already; changing it needs a restart.")
             self._attach(paths)
-            self._jobs.watch_console()
+            self._jobs.watch_registry()
             self._watch_playlists_file()
             self._watch_drives()
 
