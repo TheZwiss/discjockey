@@ -1059,6 +1059,16 @@ Results:
         decisions checked and kept (lines_changed keeps the "changed since" hint; cache key includes today;
         FileDropped loses track_id; keep_file without expect; dropped methods keep catalogue rows). Run 1 total
         ~1,525k expected. B2 run 2 dispatched (V2.3a/b, V2.6, E9, E4a/b + review/rehearse V2.6, shots E9/E4).
+      - B2 run 2 (Opus): logged 329k, 124 calls, cache 24.2M, advisor 0k. Wrote V2.3a (215k), V2.3b (175k), V2.6
+        (225k), E9 (185k), E4a (175k), E4b (Opus, 300k), review-V2.6 (130k), rehearse-V2.6 (80k, made-up services),
+        shots-E9 (100k), shots-E4 (120k); wave 2 phase review 2 x 175k + fix 150k. Wave 2 expected ~3,860k. ORDER
+        CHANGED: V2.5a/b before V2.3a/b (presets need the engine's scope). Flagged to C2: PlanExpired.next names
+        `sync run --dry-run` (exists only from V4.1); V2.6 counts a queued sync as running (check no mutual
+        block, cf. I1); E9 adds ConsoleBusy.text; E4b has no Stop for a Terminal sync. DECIDED (mine): E4b from a
+        precise direction, no mockup (open-scope Decided).
+      - C2: fresh Opus check in two parts (brief-check-wave2.md): part A (V2.2, V2.5) dispatched; part B next.
+      - Log edits now happen in the worktree .claude/worktrees/main-log (main), so the main checkout stays on the
+        phase branch while agents read it.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
