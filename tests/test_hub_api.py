@@ -111,14 +111,14 @@ def test_dashboard_after_reading_spotify(root):
     assert d["needs_you"]["upgrades"] == 1 and d["tiles"]["lossless"]["total"] == 3
 
 
-def test_sync_preview_lists_the_actions_with_keys(root):
+def test_sync_preview_lists_the_actions_with_ids(root):
     api, rec = make_api(root)
     assert api.sync_preview()["empty"] == "no_preview"
     refreshed(api, rec)
     p = api.sync_preview()
     assert [g["key"] for g in p["groups"]] == ["acquire:new"]
-    assert [a["key"] for a in p["groups"][0]["actions"]] == [["acquire", "t4", "Library/Hard_Bounce"],
-                                                             ["acquire", "t5", "Library/Powertrance"]]
+    rows = p["groups"][0]["actions"]
+    assert [a["id"] for a in rows] == ["act:acquire:t4:1", "act:acquire:t5:2"] and not any("key" in a for a in rows)
     assert p["groups"][0]["actions"][0]["cover_url"] == "https://i.scdn.co/image/t4"  # not downloaded yet: Spotify's
     # issue 37: each row names the playlists it is in, by the browser column's keys, and the preview names them
     ins = [a["in"] for a in p["groups"][0]["actions"]]

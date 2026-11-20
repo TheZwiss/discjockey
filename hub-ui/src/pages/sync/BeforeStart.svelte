@@ -12,7 +12,7 @@
   import { ListPanelFrame } from '$lib/frames';
   import { api, rekordboxStatus, runJob } from '$lib/bridge/client';
   import type { Fail, PlaylistRow, PreviewAction, RekordboxStatus, RunSummary, SyncPreview } from '$lib/bridge/types';
-  import { dataVersion, hub, readBlock, readBlocked, syncRunning, writeBlockedReason } from '$lib/stores/hub';
+  import { dataVersion, hub, readBlock, readBlocked, refreshHub, syncRunning, writeBlockedReason } from '$lib/stores/hub';
   import { toasts } from '$lib/stores/toasts';
   import { getPref, setPref } from '$lib/prefs';
   import { markReady } from '$lib/ready';
@@ -20,10 +20,10 @@
   import { sayInBody } from '$lib/stores/shell';
   import { artistTitle, plural } from '$lib/format';
   import { planCounts as publishedCounts, syncScope } from '$lib/stores/syncScope';
-  import { PREF_LAST_SELECTION, carryTicks, keyId, picked } from './selection';
+  import { carryTicks } from './selection';
   import {
-    PREF_HOW_MANY, chosenOf, dayBarEmpty, defaultHowMany, everyOff, inRunOrder, kindShares, leftOutBody, planCounts, sectionOf, stripLine, weeklyItems, inScope, isDownload, matches, nextSyncSet,
-    mayWaitToday, downloadsInScope, presetN, presetTicks, presets, readHowMany, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
+    PREF_HOW_MANY, chosenOf, dayBarEmpty, enginePresets, everyOff, inRunOrder, kindShares, leftOutBody, planCounts, sectionOf, stripLine, weeklyItems, inScope, isDownload, matches, nextSyncSet,
+    mayWaitToday, downloadsInScope, howManyOfKey, presetSelected, readHowMany, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
     NOTHING_TODAY, leftOutTitle, readBlockLine, runsNothingToday, sectionCounts, startLabel, startNote, toggleScope,
     type HowMany, type Section,
   } from './planModel';
@@ -60,7 +60,7 @@
   const ordered = $derived(inRunOrder(preview));
   const scoped = $derived(ordered.filter((a) => inScope(a, scope)));
   const total = $derived(downloadsInScope(ordered, scope));
-  const presetList = $derived(presets(total, left));
+  const presetList = $derived(enginePresets(preview?.presets ?? []));
   // what Start sends: only ticked rows in scope (issue 37: a song whose every collection is off is never sent)
   const chosen = $derived(chosenOf(ordered, ticked, scope));
   // Later counts only what's in scope, so it agrees with "All N" and the days (issue 7)
@@ -117,8 +117,10 @@
   const startTitle = $derived($hub.console_running ? 'A sync is running in the terminal. Its progress shows there.'
     : scoped.length === 0 ? 'Everything is switched off' : chosen.length === 0 ? 'Nothing ticked' : nothingToday ? NOTHING_TODAY : undefined);
 
+  /** Ticks what the engine's preset for this choice holds; a choice the plan doesn't offer changes nothing. */
   function applyPreset(h: HowMany) {
-    ticked = presetTicks(ordered, scope, presetN(h, total, left));
+    const ids = preview ? presetSelected(preview.presets, h, total, left) : null;
+    if (ids) ticked = new Set(ids);
   }
 
   // two quick data bumps (a JobFinished, then a refresh) can answer out of order: only the newest reply is applied
@@ -134,10 +136,10 @@
     const first = preview === null;
     const prev = { ticked, known };
     preview = r;
-    known = new Set(inRunOrder(r).map((a) => keyId(a.key)));
-    if (howMany === null) howMany = defaultHowMany(total, left);
+    known = new Set(inRunOrder(r).map((a) => a.id));
+    if (howMany === null) howMany = howManyOfKey(r.default_how_many);
     if (howMany === 'custom') ticked = carryTicks(r, first ? null : prev);
-    else applyPreset(howMany);
+    else if (howMany !== null) applyPreset(howMany);
     if (r.empty === 'up_to_date') void loadUpToDate();
     markReady('sync');
     if (first) autoRead(r);
@@ -191,7 +193,7 @@
 
   // ---------- ticks ----------
   function toggle(a: PreviewAction) {
-    const id = keyId(a.key);
+    const id = a.id;
     const next = new Set(ticked);
     if (next.has(id)) next.delete(id); else next.add(id);
     ticked = next;
@@ -199,13 +201,13 @@
   }
   function tickFolder(folder: string, on: boolean) {
     const next = new Set(ticked);
-    for (const a of scoped) if (sectionName(a) === folder) { if (on) next.add(keyId(a.key)); else next.delete(keyId(a.key)); }
+    for (const a of scoped) if (sectionName(a) === folder) { if (on) next.add(a.id); else next.delete(a.id); }
     ticked = next;
     howMany = 'custom';
   }
   /** "Sync only this artist": exactly the matches in scope are ticked. */
   function tickOnlyMatches() {
-    ticked = new Set(visible.map((a) => keyId(a.key)));
+    ticked = new Set(visible.map((a) => a.id));
     howMany = 'custom';
   }
   function pickHowMany(h: HowMany) {
@@ -213,14 +215,6 @@
     setPref(PREF_HOW_MANY, h);
     applyPreset(h);
   }
-  // the scope changes here (the weekly checks) and in the browser column (the playlists): a preset follows it
-  let lastScope: object | null = null;
-  $effect(() => {
-    const s = scope;
-    if (s === lastScope) return;
-    lastScope = s;
-    untrack(() => { if (preview && howMany !== 'custom' && howMany !== null) applyPreset(howMany); });
-  });
   function changeWeekly(key: string) {
     syncScope.update((s) => toggleScope(s, 'kinds', key));
   }
@@ -250,11 +244,11 @@
   // ---------- start ----------
   async function start() {
     if (!preview || !chosen.length || nothingToday) return;
-    const sel = picked(preview, new Set(chosen.map((a) => keyId(a.key))));
-    setPref(PREF_LAST_SELECTION, sel);
     starting = true;
     startProblem = null;
-    const out = await runJob(api.start_sync(preview.plan_id, chosen.map((a) => a.id)), { quiet: true });
+    // the engine's record of what was started (`last_sync`) is read as soon as the job has an id: the live view names the songs from it
+    const started = api.start_sync(preview.plan_id, chosen.map((a) => a.id)).then((r) => { if (r.ok) void refreshHub(); return r; });
+    const out = await runJob(started, { quiet: true });
     starting = false;
     if (!out.ok && out.job_id === null) {
       startProblem = { ok: false, kind: out.kind, message: out.message };

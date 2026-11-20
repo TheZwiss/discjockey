@@ -2,7 +2,7 @@
 import { derived, get, writable, type Readable } from 'svelte/store';
 import { onEvent } from '../bridge/events';
 import { api, onNoLibrary } from '../bridge/client';
-import type { AppUpdate, CrateSaved, CratesSaved, FavouritesSaved, JobSnap, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
+import type { AppUpdate, CrateSaved, CratesSaved, FavouritesSaved, JobSnap, LastSync, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
 import { WRITE_BLOCKED } from '../copy';
 
 export type HubState = {
@@ -10,6 +10,8 @@ export type HubState = {
   job: JobSnap | null;            // current/last write job (from job_status, JobStarted, JobFinished)
   /** a sign-in waiting for the browser: its own slot beside the write jobs, so it never blocks a write (plan R3) */
   sign_in: JobSnap | null;
+  /** what the newest sync of this music folder was started with, from the engine's job registry (job_status); null with none */
+  last_sync: LastSync | null;
   refresh_running: boolean; console_running: boolean;
   read_status: ReadStatus | null;  setup: SetupStatus | null;  sidebar: Sidebar | null;
   /** while Spotify is read (a refresh or a sync's start): which playlist, from ReadingPlaylist */
@@ -22,7 +24,7 @@ export type HubState = {
   app_update_seq: number;
 };
 export type ReadProgress = { index: number; total: number; folder: string };
-export const EMPTY_HUB: HubState = { booted: false, fake: false, job: null, sign_in: null, refresh_running: false,
+export const EMPTY_HUB: HubState = { booted: false, fake: false, job: null, sign_in: null, last_sync: null, refresh_running: false,
   console_running: false, read_status: null, setup: null, sidebar: null, read_progress: null, read_stopped: false, app_update: null,
   app_update_seq: 0 };
 
@@ -175,7 +177,7 @@ export function refreshHub(): Promise<void> {
       state.update((s) => ({
         ...s,
         ...(js.ok ? { job: (js.job && js.job.kind !== SCAN_KIND ? js.job : null) ?? (s.job && !s.job.running ? s.job : null), refresh_running: js.refresh_running,
-          console_running: js.console_running, read_status: js.read_status,
+          console_running: js.console_running, read_status: js.read_status, last_sync: js.last_sync ?? null,
           sign_in: js.sign_in ?? (s.sign_in && !s.sign_in.running ? s.sign_in : null) } : {}),
         setup: setup.ok ? stripOk(setup) : s.setup,
         sidebar: side.ok && turn === sidebarTurn ? stripOk(side) : s.sidebar,

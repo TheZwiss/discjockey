@@ -2173,7 +2173,7 @@ def action_row(a, state: dict, cover: Url | None = None, where: Callable[[str], 
     e = state["tracks"].get(a.track_id)
     artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
     to_dir = a.dest_dir or f"Library/{a.folder}"
-    return {"key": [a.kind, a.track_id, to_dir], "kind": a.kind, "reason": a.reason or None,
+    return {"kind": a.kind, "reason": a.reason or None,
             "track_id": a.track_id, "artist": artist, "title": title, "folder": action_folder(a, e, where),
             "to_dir": to_dir, "to_not_lossless": to_dir.endswith("/not_lossless"),
             "src": a.src, "cover_url": cover(a.track_id, e) if cover and e else a.track.image_url}
@@ -2322,7 +2322,7 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
                  where: Callable[[str], str] | None = None, places: Places | None = None,
                  auto_upgrade: dict | None = None) -> dict:
-    """The check before the start: every planned action in groups, each with the key the page sends back ticked.
+    """The check before the start: every planned action in groups, each with the id the page sends back ticked.
     `auto_upgrade` (issue 33 stage C, issue 43): `{on, ready, places, place_notes}` from the api (`ready`: the upgrades
     the sync's last phase would put in place; `places`: the missing songs it would give their parked better version;
     None: the switch is off and nothing is to be placed), passed on as it is; null as well while there is no preview.
@@ -2343,8 +2343,7 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
     ids = run.action_ids(prep)
 
     def row(a) -> dict:
-        shown = action_row(a, plan_state, cover, where)
-        return {**shown, "id": ids[tuple(shown["key"])], "in": members(a.track_id)}
+        return {**action_row(a, plan_state, cover, where), "id": ids[run.action_key(a)], "in": members(a.track_id)}
     m = moneys(state, settings, today)
     todo, never = planned(prep, state)
     groups: dict[str, list] = {}

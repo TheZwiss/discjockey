@@ -236,6 +236,27 @@ describe('an AppUpdate event that arrives while a refresh runs', () => {
   });
 });
 
+describe('the last sync in job_status', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it('starts as none and is copied from the engine on every refresh', async () => {
+    expect(EMPTY_HUB.last_sync).toBeNull();
+    (globalThis as any).window = new EventTarget();
+    let last: unknown = { job: 'job:0000000a', args: { plan_id: 'plan:0123456789ab', selected: ['act:acquire:t4:1'] }, ended: null };
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
+        last_sync: last, sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+    await refreshHub();
+    expect(get(hub).last_sync).toEqual(last);
+    last = null;
+    await refreshHub();
+    expect(get(hub).last_sync).toBeNull();
+  });
+});
+
 describe('a scan job in job_status', () => {
   afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
   const snap = (kind: string) => ({ id: 'job:00000009', kind, track_id: null, started: '2026-10-24T10:00:00', running: true,

@@ -859,6 +859,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return ok({ stopped: true });
     },
     async job_status() {
+      if (!lastSync && s.lastSyncRows) {   // the scenario's started sync (the running job): its ticked rows by the plan's ids, as the registry has them
+        const p = preview();
+        const plan = numberPlan(p, s.scope);
+        const rows = p.groups.flatMap((g) => g.actions).filter((a) => s.lastSyncRows!.some((r) => r.kind === a.kind && r.track_id === a.track_id));
+        lastSync = { job: job?.id ?? 'job:00000000', args: { plan_id: plan.plan_id!, selected: rows.map((a) => a.id) }, ended: null };
+      }
       const last = lastSync && { job: lastSync.job, args: lastSync.args,
         ended: job?.id === lastSync.job && job.running ? null : (lastSync.ended ??= isoLocal(new Date())) };
       return ok({ job: job ? job.snapshot() : null, refresh_running: !!refreshJob, console_running: s.console_running,

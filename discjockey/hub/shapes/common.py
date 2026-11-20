@@ -70,9 +70,6 @@ SourceHow = alias(
 ErrorKind = alias(
     "ErrorKind", Literal["network", "qobuz", "other", "not_found"],
     doc="What kind of error a report line holds (errors: network, qobuz or other; a song nobody has: not_found).")
-ActionKey = alias(
-    "ActionKey", tuple[str, str, str],
-    doc="The key of one planned action, three words; sent back unchanged to start_sync.")
 
 
 @shape

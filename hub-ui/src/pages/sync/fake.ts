@@ -38,9 +38,7 @@ import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylis
 import { addPastAutoRun, readyTracks, seedUpgrades } from '$lib/bridge/fake/auto';
 import { sampleQuestions } from '$lib/bridge/fake/folders';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
-import { setPref } from '$lib/prefs';
 import type { SyncPreview } from '$lib/bridge/types';
-import { PREF_LAST_SELECTION, type Picked } from './selection';
 import { DOWNLOAD_AGAIN_LABEL } from './planModel';
 
 const ARTISTS = ['Pegassi', 'Vatoz Locoz', 'torbentorben', 'Armin Hermann', 'DJ TALLBOY', 'Nina Kraviz', 'Kölsch',
@@ -167,10 +165,8 @@ export const scenarios: PageFake['scenarios'] = {
   'downloading-upload': (s) => { s.scenario = 'sync:downloading-upload'; },
   'own-cover'(s) {
     s.scenario = 'sync:own-cover';
-    // what Start saves: the plan's cover link of "non stop" (t5), the artwork of its file (the run's own events have none)
-    const picked: Picked[] = [{ key: ['acquire', 't5', 'Library/Hard_Bounce'], kind: 'acquire', track_id: 't5',
-      title: 'non stop', artist: 'torbentorben', folder: 'Hard_Bounce', cover_url: coverUri(3) }];
-    setPref(PREF_LAST_SELECTION, picked);
+    // what Start was given: "non stop" (t5), whose plan row carries the artwork link the run's own events have none of
+    s.lastSyncRows = [{ kind: 'acquire', track_id: 't5' }];
   },
   'auto-done'(s) {
     addPastAutoRun(s);

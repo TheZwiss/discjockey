@@ -5,13 +5,13 @@
   // so the badges (and Up next's folders) share one right edge down the whole column (§12 edges).
   import { Badge, Button, Cover, Hint, ListRow, Segmented, Surface } from '$lib/components';
   import { run } from '$lib/stores/run';
-  import { getPref } from '$lib/prefs';
   import { artistTitle } from '$lib/format';
-  import { PREF_LAST_SELECTION, upNext, type Picked } from './selection';
+  import { upNext, type Picked } from './selection';
   import { coverMap, fixHref, listFor, rowBadge, segOptions, type ListChip } from './results';
 
+  /** the ticked songs the sync was started with (LiveView names them); the run's own plan wins once it is there */
+  let { selection }: { selection: Picked[] } = $props();
   let chip = $state<ListChip>('all');
-  const selection = getPref<Picked[]>(PREF_LAST_SELECTION, []);
 
   const results = $derived($run.results.map((e) => e.result));
   const options = $derived(segOptions(results));
