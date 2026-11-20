@@ -115,6 +115,8 @@ class TrackRow(TypedDict):
     added: Annotated[str | None, F("The playlist day (an ISO time); for an own file the day Discjockey first saw it.")]
     cover_url: Annotated[str | None, F("The media URL of the embedded cover, else the Spotify image URL, else null "
                                        "(show a placeholder).", shown=False)]
+    rev: Annotated[str | None, F("The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write "
+                                 "refuses if the song changed since this read.", shown=False)]
 
 
 @shape

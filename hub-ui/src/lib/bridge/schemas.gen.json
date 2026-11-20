@@ -1713,6 +1713,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "same_track": {
           "anyOf": [
             {
@@ -1788,6 +1800,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "group",
         "detail",
         "file_state",
@@ -4207,6 +4220,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "same_track": {
           "anyOf": [
             {
@@ -4282,6 +4307,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "group",
         "detail",
         "file_state",
@@ -6089,6 +6115,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "sound_checked": {
           "description": "False for an imported file whose sound is not judged yet (its quality is the codec's guess for now: the page says \"sound not checked yet\").",
           "type": "boolean",
@@ -6197,6 +6235,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "sound_checked",
         "file_state",
         "wait",
@@ -8389,6 +8428,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "same_track": {
           "anyOf": [
             {
@@ -8464,6 +8515,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "group",
         "detail",
         "file_state",
@@ -12438,6 +12490,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "skip": {
           "anyOf": [
             {
@@ -12529,6 +12593,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "file_id",
         "from",
         "to",
@@ -12964,6 +13029,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "same_track": {
           "anyOf": [
             {
@@ -13039,6 +13116,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "group",
         "detail",
         "file_state"
@@ -13195,6 +13273,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "same_track": {
           "anyOf": [
             {
@@ -13270,6 +13360,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "group",
         "detail",
         "file_state"
@@ -13443,6 +13534,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "same_track": {
           "anyOf": [
             {
@@ -13518,6 +13621,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "group",
         "detail",
         "file_state"
@@ -13986,6 +14090,18 @@
           "type": "array",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "sound_checked": {
           "description": "False: an imported file whose sound isn't judged yet; `quality_line` then ends \"sound not checked yet\".",
           "type": "boolean",
@@ -14127,6 +14243,7 @@
         "path",
         "added",
         "cover_url",
+        "rev",
         "sound_checked",
         "file_state",
         "place",
@@ -14272,6 +14389,18 @@
           "type": "string",
           "x-shown": true
         },
+        "rev": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song changed since this read.",
+          "x-shown": false
+        },
         "source": {
           "anyOf": [
             {
@@ -14335,7 +14464,8 @@
         "upgrade_ready",
         "path",
         "added",
-        "cover_url"
+        "cover_url",
+        "rev"
       ],
       "type": "object"
     },

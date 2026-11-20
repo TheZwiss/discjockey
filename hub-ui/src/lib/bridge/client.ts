@@ -65,18 +65,20 @@ export interface Bridge {
   supersede_duplicate(group_id: string, file_id: number, paths: string[]): Promise<JobStart>;
   save_limits(service: Service, limit: number, extra_today: number): Promise<JobStart>;
   mark_warnings_seen(service: Service): Promise<JobStart>;
-  hide(track_id: string, hidden: boolean): Promise<JobStart>;
+  hide(track_id: string, hidden: boolean, expect?: string | null): Promise<JobStart>;
   never_download(track_id: string, never: boolean): Promise<JobStart>;
-  add_bought_file(track_id: string): Promise<JobStart>;
-  use_candidate(track_id: string, candidate: Candidate): Promise<JobStart>;
-  use_link(track_id: string, url: string): Promise<JobStart>;
-  reject_current(track_id: string): Promise<JobStart>;
+  add_bought_file(track_id: string, expect?: string | null): Promise<JobStart>;
+  use_candidate(track_id: string, candidate: Candidate, expect?: string | null): Promise<JobStart>;
+  use_link(track_id: string, url: string, expect?: string | null): Promise<JobStart>;
+  reject_current(track_id: string, expect?: string | null): Promise<JobStart>;
   /** "Done, checked in rekordbox" for tracks (a batch card sends its done tracks) */
   rekordbox_checked(track_ids: string[]): Promise<JobStart>;
-  /** Replace tracks with their better versions; one track is a list of one. `same_track` (any format) is one AIFF
+  /** `expect` (hide, add_bought_file, use_candidate, use_link, reject_current, upgrade of one song): the `rev` of the
+   *  row acted on; the write is refused `changed` when the song's record is not at that rev any more.
+   *  Replace tracks with their better versions; one track is a list of one. `same_track` (any format) is one AIFF
    *  batch (job `upgrade_batch`); `new_track` / `discard` run the list one after the other (jobs `upgrade_add_new` /
    *  `upgrade_discard`) */
-  upgrade(track_ids: string[], mode: 'same_track' | 'new_track' | 'discard'): Promise<JobStart>;
+  upgrade(track_ids: string[], mode: 'same_track' | 'new_track' | 'discard', plan_id: string | null, expect?: string | null): Promise<JobStart>;
   /** Upgrade all: Same track for every parked upgrade the list counts as possible (job `upgrade_batch`) */
   upgrade_all(): Promise<JobStart>;
   /** Convert to AIFF for songs, or only the name for a clean AIFF (each file's own answer decides): one batch, job

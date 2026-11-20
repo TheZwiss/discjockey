@@ -93,17 +93,17 @@
   }
   async function use(c: Candidate) {
     stopPreview(); message = null; job = 'use'; usingKey = c.key;
-    after(await runJob(api.use_candidate(track.track_id, c), { quiet: true }));
+    after(await runJob(api.use_candidate(track.track_id, c, track.rev), { quiet: true }));
   }
   async function useLink() {
     if (!link.trim()) return;
     stopPreview(); message = null; job = 'link';
-    after(await runJob(api.use_link(track.track_id, link.trim()), { quiet: true }));
+    after(await runJob(api.use_link(track.track_id, link.trim(), track.rev), { quiet: true }));
   }
   async function none() {
     if (!(await confirm(NONE_CONFIRM))) return;
     stopPreview(); message = null; job = 'none';
-    after(await runJob(api.reject_current(track.track_id), { quiet: true }));
+    after(await runJob(api.reject_current(track.track_id, track.rev), { quiet: true }));
   }
   function close() { stopPreview(); onclose(); }
 </script>

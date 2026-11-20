@@ -25,7 +25,7 @@
 
   async function add() {
     error = null; canRetry = false; busy = true;
-    const o = await runJob(api.add_bought_file(track.track_id), { quiet: true });
+    const o = await runJob(api.add_bought_file(track.track_id, track.rev), { quiet: true });
     busy = false;
     if (o.ok) { fileName = null; return; }      // success toast from runJob; the page re-fetches
     error = o.message; canRetry = o.job_id === null;

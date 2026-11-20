@@ -21,7 +21,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
   return { track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless',
     quality: 'weak', quality_label: '16.0 kHz', cutoff_hz: 16000, source: 'youtube', source_name: 'YouTube',
     in_playlists: true, own: false, hidden: false, upgrade_ready: false, path: 'Library/Hard_Bounce/A - x.aiff', added: null,
-    cover_url: null, group, detail: '', free: false, file_state: 'here', ...extra };
+    cover_url: null, rev: null, group, detail: '', free: false, file_state: 'here', ...extra };
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
   const chips = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
@@ -706,7 +706,7 @@ describe('the item just acted on (the hold)', () => {
     if (!up.ok) throw new Error('todo failed');
     const h = hold();
     expect(findHeld(flatten(up), h)?.group).toBe('upgrade_ready');
-    const job = await b.upgrade(['t2'], 'same_track');
+    const job = await b.upgrade(['t2'], 'same_track', null);
     if (!job.ok) throw new Error('upgrade failed');
     await new Promise((r) => setTimeout(r, 300));
     const view = await b.todo('upgrade_ready', false);

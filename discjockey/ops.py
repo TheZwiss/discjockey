@@ -2,7 +2,7 @@
 
 Every operation runs through `run_single`, while the caller holds the run lock:
   1. fresh state; interrupted steps are recovered first (and reported);
-  2. the entry must still look as the window showed it (status, path, parked file), else nothing is done;
+  2. when the caller gives the `rev` it read (`expect`), the entry must still have it, else nothing is done;
   3. the change itself, through library.run_op (crash-safe, never overwrites);
   4. not_lossless.md is rewritten and a line goes into reports/operations.jsonl.
 """
@@ -20,7 +20,7 @@ from typing import Callable
 from mutagen.flac import FLAC
 from mutagen.id3 import ID3, ID3NoHeaderError
 
-from . import audio, library, quality, report as rep
+from . import audio, library, models, quality, report as rep
 from .accounts import ACCOUNT_OF, signal_of
 from .acquire import Acquirer, make_ready
 from .candidates import current_key, mark_protected
@@ -64,14 +64,6 @@ class Done:
     recovered: list[tuple[str, bool]]  # interrupted steps finished first: (message, ok)
 
 
-def snapshot(entry: dict | None) -> dict | None:
-    """What the window showed of an entry; an operation is only done while the entry still looks like this."""
-    if entry is None:
-        return None
-    return {"status": entry.get("status"), "path": entry.get("path"),
-            "upgrade_file": (entry.get("upgrade") or {}).get("file")}
-
-
 def log_operation(paths: Paths, now: datetime, track_id: str, entry: dict | None, operation: str, result: str,
                   message: str) -> None:
     paths.reports.mkdir(parents=True, exist_ok=True)
@@ -82,17 +74,26 @@ def log_operation(paths: Paths, now: datetime, track_id: str, entry: dict | None
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
 
-def run_single(paths: Paths, operation: str, track_id: str, expect: dict | None,
-               do: Callable[[dict], Result], now: Callable[[], datetime] = datetime.now, check: bool = True) -> Done:
-    """Runs `do(state)` as described in the module docstring. The caller holds library.run_lock. `check=False` (the
-    command line: no page showed the entry) acts on the entry as it is, still refusing one that is gone."""
+def changed(track_id: str, entry: dict | None) -> OpProblem:
+    """The refusal of a write whose `expect` is not the record's `rev` now (design §3)."""
+    return OpProblem(CHANGED, "changed", reason="rev_changed", data={"rev": models.rev(entry)},
+                     next=[{"run": f"track show {track_id}", "why": "the song as it is now, with its rev"}])
+
+
+def run_single(paths: Paths, operation: str, track_id: str, expect: str | None,
+               do: Callable[[dict], Result], now: Callable[[], datetime] = datetime.now) -> Done:
+    """Runs `do(state)` as described in the module docstring. The caller holds library.run_lock. The entry is checked
+    against `expect` (a `rev`) only when one is given; without it the write acts on the entry as it is, still refusing
+    one that is gone."""
     state = library.open_state(paths)
     recovered = library.recover_pending(paths, state)
     library.clear_tmp(paths, state)
     entry = state["tracks"].get(track_id)
     try:
-        if entry is None or (check and snapshot(entry) != expect):
+        if entry is None:
             raise OpProblem(CHANGED, "changed")
+        if expect is not None and models.rev(entry) != expect:
+            raise changed(track_id, entry)
         result = do(state)
     except OpProblem as p:
         log_operation(paths, now(), track_id, entry, operation, p.kind, str(p))

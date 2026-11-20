@@ -80,6 +80,7 @@ REASONS: dict[str, Reason] = {
         "not_set_up": "This needs a setup step that is not done yet.",
         "needs_yes": "This changes things, so it needs --yes. Nothing was done.",
         "changed": "Things changed since the plan was made, so nothing was done.",
+        "rev_changed": "This song changed since it was read, so nothing was done. Read it again for its new rev.",
         "not_stopped": "That job is not stopped, so it cannot be carried on.",
         "not_running": "Nothing is running, so there is nothing to stop.",
         "plan_expired": "That plan is more than a day old. Make a new one.",

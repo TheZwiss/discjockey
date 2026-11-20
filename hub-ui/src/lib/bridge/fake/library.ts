@@ -384,7 +384,7 @@ export function libraryOf(s: FakeState, view: string, key: string | null, query:
           rejected_sources: [] };
         const missing: FakeTrack = { ...name, status: 'missing', source: null, cutoff_hz: null, upgrade: null, away: undefined };
         const notFound = h.t !== null && todoGroup(h.t) === 'not_found';
-        entries.push({ t: null, row: { ...trackRow(missing), sound_checked: true, file_state: 'no_file',
+        entries.push({ t: null, row: { ...trackRow(missing), rev: null, sound_checked: true, file_state: 'no_file',
           wait: notFound ? 'not_found' : 'waiting', next_try: notFound ? nextTry(h.t!.next_try_days) : null, position, place: null,
           subfolder: null, playlists: held.get(h.key) ?? [line.folder], track_link: fakeLink(missing), in_missing_files: false } });
       }

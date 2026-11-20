@@ -31,7 +31,7 @@ from typing import Callable
 from urllib.parse import quote
 
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
-from .. import aiff_plan as plans, audio, cdj, missing, quality
+from .. import aiff_plan as plans, audio, cdj, missing, models, quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
@@ -49,7 +49,7 @@ from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatc
                       PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, file_missing, token)
 from ..names import fold, search_fold
 from ..words import SCAN_OLDER, preview_words, rekordbox_words
-from ..ops import OpProblem, snapshot
+from ..ops import OpProblem
 from .. import pending_signs, words as engine_words
 from ..pacing import Budget
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
@@ -365,12 +365,9 @@ class HubApi:
     _resume_first = False  # the command line refuses Upgrade all while a stopped upgrade batch waits (the window hides it)
     _via = "window"  # where the batches this api starts say they started (`CliApi`: terminal)
 
-    def __init__(self, support: Path, events=None, services: Services | None = None, media=None,
-                 remember: bool = True):
+    def __init__(self, support: Path, events=None, services: Services | None = None, media=None):
         """Built from the support folder alone; a library is bound later with _bind (app.main at start when the
-        music folder is there, or set_music_folder / retry_music_folder when it is chosen or comes back).
-        `remember=False` (the command line): a write acts on the record as it is now, with no check against how a page
-        last showed it (`_shown`)."""
+        music folder is there, or set_music_folder / retry_music_folder when it is chosen or comes back)."""
         self._support = SupportPaths(support=support)
         self._bound: Paths | None = None
         self._missing: Path | None = None  # config.json names this folder, but it isn't there
@@ -388,8 +385,6 @@ class HubApi:
         self._store = PreviewStore()
         self._infos: dict = {}  # playlist ref -> models.PlaylistInfo
         self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
-        self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
-        self._check_shown = remember  # False: no page showed anything, so a write checks nothing against `_shown`
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
         self._rb_at: str | None = None  # when `_rb_cache`'s answer was read (ISO time): the `as_of` of a `writing` answer
         # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
@@ -664,11 +659,6 @@ class HubApi:
         with db.connect(self._paths.db_file, read_only=True) as conn:
             where = db.online_file(conn, file_id)
         return media_mod.file_inside(*where) if where is not None else None
-
-    def _remember(self, state: dict, track_ids) -> None:
-        with self._lock:
-            for k in track_ids:
-                self._shown[k] = snapshot(state["tracks"].get(k))
 
     def _entry(self, state: dict, track_id: str) -> dict:
         e = state["tracks"].get(track_id)
@@ -1057,10 +1047,7 @@ class HubApi:
         folder name or the folder's path for the last two; sort None = the view's own order. An unknown playlist or
         folder is not an error: the answer says `empty: "gone"`."""
         state = self._state()
-        out = self._library_view(state, view, key, query, filter, sort)
-        # a row without a file (a playlist song that waits) is no track the page can act on
-        self._remember(state, select.library_ids(out))
-        return out
+        return self._library_view(state, view, key, query, filter, sort)
 
     def _library_view(self, state: dict, view: str, key: str | None, query: str, filter: str, sort: str | None) -> dict:
         """`library`'s answer for `state` (the arguments are checked here): what the window shows and `select_listing`
@@ -1101,7 +1088,6 @@ class HubApi:
                                     rb, self._auto_upgrade_on(), state, place_of)
         # what Convert and Rename would do for this file (null: no file, a download, a better version waiting)
         detail["aiff"] = plans.file_answer(self._paths, state, track_id, rb=rb, tags=self._tags) if exists else None
-        self._remember(state, [track_id])
         return {"track": detail}
 
     @bridge
@@ -1130,10 +1116,7 @@ class HubApi:
             raise BadId("usage", f"There is no to-do group called {filter}. The groups are "
                                       f"{', '.join(views.TODO_GROUP_KEYS)}.")
         state = self._state()
-        out = self._todo(state, filter, bool(show_hidden))
-        # a question or a duplicate group is not a track the page can act on (hide, upgrade, …): nothing to remember
-        self._remember(state, [i["track_id"] for g in out["groups"] for i in g["items"] if "pair" not in i])
-        return out
+        return self._todo(state, filter, bool(show_hidden))
 
     def _away_folders(self, rows: Sequence[WatchedFolder]) -> dict[int, str]:
         """Folder id -> why it is not there right now ("unmounted" or "missing", scanner.away_reason) for the import
@@ -1550,21 +1533,18 @@ class HubApi:
             for service, budget in accounts.items():
                 self._account_streaks[service] = {name: getattr(budget, name) for name in self._qobuz_streak}
 
-    def _single(self, kind: str, track_id: str, do) -> dict:
-        """A single operation as a write job (spec 6.7): recovery first, precondition (the entry as the page last
-        showed it), the change, not_lossless.md and the operations log."""
-        with self._lock:
-            expect = self._shown.get(track_id)
-
+    def _single(self, kind: str, track_id: str, do, expect: str | None = None) -> dict:
+        """A single operation as a write job (spec 6.7): recovery first, precondition (the record's `rev` is `expect`,
+        when one is given), the change, not_lossless.md and the operations log."""
         def work(ctx) -> dict:
             done = ops.run_single(self._paths, kind, track_id, expect, lambda state: do(state, ctx),
-                                  now=self._svc.now, check=self._check_shown)
+                                  now=self._svc.now)
             return {"track_id": track_id, "result": asdict(done.result),
                     "recovered": [[message, ok] for message, ok in done.recovered]}
 
         return {"job_id": self._jobs.start(kind, work, track_id=track_id).id}
 
-    def _replace_with(self, track_id: str, find: Callable) -> dict:
+    def _replace_with(self, track_id: str, find: Callable, expect: str | None = None) -> dict:
         """use_candidate / use_link: `find(qobuz, fallback)` gives the version, which is then downloaded and placed."""
         def do(state: dict, ctx):
             e = state["tracks"][track_id]
@@ -1587,7 +1567,7 @@ class HubApi:
                 self._keep_account_streaks(accounts)
                 if qobuz is not None:
                     qobuz.close()
-        return self._single(find.kind, track_id, do)
+        return self._single(find.kind, track_id, do, expect)
 
     def _on_drop(self, event: dict) -> None:
         """pywebview's drop handler on the page (app.py): remembers the file for the selected to-do item and tells the
@@ -1957,9 +1937,9 @@ class HubApi:
         return {"job_id": self._settings_job("mark_warnings_seen", work).id}
 
     @bridge
-    def hide(self, track_id: str, hidden: bool) -> dict:
+    def hide(self, track_id: str, hidden: bool, expect: str | None = None) -> dict:
         return self._single("hide" if hidden else "unhide", track_id,
-                            lambda state, ctx: ops.set_hidden(self._paths, state, track_id, bool(hidden)))
+                            lambda state, ctx: ops.set_hidden(self._paths, state, track_id, bool(hidden)), expect)
 
     @bridge
     def never_download(self, track_id: str, never: bool) -> dict:
@@ -2085,30 +2065,30 @@ class HubApi:
         return {"job_id": self._jobs.start("supersede", replanned_work(self._store, change, self._svc.now)).id}
 
     @bridge
-    def add_bought_file(self, track_id: str) -> dict:
+    def add_bought_file(self, track_id: str, expect: str | None = None) -> dict:
         with self._lock:
             dropped = self._dropped
             if not dropped or dropped["track_id"] != track_id:
                 raise OpProblem(NO_DROP, "refused")
         answer = self._single("add_bought_file", track_id, lambda state, ctx: ops.add_bought_file(
-            self._paths, state, track_id, dropped["path"], analyze=self._svc.analyze, now=self._svc.now))
+            self._paths, state, track_id, dropped["path"], analyze=self._svc.analyze, now=self._svc.now), expect)
         with self._lock:  # only once the job runs: a refused job (busy) keeps the file for the next "Add"
             if self._dropped is dropped:
                 self._dropped = None
         return answer
 
     @bridge
-    def use_candidate(self, track_id: str, candidate: dict) -> dict:
+    def use_candidate(self, track_id: str, candidate: dict, expect: str | None = None) -> dict:
         cand = to_candidate(candidate)
 
         def find(qobuz, fallback):
             return cand
 
         find.kind, find.needs_qobuz, find.cand = "use_candidate", cand.source == "qobuz", cand
-        return self._replace_with(track_id, find)
+        return self._replace_with(track_id, find, expect)
 
     @bridge
-    def use_link(self, track_id: str, url: str) -> dict:
+    def use_link(self, track_id: str, url: str, expect: str | None = None) -> dict:
         source, _ = candidates.parse_link(url)  # a plain message at once for links Discjockey can't use
 
         def find(qobuz, fallback):
@@ -2118,12 +2098,13 @@ class HubApi:
                 raise OpProblem(str(e)) from None
 
         find.kind, find.needs_qobuz, find.cand = "use_link", source == "qobuz", None
-        return self._replace_with(track_id, find)
+        return self._replace_with(track_id, find, expect)
 
     @bridge
-    def reject_current(self, track_id: str) -> dict:
+    def reject_current(self, track_id: str, expect: str | None = None) -> dict:
         return self._single("reject_current", track_id,
-                            lambda state, ctx: ops.reject_current(self._paths, state, track_id, now=self._svc.now))
+                            lambda state, ctx: ops.reject_current(self._paths, state, track_id, now=self._svc.now),
+                            expect)
 
     # --- upgrades, batches and the rekordbox check (issue 33 stage B; every action takes a list) ---
 
@@ -2153,17 +2134,31 @@ class HubApi:
         return {"emit": ctx.emit, "token": ctx.token, "now": self._svc.now, "state": state,
                 "running": self._svc.rekordbox_running, "place": self._svc.rekordbox_place()}
 
+    @staticmethod
+    def _check_rev(state: dict, track_id: str, expect: str | None) -> None:
+        """A single-track write's precondition: the song is still there and, when `expect` (a `rev`) is given, its
+        record still has that rev; else `changed` and nothing is done."""
+        e = state["tracks"].get(track_id)
+        if e is None:
+            raise OpProblem(ops.CHANGED, "changed")
+        if expect is not None and models.rev(e) != expect:
+            raise ops.changed(track_id, e)
+
     def _batch_work(self, make: Callable[[], int] | None, resume: int | None, *, alone: bool,
-                    left: Sequence[batches.ItemResult] = (), extra: Mapping | None = None):
+                    left: Sequence[batches.ItemResult] = (), extra: Mapping | None = None,
+                    expect: tuple[str, str] | None = None):
         """A Same track batch as a write job: `make()` records a new batch of the chosen tracks (after recovery), or
         `resume` names a stopped one (a Convert batch too). The result is a BatchResult dict (+ `recovered`); a Stop,
         rekordbox opened (`rekordbox_open`), another window changing rekordbox (`busy`) and a batch with nothing to do
         (`refused`) end the job as a problem that still carries the batch (`JobFinished.result`), so the page can show
         where it stopped and Resume. `alone`: a batch of one track that meets rekordbox open or busy before anything
         ran is closed instead of left stopped (the track simply stays where it was; `batches.close_unrun`). `left`: songs
-        a plan left out of the batch (`_each_work`'s words: they end as skipped); `extra`: what else the result says."""
+        a plan left out of the batch (`_each_work`'s words: they end as skipped); `extra`: what else the result says.
+        `expect`: (song, rev) of a one-song batch whose record must still have that rev."""
         def work(ctx) -> dict:
             state, recovered = self._begin()
+            if expect is not None:
+                self._check_rev(state, *expect)
             if resume is not None and self._stopped_aiff(resume).state != "stopped":
                 # read under the library lock, after recovery: a batch a crash left `running` is stopped by now
                 raise OpProblem(NOT_STOPPED, "refused", reason="not_stopped")
@@ -2272,20 +2267,18 @@ class HubApi:
         return work
 
     def _each_work(self, ids: list[str], mode: str, *, left: Sequence[batches.ItemResult] = (),
-                   extra: Mapping | None = None):
+                   extra: Mapping | None = None, expect: str | None = None):
         """New track and Discard on a list (`mode` is the action each track runs: `add_new` | `discard`): one job, one
         track after the other (Stop between them, per-track results, no batch record, no Resume: each is quick and has
-        its own undo). One track keeps the old single-track behaviour: the entry as the page showed it is checked and a
-        failure ends the job with its own words. The result is BatchResult-shaped (`batch` null). `left`: songs a plan
+        its own undo). One track keeps the old single-track behaviour: the entry is checked against `expect` (its rev, when
+        given) and a failure ends the job with its own words. The result is BatchResult-shaped (`batch` null). `left`: songs a plan
         left out (they end as skipped); `extra`: what else the result says."""
-        with self._lock:
-            expect = self._shown.get(ids[0]) if len(ids) == 1 else None
         one = len(ids) == 1
 
         def work(ctx) -> dict:
             state, recovered = self._begin()
-            if one and ((e := state["tracks"].get(ids[0])) is None or (self._check_shown and snapshot(e) != expect)):
-                raise OpProblem(ops.CHANGED, "changed")
+            if one:
+                self._check_rev(state, ids[0], expect)
             results: list[batches.ItemResult] = []
             stopped = False
             for n, key in enumerate(ids):
@@ -2470,15 +2463,18 @@ class HubApi:
         return list(bound.run), left, {"new_since_plan": list(bound.new)} if bound.new else {}
 
     @bridge
-    def upgrade(self, track_ids: list[str], mode: str, plan_id: str | None = None) -> dict:
+    def upgrade(self, track_ids: list[str], mode: str, plan_id: str | None = None, expect: str | None = None) -> dict:
         """Replaces tracks with their better versions. `same_track` is Same track for any format and runs one AIFF batch
         (job kind "upgrade_batch", result a BatchResult); `new_track` and `discard` run the tracks one after the other
         (kinds "upgrade_add_new" / "upgrade_discard", a BatchResult-shaped result without a batch). One track is a list
         of one. Progress is a BatchProgress event for all three. `plan_id` (the command line's `--plan`; Same track and
-        New track only): runs only the songs of that plan that still stand (`_plan_run`); the others end as skipped."""
+        New track only): runs only the songs of that plan that still stand (`_plan_run`); the others end as skipped.
+        `expect` (the command line's `--if-rev`; one song only): the song's record must still have that rev."""
         if mode not in UPGRADE_MODES:
             raise ValueError(f"mode must be one of {', '.join(UPGRADE_MODES)}")
         ids = self._track_list(track_ids)
+        if expect is not None and len(ids) != 1:
+            raise BadId("usage", "--if-rev takes one song.")
         left: list[batches.ItemResult] = []
         extra: dict = {}
         if plan_id is not None:
@@ -2489,10 +2485,11 @@ class HubApi:
         if mode == "same_track":
             work = self._batch_work(lambda: batches.start(
                 self._paths, [(t, "same_track") for t in ids], started_by="user", scope="selection", via=self._via,
-                now=self._svc.now), None, alone=len(ids) == 1, left=left, extra=extra)
+                now=self._svc.now), None, alone=len(ids) == 1, left=left, extra=extra,
+                expect=(ids[0], expect) if expect is not None and len(ids) == 1 else None)
             return {"job_id": self._jobs.start("upgrade_batch", work, track_id=track, batch_kind="upgrade").id}
         action = NEW_TRACK_ACTION[mode]
-        return {"job_id": self._jobs.start(f"upgrade_{action}", self._each_work(ids, action, left=left, extra=extra),
+        return {"job_id": self._jobs.start(f"upgrade_{action}", self._each_work(ids, action, left=left, extra=extra, expect=expect),
                                            track_id=track, batch_kind="upgrade").id}
 
     def _upgrade_all_ids(self, state: dict) -> list[str]:

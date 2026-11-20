@@ -15,6 +15,7 @@ from .layout import Page, Row, Section, Table
 
 DEFAULT_LIMIT = 200
 TEXT = "_text"
+VERBOSE_ONLY = frozenset({"rev"})  # a field with no words of its own that only `--verbose` prints (a record's revision)
 
 
 def label(key: str) -> str:
@@ -75,7 +76,7 @@ def _columns(rows: Sequence[Mapping], verbose: bool) -> list[tuple[str, str]]:
     keys: list[str] = []
     for row in rows:
         keys += [k for k in row if k not in keys]
-    shown = [k for k in keys if verbose or k + TEXT not in keys]
+    shown = [k for k in keys if verbose or (k + TEXT not in keys and k not in VERBOSE_ONLY)]
     return [(k, label(k[:-len(TEXT)]) if k.endswith(TEXT) and k[:-len(TEXT)] in keys and not verbose else label(k))
             for k in shown]
 
@@ -106,7 +107,7 @@ def _rows(payload: Mapping, skip: Collection[str], verbose: bool) -> list[Row]:
     """The scalar fields of `payload` as rows, in payload order; short lists of plain values too."""
     out = []
     for key, value in payload.items():
-        if key in skip or isinstance(value, Mapping) or _is_object_list(value):
+        if key in skip or isinstance(value, Mapping) or _is_object_list(value) or (not verbose and key in VERBOSE_ONLY):
             continue
         if not verbose and not key.endswith(TEXT) and key + TEXT in payload:
             continue  # its words stand for it ("none" too: a fact with no words has none)

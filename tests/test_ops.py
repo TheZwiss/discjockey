@@ -1,11 +1,12 @@
 import json
+import re
 import shutil
 from datetime import date, datetime
 from pathlib import Path
 
 import pytest
 
-from discjockey import ops
+from discjockey import models, ops
 from discjockey.acquire import Ready
 from discjockey.events import AccountUsage, Cancelled, CancelToken, Result, SourceChosen
 from hub_helpers import records
@@ -51,8 +52,8 @@ def paths(tmp_path):
 
 
 def shown(paths, tid="t1aaaaaaa"):
-    """What the window showed: taken from the state as it was when the page asked."""
-    return ops.snapshot(load_state(paths)["tracks"].get(tid))
+    """The rev a read showed: taken from the state as it was when the page asked."""
+    return models.rev(load_state(paths)["tracks"].get(tid))
 
 
 def oplog(paths):
@@ -60,10 +61,15 @@ def oplog(paths):
     return [json.loads(line) for line in f.read_text().splitlines()] if f.exists() else []
 
 
-def test_snapshot():
+def test_snapshot_and_rev():
     e = make_entry(upgrade={"file": "Upgrades ready/A/x.aiff"})
-    assert ops.snapshot(e) == {"status": "not_lossless", "path": LOSSY, "upgrade_file": "Upgrades ready/A/x.aiff"}
-    assert ops.snapshot(None) is None
+    assert models.snapshot(e) == {"status": "not_lossless", "path": LOSSY, "upgrade_file": "Upgrades ready/A/x.aiff"}
+    assert models.snapshot(None) is None and models.rev(None) is None
+    rev = models.rev(e)
+    assert re.fullmatch(r"[0-9a-f]{10}", rev) and models.rev(dict(e)) == rev
+    assert len({rev, models.rev({**e, "status": "lossless"}), models.rev({**e, "path": "Library/A/B.aiff"}),
+                models.rev({**e, "upgrade": {"file": "Upgrades ready/A/y.aiff"}}), models.rev({**e, "upgrade": None})}) == 5
+    assert models.rev({**e, "hidden": True, "title": "Other"}) == rev  # only the snapshot's facts count
 
 
 def test_hide_and_unhide(paths):
@@ -92,15 +98,28 @@ def test_refused_when_the_track_changed_in_the_meantime(paths):
     with pytest.raises(OpProblem) as excinfo:
         ops.run_single(paths, "hide", "t1aaaaaaa", expect, lambda s: called.append(1), now=lambda: NOW)
     assert excinfo.value.kind == "changed" and "changed in the meantime" in str(excinfo.value)
+    assert excinfo.value.reason == "rev_changed" and excinfo.value.data == {"rev": shown(paths)} and expect != shown(paths)
+    assert excinfo.value.next == [{"run": "track show t1aaaaaaa", "why": "the song as it is now, with its rev"}]
     assert called == [] and load_state(paths) == before
     assert oplog(paths)[-1]["result"] == "changed"
 
 
 def test_unknown_track_is_refused(paths):
     with pytest.raises(OpProblem) as excinfo:
-        ops.run_single(paths, "hide", "nope", {"status": "missing", "path": None, "upgrade_file": None},
-                       lambda s: None, now=lambda: NOW)
+        ops.run_single(paths, "hide", "nope", "0123456789", lambda s: None, now=lambda: NOW)
     assert excinfo.value.kind == "changed"
+    with pytest.raises(OpProblem) as excinfo:  # no expect: the entry is still looked up
+        ops.run_single(paths, "hide", "nope", None, lambda s: None, now=lambda: NOW)
+    assert excinfo.value.kind == "changed"
+
+
+def test_without_expect_the_entry_is_not_checked(paths):
+    state = load_state(paths)
+    state["tracks"]["t1aaaaaaa"] = make_entry(path="Library/A/Artist - Song.aiff", status="lossless")
+    save_state(paths, state)
+    done = ops.run_single(paths, "hide", "t1aaaaaaa", None,
+                          lambda s: ops.set_hidden(paths, s, "t1aaaaaaa", True), now=lambda: NOW)
+    assert done.result.section == "hidden"
 
 
 def test_pending_steps_are_recovered_first(paths):

@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from discjockey import report, words
+from discjockey import models, report, words
 from discjockey.hub import views
 from discjockey.rekordbox.master import Status
 from discjockey.hub.jobs import PreviewStore
@@ -421,8 +421,9 @@ def media(tid, entry):
 
 
 def test_track_row():
-    row = views.track_row("t1", e("not_lossless", cutoff=16000, source="youtube", duration_ms=268000,
-                                   upgrade=UPGRADE), cover)
+    entry = e("not_lossless", cutoff=16000, source="youtube", duration_ms=268000, upgrade=UPGRADE)
+    row = views.track_row("t1", entry, cover)
+    assert row.pop("rev") == models.rev(entry)
     assert row == {"track_id": "t1", "artist": "Artist", "title": "Song", "folder": "A", "duration_s": 268.0,
                    "status": "not_lossless", "quality": "weak", "quality_label": "16.0 kHz", "cutoff_hz": 16000,
                    "source": "youtube", "source_name": "YouTube", "in_playlists": True, "own": False,
@@ -1623,7 +1624,8 @@ def test_a_waiting_playlist_row_and_an_also_row_carry_a_track_link_too(monkeypat
     fetched = [FetchedPlaylist(PlaylistLine("Mix", "p1", 1, "qobuz"), [qobuz], [])]
     out = views.library(st, "playlist", "Mix", "", "all", None, lines=[line], records={line.ref: rec}, fetched=fetched)
     waiting = next(r for r in out["rows"] if r["file_state"] == "no_file")
-    assert waiting["track_link"]["service"] == "qobuz"
+    assert waiting["track_link"]["service"] == "qobuz" and waiting["rev"] is None  # no record to read a rev from
+    assert all(r["rev"] == models.rev(st["tracks"][r["track_id"]]) for r in out["rows"] if r["file_state"] != "no_file")
     assert out["also"] and all(r["track_link"] for r in [*out["rows"], *out["also"]])
     assert built == [1]  # one index for the whole view, not one per row
 

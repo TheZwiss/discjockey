@@ -195,6 +195,11 @@ export type TrackRow = {
   added: string | null;
   /** The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder). */
   cover_url: string | null;
+  /**
+   * The record's revision (10 hex): send it back as `expect` / `--if-rev` so the write refuses if the song
+   * changed since this read.
+   */
+  rev: string | null;
 };
 /**
  * One report line (also `ActionFinished.result`, run sections and op results): the payload copy of

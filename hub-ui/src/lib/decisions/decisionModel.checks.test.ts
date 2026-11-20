@@ -14,7 +14,7 @@ const view = (extra: Partial<RekordboxCheckView> = {}): RekordboxCheckView => ({
 const check = (id: string, c: Partial<RekordboxCheckView> = {}, extra: Partial<TodoItem> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'lossless', quality: 'lossless',
   quality_label: 'LOSSLESS', cutoff_hz: null, source: 'qobuz', source_name: 'Qobuz', in_playlists: true, own: false,
-  hidden: false, upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null,
+  hidden: false, upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null, rev: null,
   group: 'rekordbox_check', detail: 'analyse again', free: false, file_state: 'here', can_undo: true, check: view(c), ...extra });
 // the engine's words for a card's summary (`batch.card_summary`, `batch.placed_summary`): the window prints them as they are
 const SAME = { card: 'same tracks, cues kept', placed: null }, ONE = { card: 'same track, cues kept', placed: null };

@@ -303,12 +303,24 @@ export function todoFileState(t: FakeTrack): 'here' | 'offline' | 'folder_missin
 }
 /** Whether the file can be played: its drive is there and it isn't marked missing (views: `state == "here"`). */
 export const fileThere = (t: FakeTrack): boolean => !t.away && !t.missing;
+/** models.rev's stand-in: 10 hex of an FNV-1a over the record's status, path and parked file (the fake has no second
+ *  writer, so its rev only has to be stable and change with those three). */
+export function recordRev(status: string, path: string | null, upgradeFile: string | null): string {
+  let h = 0x811c9dc5;
+  for (const c of JSON.stringify([status, path, upgradeFile])) {
+    h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0;
+  }
+  let h2 = h ^ 0x9e3779b9;
+  for (const c of JSON.stringify([upgradeFile, path, status])) h2 = Math.imul(h2 ^ c.charCodeAt(0), 0x01000193) >>> 0;
+  return (h.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')).slice(0, 10);
+}
 export function trackRow(t: FakeTrack): TrackRow {
   return {
     track_id: t.track_id, artist: t.artist, title: t.title, folder: t.folder, duration_s: t.duration_s,
     status: t.status, quality: qualityOf(t), quality_label: qualityLabel(t), cutoff_hz: t.cutoff_hz,
     source: t.source, source_name: t.own ? OWN_SHORT : t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
     own: !!t.own, hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
+    rev: recordRev(t.status, pathOf(t), t.upgrade?.file ?? null),
   };
 }
 export function qualityLine(t: FakeTrack): string {

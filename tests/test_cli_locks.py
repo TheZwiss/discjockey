@@ -200,7 +200,6 @@ def _after_new_track(api, rec):
     """A song whose upgrade was added as a new track (library lock only), then the recorder cleared: what follows is
     only the call a driver measures."""
     from discjockey.align import Alignment
-    api._check_shown = False
     hub_helpers.make_root(api._paths.root, upgrade=True)
     api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
     assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
@@ -218,7 +217,6 @@ def _checked(api, rec):
 
 
 def _discard(api, rec):
-    api._check_shown = False  # the command line has no page whose picture of the track could be out of date
     hub_helpers.make_root(api._paths.root, upgrade=True)
     assert wait_job(api, rec, api.upgrade(["t2"], "discard")).ok
 

@@ -8,7 +8,7 @@ import pytest
 from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder, make_api, make_root, music_root,
                          refreshed, wait_job, write, window)
 
-from discjockey import db, importer, library, run
+from discjockey import db, importer, library, models, run
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
@@ -40,24 +40,93 @@ def test_hide_through_the_bridge(root):
     assert api.todo("all", True)["hidden_count"] == 1
 
 
-def test_precondition_refusal_when_the_console_changed_the_track(root):
+def rev_of(root, track_id="t2"):
+    return models.rev(load_state(root)["tracks"][track_id])
+
+
+def refusal(api, answer):
+    """The job's final envelope (its `result.json`): what the command line prints for the refusal."""
+    return api._jobs.registry.get(answer["job_id"]).result()
+
+
+def a_dropped_file(api, tmp_path):
+    api.select("t2")
+    src = tmp_path / "Downloads" / "Get Naughty (Extended).wav"
+    src.parent.mkdir()
+    src.write_bytes(b"RIFF bought")
+    drop(api, src)
+    return src
+
+
+STALE = "0000000000"
+SIX_WRITES = {  # name -> (api options as a function: some classes are defined further down, what to call with `expect`)
+    "hide": (dict, lambda api, tmp, expect: api.hide("t2", True, expect)),
+    "add_bought_file": (lambda: {"analyze": lambda p: ("pcm_s16le", None)},
+                        lambda api, tmp, expect: (a_dropped_file(api, tmp), api.add_bought_file("t2", expect))[1]),
+    "use_candidate": (lambda: {"fallback": FakeFallback, "process": fake_process},
+                      lambda api, tmp, expect: api.use_candidate("t2", api.search_candidates("t2")["candidates"][1],
+                                                                 expect)),
+    "use_link": (lambda: {"fallback": FakeFallback, "process": fake_process},
+                 lambda api, tmp, expect: api.use_link("t2", "https://youtu.be/zzzzzzzzzzz", expect)),
+    "reject_current": (dict, lambda api, tmp, expect: api.reject_current("t2", expect)),
+    "upgrade": (dict, lambda api, tmp, expect: api.upgrade(["t2"], "discard", None, expect)),
+}
+
+
+@pytest.mark.parametrize("name", SIX_WRITES)
+def test_a_write_with_the_current_rev_runs(root, tmp_path, name):
+    options, call = SIX_WRITES[name]
+    api, rec = make_api(root, **options())
+    f = wait_job(api, rec, call(api, tmp_path, rev_of(root)))
+    assert f.ok, f
+
+
+@pytest.mark.parametrize("name", SIX_WRITES)
+def test_a_write_with_a_stale_rev_is_refused_and_writes_nothing(root, tmp_path, name):
+    options, call = SIX_WRITES[name]
+    api, rec = make_api(root, **options())
+    before = library.load_state(root)
+    f = wait_job(api, rec, call(api, tmp_path, STALE))
+    assert (f.ok, f.problem) == (False, "changed") and "changed" in f.message
+    assert library.load_state(root) == before
+    if name != "upgrade":  # the upgrade's one-song check has never written the operations log
+        assert oplog(root)[-1]["result"] == "changed"
+    envelope = refusal(api, {"job_id": f.job_id})
+    assert (envelope["outcome"], envelope["reason"]) == ("refused", "rev_changed")
+    assert envelope["data"]["rev"] == rev_of(root) != STALE
+    assert envelope["next"][0]["run"] == "track show t2"
+
+
+def test_a_rev_that_went_stale_because_the_record_changed_is_refused(root):
     api, rec = make_api(root)
-    api.track("t2")
+    read = api.track("t2")["track"]["rev"]
+    assert read == rev_of(root)
     state = load_state(root)  # the console placed a lossless file a minute ago
     state["tracks"]["t2"].update(status="lossless", path="Library/Hard_Bounce/Armin Hermann - Get Naughty.aiff",
                                  upgrade=None)
     save_state(root, state)
     before = library.load_state(root)
-    f = wait_job(api, rec, api.hide("t2", True))
+    f = wait_job(api, rec, api.hide("t2", True, read))
     assert (f.ok, f.problem) == (False, "changed") and "changed in the meantime" in f.message
     assert library.load_state(root) == before
     assert oplog(root)[-1]["result"] == "changed"
+    assert wait_job(api, rec, api.hide("t2", True, rev_of(root))).ok
 
 
-def test_a_track_never_shown_is_refused(root):
-    api, rec = make_api(root)
-    f = wait_job(api, rec, api.hide("t2", True))
+def test_a_write_without_expect_acts_on_the_record_as_it_is(root):
+    api, rec = make_api(root)  # no read before: the window keeps no memory of what it showed
+    assert wait_job(api, rec, api.hide("t2", True)).ok and load_state(root)["tracks"]["t2"]["hidden"] is True
+    f = wait_job(api, rec, api.hide("nope", True))  # a song that is gone is still refused
     assert f.problem == "changed"
+
+
+def test_a_rev_with_more_than_one_song_is_a_usage_error_and_with_one_is_checked(root):
+    api, rec = make_api(root)
+    answer = api.upgrade(["t2", "t3"], "new_track", None, rev_of(root))
+    assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "bad_args", "usage")
+    assert "takes one song" in answer["message"]
+    f = wait_job(api, rec, api.upgrade(["t2"], "same_track", None, STALE))  # Same track checks the one song too
+    assert (f.ok, f.problem) == (False, "changed") and (root.root / LOSSY).read_bytes() == b"lossy audio"
 
 
 def test_interrupted_steps_are_recovered_first_and_reported(root):

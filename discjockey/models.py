@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field
 from pathlib import Path
@@ -48,6 +50,23 @@ OWN_PREFIX = "local:"  # the key of a song of the user's own: a file imported fr
 def is_own(key: str) -> bool:
     """A song of the user's own (`local:<n>`): made by the import from one of their files, in no playlist."""
     return key.startswith(OWN_PREFIX)
+
+
+def snapshot(entry: dict | None) -> dict | None:
+    """What a read shows of an entry's record; its `rev` is made from it."""
+    if entry is None:
+        return None
+    return {"status": entry.get("status"), "path": entry.get("path"),
+            "upgrade_file": (entry.get("upgrade") or {}).get("file")}
+
+
+def rev(entry: dict | None) -> str | None:
+    """The record's revision: 10 hex characters of its `snapshot`, changing with every change of the record. A
+    single-track write that is given it (`expect`, `--if-rev`) refuses when the record's `rev` differs."""
+    snap = snapshot(entry)
+    if snap is None:
+        return None
+    return hashlib.sha256(json.dumps(snap, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:10]
 
 
 def track_of(track_id: str, e: dict) -> SourceTrack:

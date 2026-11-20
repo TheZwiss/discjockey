@@ -110,7 +110,7 @@
 
   async function hide() {
     flow.busy = 'hide';
-    const r = await runJob(api.hide(track.track_id, !track.hidden));
+    const r = await runJob(api.hide(track.track_id, !track.hidden, track.rev));
     flow.busy = null;
     if (r.ok && act.hide === 'hide') onhidden();
   }
@@ -265,7 +265,7 @@
       onclick={missingAct} data-test="missing-action" data-action={f.action}>{f.label}</WriteButton>
     {#if f.hint}<div class="reason"><Hint text={f.hint} wrap data-test="missing-why" /></div>{/if}
   {:else if (act.main === 'swap' || act.main === 'add_new') && track.upgrade}
-    <UpgradeFoot track_id={track.track_id} upgrade={track.upgrade} {way} {flow} />
+    <UpgradeFoot track_id={track.track_id} rev={track.rev} upgrade={track.upgrade} {way} {flow} />
   {:else if act.main === 'rekordbox' && item}
     <CheckFoot {item} {flow} />
   {:else if act.main === 'find'}
