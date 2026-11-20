@@ -27,6 +27,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
+from stat import S_ISREG
 import time
 from typing import Callable
 from urllib.parse import quote
@@ -95,6 +96,7 @@ NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "re
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_FILE = "There is no file at {path}."
+NEEDS_FULL_PATH = "Give the full path of the file: it starts with /. {path} is not one."
 NO_PATH = "A bought file needs the path of the file."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
@@ -301,9 +303,19 @@ def _paths_list(value: object) -> bool:
 
 def _file_problem(path: str | Path) -> str | None:
     """Why `path` can't be added as a file, None when it is an absolute path of a regular file this process can open
-    for reading: the words of a missing file (NO_FILE) or of one macOS doesn't let it read (`ops.NO_ACCESS`)."""
+    for reading: the words of a relative path (NEEDS_FULL_PATH), of a missing file or one that is no regular file
+    (NO_FILE), or of one macOS doesn't let it read (`ops.NO_ACCESS`). It stats before it opens, so a pipe is never
+    opened (that would wait for a writer)."""
     p = Path(path)
     if not p.is_absolute():
+        return NEEDS_FULL_PATH.format(path=path)
+    try:
+        st = os.stat(p)
+    except (FileNotFoundError, NotADirectoryError, ValueError):  # ValueError: a NUL byte in the path
+        return NO_FILE.format(path=path)
+    except OSError:
+        return ops.NO_ACCESS
+    if not S_ISREG(st.st_mode):
         return NO_FILE.format(path=path)
     try:
         with open(p, "rb"):
@@ -312,7 +324,7 @@ def _file_problem(path: str | Path) -> str | None:
         return NO_FILE.format(path=path)
     except OSError:
         return ops.NO_ACCESS
-    return None if p.is_file() else NO_FILE.format(path=path)
+    return None
 
 
 def _import_folders(paths: Paths | None) -> int:
@@ -1715,8 +1727,8 @@ class HubApi:
                                                         "from a Finder window."))
                 return
             path = Path(found["pywebviewFullPath"])
-            readable = _file_problem(path) is None
-            self._emit(FileDropped(path.name, str(path), readable, "" if readable else ops.NO_ACCESS))
+            problem = _file_problem(path)
+            self._emit(FileDropped(path.name, str(path), problem is None, problem or ""))
         except Exception:
             traceback.print_exc()
 

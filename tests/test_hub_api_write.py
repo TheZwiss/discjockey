@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import time
 from datetime import datetime
@@ -402,9 +403,12 @@ def test_add_bought_file_refuses_a_missing_or_unreadable_file_before_a_job_start
     api, rec = make_api(root)
     api.todo()
     src = a_bought_file(tmp_path)
-    for gone in (str(tmp_path / "nothing.wav"), "relative.wav", str(src.parent)):
+    for gone in (str(tmp_path / "nothing.wav"), str(src.parent), str(tmp_path / "a\0b.wav")):
         answer = api.add_bought_file("t2", gone)
         assert answer["kind"] == "refused" and answer["message"] == f"There is no file at {gone}."
+    relative = api.add_bought_file("t2", "./relative.wav")
+    assert relative["kind"] == "refused" and relative["message"] == (
+        "Give the full path of the file: it starts with /. ./relative.wav is not one.")
     src.chmod(0)
     try:
         locked = api.add_bought_file("t2", str(src))
@@ -415,6 +419,26 @@ def test_add_bought_file_refuses_a_missing_or_unreadable_file_before_a_job_start
         answer = api.add_bought_file("t2", bad)
         assert (answer["ok"], answer["kind"]) == (False, "refused")
     assert not api._jobs.running()
+
+
+def test_add_bought_file_refuses_a_pipe_at_once_without_opening_it(root, tmp_path):
+    api, rec = make_api(root)
+    api.todo()
+    fifo = tmp_path / "some.fifo"
+    os.mkfifo(fifo)
+    answer = api.add_bought_file("t2", str(fifo))  # opening a pipe would wait for a writer: this would hang
+    assert answer["kind"] == "refused" and answer["message"] == f"There is no file at {fifo}."
+    assert not api._jobs.running()
+
+
+def test_a_dropped_folder_or_vanished_file_says_there_is_no_file(root, tmp_path):
+    api, rec = make_api(root)
+    drop(api, tmp_path)
+    event = rec.events[-1]
+    assert event == jobs.FileDropped(tmp_path.name, str(tmp_path), False, f"There is no file at {tmp_path}.")
+    gone = tmp_path / "gone.wav"
+    drop(api, gone)
+    assert rec.events[-1].readable is False and rec.events[-1].message == f"There is no file at {gone}."
 
 
 def test_a_file_macos_does_not_let_us_read(root, tmp_path):
