@@ -937,6 +937,12 @@ Results:
     (types.ts re-exports types.gen.ts; shapes package per area; +3 allowed types; F(shown) default True; events
     outside shapes; T6 real-output = suite in test mode; no secrets in window jobs' state.json; ConsoleBusy.job).
     Next (C): fresh Opus brief check.
+    (C) done: Opus **271k** (est. 110-160k; 113 API calls, 18.5M cache reads, 104k out) → check-wave1.md: 27 findings
+    (2 Critical: J answers validated against the wrong shape; V2.4's positional rev landing in plan_id in the real
+    window; 11 Important, 14 Minor), ALL fixed in the briefs, NONE catchable by the sizing script or "Open: none" →
+    the check stays for wave 2 (it pays: one Critical would have cost a fix round or a live-test bug). The "beside"
+    V2.4 run removed (one agent at a time). Wave 1 now 1 627k builds (~2 137k with review + fix). Planning total
+    ~0.87M (132 + 95 + 371 + 271). Phase branch feat/cli-2-foundations (= main d18ceb5d+). Next: E7a.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
