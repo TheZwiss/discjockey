@@ -976,6 +976,11 @@ Results:
         waiter in a Monitor briefly (stopped; ps clean). FOR PHASE REVIEW: generated TS shows `own` required on
         TodoItemBase though the engine omits it on duplicate items (NotRequired override not carried into TS);
         harness vitest time ~48 s. Notes added to E7c-E7e. Merged 52a49962.
+      - E7c done (Sonnet): logged 234k (est. 200k, 1.17x), 75 calls, cache reads 11.7M, fresh in 220k, out 65k,
+        advisor 0k. Commit 49545f62; pytest 6103/4 skipped (71 s), npm check 0/0, vitest full 1720 (28 s), harness
+        ~3 s, NO_SAMPLE empty. FOR PHASE REVIEW: RunSummary.id now required; Dashboard.next_checks nullable (window
+        `?? 0` in dashboardModel.ts L70); golden page cli_golden/report_show.txt changed via fuller fixture rows;
+        fake `run` accepts last / report:<stamp>. Merged 6929df67.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
