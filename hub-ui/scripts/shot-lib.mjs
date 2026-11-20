@@ -134,6 +134,34 @@ export async function openShot(ctx, port, shot, size) {
 // How many shots run at once: half the cores, at most 6 (each is a WebKit page; more starve the dev server).
 export const WORKERS = Math.min(6, Math.max(1, Math.floor(availableParallelism() / 2)));
 
+// The check browsers must never make a sound: a shot that presses play would play the fake player's tone through the
+// Mac's speakers. `target` is a browser context or a page. Media elements are muted when they start playing (the
+// player's `muted` state is not touched otherwise), and everything the Web Audio graph sends to an output goes through
+// a gain of 0 (the comparison player plays decoded buffers, not an element).
+export async function mutePlayback(target) {
+  await target.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (...args) { this.muted = true; return play.apply(this, args); };
+    const silent = new WeakMap();
+    if (!window.AudioNode || !window.AudioDestinationNode) return;
+    const connect = AudioNode.prototype.connect;
+    AudioNode.prototype.connect = function (dest, ...rest) {
+      if (dest instanceof AudioDestinationNode) {
+        let gain = silent.get(this.context);
+        if (!gain) {
+          gain = this.context.createGain();
+          gain.gain.value = 0;
+          connect.call(gain, dest);
+          silent.set(this.context, gain);
+        }
+        connect.call(this, gain, ...rest);
+        return dest;  // connect() answers the node it was given
+      }
+      return connect.call(this, dest, ...rest);
+    };
+  });
+}
+
 // Runs `fn(ctx, job)` for every job, `workers` at a time. Each worker has its own browser context, so a shot that
 // changes local storage (a pref) can't leak into a shot running beside it; inside a worker the jobs run one by one
 // and share its context, as they did when everything ran in one.
@@ -141,6 +169,7 @@ export async function pool(browser, jobs, workers, fn) {
   let next = 0;
   const worker = async () => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
+    await mutePlayback(ctx);
     try { while (next < jobs.length) await fn(ctx, jobs[next++]); } finally { await ctx.close(); }
   };
   await Promise.all(Array.from({ length: Math.min(workers, jobs.length) }, worker));

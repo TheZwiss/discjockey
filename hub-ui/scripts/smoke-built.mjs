@@ -9,6 +9,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mutePlayback } from './shot-lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -56,6 +57,7 @@ const failures = [];
 const browser = await webkit.launch();
 try {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  await mutePlayback(ctx);
   await ctx.addInitScript((names) => {
     const offline = { ok: false, kind: 'offline', message: 'Smoke test: no backend.' };
     const api = {};

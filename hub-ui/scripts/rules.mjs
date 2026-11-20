@@ -16,7 +16,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { WORKERS, loadShots, openShot, pageNames, parseSizes, pool, root, sizesFor } from './shot-lib.mjs';
+import { WORKERS, loadShots, mutePlayback, openShot, pageNames, parseSizes, pool, root, sizesFor } from './shot-lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = join(here, 'rules-fixtures');
@@ -77,6 +77,7 @@ async function startServer() {
 async function selfTest() {
   const browser = await webkit.launch();
   const page = await browser.newPage({ viewport: { width: 1100, height: 700 } });
+  await mutePlayback(page);
   const problems = [];
   const names = readdirSync(fixtures).filter((f) => f.endsWith('.html')).sort();
   for (const f of names) {
