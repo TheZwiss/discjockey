@@ -5982,6 +5982,40 @@
       ],
       "type": "object"
     },
+    "JobEvents": {
+      "additionalProperties": false,
+      "description": "What `job_events` answers: a job's events from a position on (the window's follow of a job another process runs).",
+      "properties": {
+        "done": {
+          "description": "The job has ended and these were its last events.",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "events": {
+          "description": "The job's events from `after` on, as events.ts `HubEvent` objects (`{type, …fields}`), at most 500.",
+          "items": {},
+          "type": "array",
+          "x-shown": true
+        },
+        "next": {
+          "description": "The position to ask from next: `after` plus the lines of the files delivered (a line that is no event has its place but is not in `events`).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "status": {
+          "description": "The job's status when it was read: queued, running, stopping, done or lost.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "events",
+        "next",
+        "done",
+        "status"
+      ],
+      "type": "object"
+    },
     "JobSnap": {
       "additionalProperties": false,
       "description": "A job's snapshot after a window reload (the events are not shapes: `tests/fixtures/hub_events.schema.json` pins them).",
@@ -16869,6 +16903,7 @@
     "find_tracks": "FindTracksAnswer",
     "freshness": "Freshness",
     "hide": "OpResult",
+    "job_events": "JobEvents",
     "job_status": "JobStatus",
     "keep_duplicates": "Empty",
     "keep_file": "KeepFileResult",

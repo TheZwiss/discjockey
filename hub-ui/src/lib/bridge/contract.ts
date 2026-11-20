@@ -8,10 +8,11 @@
 // set_read_liked_music and add_liked_music (sources round): +2; set_crates_shown (leftovers C2): +1;
 // rekordbox_status and set_auto_upgrade (issue 33 stage C): +2; aiff_plan, convert, rename and make_aiff (stage D): +4;
 // missing_files_preview and missing_files (issue 43): +2; select gone with the engine's memory of the window (issue 39 V2.5): -1;
-// media_url and setup_check_account gone (no caller), sync_scope and set_sync_scope (issue 39 V2.5b): -2 +2.)
+// media_url and setup_check_account gone (no caller), sync_scope and set_sync_scope (issue 39 V2.5b): -2 +2;
+// job_events (issue 39 E4a, the window's follow of another process's job): +1.)
 export const CONTRACT_METHODS = [
   // read, any time
-  'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
+  'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'job_events', 'library', 'track', 'todo',
   'playlists', 'limits', 'limits_what_if', 'runs', 'run', 'spectrum', 'setup_status',
   'rekordbox_status',
   // what Make all, a selection's Convert and the CDJ group's Convert all would do (issue 33 stage D)

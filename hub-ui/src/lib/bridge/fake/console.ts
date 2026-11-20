@@ -5,6 +5,7 @@
 //                    `console_running` and mean this)
 //   console:tidy     a Terminal tidy-up at "12 of 80 · Techno"
 //   console:unknown  a holder the registry knows nothing of (an older Discjockey): the sentence for one nobody can name
+//   console:sync-live, -reading, -running, -ended   a Terminal sync the window can follow (`terminalJob.ts`)
 import type { FakeState } from './data';
 import type { HubEvent } from '../events';
 import type { ConsoleHolder } from '../types';
@@ -13,7 +14,12 @@ const TITLES: Record<string, string> = { sync: 'Sync', tidy: 'Tidy-up' };
 /** The progress line each kind runs at in the fake (the engine's `words.job_line`) */
 const LINES: Record<string, string> = { sync: '4 of 60', tidy: '12 of 80 · Techno' };
 const UNNAMED = 'A Discjockey command is running in the Terminal';
-const JOB = 'job:00000c0d';
+export const JOB = 'job:00000c0d';
+/** How a followable Terminal sync of the fake runs (`terminalJob.ts`), by scenario */
+export type TerminalMode = 'live' | 'reading' | 'running' | 'ended';
+export const TERMINAL_SCENARIOS: Record<string, TerminalMode> = {
+  'console:sync-live': 'live', 'console:sync-reading': 'reading', 'console:sync-running': 'running', 'console:sync-ended': 'ended',
+};
 
 /** `words.holder_text` for a Terminal job */
 const holderText = (kind: string, line: string | null) =>
@@ -25,7 +31,7 @@ export function consoleHolder(s: FakeState): ConsoleHolder | null {
   if (!s.console_running) return null;
   if (s.console_unnamed) return { job: null, via: null, kind: null, line: null, text: UNNAMED };
   const kind = s.console_kind ?? 'sync';
-  const line = s.console_line ?? LINES[kind] ?? null;
+  const line = s.console_line === '' ? null : s.console_line ?? LINES[kind] ?? null;
   return { job: JOB, via: 'terminal', kind, line, text: holderText(kind, line) };
 }
 
@@ -47,4 +53,5 @@ export function consoleEvent(s: FakeState): HubEvent {
 export const consoleScenarios: Record<string, (s: FakeState) => void> = {
   'console:tidy': (s) => setConsole(s, true, 'tidy'),
   'console:unknown': (s) => setConsole(s, true, null),
+  ...Object.fromEntries(Object.keys(TERMINAL_SCENARIOS).map((name) => [name, (s: FakeState) => setConsole(s, true, 'sync')])),
 };

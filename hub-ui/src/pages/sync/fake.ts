@@ -187,9 +187,9 @@ export const scenarios: PageFake['scenarios'] = {
 export const overrides: PageFake['overrides'] = {
   // the real run(run_id) is a pywebview round trip plus a report parse; this one takes a minute
   // Stop safely fails (the foot's red alert line); every other scenario stops as the base does
-  stop: (ctx, base) => async () => ctx.s.scenario === 'sync:stop-refused'
+  stop: (ctx, base) => async (job_id) => ctx.s.scenario === 'sync:stop-refused'
     ? { ok: false as const, kind: 'refused' as const, message: "The sync didn't answer. It is still running; try again in a moment." }
-    : base(),
+    : base(job_id),
   run: (ctx, base) => async (run_id) => {
     if (ctx.s.scenario === 'sync:up-to-date-wait') await new Promise((r) => setTimeout(r, 60_000));
     return base(run_id);

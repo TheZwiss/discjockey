@@ -1,6 +1,6 @@
 // The only bridge to Python. Only this file touches window.pywebview (plan 64.4).
 import type {
-  AddedPlaylist, Empty, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
+  AddedPlaylist, Empty, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobEvents, JobStart, JobStatus, Library,
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res,
   SetupStatus, SetupTools, Sidebar, SyncPreview, Todo, TodoFilter, TrackAnswer, WhatIf, Which,
   Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
@@ -17,6 +17,8 @@ export interface Bridge {
   dashboard(): Promise<Res<Dashboard>>;           sidebar(): Promise<Res<Sidebar>>;
   sync_preview(): Promise<Res<SyncPreview>>;      refresh(auto?: boolean): Promise<JobStart>;
   stop_refresh(): Promise<Res<Stopped>>;   job_status(): Promise<Res<JobStatus>>;
+  /** any job of this support folder, the Terminal's too: its events from position `after` on (at most 500), as `job follow --jsonl` reads them */
+  job_events(job_id: string, after?: number): Promise<Res<JobEvents>>;
   library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null): Promise<Res<Library>>;
   track(track_id: string): Promise<Res<TrackAnswer>>;
   todo(filter: TodoFilter, show_hidden: boolean): Promise<Res<Todo>>;
@@ -54,7 +56,9 @@ export interface Bridge {
   add_playlist(url: string): Promise<Res<AddedPlaylist>>;
   preview_playlist_change(lines: PlaylistLine[]): Promise<Res<ChangePreview>>;
   // write jobs (outcome = JobFinished with the same job_id)
-  start_sync(plan_id: string | null, selected: string[]): Promise<JobStart>;   stop(): Promise<Res<Stopped>>;
+  start_sync(plan_id: string | null, selected: string[]): Promise<JobStart>;
+  /** with a `job_id`: Stop safely for a job another process runs (a Terminal sync); without: the window's own write job */
+  stop(job_id?: string): Promise<Res<Stopped>>;
   save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null): Promise<JobStart>;
   tidy_up(moves: [number, string][]): Promise<JobStart>;   undo_moves(batch_id: number): Promise<JobStart>;
   add_watched_folder(path: string): Promise<JobStart>;   remove_watched_folder(folder_id: number): Promise<JobStart>;

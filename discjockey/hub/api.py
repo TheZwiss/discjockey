@@ -23,6 +23,7 @@ import tomllib
 import traceback
 import unicodedata
 import webbrowser
+from collections import OrderedDict, deque
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
@@ -81,6 +82,8 @@ BAD_AIFF_ONLY = "`only` is rename, or left out."
 AIFF_ORIGINS = ("library", "todo")  # where a Convert was started: the batch's scope says so ("library:selection")
 SYNC_PLAN = "sync"  # the kind of the plan a Sync preview stores (`plan_store`)
 PLAN_RESAVE = timedelta(hours=1)  # a Sync plan this window saved is saved again after this long (it is good for 24 hours)
+JOB_EVENTS_PAGE = 500  # the most lines one `job_events` answer carries
+JOB_EVENTS_READERS = 4  # followed jobs whose reader is kept between answers (the least recent is dropped)
 TAG_CACHE_MAX = 50000  # file tag reads kept in memory (plan stage D §0.7); a library past it starts the cache over
 NO_AIFF_BATCH = "Discjockey has no record of this batch."
 NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
@@ -241,6 +244,11 @@ def _answering(fn):
             return out
         except plan_store.UnknownPlan as e:  # `--plan` with an id no dry run made (or one pruned long ago)
             out = {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": "unknown_id",
+                   "next": [], "person_steps": [], "data": None}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
+        except registry.NoSuchJob as e:  # a job id the registry has no folder for (`job_events`, `stop(job_id)`)
+            out = {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": e.reason,
                    "next": [], "person_steps": [], "data": None}
             shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
             return out
@@ -408,6 +416,30 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
                              if (a := settings.accounts.get(s)) else None) for s in ACCOUNTS}}
 
 
+
+
+class _FollowReader:
+    """What `HubApi.job_events` keeps of one followed job between answers: the file reader (its byte offsets can't travel
+    in a position), the lines it read but did not deliver yet (an answer holds at most `JOB_EVENTS_PAGE`), and `count`,
+    the position of the next line to deliver. A reader made for an `after` drops that many lines first."""
+
+    def __init__(self, reader: registry.EventReader, after: int):
+        self.reader, self.count = reader, after
+        self._skip = after  # lines of the files still to drop: they were delivered before this reader existed
+        self._pending: deque[str] = deque()
+
+    def take(self, most: int) -> list[str]:
+        self._pending.extend(self.reader.read())
+        while self._skip and self._pending:
+            self._pending.popleft()
+            self._skip -= 1
+        if self._skip:  # the position is past what the files hold: nothing to deliver yet
+            return []
+        taken = [self._pending.popleft() for _ in range(min(most, len(self._pending)))]
+        self.count += len(taken)
+        return taken
+
+
 class HubApi:
     _skipped_check_is_ok = False  # the window's job ends `changed` when no named track had a check; the command line's is ok, the rows skipped
     _resume_first = False  # the command line refuses Upgrade all while a stopped upgrade batch waits (the window hides it)
@@ -448,6 +480,10 @@ class HubApi:
         self._drives_seen: dict[str, str] | None = None  # the away set the drives watch saw last (None: not yet)
         self._lock = threading.Lock()
         self._auto_lock = threading.Lock()
+        # `job_events`: one reader per followed job (the least recent dropped), with how many lines it delivered and the
+        # lines it read but did not deliver yet. Its own lock: file reads never hold `_lock` (the bridge's)
+        self._events_lock = threading.Lock()
+        self._event_readers: OrderedDict[str, _FollowReader] = OrderedDict()
         self._quit: Callable[[], None] | None = None  # set by app.main: closes the window
         # the user stopping an import is in library.db (`import_state`: every process reads it): the import starts by
         # itself no more until Continue import (D14). Only the window's automatic start once per session is kept here
@@ -1240,6 +1276,36 @@ class HubApi:
         return {**self._jobs.status(), "read_status": views.read_status(read, self._svc.now(), self._reading(),
                                                                            self._logins()),
                 "last_sync": self._last_sync()}
+
+    @bridge
+    def job_events(self, job_id: str, after: int = 0) -> dict:
+        """The events of any job of this support folder (the window's own, the Terminal's) from position `after` on, at
+        most `JOB_EVENTS_PAGE` lines, as `job follow --jsonl` reads them: `events.jsonl`, then the rolling tail.
+        Positions count the lines of the files (a line that does not parse is skipped from `events` but has its place),
+        so `next` is the `after` of the following call. The window sends only 0 or the `next` it was given: the reader
+        that delivered up to there is kept (`_FollowReader`) and reads on; any other `after` starts a fresh one."""
+        files = registry.Registry(self._support.support).get(job_id)
+        status = files.state().get("status")  # before the lines: an ended job's last events are in them
+        after = max(0, int(after))
+        with self._events_lock:
+            follow = self._event_readers.pop(job_id, None)
+            if follow is None or follow.count != after:
+                follow = _FollowReader(registry.EventReader(files.dir), after)
+            lines = follow.take(JOB_EVENTS_PAGE)
+            self._event_readers[job_id] = follow  # now the most recent
+            while len(self._event_readers) > JOB_EVENTS_READERS:
+                self._event_readers.popitem(last=False)
+            next_ = follow.count
+        events = []
+        for line in lines:
+            try:
+                data = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                events.append(data)
+        return {"events": events, "next": next_, "status": status,
+                "done": status in ("done", "lost") and len(lines) < JOB_EVENTS_PAGE}
 
     def _last_sync(self) -> dict | None:
         """The newest sync of this music folder in the registry (any `via`: the window's or the terminal's), as `{job,
@@ -2108,9 +2174,17 @@ class HubApi:
         return {"job_id": job.id}
 
     @bridge
-    def stop(self) -> dict:
-        """Stop safely: the running write job (a sync, a download, a Spotify login) ends after its current step."""
-        return {"stopped": self._jobs.stop()}
+    def stop(self, job_id: str | None = None) -> dict:
+        """Stop safely: the running write job (a sync, a download, a Spotify login) ends after its current step. With a
+        `job_id` (any job of this support folder, the Terminal's too): writes that job's stop file, what `job stop` does,
+        when it is queued, running or stopping; `stopped` is false for one that has ended."""
+        if job_id is None:
+            return {"stopped": self._jobs.stop()}
+        files = registry.Registry(self._support.support).get(job_id)
+        if files.state().get("status") not in registry.ACTIVE:
+            return {"stopped": False}
+        files.request_stop()
+        return {"stopped": True}
 
     @bridge
     def save_limits(self, service: str, limit: int, extra_today: int = 0) -> dict:

@@ -35,7 +35,7 @@ CONTRACT = {
     "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
     "start_import", "answer_same_song", "keep_duplicates", "keep_file", "setup_skip_import",
     "set_favourites", "set_crate_shown", "set_crates_shown", "set_read_liked_music", "add_liked_music",
-    "set_auto_upgrade", "rekordbox_status", "missing_files_preview", "missing_files", "sync_scope", "set_sync_scope",
+    "set_auto_upgrade", "rekordbox_status", "job_events", "missing_files_preview", "missing_files", "sync_scope", "set_sync_scope",
 }
 READ_ONLY = ["dashboard", "sidebar", "sync_preview", "job_status", "library", "todo", "limits",
              "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches", "watched_folders"]

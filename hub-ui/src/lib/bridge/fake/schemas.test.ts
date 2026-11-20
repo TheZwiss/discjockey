@@ -58,7 +58,7 @@ async function startSyncArgs(b: Bridge): Promise<unknown[]> {
   return [((await b.sync_preview()) as { plan_id: string | null }).plan_id, []];
 }
 const SAMPLE_ARGS: Record<string, Args> = {
-  dashboard: [], sidebar: [], library: ['all', null, '', 'all', null], sync_preview: [], job_status: [], playlists: [],
+  dashboard: [], sidebar: [], library: ['all', null, '', 'all', null], sync_preview: [], job_status: [], job_events: ['job:00000c0d', 0], playlists: [],
   limits: ['qobuz'], limits_what_if: ['qobuz', 60, 0], runs: [], run: ['last'], spectrum: ['t1', 'current'],
   set_favourites: [['playlist:0DiscjockeyExampleList']],
   set_crate_shown: ['/Users/you/Music/Rekordbox Library/Hardtechno', true],

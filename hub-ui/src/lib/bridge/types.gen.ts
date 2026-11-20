@@ -2294,6 +2294,23 @@ export type JobStatus = {
    */
   sign_in?: JobSnap | null;
 };
+/**
+ * What `job_events` answers: a job's events from a position on (the window's follow of a job another process
+ * runs).
+ */
+export type JobEvents = {
+  /** The job's events from `after` on, as events.ts `HubEvent` objects (`{type, …fields}`), at most 500. */
+  events: any[];
+  /**
+   * The position to ask from next: `after` plus the lines of the files delivered (a line that is no event has
+   * its place but is not in `events`).
+   */
+  next: number;
+  /** The job has ended and these were its last events. */
+  done: boolean;
+  /** The job's status when it was read: queued, running, stopping, done or lost. */
+  status: string;
+};
 /** What `stop`, `stop_refresh` and `stop_sign_in` answer. */
 export type Stopped = {
   /** Whether a job was running to stop. */

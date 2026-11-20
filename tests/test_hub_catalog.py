@@ -39,9 +39,9 @@ BRIDGE = bridge_methods()
 EXISTING = [e for e in catalog.ENTRIES if not e.cli_first]
 
 
-def test_the_bridge_has_96_methods_and_each_has_an_entry():
+def test_the_bridge_has_97_methods_and_each_has_an_entry():
     # a dropped method (kind `dropped`) keeps its row for the command line's refusal; the bridge has none of them
-    assert len(BRIDGE) == 96
+    assert len(BRIDGE) == 97
     assert not set(BRIDGE) & catalog.DROPPED
     assert set(BRIDGE) == {e.method for e in EXISTING if e.kind != "dropped"}
 

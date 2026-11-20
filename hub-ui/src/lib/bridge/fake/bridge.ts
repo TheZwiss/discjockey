@@ -26,7 +26,8 @@ import { toneUrl } from './audio';
 import { BROWSER_NAMES, defaultBrowsers } from './browsers';
 import { CRASHED_MESSAGE } from '../../copy';
 import { downloads } from './downloads';
-import { consoleHolder, consoleScenarios } from './console';
+import { JOB as TERMINAL_JOB, TERMINAL_SCENARIOS, consoleHolder, consoleScenarios } from './console';
+import { TerminalJob } from './terminalJob';
 import { BAD_MISSING_ACTION, MISSING_ACTIONS, itemDetail, missingAll, missingDetail, missingScenarios, missingView, previewMissing,
   runMissing } from './missingFiles';
 import {
@@ -148,6 +149,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   let lastSync: { job: string; args: { plan_id: string; selected: string[] }; ended: string | null } | null = null;
   let refreshJob: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
   let replay: Replay | null = null;
+  /** The Terminal's sync as a job the window follows (`job_events`): made by its console scenario, else at the first call */
+  let terminal: TerminalJob | null = null;
+  const terminalJob = (mode: 'live' | 'reading' | 'running' | 'ended' = 'live'): TerminalJob =>
+    terminal ??= new TerminalJob({ s, speed, emit, mode, reportPath: reportPath(runId(new Date())) });
   let pendingFinish: Finish | null = null;   // a job that only ends by itself or with stop() (Spotify login)
   let signIn: JobRecord | null = null;         // the sign-in slot (beside the write jobs, as Jobs.start_sign_in)
   let signInStop: (() => void) | null = null;
@@ -168,6 +173,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
    *  a `CliFail`. The window's `Res` has no `bad_args` kind (it never sends one), so it is typed as the `Fail` it stands for. */
   const badArgs = (message: string): Fail => {
     const answer: CliFail = { ok: false, kind: 'bad_args', message, outcome: 'bad_args', reason: 'usage' };
+    return answer as unknown as Fail;
+  };
+  /** `bad_args`, reason `unknown_id`: a job the registry has no folder for (a `CliFail`, as `badArgs`) */
+  const noSuchJob = (id: string): Fail => {
+    const answer: CliFail = { ok: false, kind: 'bad_args', message: `There is no job ${id} here.`, outcome: 'bad_args', reason: 'unknown_id' };
     return answer as unknown as Fail;
   };
   const later = <T>(ms: number, value: () => T) => new Promise<T>((r) => setTimeout(() => r(value()), ms / speed));
@@ -872,6 +882,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         console: consoleHolder(s),
         read_status: readStatus(s), last_sync: last ?? null, sign_in: signIn ? signIn.snapshot() : null });
     },
+    async job_events(job_id: string, after = 0) {
+      if (job_id !== TERMINAL_JOB) return noSuchJob(job_id);
+      return ok(terminalJob().read(Math.max(0, after)));
+    },
     async library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null) {
       const r = libraryOf(s, view, key, query, filter, sort);
       return 'refused' in r ? fail('refused', r.refused) : ok({ ...r, aiff_stopped: stoppedBatch('library:') });
@@ -1084,7 +1098,11 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (started.ok) lastSync = { job: started.job_id, args: { plan_id, selected: [...selected] }, ended: null };
       return started;
     },
-    async stop() {
+    async stop(job_id?: string) {
+      if (job_id !== undefined) {   // Stop safely for the Terminal's job (the fake has only that one)
+        if (job_id !== TERMINAL_JOB) return noSuchJob(job_id);
+        return ok({ stopped: terminalJob().stop() });
+      }
       if (importRun && job?.running) { job.stopping = true; importRun.stopped = true; return ok({ stopped: true }); }
       if (batchStop && job?.running) { job.stopping = true; batchStop.stopped = true; return ok({ stopped: true }); }
       if (moveRun && job?.running) { job.stopping = true; moveRun.stopped = true; return ok({ stopped: true }); }
@@ -1853,6 +1871,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (job) job.stopping = true;
     });
   }
+  if (TERMINAL_SCENARIOS[scenario]) at(() => terminalJob(TERMINAL_SCENARIOS[scenario]));
   if (scenario === 'sync:auto-running') {
     // the sync is in its last phase, frozen with 3 of the batch's tracks done (the 4th is in work)
     at(() => {

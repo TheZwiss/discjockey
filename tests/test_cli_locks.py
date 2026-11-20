@@ -16,7 +16,7 @@ import pytest
 import hub_helpers
 from hub_helpers import wait_job
 from discjockey import library
-from discjockey.hub import catalog
+from discjockey.hub import catalog, registry
 from discjockey.hub.api import CliApi
 from discjockey.rekordbox import lock as rb_lock
 
@@ -286,6 +286,12 @@ def _watched_id(api, rec) -> int:
     return next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
 
 
+def _a_job(api) -> str:
+    """The id of a job in the registry (a read of its events is the driver of `job_events`)."""
+    roots = {"music": None, "support": None, "rekordbox": None, "rekordbox_share": None, "sandbox": None}
+    return registry.Registry(api._support.support).create("sync", "sync run", {}, "terminal", roots).id
+
+
 DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
@@ -294,6 +300,7 @@ DRIVERS = {
     "run": lambda api, rec: api.run("last"),
     "rekordbox_status": lambda api, rec: api.rekordbox_status(),
     "job_status": lambda api, rec: api.job_status(),
+    "job_events": lambda api, rec: api.job_events(_a_job(api)),
     "stop_refresh": lambda api, rec: api.stop_refresh(),
     "stop": lambda api, rec: api.stop(),
     "stop_sign_in": lambda api, rec: api.stop_sign_in(),
