@@ -494,10 +494,17 @@ export function dropDecision(e: DroppedFile, target: string | null, selectedId: 
   return { do: 'add' };
 }
 
+/** Whether a refused add can be tried again with the same file: only the answers that came before any job and say
+ *  "not now" (another job is running, the console is busy). The permanent refusals ("There is no file at …", macOS's
+ *  no access) would give the same answer again. */
+export function canRetryAdd(o: { job_id: string | null; kind: string }): boolean {
+  return o.job_id === null && (o.kind === 'busy' || o.kind === 'console');
+}
+
 // ---------- the decisions (shared with the Library, lib/decisions) ----------
 export {
   KEPT_FILE, QUIT_REKORDBOX, SUPERSEDED_NOT_DELETED, canSwap, checkCard, editLine, fileFormat, fileName, fileQueue,
-  fileQueueId, fileState, fileWords, groupIdOf, keepLabel, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
+  fileQueueId, fileState, fileWords, keepLabel, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
   sinceText, upgradeWays,
 } from '$lib/decisions/decisionModel';
 export type {

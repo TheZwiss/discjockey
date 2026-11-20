@@ -4,11 +4,12 @@ import type {
 } from '$lib/bridge/types';
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import {
+  canRetryAdd,
   dropDecision,
   FILTER_ORDER, isFilter, actionsFor, segOptions, filterFrom, flatten, itemKey, keepSelection, moveSelection, rowDim, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
-  checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
+  checkCard, editLine, fileFormat, fileWords, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
   sinceText, upgradeWays, findHeld, ghostOf, holdApplies, openCount, withHeldItem, type TodoHold,
   batchListStep, checksPanelShows, coalesce, keepPinned, upgradeAllKeys, wholeUpgradeGroup,
   MULTI_GROUPS, cdjAllKeys, cdjGroup, multiCdj, wholeCdjGroup,
@@ -239,6 +240,12 @@ describe('FileDropped decision', () => {
   });
   it('ignores a drop for another track than this panel shows', () => {
     expect(dropDecision(ev(), 't2', 't17')).toEqual({ do: 'ignore' });
+  });
+  it('offers "Add again" only for a refusal that can go through next time', () => {
+    expect(canRetryAdd({ job_id: null, kind: 'busy' })).toBe(true);
+    expect(canRetryAdd({ job_id: null, kind: 'console' })).toBe(true);
+    expect(canRetryAdd({ job_id: null, kind: 'refused' })).toBe(false);  // "There is no file at …": the same answer again
+    expect(canRetryAdd({ job_id: 'job:0000000a', kind: 'busy' })).toBe(false);  // a job started and failed
   });
 });
 
@@ -581,9 +588,6 @@ describe('which duplicate stays', () => {
     const wav = f(6, '/Volumes/X/Crates/A - x.wav');
     expect(keepWords([aiff, mp3, wav], 1).hint).toBe('Not deleted: kept in Superseded/');
     expect(keepWords([aiff, mp3, wav], 'all').label).toBe('Keep all');
-  });
-  it('a group id from its files, sorted', () => {
-    expect(groupIdOf([12, 3, 7])).toBe('dup:3-7-12');
   });
   it('arrow keys skip rows that cannot be picked and wrap', () => {
     const opts = [{ key: 'a' }, { key: 'b', disabled: true }, { key: 'c' }];
