@@ -9,6 +9,7 @@ import fcntl
 import json
 import logging
 import os
+import shutil
 import threading
 import traceback
 from collections import deque
@@ -413,9 +414,9 @@ class Jobs:
 
     @staticmethod
     def _holder_of(states: Iterable[Mapping]) -> dict | None:
-        """The newest active job among `states` that holds the library lock, as `{job, via, kind, line}`."""
+        """The newest running job among `states` (a queued one is still waiting for the lock) that holds the library lock, as `{job, via, kind, line}`."""
         for state in states:
-            if state.get("status") in registry.ACTIVE and catalog.holds_library(state):
+            if state.get("status") in registry.HOLDING and catalog.holds_library(state):
                 return {"job": state.get("id"), "via": state.get("via"), "kind": state.get("kind"),
                         "line": (state.get("progress") or {}).get("line")}
         return None
@@ -513,17 +514,23 @@ class Jobs:
             return Job(files.id, kind, track_id, self.inline_token, self.now().isoformat(timespec="seconds"), batch_kind)
         started = self.now().isoformat(timespec="seconds")
         if self.registry is not None:
+            job_id = registry.new_job_id()
+            self.own_ids.add(job_id)  # before the folder exists: a look of the watch must never see it as foreign
+            files = None
             try:
                 record = self.record_of() if self.record_of is not None else {}
                 files = self.registry.create(kind, record.get("command") or "", record.get("args") or {}, "window",
-                                             record.get("roots") or {})
+                                             record.get("roots") or {}, job_id=job_id)
                 files.update(method=record.get("method"), library_lock=library_lock)
                 files.flush()
                 writer = files.events()
             except Exception:  # noqa: BLE001
                 log.warning("a job of the window could not be recorded in the registry", exc_info=True)
+                self.own_ids.discard(job_id)
+                if files is not None:
+                    files.release_claim()
+                    shutil.rmtree(files.dir, ignore_errors=True)
             else:
-                self.own_ids.add(files.id)
                 return Job(files.id, kind, track_id, CancelToken(files.dir / "stop"), started, batch_kind, files=files,
                            writer=writer, reducer=registry.ProgressReducer(files))
         return Job(registry.new_job_id(), kind, track_id, CancelToken(), started, batch_kind)
@@ -544,7 +551,10 @@ class Jobs:
             if (console := self._console_busy()) is not None:
                 raise console
             if self.registry is not None and self.inline is None:
-                self.registry.prune(self.now())  # as every terminal job does: `start` only, never the minute's read
+                try:
+                    self.registry.prune(self.now())  # as every terminal job does: `start` only, never the minute's read
+                except Exception:  # noqa: BLE001  a clean-up step never stops a write from starting
+                    log.warning("the registry could not be pruned", exc_info=True)
             job = self.current = self._new(kind, track_id, batch_kind, library_lock=hold_library and self.lock is not None)
             if self.inline is None:
                 threading.Thread(target=self._run, args=(job, work, True, hold_library), name=f"hub-job-{job.id}",
@@ -750,7 +760,7 @@ class Jobs:
         self._holder_seen, self._looked = holder, True
         by_id = {s["id"]: s for s in states if s.get("id")}
         ended = [(before, by_id.get(job_id)) for job_id, before in self._foreign.items()
-                 if by_id.get(job_id) is None or by_id[job_id].get("status") not in registry.ACTIVE]
+                 if job_id not in self.own_ids and (by_id.get(job_id) is None or by_id[job_id].get("status") not in registry.ACTIVE)]
         self._foreign = {job_id: s for job_id, s in by_id.items() if s.get("status") in registry.ACTIVE}
         for before, now in ended:
             self._foreign_ended(before, now)

@@ -89,8 +89,7 @@ def test_a_write_with_a_stale_rev_is_refused_and_writes_nothing(root, tmp_path, 
     f = wait_job(api, rec, call(api, tmp_path, STALE))
     assert (f.ok, f.problem) == (False, "changed") and "changed" in f.message
     assert library.load_state(root) == before
-    if name != "upgrade":  # the upgrade's one-song check has never written the operations log
-        assert oplog(root)[-1]["result"] == "changed"
+    assert oplog(root)[-1]["result"] == "changed"
     envelope = refusal(api, {"job_id": f.job_id})
     assert (envelope["outcome"], envelope["reason"]) == ("refused", "rev_changed")
     assert envelope["data"]["rev"] == rev_of(root) != STALE
@@ -111,6 +110,17 @@ def test_a_rev_that_went_stale_because_the_record_changed_is_refused(root):
     assert library.load_state(root) == before
     assert oplog(root)[-1]["result"] == "changed"
     assert wait_job(api, rec, api.hide("t2", True, rev_of(root))).ok
+
+
+def test_a_rev_read_before_another_version_took_the_same_path_is_refused(root):
+    api, rec = make_api(root)
+    read = api.track("t2")["track"]["rev"]
+    state = load_state(root)  # `use_candidate` placed version B under the same name: same path, same status
+    state["tracks"]["t2"]["source_id"] = "another-version"
+    save_state(root, state)
+    f = wait_job(api, rec, api.reject_current("t2", read))
+    assert (f.ok, f.problem) == (False, "changed")
+    assert refusal(api, {"job_id": f.job_id})["reason"] == "rev_changed"
 
 
 def test_a_write_without_expect_acts_on_the_record_as_it_is(root):

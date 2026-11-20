@@ -227,6 +227,10 @@ def test_a_stopped_first_automatic_read_is_not_repeated_by_itself(root, monkeypa
     release = threading.Event()
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: release.wait(10) and None)
     answer = api.refresh(auto=True)
+    deadline = time.monotonic() + 3
+    while len(started_reads(rec)) != 1 and time.monotonic() < deadline:  # the thread sends JobStarted a moment after
+        time.sleep(0.01)
+    assert len(started_reads(rec)) == 1
     assert api.stop_refresh()["stopped"] is True
     assert wait_job(api, rec, answer, timeout=2).problem == "stopped"
     assert api.refresh(auto=True)["ok"] is False and len(started_reads(rec)) == 1

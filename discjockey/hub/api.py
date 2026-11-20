@@ -2134,14 +2134,15 @@ class HubApi:
         return {"emit": ctx.emit, "token": ctx.token, "now": self._svc.now, "state": state,
                 "running": self._svc.rekordbox_running, "place": self._svc.rekordbox_place()}
 
-    @staticmethod
-    def _check_rev(state: dict, track_id: str, expect: str | None) -> None:
+    def _check_rev(self, state: dict, track_id: str, expect: str | None, operation: str) -> None:
         """A single-track write's precondition: the song is still there and, when `expect` (a `rev`) is given, its
-        record still has that rev; else `changed` and nothing is done."""
+        record still has that rev; else `changed` (with its operations-log line, as `ops.run_single` writes it) and
+        nothing is done."""
         e = state["tracks"].get(track_id)
-        if e is None:
-            raise OpProblem(ops.CHANGED, "changed")
-        if expect is not None and models.rev(e) != expect:
+        if e is None or (expect is not None and models.rev(e) != expect):
+            ops.log_operation(self._paths, self._svc.now(), track_id, e, operation, "changed", ops.CHANGED)
+            if e is None:
+                raise OpProblem(ops.CHANGED, "changed")
             raise ops.changed(track_id, e)
 
     def _batch_work(self, make: Callable[[], int] | None, resume: int | None, *, alone: bool,
@@ -2158,7 +2159,7 @@ class HubApi:
         def work(ctx) -> dict:
             state, recovered = self._begin()
             if expect is not None:
-                self._check_rev(state, *expect)
+                self._check_rev(state, *expect, batches.OPERATIONS["same_track"])
             if resume is not None and self._stopped_aiff(resume).state != "stopped":
                 # read under the library lock, after recovery: a batch a crash left `running` is stopped by now
                 raise OpProblem(NOT_STOPPED, "refused", reason="not_stopped")
@@ -2278,7 +2279,7 @@ class HubApi:
         def work(ctx) -> dict:
             state, recovered = self._begin()
             if one:
-                self._check_rev(state, ids[0], expect)
+                self._check_rev(state, ids[0], expect, f"upgrade_{mode}")
             results: list[batches.ItemResult] = []
             stopped = False
             for n, key in enumerate(ids):
@@ -2964,7 +2965,7 @@ class HubApi:
         runs, the ones the window started: `Jobs.own_ids`) never count: their own `busy` is `Jobs.start`'s."""
         own = self._jobs.own_ids
         for state in registry.Registry(self._support.support).list(all=True):
-            if state.get("status") not in registry.ACTIVE or state.get("id") in own:
+            if state.get("status") not in registry.HOLDING or state.get("id") in own:
                 continue
             if catalog.holds_library(state):
                 return {"job": state["id"], "via": state.get("via"), "command": state.get("command")}

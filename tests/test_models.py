@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 
 from discjockey.models import (SERVICE_NAMES, TRACK_LINKS, Action, PlaylistLine, SourceTrack, split_token, token,
-                               track_link)
+                               track_link, rev)
 
 ID = "0DiscjockeyExampleTrack"
 
@@ -99,3 +99,14 @@ def test_a_known_file_is_present_unless_marked_missing():
     from discjockey.models import KnownFile
     assert KnownFile(1, 1, "a.mp3", 1, 2, "k", True, False).missing is False
     assert KnownFile(1, 1, "a.mp3", 1, 2, "k", True, False, True).missing is True
+
+
+def test_the_rev_changes_when_another_version_stands_at_the_same_path_or_waits_under_the_same_file():
+    entry = {"status": "lossless", "path": "Library/X/A - T.aiff", "source": "qobuz", "source_id": "1",
+             "upgrade": {"file": "Library/X/Better/A - T.aiff", "source": "qobuz", "source_id": "7", "found": "2026-01-01"}}
+    assert rev(entry) == rev(dict(entry))
+    assert rev({**entry, "source_id": "2"}) != rev(entry)  # version B placed at the same path
+    assert rev({**entry, "source": "soundcloud"}) != rev(entry)
+    for key, value in (("source_id", "8"), ("found", "2026-02-02"), ("source", "tidal")):  # Y parked at X's name
+        assert rev({**entry, "upgrade": {**entry["upgrade"], key: value}}) != rev(entry)
+    assert rev(None) is None

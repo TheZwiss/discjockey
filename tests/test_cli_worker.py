@@ -331,7 +331,7 @@ def test_two_workers_for_writes_at_once_one_runs_one_is_busy(env):
     wait_for(second.ended)
     result = second.result()
     assert (result["outcome"], result["reason"]) == ("busy", "library_lock") and envelope.exit_code(result) == 3
-    assert result["data"]["holder"] == {"job": first.id, "via": "terminal", "kind": "scan"}
+    assert result["data"]["holder"] == {"job": first.id, "via": "terminal", "kind": "scan", "line": None}
     assert second.process.wait(10) == 3 and first.state()["status"] == "running"
     first.open_gate()
     wait_for(first.ended)
@@ -361,7 +361,7 @@ def test_a_terminal_write_while_a_window_job_holds_the_library_is_busy_naming_th
         wait_for(w.ended)
         result = w.result()
         assert (result["outcome"], result["reason"]) == ("busy", "library_lock")
-        assert result["data"]["holder"] == {"job": answer["job_id"], "via": "window", "kind": "hide"}
+        assert result["data"]["holder"] == {"job": answer["job_id"], "via": "window", "kind": "hide", "line": None}
     finally:
         release.set()
         assert api._jobs.wait(10)
@@ -557,6 +557,30 @@ def test_inline_jobs_adopt_the_job_id_and_run_on_the_calling_thread(tmp_path):
     assert not js.inline_token.cancelled
     files.request_stop()
     wait_for(lambda: js.inline_token.cancelled, timeout=3)  # the stop file is the token's: seen within half a second
+
+
+@pytest.mark.shapes_unchecked  # a stub result under the real kind `hide`
+def test_a_job_that_is_only_queued_is_not_the_library_holder(tmp_path):
+    reg = Registry(tmp_path / "support")
+    roots = {"music": str(tmp_path), "support": "/s", "rekordbox": None, "sandbox": None}
+    made = []
+    for _ in range(2):  # two terminal jobs, both still waiting for the lock (queued), the claim held
+        files = reg.create("hide", "track hide", {}, "terminal", roots)
+        files.update(method="hide", library_lock=True)
+        files.flush()
+        made.append(files)
+    try:
+        (tmp_path / ".discjockey").mkdir()
+        a, b = (jobs.Jobs(tmp_path / ".discjockey" / ".lock", lambda e: None, inline=f, registry=reg,
+                          keep_awake=lambda reason: nullcontext()) for f in made)
+        assert b.start("hide", lambda ctx: {"n": 1}).done.is_set()  # A: queued
+        # the worker, not the job, writes `done` for an adopted job: B still reads `running`, so A is truly busy now
+        with pytest.raises(jobs.Busy) as busy:
+            a.start("hide", lambda ctx: pytest.fail("must not run"))
+        assert busy.value.data["holder"]["job"] == made[1].id
+    finally:
+        for f in made:
+            f.release_claim()
 
 
 # --- retention at a job's start ---
