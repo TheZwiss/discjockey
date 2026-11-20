@@ -42,7 +42,7 @@ def test_help_json_lists_every_built_entry_with_what_an_agent_needs(capsys):
         assert all("id" in a for a in found["args"]), command
         assert found["example"] and found["usage"].startswith(command)
         assert "usage" in found["reasons"] and set(found["reasons"]) <= set(housekeeping.REASONS)
-        assert found["schema"] is None  # no built command's method is mapped to a shape yet
+        assert found["schema"] is None or found["schema"] in shapes.ANSWERS.values()  # the shape of a mapped method
     status = listed["rekordbox status"]
     assert (status["kind"], status["writes"], status["job"], status["flags"]) == ("R", False, False,
                                                                                   ["--limit", "--offset"])

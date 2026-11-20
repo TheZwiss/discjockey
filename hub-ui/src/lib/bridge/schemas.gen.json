@@ -18,6 +18,800 @@
       ],
       "type": "array"
     },
+    "AiffBatchResult": {
+      "additionalProperties": false,
+      "description": "The result of `upgrade` (Same track, New track, Discard), `upgrade_all`, `batch_resume` and, in stage D, `convert`, `rename` and `make_aiff`. New track and Discard lists have the same shape with `batch` null; a job also carries it when it ends `stopped`, `rekordbox_open`, `busy` or `refused`.",
+      "properties": {
+        "backup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The id of the copy of rekordbox's library made for it, or null.",
+          "x-shown": true
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The batch's id, null for a New track or Discard list.",
+          "x-shown": false
+        },
+        "done": {
+          "description": "How many were done.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "failed": {
+          "description": "How many failed.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "new_since_plan": {
+          "description": "A run with a plan (`--plan`): the songs named that the plan did not have, left out.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "results": {
+          "description": "One row per track.",
+          "items": {
+            "$ref": "#/$defs/ItemResult"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "How many were skipped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "state": {
+          "description": "How the batch ended.",
+          "enum": [
+            "running",
+            "stopped",
+            "done"
+          ],
+          "x-shown": true
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "stop",
+                "rekordbox_open",
+                "busy",
+                "crash"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it stopped, null when it did not.",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many tracks it holds.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "batch",
+        "state",
+        "stop_reason",
+        "total",
+        "done",
+        "skipped",
+        "failed",
+        "results",
+        "backup",
+        "recovered"
+      ],
+      "type": "object"
+    },
+    "Alignment": {
+      "additionalProperties": false,
+      "description": "How well a parked version lines up with the current file (the measurement behind \"the cues stay\").",
+      "properties": {
+        "drift_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Drift over the file in milliseconds, or null when not measured.",
+          "x-shown": false
+        },
+        "offset_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Offset between the two files in milliseconds, or null when not measured.",
+          "x-shown": false
+        },
+        "offset_samples": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The offset in samples, or null when not measured.",
+          "x-shown": false
+        },
+        "result": {
+          "description": "What the two files measured as: exact, shifted, different or unknown.",
+          "type": "string",
+          "x-shown": true
+        },
+        "text": {
+          "description": "The measurement in words (\"matches exactly\").",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "drift_ms",
+        "offset_ms",
+        "offset_samples",
+        "result",
+        "text"
+      ],
+      "type": "object"
+    },
+    "AutoRefused": {
+      "additionalProperties": false,
+      "description": "The refusal the sync's Auto-upgrade phase recorded on a parked upgrade; shown whatever the switch says.",
+      "properties": {
+        "at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it was recorded, an ISO time.",
+          "x-shown": true
+        },
+        "message": {
+          "description": "The refusal in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "reason": {
+          "description": "Why the phase left it alone.",
+          "enum": [
+            "timing",
+            "not_analysed",
+            "cloud",
+            "space",
+            "needs_choice"
+          ],
+          "x-shown": true
+        }
+      },
+      "required": [
+        "reason",
+        "message",
+        "at"
+      ],
+      "type": "object"
+    },
+    "AutoUpgradeBlock": {
+      "additionalProperties": false,
+      "description": "A run's Auto-upgrade block (the report's `.json` key `auto_upgrade`). Placements are rows like the others and count in `done` / `waiting` / `refused`. With the switch off the block is there only when a placement is coming or was done.",
+      "properties": {
+        "backup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The copy of rekordbox's library made for it, or null.",
+          "x-shown": true
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The batch's id, null when no batch ran.",
+          "x-shown": false
+        },
+        "done": {
+          "description": "How many were done.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "dry_run": {
+          "description": "Nothing was written: this is the plan.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "failed": {
+          "description": "How many failed.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "refused": {
+          "description": "How many the phase refuses and To-do shows.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "results": {
+          "description": "One row per track.",
+          "items": {
+            "$ref": "#/$defs/AutoUpgradeResult"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "stopped": {
+          "description": "The run was stopped.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "waiting": {
+          "description": "How many wait (rekordbox open + busy + not reached).",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "batch",
+        "backup",
+        "done",
+        "waiting",
+        "refused",
+        "failed",
+        "stopped",
+        "dry_run",
+        "results"
+      ],
+      "type": "object"
+    },
+    "AutoUpgradePreviewAnswer": {
+      "additionalProperties": false,
+      "description": "What the sync's last phase would do now (`sync run --auto-upgrade-only --dry-run`).",
+      "properties": {
+        "auto_upgrade": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutoUpgradeBlock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The phase's block, null when Settings' switch is off and no placement is coming.",
+          "x-shown": true
+        },
+        "start_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The Sync page's before-start line for it; null when nothing is coming.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "auto_upgrade",
+        "start_note"
+      ],
+      "type": "object"
+    },
+    "AutoUpgradeResult": {
+      "additionalProperties": false,
+      "description": "One track of the sync's Auto-upgrade phase (`auto_upgrade.py`).",
+      "properties": {
+        "action": {
+          "description": "What the row does; absent in a report from before issue 43 (read it as `same_track`).",
+          "enum": [
+            "same_track",
+            "place"
+          ],
+          "x-shown": true
+        },
+        "how": {
+          "anyOf": [
+            {
+              "enum": [
+                "in_place",
+                "new_aiff",
+                "placed"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The way Same track goes, or `placed` for a placement (Download again put the parked better version in for a song whose file is missing).",
+          "x-shown": true
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words.",
+          "x-shown": true
+        },
+        "name": {
+          "description": "The song's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A waiting row's `rekordbox_open`, `busy` or `not_reached`, a refused row's `EligibleReason` key.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "What became of it; `would` only in a dry run.",
+          "enum": [
+            "done",
+            "would",
+            "waiting",
+            "refused",
+            "failed"
+          ],
+          "x-shown": true
+        },
+        "track": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track",
+        "name",
+        "state",
+        "reason",
+        "message",
+        "how"
+      ],
+      "type": "object"
+    },
+    "BatchCheck": {
+      "additionalProperties": false,
+      "description": "A `BatchCheckItem`'s batch: the open checks of one AIFF batch, as one item. The engine words the batch, the window prints the words as they are.",
+      "properties": {
+        "aiff_id": {
+          "description": "`aiff:<id>`, the id the command line takes for this batch (the window ignores it).",
+          "type": "string",
+          "x-shown": false
+        },
+        "card_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The summary of the \"In rekordbox\" card (\"same track(s), cues kept\", \"better versions in\"); null when the card has no steps.",
+          "x-shown": true
+        },
+        "from_sync": {
+          "description": "The sync's last phase made the batch: it reads as \"Upgraded during your sync\".",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The batch's id.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "upgrade",
+                "convert",
+                "mixed"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The batch's own kind (`aiff_batches.kind`): a Convert batch says \"Made AIFF\"; null when unknown.",
+          "x-shown": true
+        },
+        "list_title": {
+          "description": "The title of the batch's list.",
+          "type": "string",
+          "x-shown": true
+        },
+        "placed_summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "\"better versions in\" when the batch holds a placement, else null.",
+          "x-shown": true
+        },
+        "row_name": {
+          "description": "The To-do row's name (\"3 tracks upgraded\", \"3 better versions put in\", \"3 tracks changed\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "row_sub": {
+          "description": "The row's sub line (\"today · Same track\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "size": {
+          "description": "How many open checks the batch has.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "started": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The earliest check's date.",
+          "x-shown": true
+        },
+        "started_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Who started the batch (`aiff_batches.started_by`): user, upgrade_all, make_aiff, cdj_all, auto_upgrade (the sync's Auto-upgrade phase), download_again (the same phase with the switch off, putting in the parked better version of a missing song); null when unknown.",
+          "x-shown": true
+        },
+        "tracks": {
+          "description": "The batch's checks as single items.",
+          "items": {
+            "$ref": "#/$defs/TodoPlainItem"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "size",
+        "started",
+        "started_by",
+        "from_sync",
+        "kind",
+        "row_name",
+        "row_sub",
+        "list_title",
+        "card_summary",
+        "placed_summary",
+        "tracks"
+      ],
+      "type": "object"
+    },
+    "BatchCheckItem": {
+      "additionalProperties": false,
+      "description": "An item of the `rekordbox_check` group that stands for an AIFF batch (`group` `rekordbox_check`; the first track's row fields).",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "aiff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`cdj` items: why Convert can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "batch": {
+          "$ref": "#/$defs/BatchCheck",
+          "description": "The batch.",
+          "x-shown": true
+        },
+        "can_undo": {
+          "description": "`rekordbox_check` items: the check belongs to a swap or an added file `undo_upgrade` can still put back.",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "cdj": {
+          "$ref": "#/$defs/CdjWhy",
+          "description": "`cdj` items: what the CDJs refuse in the file.",
+          "x-shown": true
+        },
+        "check": {
+          "$ref": "#/$defs/RekordboxCheckView",
+          "description": "`rekordbox_check` items: the check.",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "detail": {
+          "description": "The row's short line (what to do, or why it is here).",
+          "type": "string",
+          "x-shown": true
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_state": {
+          "description": "Whether the item's file is there now (`FileState`), or `no_file`: the song has none (Not found).",
+          "enum": [
+            "here",
+            "offline",
+            "folder_missing",
+            "file_missing",
+            "no_file"
+          ],
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "free": {
+          "description": "The artist gives it away: a not found, weak, good lossy or fake track with a free download (the row's FREE tag). Not sent by the engine on a `rekordbox_check` item (finding).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "group": {
+          "$ref": "#/$defs/TodoGroupKey",
+          "description": "The group the item is in.",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "key": {
+          "description": "`batch:<id>`, also the item's `track_id`.",
+          "type": "string",
+          "x-shown": false
+        },
+        "missing": {
+          "$ref": "#/$defs/MissingView",
+          "description": "`missing_file` items (issue 43): the song's waiting file, with its action and the engine's words.",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it). Not sent by the engine on a duplicate group's item (finding); a `TrackRow` has it always.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "same_track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url",
+        "group",
+        "detail",
+        "file_state",
+        "key",
+        "batch"
+      ],
+      "type": "object"
+    },
     "ByQuality": {
       "additionalProperties": false,
       "description": "A count for each quality class.",
@@ -56,6 +850,595 @@
         "missing"
       ],
       "type": "object"
+    },
+    "CdjWhy": {
+      "additionalProperties": false,
+      "description": "Why the CDJ-3000 or the CDJ-2000NXS2 refuses or stutters on a file (`cdj.cdj_problem`).",
+      "properties": {
+        "reason": {
+          "description": "The problem's key.",
+          "enum": [
+            "format",
+            "bitrate",
+            "bits",
+            "rate_high",
+            "rate_low"
+          ],
+          "x-shown": true
+        },
+        "short": {
+          "description": "To-do's one line.",
+          "type": "string",
+          "x-shown": true
+        },
+        "words": {
+          "description": "The sentence for the panels.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "short",
+        "words",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "CdjWords": {
+      "additionalProperties": false,
+      "description": "What the CDJs refuse in a file, in words (the `cdj` of `track().aiff` and of an AIFF plan item).",
+      "properties": {
+        "short": {
+          "description": "To-do's one line.",
+          "type": "string",
+          "x-shown": true
+        },
+        "words": {
+          "description": "The sentence for the panels.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "short",
+        "words"
+      ],
+      "type": "object"
+    },
+    "CheckedResult": {
+      "additionalProperties": false,
+      "description": "The result of `rekordbox_checked`.",
+      "properties": {
+        "batch": {
+          "description": "Only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`).",
+          "type": "integer",
+          "x-shown": false
+        },
+        "checked": {
+          "description": "The keys of the checks cleared.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "newer": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": "Only with `batch`: the songs of the batch whose check a later batch took, each with that batch's id (`aiff:<n>`), or null when it is not an AIFF batch.",
+          "type": "object",
+          "x-shown": false
+        },
+        "not_checked": {
+          "description": "The keys that had no open check.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "results": {
+          "description": "One report line per track checked.",
+          "items": {
+            "$ref": "#/$defs/Result"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "results",
+        "checked",
+        "not_checked",
+        "recovered"
+      ],
+      "type": "object"
+    },
+    "CountedGroup": {
+      "additionalProperties": false,
+      "description": "Every group but `missing_file`. `upgrade_ready` and `cdj` carry `all` and `stopped`.",
+      "properties": {
+        "all": {
+          "$ref": "#/$defs/CountedGroupAll",
+          "description": "What the group's bulk button acts on.",
+          "x-shown": true
+        },
+        "hint": {
+          "description": "The group's one line.",
+          "type": "string",
+          "x-shown": true
+        },
+        "items": {
+          "description": "The items of the group.",
+          "items": {
+            "$ref": "#/$defs/TodoItem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "key": {
+          "description": "The group's key.",
+          "enum": [
+            "rekordbox_check",
+            "same_song",
+            "duplicate",
+            "upgrade_ready",
+            "cdj",
+            "not_found",
+            "weak",
+            "good_lossy",
+            "fake",
+            "other"
+          ],
+          "x-shown": true
+        },
+        "label": {
+          "description": "The group's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TodoGroupStopped"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The newest stopped batch with items left (`upgrade_ready`, `cdj`).",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "label",
+        "hint",
+        "items",
+        "key"
+      ],
+      "type": "object"
+    },
+    "CountedGroupAll": {
+      "additionalProperties": false,
+      "description": "`all` of a counted group. `upgrade_ready`: Upgrade all's counts (Same track can run `n` / the edit needs a choice `m` / waits for something else `k`). `cdj`: what Convert all can do now `n` and what waits `k`, no `m`.",
+      "properties": {
+        "k": {
+          "description": "What waits for something else.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "m": {
+          "description": "`upgrade_ready` only: what needs a choice.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "n": {
+          "description": "What can run now.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "n",
+        "k"
+      ],
+      "type": "object"
+    },
+    "DiscardPreviewItem": {
+      "additionalProperties": false,
+      "description": "One song of a Discard preview.",
+      "properties": {
+        "action": {
+          "const": "discard",
+          "description": "Always discard.",
+          "x-shown": true
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The current file (it stays), an absolute path.",
+          "x-shown": true
+        },
+        "key": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        },
+        "parked": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The parked better version that is deleted for good, an absolute path.",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why not (`no_upgrade`).",
+          "x-shown": true
+        },
+        "state": {
+          "description": "Whether it would run.",
+          "enum": [
+            "planned",
+            "skipped"
+          ],
+          "x-shown": true
+        }
+      },
+      "required": [
+        "key",
+        "action",
+        "state",
+        "reason",
+        "file",
+        "parked"
+      ],
+      "type": "object"
+    },
+    "DuplicateItem": {
+      "additionalProperties": false,
+      "description": "An item of the `duplicate` group.",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "aiff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`cdj` items: why Convert can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "can_undo": {
+          "description": "`rekordbox_check` items: the check belongs to a swap or an added file `undo_upgrade` can still put back.",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "cdj": {
+          "$ref": "#/$defs/CdjWhy",
+          "description": "`cdj` items: what the CDJs refuse in the file.",
+          "x-shown": true
+        },
+        "check": {
+          "$ref": "#/$defs/RekordboxCheckView",
+          "description": "`rekordbox_check` items: the check.",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "detail": {
+          "description": "The row's short line (what to do, or why it is here).",
+          "type": "string",
+          "x-shown": true
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_state": {
+          "description": "Whether the item's file is there now (`FileState`), or `no_file`: the song has none (Not found).",
+          "enum": [
+            "here",
+            "offline",
+            "folder_missing",
+            "file_missing",
+            "no_file"
+          ],
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "free": {
+          "description": "The artist gives it away: a not found, weak, good lossy or fake track with a free download (the row's FREE tag). Not sent by the engine on a `rekordbox_check` item (finding).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "group": {
+          "$ref": "#/$defs/TodoGroupKey",
+          "description": "The group the item is in.",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "missing": {
+          "$ref": "#/$defs/MissingView",
+          "description": "`missing_file` items (issue 43): the song's waiting file, with its action and the engine's words.",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it). Not sent by the engine on a duplicate group's item (finding); a `TrackRow` has it always.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "pair": {
+          "$ref": "#/$defs/DuplicatePair",
+          "description": "The group of files.",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "same_track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url",
+        "group",
+        "detail",
+        "file_state",
+        "pair"
+      ],
+      "type": "object"
+    },
+    "DuplicatePair": {
+      "additionalProperties": false,
+      "description": "A group of files that are the same audio or the same song: two or more, by file id.",
+      "properties": {
+        "files": {
+          "description": "The files of the group.",
+          "items": {
+            "$ref": "#/$defs/FileSide"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "group_id": {
+          "description": "The group's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "recommended": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The `file_id` the panel picks to keep (the better sound, then AIFF), null when there is no clear winner.",
+          "x-shown": false
+        },
+        "recommended_why": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The recommendation's one line (\"Recommended: best quality\").",
+          "x-shown": true
+        },
+        "why": {
+          "$ref": "#/$defs/DuplicateWhy",
+          "description": "Why the files are one group.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "group_id",
+        "why",
+        "files",
+        "recommended",
+        "recommended_why"
+      ],
+      "type": "object"
+    },
+    "DuplicateWhy": {
+      "description": "Why the files of a group are one group.",
+      "enum": [
+        "same_audio",
+        "same_song"
+      ]
     },
     "Empty": {
       "additionalProperties": false,
@@ -229,6 +1612,228 @@
       ],
       "type": "object"
     },
+    "FileSide": {
+      "additionalProperties": false,
+      "description": "One file of a question or of a duplicate group. `path` is absolute for an import folder's file.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "audio_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL to play; null only for a file that is offline or can't be played (an import folder's file plays through `file/<file_id>`).",
+          "x-shown": false
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_id": {
+          "description": "The file's id.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "in_playlist": {
+          "description": "Whether the file is the library's file of a playlist song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "online": {
+          "description": "The file is there by the folder rule only (`here`), not offline.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "path": {
+          "description": "The file's path.",
+          "type": "string",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour.",
+          "type": "string",
+          "x-shown": true
+        },
+        "song_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song the file is linked to, or null.",
+          "x-shown": false
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "file_id",
+        "song_key",
+        "path",
+        "artist",
+        "title",
+        "duration_s",
+        "quality",
+        "quality_label",
+        "online",
+        "audio_url",
+        "in_playlist"
+      ],
+      "type": "object"
+    },
+    "FileState": {
+      "description": "Whether a file is there now: `here`; `offline` (its drive is not connected); `folder_missing` (its watched folder is not found); `file_missing` (the folder is there, the file's path is not: it went since the last scan, or its row waits as missing).",
+      "enum": [
+        "here",
+        "offline",
+        "folder_missing",
+        "file_missing"
+      ]
+    },
+    "FindTracksAnswer": {
+      "additionalProperties": false,
+      "description": "The songs that match, in artist then title order. With no hit and playlists read long ago, `next` says to read them.",
+      "properties": {
+        "next": {
+          "description": "`sync read`, when there is no hit and the playlists were read before their last change or more than a day ago.",
+          "items": {
+            "$ref": "#/$defs/FailNext"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "rows": {
+          "description": "The songs found.",
+          "items": {
+            "$ref": "#/$defs/FoundTrack"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "rows",
+        "total"
+      ],
+      "type": "object"
+    },
+    "FoundTrack": {
+      "additionalProperties": false,
+      "description": "One song `find_tracks` found.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's absolute path; null without a file.",
+          "x-shown": true
+        },
+        "rel_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path relative to the music folder; null without a file and for a file of an import folder.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "rel_path",
+        "path"
+      ],
+      "type": "object"
+    },
+    "FreeDownload": {
+      "additionalProperties": false,
+      "description": "The artist's free download of a SoundCloud version: a gate page (follow, like or e-mail) or SoundCloud's own download button.",
+      "properties": {
+        "direct": {
+          "description": "SoundCloud's own download button, not a gate page.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "host": {
+          "description": "The gate page's host (hypeddit.com).",
+          "type": "string",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title of the upload.",
+          "type": "string",
+          "x-shown": true
+        },
+        "uploader": {
+          "description": "Who uploaded it.",
+          "type": "string",
+          "x-shown": true
+        },
+        "url": {
+          "description": "The page to open (SoundCloud's own page when `direct`).",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "url",
+        "host",
+        "direct",
+        "title",
+        "uploader"
+      ],
+      "type": "object"
+    },
     "Freshness": {
       "additionalProperties": false,
       "description": "How fresh the answers are, from the stored records alone: never a scan or a fetch.",
@@ -264,6 +1869,118 @@
       ],
       "type": "object"
     },
+    "ItemResult": {
+      "additionalProperties": false,
+      "description": "One track of a batch.",
+      "properties": {
+        "action": {
+          "description": "What was done: same_track, add_new, convert, rename, ...",
+          "type": "string",
+          "x-shown": true
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words.",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path.",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An `EligibleReason` key (skipped only).",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ItemResultRekordbox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What was written in rekordbox, or null.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "What became of it.",
+          "enum": [
+            "planned",
+            "done",
+            "skipped",
+            "failed",
+            "undone"
+          ],
+          "x-shown": true
+        },
+        "track": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track",
+        "action",
+        "state",
+        "reason",
+        "message",
+        "path",
+        "rekordbox"
+      ],
+      "type": "object"
+    },
+    "ItemResultRekordbox": {
+      "additionalProperties": false,
+      "description": "What was written in rekordbox for one track.",
+      "properties": {
+        "entries": {
+          "description": "The rekordbox tracks written.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "kept": {
+          "description": "The fields kept as the user edited them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "entries",
+        "kept"
+      ],
+      "type": "object"
+    },
     "LibraryFilter": {
       "description": "Which songs the Library lists.",
       "enum": [
@@ -295,6 +2012,693 @@
         "order",
         "-order"
       ]
+    },
+    "MissingAction": {
+      "description": "What the user can do for a song whose file waits as missing: Download again for a song in a playlist, Remove from library for any other (the song decides, `missing.action_for`).",
+      "enum": [
+        "download_again",
+        "remove"
+      ]
+    },
+    "MissingAll": {
+      "additionalProperties": false,
+      "description": "The `missing_file` group's `all`: what the head link and the commands' `--all` act on.",
+      "properties": {
+        "download_again": {
+          "description": "Items not hidden whose action is Download again and can run now.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The head link's words, \"Select all · {k}\" over the group's items that are not hidden; null under two.",
+          "x-shown": true
+        },
+        "remove": {
+          "description": "Items not hidden whose action is Remove and can run now.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "download_again",
+        "remove",
+        "label"
+      ],
+      "type": "object"
+    },
+    "MissingConfirm": {
+      "additionalProperties": false,
+      "description": "Remove's question as the engine words it (`missing.confirm_for`): the plural for several songs.",
+      "properties": {
+        "body": {
+          "description": "What removing does.",
+          "type": "string",
+          "x-shown": true
+        },
+        "confirm_label": {
+          "description": "The button's words, \"Remove\".",
+          "type": "string",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The question (\"Remove from your library?\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "tone": {
+          "const": "danger",
+          "description": "The button's tone.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "title",
+        "body",
+        "confirm_label",
+        "tone"
+      ],
+      "type": "object"
+    },
+    "MissingDetail": {
+      "additionalProperties": false,
+      "description": "`track().missing`: the song's `MissingView` plus the words of the details panel. Null on the song when its file isn't marked missing (a file gone since the last scan shows `file_state` `file_missing` without it).",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/MissingAction",
+          "description": "The action the song gets (the song decides, not a choice).",
+          "x-shown": true
+        },
+        "foot_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words to show under a disabled button: `words`, null when nothing holds the action back or the note above says them already (found in several places, its drive away).",
+          "x-shown": true
+        },
+        "hint": {
+          "description": "What can be done, by `why_not` first and then by action: the To-do panel's, with its buttons.",
+          "type": "string",
+          "x-shown": true
+        },
+        "hint_library": {
+          "description": "The same for the Library, whose foot only opens To-do; the same text when the song was found in several places or was asked for already.",
+          "type": "string",
+          "x-shown": true
+        },
+        "in_missing_files": {
+          "description": "To-do's Missing files group lists the song: true unless Download again was asked and no held refusal keeps it there.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "label": {
+          "description": "The single song's button: \"Download again\" or \"Remove from library…\".",
+          "type": "string",
+          "x-shown": true
+        },
+        "line": {
+          "description": "\"Missing since 12 Nov. It was in Techno 2019.\"; in several places \"Found in 2 places: Techno 2019 and Old crates.\"",
+          "type": "string",
+          "x-shown": true
+        },
+        "place": {
+          "description": "Where the file was (the Folder column's words); empty without a path.",
+          "type": "string",
+          "x-shown": true
+        },
+        "since": {
+          "description": "The ISO day of the first scan that missed the file.",
+          "type": "string",
+          "x-shown": true
+        },
+        "tone": {
+          "description": "The button's tone: `filled` for Download again, `danger` for Remove (it asks first).",
+          "enum": [
+            "filled",
+            "danger"
+          ],
+          "x-shown": true
+        },
+        "upgrade_waiting": {
+          "description": "A parked better version waits (Download again puts it in, Remove deletes it).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "why_not": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MissingReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the action can't run now, null when it can.",
+          "x-shown": true
+        },
+        "will": {
+          "description": "What the action does for this song (\"Downloads again at your next sync\", \"Gets the better version already waiting for it at your next sync; nothing is downloaded\", \"Removed from your library\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "words": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The reason's sentence, null when `why_not` is null.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "since",
+        "place",
+        "action",
+        "label",
+        "tone",
+        "why_not",
+        "words",
+        "foot_note",
+        "will",
+        "upgrade_waiting",
+        "in_missing_files",
+        "line",
+        "hint",
+        "hint_library"
+      ],
+      "type": "object"
+    },
+    "MissingGroup": {
+      "additionalProperties": false,
+      "description": "The `missing_file` group (issue 43).",
+      "properties": {
+        "all": {
+          "$ref": "#/$defs/MissingAll",
+          "description": "Counts by action what the head link and the commands' `--all` act on.",
+          "x-shown": true
+        },
+        "hint": {
+          "description": "The group's one line.",
+          "type": "string",
+          "x-shown": true
+        },
+        "items": {
+          "description": "The items of the group.",
+          "items": {
+            "$ref": "#/$defs/TodoItem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "key": {
+          "const": "missing_file",
+          "description": "The group's key.",
+          "x-shown": true
+        },
+        "label": {
+          "description": "The group's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TodoGroupStopped"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The newest stopped batch with items left (`upgrade_ready`, `cdj`).",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "label",
+        "hint",
+        "items",
+        "key"
+      ],
+      "type": "object"
+    },
+    "MissingItemResult": {
+      "additionalProperties": false,
+      "description": "One song of a finished `missing_files` job.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/MissingAction",
+          "description": "The action asked.",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MissingReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it was skipped, null when done.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "What became of it.",
+          "enum": [
+            "done",
+            "skipped"
+          ],
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        },
+        "words": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A done song's `will` sentence or a skipped song's reason sentence.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "action",
+        "state",
+        "reason",
+        "words"
+      ],
+      "type": "object"
+    },
+    "MissingPreview": {
+      "additionalProperties": false,
+      "description": "`missing_files_preview`: what Download again or Remove would do for these songs, one item per song in the order asked (a key that is no song is an item with `reason` `not_missing`).",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/MissingAction",
+          "description": "The action asked.",
+          "x-shown": true
+        },
+        "button": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The selection panel's button over the `n` (\"Download again · 2\", \"Remove from library · 2…\"); null when none runs.",
+          "x-shown": true
+        },
+        "confirm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MissingConfirm"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Remove's question for them; null for Download again and for none.",
+          "x-shown": true
+        },
+        "items": {
+          "description": "One item per song.",
+          "items": {
+            "$ref": "#/$defs/MissingPreviewItem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "n": {
+          "description": "How many will run.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "How many will not.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "words": {
+          "description": "The one line (\"2 songs download again at your next sync; 1 is skipped.\").",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "action",
+        "items",
+        "n",
+        "skipped",
+        "words",
+        "button",
+        "confirm"
+      ],
+      "type": "object"
+    },
+    "MissingPreviewItem": {
+      "additionalProperties": false,
+      "description": "One song of `missing_files_preview` (`missing.preview`).",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "place": {
+          "description": "Where its file was.",
+          "type": "string",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MissingReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why not, null when `will`.",
+          "x-shown": true
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The ISO day its file was first missed; null when it is not missing.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        },
+        "upgrade_waiting": {
+          "description": "A parked better version waits (Download again puts it in, Remove deletes it).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "will": {
+          "description": "Whether the action runs for it now.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "words": {
+          "description": "The action's `will` sentence when it does, else the reason's sentence.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "place",
+        "since",
+        "will",
+        "reason",
+        "words",
+        "upgrade_waiting"
+      ],
+      "type": "object"
+    },
+    "MissingReason": {
+      "description": "Why the Missing files action can't run for a song now (`missing.why_not`), the first that applies.",
+      "enum": [
+        "not_missing",
+        "away",
+        "wrong_action",
+        "found_twice",
+        "never",
+        "check_open",
+        "place_refused",
+        "asked"
+      ]
+    },
+    "MissingResult": {
+      "additionalProperties": false,
+      "description": "`JobFinished.result` of `missing_files`. Every song skipped ends the job `changed` with this result kept.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/MissingAction",
+          "description": "The action run.",
+          "x-shown": true
+        },
+        "done": {
+          "description": "The keys of the songs done.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "results": {
+          "description": "One row per song.",
+          "items": {
+            "$ref": "#/$defs/MissingItemResult"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "The keys of the songs skipped.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "words": {
+          "description": "The one line in the past (\"Removed 2 songs from your library; 1 is skipped.\").",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "action",
+        "results",
+        "done",
+        "skipped",
+        "words",
+        "recovered"
+      ],
+      "type": "object"
+    },
+    "MissingView": {
+      "additionalProperties": false,
+      "description": "What the user can do for a song whose file waits as missing (`missing.view`): the single song's button, why it can't run, and what it does.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/MissingAction",
+          "description": "The action the song gets (the song decides, not a choice).",
+          "x-shown": true
+        },
+        "foot_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words to show under a disabled button: `words`, null when nothing holds the action back or the note above says them already (found in several places, its drive away).",
+          "x-shown": true
+        },
+        "in_missing_files": {
+          "description": "To-do's Missing files group lists the song: true unless Download again was asked and no held refusal keeps it there.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "label": {
+          "description": "The single song's button: \"Download again\" or \"Remove from library…\".",
+          "type": "string",
+          "x-shown": true
+        },
+        "place": {
+          "description": "Where the file was (the Folder column's words); empty without a path.",
+          "type": "string",
+          "x-shown": true
+        },
+        "since": {
+          "description": "The ISO day of the first scan that missed the file.",
+          "type": "string",
+          "x-shown": true
+        },
+        "tone": {
+          "description": "The button's tone: `filled` for Download again, `danger` for Remove (it asks first).",
+          "enum": [
+            "filled",
+            "danger"
+          ],
+          "x-shown": true
+        },
+        "upgrade_waiting": {
+          "description": "A parked better version waits (Download again puts it in, Remove deletes it).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "why_not": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MissingReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the action can't run now, null when it can.",
+          "x-shown": true
+        },
+        "will": {
+          "description": "What the action does for this song (\"Downloads again at your next sync\", \"Gets the better version already waiting for it at your next sync; nothing is downloaded\", \"Removed from your library\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "words": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The reason's sentence, null when `why_not` is null.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "since",
+        "place",
+        "action",
+        "label",
+        "tone",
+        "why_not",
+        "words",
+        "foot_note",
+        "will",
+        "upgrade_waiting",
+        "in_missing_files"
+      ],
+      "type": "object"
+    },
+    "NeverDownloadResult": {
+      "additionalProperties": false,
+      "description": "The result of `never_download`.",
+      "properties": {
+        "never": {
+          "description": "Whether the song is now left out of the sync.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track_id",
+        "never"
+      ],
+      "type": "object"
+    },
+    "OpResult": {
+      "additionalProperties": false,
+      "description": "The result of `hide`, `unhide`, `add_bought_file`, `use_candidate`, `use_link` and `reject_current`.",
+      "properties": {
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "result": {
+          "$ref": "#/$defs/Result",
+          "description": "The report line of what was done.",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track_id",
+        "result",
+        "recovered"
+      ],
+      "type": "object"
     },
     "PlaylistLine": {
       "additionalProperties": false,
@@ -366,6 +2770,1001 @@
         "fake",
         "missing"
       ]
+    },
+    "QuestionItem": {
+      "additionalProperties": false,
+      "description": "An item of the `same_song` group.",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "aiff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`cdj` items: why Convert can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "can_undo": {
+          "description": "`rekordbox_check` items: the check belongs to a swap or an added file `undo_upgrade` can still put back.",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "cdj": {
+          "$ref": "#/$defs/CdjWhy",
+          "description": "`cdj` items: what the CDJs refuse in the file.",
+          "x-shown": true
+        },
+        "check": {
+          "$ref": "#/$defs/RekordboxCheckView",
+          "description": "`rekordbox_check` items: the check.",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "detail": {
+          "description": "The row's short line (what to do, or why it is here).",
+          "type": "string",
+          "x-shown": true
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_state": {
+          "description": "Whether the item's file is there now (`FileState`), or `no_file`: the song has none (Not found).",
+          "enum": [
+            "here",
+            "offline",
+            "folder_missing",
+            "file_missing",
+            "no_file"
+          ],
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "free": {
+          "description": "The artist gives it away: a not found, weak, good lossy or fake track with a free download (the row's FREE tag). Not sent by the engine on a `rekordbox_check` item (finding).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "group": {
+          "$ref": "#/$defs/TodoGroupKey",
+          "description": "The group the item is in.",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "missing": {
+          "$ref": "#/$defs/MissingView",
+          "description": "`missing_file` items (issue 43): the song's waiting file, with its action and the engine's words.",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it). Not sent by the engine on a duplicate group's item (finding); a `TrackRow` has it always.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "pair": {
+          "$ref": "#/$defs/QuestionPair",
+          "description": "The question.",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "same_track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url",
+        "group",
+        "detail",
+        "file_state",
+        "pair"
+      ],
+      "type": "object"
+    },
+    "QuestionPair": {
+      "additionalProperties": false,
+      "description": "\"Is this the same song?\": a playlist song a file of the user's own might be.",
+      "properties": {
+        "delta_s": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's length minus the song's in whole seconds; null with `no_length`.",
+          "x-shown": true
+        },
+        "file": {
+          "$ref": "#/$defs/FileSide",
+          "description": "The user's own file.",
+          "x-shown": true
+        },
+        "own_key": {
+          "description": "The user's own song's key.",
+          "type": "string",
+          "x-shown": false
+        },
+        "song_key": {
+          "description": "The playlist song's key.",
+          "type": "string",
+          "x-shown": false
+        },
+        "track": {
+          "$ref": "#/$defs/QuestionPairTrack",
+          "description": "The playlist song.",
+          "x-shown": true
+        },
+        "why": {
+          "$ref": "#/$defs/QuestionWhy",
+          "description": "Why it is asked.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "song_key",
+        "own_key",
+        "why",
+        "delta_s",
+        "track",
+        "file"
+      ],
+      "type": "object"
+    },
+    "QuestionPairTrack": {
+      "additionalProperties": false,
+      "description": "The playlist song a question is about.",
+      "properties": {
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's link, or null.",
+          "x-shown": false
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "artist",
+        "title",
+        "duration_s",
+        "folder",
+        "link"
+      ],
+      "type": "object"
+    },
+    "QuestionWhy": {
+      "description": "Why a question is asked: the artist matched, the file has no artist, the lengths differ, or one has none.",
+      "enum": [
+        "artist",
+        "no_artist",
+        "length",
+        "no_length"
+      ]
+    },
+    "RekordboxCheckBatch": {
+      "additionalProperties": false,
+      "description": "The AIFF batch that left a check.",
+      "properties": {
+        "id": {
+          "description": "The batch's id.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "size": {
+          "description": "How many of its checks are still open.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "size"
+      ],
+      "type": "object"
+    },
+    "RekordboxCheckView": {
+      "additionalProperties": false,
+      "description": "A `rekordbox_check` item's check (`views.check_view`): the step that left it, what the two files measured as and what to do in rekordbox. The item's `detail` is the row's short line.",
+      "properties": {
+        "aligned": {
+          "description": "An added file that Discjockey rendered lined up with rekordbox's timeline of the old one: the old track's cues fit it to the sample; false for a swap and in records from before it.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RekordboxCheckBatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The AIFF batch that left the check, null when none.",
+          "x-shown": true
+        },
+        "match": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the two files measured as (exact, shifted, different, unknown); null in records from before it.",
+          "x-shown": true
+        },
+        "moved": {
+          "description": "Whether the audio moved against rekordbox's timeline.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "offset_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured offset in milliseconds, or null.",
+          "x-shown": false
+        },
+        "old_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A `renamed` check's old base name (\"Artist - Title [FREE DL].aiff\"), null for every other check.",
+          "x-shown": true
+        },
+        "old_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the old file (added) or the copy of the old audio (swap) is now; null without an undo record.",
+          "x-shown": true
+        },
+        "person_steps": {
+          "description": "The steps only the person can do in rekordbox (the command line's; the window words its own); empty for a check that leaves nothing to do.",
+          "items": {
+            "$ref": "#/$defs/FailPersonStep"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "reason": {
+          "description": "The step that left the check: wrong_song, added_as_new, swapped, repointed, converted, renamed or placed_missing.",
+          "type": "string",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RekordboxCheckWritten"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What was written in rekordbox, null when nothing.",
+          "x-shown": true
+        },
+        "reload_tag": {
+          "description": "False when Discjockey wrote rekordbox's text itself (no Reload Tag step); true for older records.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "relocate": {
+          "description": "An added file whose old file is an AIFF, so rekordbox's Relocate takes the new file; false for any other old file and for records from before it.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the check was left, an ISO time, or null.",
+          "x-shown": true
+        },
+        "text": {
+          "description": "The whole instruction for the person.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "reason",
+        "since",
+        "match",
+        "offset_ms",
+        "moved",
+        "aligned",
+        "text",
+        "old_path",
+        "relocate",
+        "reload_tag",
+        "batch",
+        "rekordbox",
+        "old_name",
+        "person_steps"
+      ],
+      "type": "object"
+    },
+    "RekordboxCheckWritten": {
+      "additionalProperties": false,
+      "description": "What was written in rekordbox.",
+      "properties": {
+        "entries": {
+          "description": "How many tracks.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "kept": {
+          "description": "The fields kept as the user edited them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "entries",
+        "kept"
+      ],
+      "type": "object"
+    },
+    "RekordboxContentFile": {
+      "additionalProperties": false,
+      "description": "An analysis file rekordbox keeps for a track.",
+      "properties": {
+        "hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The hash rekordbox noted when it was made.",
+          "x-shown": false
+        },
+        "path": {
+          "description": "Its path relative to rekordbox's share folder.",
+          "type": "string",
+          "x-shown": false
+        },
+        "size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The size rekordbox noted.",
+          "x-shown": false
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When its row was last changed.",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "path",
+        "hash",
+        "size",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "RekordboxPreviewAnswer": {
+      "additionalProperties": false,
+      "description": "What Same track, Convert and Rename would do for one file, and what rekordbox holds for it (read only: it decodes the file). The engine's own `ok` is part of it (it answers `ok` once: this is the same key).",
+      "properties": {
+        "bits": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The bit depth.",
+          "x-shown": true
+        },
+        "codec": {
+          "description": "The file's codec.",
+          "type": "string",
+          "x-shown": true
+        },
+        "eligible": {
+          "$ref": "#/$defs/RekordboxPreviewEligible",
+          "description": "What each action would do.",
+          "x-shown": true
+        },
+        "entries": {
+          "description": "The rekordbox tracks that hold the file.",
+          "items": {
+            "$ref": "#/$defs/RekordboxPreviewEntry"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "file": {
+          "description": "The file's absolute path.",
+          "type": "string",
+          "x-shown": true
+        },
+        "new_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file the first action that can run would make, an absolute path; null when none can.",
+          "x-shown": true
+        },
+        "ok": {
+          "const": true,
+          "description": "Always true.",
+          "x-shown": false
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/RekordboxPreviewState",
+          "description": "rekordbox's library.",
+          "x-shown": true
+        },
+        "sample_rate": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The sample rate in Hz.",
+          "x-shown": true
+        },
+        "superseded": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the old file would go, an absolute path; null when none.",
+          "x-shown": true
+        },
+        "timing": {
+          "$ref": "#/$defs/RekordboxPreviewTiming",
+          "description": "How the file's timing against rekordbox came out.",
+          "x-shown": true
+        },
+        "track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's key, null for a file the library does not know.",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "ok",
+        "track",
+        "file",
+        "codec",
+        "sample_rate",
+        "bits",
+        "new_file",
+        "superseded",
+        "rekordbox",
+        "timing",
+        "entries",
+        "eligible"
+      ],
+      "type": "object"
+    },
+    "RekordboxPreviewEligible": {
+      "additionalProperties": false,
+      "description": "What each action would do for the file: the reason key (null when it can run) and its words.",
+      "properties": {
+        "convert": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The same for Convert to AIFF.",
+          "x-shown": true
+        },
+        "convert_text": {
+          "description": "`convert` in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "rename": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The same for Give it its clean name.",
+          "x-shown": true
+        },
+        "rename_text": {
+          "description": "`rename` in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "same_track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why Same track can't run (an `EligibleReason` key), null when it can; `not_in_library` for a file the library does not know.",
+          "x-shown": true
+        },
+        "same_track_text": {
+          "description": "`same_track` in words (\"possible\" when it can run).",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "same_track",
+        "same_track_text",
+        "convert",
+        "convert_text",
+        "rename",
+        "rename_text"
+      ],
+      "type": "object"
+    },
+    "RekordboxPreviewEntry": {
+      "additionalProperties": false,
+      "description": "One rekordbox track that holds the file.",
+      "properties": {
+        "cloud": {
+          "description": "The track is in rekordbox's Cloud Library Sync.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "content_file": {
+          "description": "The analysis files rekordbox keeps for it.",
+          "items": {
+            "$ref": "#/$defs/RekordboxContentFile"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "cues": {
+          "description": "How many cues the analysis holds.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "expected_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The expected value it snapped to, in milliseconds.",
+          "x-shown": false
+        },
+        "fields_kept": {
+          "description": "The text fields that would stay as the user edited them.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "folder_path": {
+          "description": "The path rekordbox has for the file.",
+          "type": "string",
+          "x-shown": false
+        },
+        "grid": {
+          "description": "The analysis holds a beat grid.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The rekordbox track's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "offset_ms": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured offset in milliseconds.",
+          "x-shown": false
+        },
+        "pwv3": {
+          "description": "The analysis holds a waveform to measure.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How well the match scored.",
+          "x-shown": false
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the track row was last changed.",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "id",
+        "cues",
+        "grid",
+        "pwv3",
+        "offset_ms",
+        "expected_ms",
+        "score",
+        "cloud",
+        "fields_kept",
+        "folder_path",
+        "content_file",
+        "updated_at"
+      ],
+      "type": "object"
+    },
+    "RekordboxPreviewState": {
+      "additionalProperties": false,
+      "description": "What rekordbox's library is like for a preview.",
+      "properties": {
+        "problem": {
+          "anyOf": [
+            {
+              "enum": [
+                "unclean",
+                "busy",
+                "key",
+                "db_version",
+                "schema"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What is wrong with the library, or null.",
+          "x-shown": true
+        },
+        "problem_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`problem` in words.",
+          "x-shown": true
+        },
+        "running": {
+          "description": "Whether rekordbox is open.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "state": {
+          "description": "The library's state.",
+          "enum": [
+            "ready",
+            "none",
+            "unreadable"
+          ],
+          "x-shown": true
+        },
+        "state_text": {
+          "description": "`state` in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "writing": {
+          "description": "True while a writer of any Discjockey process holds the lock: master.db was not opened and the timing is `unreadable`.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "writing_text": {
+          "description": "`writing` in words.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "state",
+        "running",
+        "problem",
+        "state_text",
+        "problem_text"
+      ],
+      "type": "object"
+    },
+    "RekordboxPreviewTiming": {
+      "additionalProperties": false,
+      "description": "How the timing of the file against rekordbox came out.",
+      "properties": {
+        "offset_samples": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured offset in samples, null when not measured.",
+          "x-shown": false
+        },
+        "result": {
+          "description": "The outcome: no_rekordbox, not_in_rekordbox, format, no_cues, measured, not_analysed, timing, unreadable or missing_file.",
+          "type": "string",
+          "x-shown": true
+        },
+        "result_text": {
+          "description": "`result` in words.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "result",
+        "offset_samples",
+        "result_text"
+      ],
+      "type": "object"
     },
     "Result": {
       "additionalProperties": false,
@@ -508,6 +3907,29 @@
       ],
       "type": "object"
     },
+    "SelectListingAnswer": {
+      "additionalProperties": false,
+      "description": "The songs a listing selects.",
+      "properties": {
+        "ids": {
+          "description": "Every song the screen of the listing shows, each once, in the order shown.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "message": {
+          "description": "A verb's \"all\" that selects none: the words the window says then.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "type": "object"
+    },
     "SettingKey": {
       "const": "read_liked_music",
       "description": "A choice in Settings that a read needs (its key in settings.json): `setting_off` names it in `setting`."
@@ -542,6 +3964,86 @@
         "missing"
       ]
     },
+    "Todo": {
+      "additionalProperties": false,
+      "description": "The To-do page (`todo`): the groups always in the order of `TodoFilter` (the import adds `same_song` and `duplicate` after the first; issue 43 `missing_file` second). `chips` counts exclude hidden items.",
+      "properties": {
+        "check_tracks": {
+          "description": "The tracks with an open check in rekordbox whatever the filter (a batch counts its `size`): the page header's number.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "chips": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "How many items each filter holds, a key for every `TodoFilter` (hidden ones left out; `chips.all` counts each song once; `rekordbox_check` counts items, a batch is one).",
+          "type": "object",
+          "x-shown": true
+        },
+        "empty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EmptyKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the page has nothing to show, or null.",
+          "x-shown": true
+        },
+        "empty_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`empty`'s words for the command line (\"Everything is lossless.\"), null for no state or one the engine has no words for.",
+          "x-shown": true
+        },
+        "groups": {
+          "description": "The groups with items, in order.",
+          "items": {
+            "$ref": "#/$defs/TodoGroup"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "hidden_count": {
+          "description": "How many hidden items there are, for \"Show hidden (N)\".",
+          "type": "integer",
+          "x-shown": true
+        },
+        "show_hidden": {
+          "description": "Whether hidden items are listed.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "sub": {
+          "description": "The page header's second line as parts in order of importance (\"3 tracks are not lossless yet\", \"2 songs are missing their file\"; [\"Nothing to do\"] when none).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "chips",
+        "check_tracks",
+        "hidden_count",
+        "show_hidden",
+        "sub",
+        "groups",
+        "empty",
+        "empty_text"
+      ],
+      "type": "object"
+    },
     "TodoFilter": {
       "description": "A To-do group, or `all`.",
       "enum": [
@@ -558,6 +4060,1437 @@
         "fake",
         "other"
       ]
+    },
+    "TodoGroup": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MissingGroup"
+        },
+        {
+          "$ref": "#/$defs/CountedGroup"
+        }
+      ],
+      "description": "One group of the To-do page."
+    },
+    "TodoGroupHead": {
+      "additionalProperties": false,
+      "description": "What every To-do group has.",
+      "properties": {
+        "hint": {
+          "description": "The group's one line.",
+          "type": "string",
+          "x-shown": true
+        },
+        "items": {
+          "description": "The items of the group.",
+          "items": {
+            "$ref": "#/$defs/TodoItem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "label": {
+          "description": "The group's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "stopped": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TodoGroupStopped"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The newest stopped batch with items left (`upgrade_ready`, `cdj`).",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "label",
+        "hint",
+        "items"
+      ],
+      "type": "object"
+    },
+    "TodoGroupKey": {
+      "description": "A To-do group: a `TodoFilter` without `all`. The groups always come in this order.",
+      "enum": [
+        "rekordbox_check",
+        "missing_file",
+        "same_song",
+        "duplicate",
+        "upgrade_ready",
+        "cdj",
+        "not_found",
+        "weak",
+        "good_lossy",
+        "fake",
+        "other"
+      ]
+    },
+    "TodoGroupStopped": {
+      "additionalProperties": false,
+      "description": "The newest stopped batch with items left.",
+      "properties": {
+        "batch_id": {
+          "description": "The batch's id.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "left": {
+          "description": "How many items are left.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "batch_id",
+        "left"
+      ],
+      "type": "object"
+    },
+    "TodoItem": {
+      "additionalProperties": false,
+      "description": "A To-do item as a group lists it: any of the optional keys of the groups' items.",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "aiff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`cdj` items: why Convert can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "batch": {
+          "$ref": "#/$defs/BatchCheck",
+          "description": "A batch's open checks (two or more) are one item.",
+          "x-shown": true
+        },
+        "can_undo": {
+          "description": "`rekordbox_check` items: the check belongs to a swap or an added file `undo_upgrade` can still put back.",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "cdj": {
+          "$ref": "#/$defs/CdjWhy",
+          "description": "`cdj` items: what the CDJs refuse in the file.",
+          "x-shown": true
+        },
+        "check": {
+          "$ref": "#/$defs/RekordboxCheckView",
+          "description": "`rekordbox_check` items: the check.",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "detail": {
+          "description": "The row's short line (what to do, or why it is here).",
+          "type": "string",
+          "x-shown": true
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_state": {
+          "description": "Whether the item's file is there now (`FileState`), or `no_file`: the song has none (Not found).",
+          "enum": [
+            "here",
+            "offline",
+            "folder_missing",
+            "file_missing",
+            "no_file"
+          ],
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "free": {
+          "description": "The artist gives it away: a not found, weak, good lossy or fake track with a free download (the row's FREE tag). Not sent by the engine on a `rekordbox_check` item (finding).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "group": {
+          "$ref": "#/$defs/TodoGroupKey",
+          "description": "The group the item is in.",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "key": {
+          "description": "A batch item's key, `batch:<id>`.",
+          "type": "string",
+          "x-shown": false
+        },
+        "missing": {
+          "$ref": "#/$defs/MissingView",
+          "description": "`missing_file` items (issue 43): the song's waiting file, with its action and the engine's words.",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it). Not sent by the engine on a duplicate group's item (finding); a `TrackRow` has it always.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "pair": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuestionPair"
+            },
+            {
+              "$ref": "#/$defs/DuplicatePair"
+            }
+          ],
+          "description": "Only the import's two groups (`same_song`, `duplicate`) have one.",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "same_track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url",
+        "group",
+        "detail",
+        "file_state"
+      ],
+      "type": "object"
+    },
+    "TodoItemBase": {
+      "additionalProperties": false,
+      "description": "One song of a To-do group: the row plus the group's own words. `pair`, `can_undo` and the others are set only on the groups that use them. `free` and `own` are NotRequired because the engine leaves them off some items (findings, the window's types call both always there); the generated TypeScript still says `TrackRow & {...}`, where `own` is required.",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "aiff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`cdj` items: why Convert can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "can_undo": {
+          "description": "`rekordbox_check` items: the check belongs to a swap or an added file `undo_upgrade` can still put back.",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "cdj": {
+          "$ref": "#/$defs/CdjWhy",
+          "description": "`cdj` items: what the CDJs refuse in the file.",
+          "x-shown": true
+        },
+        "check": {
+          "$ref": "#/$defs/RekordboxCheckView",
+          "description": "`rekordbox_check` items: the check.",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "detail": {
+          "description": "The row's short line (what to do, or why it is here).",
+          "type": "string",
+          "x-shown": true
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_state": {
+          "description": "Whether the item's file is there now (`FileState`), or `no_file`: the song has none (Not found).",
+          "enum": [
+            "here",
+            "offline",
+            "folder_missing",
+            "file_missing",
+            "no_file"
+          ],
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "free": {
+          "description": "The artist gives it away: a not found, weak, good lossy or fake track with a free download (the row's FREE tag). Not sent by the engine on a `rekordbox_check` item (finding).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "group": {
+          "$ref": "#/$defs/TodoGroupKey",
+          "description": "The group the item is in.",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "missing": {
+          "$ref": "#/$defs/MissingView",
+          "description": "`missing_file` items (issue 43): the song's waiting file, with its action and the engine's words.",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it). Not sent by the engine on a duplicate group's item (finding); a `TrackRow` has it always.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "same_track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url",
+        "group",
+        "detail",
+        "file_state"
+      ],
+      "type": "object"
+    },
+    "TodoPlainItem": {
+      "additionalProperties": false,
+      "description": "An item that is not a batch: one of a batch's checks, or any other single item.",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "aiff": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`cdj` items: why Convert can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "can_undo": {
+          "description": "`rekordbox_check` items: the check belongs to a swap or an added file `undo_upgrade` can still put back.",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "cdj": {
+          "$ref": "#/$defs/CdjWhy",
+          "description": "`cdj` items: what the CDJs refuse in the file.",
+          "x-shown": true
+        },
+        "check": {
+          "$ref": "#/$defs/RekordboxCheckView",
+          "description": "`rekordbox_check` items: the check.",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "detail": {
+          "description": "The row's short line (what to do, or why it is here).",
+          "type": "string",
+          "x-shown": true
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_state": {
+          "description": "Whether the item's file is there now (`FileState`), or `no_file`: the song has none (Not found).",
+          "enum": [
+            "here",
+            "offline",
+            "folder_missing",
+            "file_missing",
+            "no_file"
+          ],
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "free": {
+          "description": "The artist gives it away: a not found, weak, good lossy or fake track with a free download (the row's FREE tag). Not sent by the engine on a `rekordbox_check` item (finding).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "group": {
+          "$ref": "#/$defs/TodoGroupKey",
+          "description": "The group the item is in.",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "key": {
+          "description": "A batch item's key, `batch:<id>`.",
+          "type": "string",
+          "x-shown": false
+        },
+        "missing": {
+          "$ref": "#/$defs/MissingView",
+          "description": "`missing_file` items (issue 43): the song's waiting file, with its action and the engine's words.",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it). Not sent by the engine on a duplicate group's item (finding); a `TrackRow` has it always.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "pair": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuestionPair"
+            },
+            {
+              "$ref": "#/$defs/DuplicatePair"
+            }
+          ],
+          "description": "Only the import's two groups (`same_song`, `duplicate`) have one.",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "same_track": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can.",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url",
+        "group",
+        "detail",
+        "file_state"
+      ],
+      "type": "object"
+    },
+    "TrackAiff": {
+      "additionalProperties": false,
+      "description": "What Convert and \"Give it its clean name\" can do for a file (issue 33 stage D); null on the song: no file, a download or a parked upgrade (the upgrade decision stands). `why_not` set means the action is blocked: for `rekordbox_unreadable`, `cloud` and `rename_blocked` the `action` and its `kind` / `to` / `new_name` / `bytes` are still the step's own (judged as if rekordbox were not in the way; no free name is a rename with `new_name` null), so the card shows Becomes, Name and Space and says why it waits. For any other reason (an `EligibleReason` key such as `named_already`, `away`) `action` is null, `kind` / `to` / `new_name` null, `bytes` 0. `from`, `lossy` and `cdj` always say what the file is.",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "enum": [
+                "convert",
+                "rename"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What can run, or null when nothing can.",
+          "x-shown": true
+        },
+        "bytes": {
+          "description": "The room the render needs.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "cdj": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CdjWords"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the CDJs refuse in the file, or null.",
+          "x-shown": true
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's format line (\"FLAC · 24-bit · 96 kHz\").",
+          "x-shown": true
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The kind of item (an `AiffKind`: flac, wav, alac, aiff_hires, tags, name, ...); null when `action` is.",
+          "x-shown": true
+        },
+        "lossy": {
+          "description": "Whether the file is lossy.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "name_now": {
+          "description": "The file's name now.",
+          "type": "string",
+          "x-shown": true
+        },
+        "new_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's name when done (equal to `name_now` for a Convert whose AIFF ends where the old file was).",
+          "x-shown": true
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a Convert makes (\"AIFF · 16-bit · 44.1 kHz\"); null for a rename.",
+          "x-shown": true
+        },
+        "why_not": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An `EligibleReason` key when the action is blocked, else null.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "action",
+        "why_not",
+        "kind",
+        "from",
+        "to",
+        "name_now",
+        "new_name",
+        "bytes",
+        "lossy",
+        "cdj"
+      ],
+      "type": "object"
+    },
+    "TrackAnswer": {
+      "additionalProperties": false,
+      "description": "The answer of `track`.",
+      "properties": {
+        "track": {
+          "$ref": "#/$defs/TrackDetail",
+          "description": "The song's details.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track"
+      ],
+      "type": "object"
+    },
+    "TrackBuyLinks": {
+      "additionalProperties": false,
+      "description": "Where to buy the song.",
+      "properties": {
+        "bandcamp": {
+          "description": "A Bandcamp search for it.",
+          "type": "string",
+          "x-shown": false
+        },
+        "beatport": {
+          "description": "A Beatport search for it.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "beatport",
+        "bandcamp"
+      ],
+      "type": "object"
+    },
+    "TrackDetail": {
+      "additionalProperties": false,
+      "description": "One song's details (`track`): the row plus everything the details panel shows. `audio_url` is null for every `file_state` but `here`.",
+      "properties": {
+        "added": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist day (an ISO time); for an own file the day Discjockey first saw it.",
+          "x-shown": true
+        },
+        "aiff": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrackAiff"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What Convert and the clean name can do for this file, or null.",
+          "x-shown": true
+        },
+        "artist": {
+          "description": "The artist.",
+          "type": "string",
+          "x-shown": true
+        },
+        "audio_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the file; null for every `file_state` but `here`.",
+          "x-shown": false
+        },
+        "bought_name": {
+          "description": "The path a bought file would be dropped at.",
+          "type": "string",
+          "x-shown": false
+        },
+        "buy_links": {
+          "$ref": "#/$defs/TrackBuyLinks",
+          "description": "Search links to buy the song.",
+          "x-shown": true
+        },
+        "cover_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the embedded cover, else the Spotify image URL, else null (show a placeholder).",
+          "x-shown": false
+        },
+        "cutoff_hz": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The measured cutoff in Hz, if measured; `quality_label` is its words.",
+          "x-shown": false
+        },
+        "cutoff_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The cutoff in words, as the stat card says it (\"16.0 kHz · where the highs end · lossless reaches about 22 kHz\"); null for a lossless or missing file and for a sound not checked yet.",
+          "x-shown": true
+        },
+        "duration_s": {
+          "description": "The length in seconds.",
+          "type": "number",
+          "x-shown": true
+        },
+        "file_state": {
+          "$ref": "#/$defs/FileState",
+          "description": "Whether the file is there now, decided per watched folder and, for a song whose file waits as missing, by the stored mark (`offline` wins when its drive is away).",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "The playlist folder the file is in; empty for the user's own songs from the import, which belong to no playlist folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "format_line": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file itself (\"AIFF · 16-bit\", \"WAV · 24-bit\", \"FLAC\"); null without a file.",
+          "x-shown": true
+        },
+        "free_downloads": {
+          "description": "The artists' free downloads found on SoundCloud while the track is not lossless.",
+          "items": {
+            "$ref": "#/$defs/FreeDownload"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "hidden": {
+          "description": "Whether the user hid the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "in_playlist_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How many playlists hold the song; null until the playlists were read.",
+          "x-shown": true
+        },
+        "in_playlists": {
+          "description": "Whether a playlist still holds the song.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "isrc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's ISRC, or null.",
+          "x-shown": true
+        },
+        "missing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MissingDetail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's file waits as missing (issue 43), or null.",
+          "x-shown": true
+        },
+        "next_qobuz_check": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An ISO date, `next_sync`, or null.",
+          "x-shown": true
+        },
+        "own": {
+          "description": "A file of the user's own that the import found (no playlist holds it): the table never dims it. False for a downloaded or bought one.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path (absolute for the user's own songs), or null when there is none.",
+          "x-shown": true
+        },
+        "place": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file sits, as the Folder column says it; null without a file.",
+          "x-shown": true
+        },
+        "playlists": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The playlist folders holding the song, null until the playlists were read.",
+          "x-shown": true
+        },
+        "quality": {
+          "$ref": "#/$defs/Quality",
+          "description": "The colour class: lossless green, good_lossy yellow, weak red, fake purple, missing red.",
+          "x-shown": true
+        },
+        "quality_label": {
+          "description": "The words next to the colour: LOSSLESS, 20.0 kHz, LOSSY, FAKE · 16.0 kHz, NOT FOUND.",
+          "type": "string",
+          "x-shown": true
+        },
+        "quality_line": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's source and quality (\"YouTube OPUS · cutoff 16.0 kHz\"); null without a file.",
+          "x-shown": true
+        },
+        "rejected_sources": {
+          "description": "The sources the user rejected for this song.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "sound_checked": {
+          "description": "False: an imported file whose sound isn't judged yet; `quality_line` then ends \"sound not checked yet\".",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the file came from, or null.",
+          "x-shown": true
+        },
+        "source_format_line": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the download was made from (\"Opus · 135 kbps\", \"FLAC\"); null without a file and for an own or bought file.",
+          "x-shown": true
+        },
+        "source_full": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in full words (\"YouTube Music\", \"bought\", \"your own file\"); null without a file.",
+          "x-shown": true
+        },
+        "source_how": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceHow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How the source was found; null for an own or bought file and for a file from before this was stored.",
+          "x-shown": true
+        },
+        "source_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source in short words: Qobuz, YT Music, SoundCloud, YouTube, bought; `own file` for a file the import found.",
+          "x-shown": true
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The source's page; null when it is the song's own page (`track_link`).",
+          "x-shown": false
+        },
+        "status": {
+          "$ref": "#/$defs/Status",
+          "description": "What the sound check made of the file.",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "description": "The song's id.",
+          "type": "string",
+          "x-shown": false
+        },
+        "track_link": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrackLink"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The track's page on the service it was read from, or null.",
+          "x-shown": true
+        },
+        "upgrade": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Upgrade"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The parked better version, or null.",
+          "x-shown": true
+        },
+        "upgrade_ready": {
+          "description": "Whether a better version is waiting.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "folder",
+        "duration_s",
+        "status",
+        "quality",
+        "quality_label",
+        "cutoff_hz",
+        "source",
+        "source_name",
+        "in_playlists",
+        "own",
+        "hidden",
+        "upgrade_ready",
+        "path",
+        "added",
+        "cover_url",
+        "sound_checked",
+        "file_state",
+        "place",
+        "cutoff_text",
+        "isrc",
+        "playlists",
+        "in_playlist_count",
+        "quality_line",
+        "format_line",
+        "source_full",
+        "source_format_line",
+        "source_how",
+        "source_url",
+        "track_link",
+        "next_qobuz_check",
+        "rejected_sources",
+        "buy_links",
+        "free_downloads",
+        "bought_name",
+        "audio_url",
+        "upgrade",
+        "aiff",
+        "missing"
+      ],
+      "type": "object"
+    },
+    "TrackLink": {
+      "additionalProperties": false,
+      "description": "The track's page on the service it was read from.",
+      "properties": {
+        "label": {
+          "description": "\"Open in Spotify\", \"Open in Qobuz\", \"Open in SoundCloud\" or \"Open in YouTube Music\".",
+          "type": "string",
+          "x-shown": true
+        },
+        "service": {
+          "$ref": "#/$defs/PlaylistService",
+          "description": "The service the page belongs to (the logo beside \"Open in …\").",
+          "x-shown": true
+        },
+        "url": {
+          "description": "The page to open.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "url",
+        "label",
+        "service"
+      ],
+      "type": "object"
     },
     "TrackRow": {
       "additionalProperties": false,
@@ -718,6 +5651,654 @@
       ],
       "type": "object"
     },
+    "UndoItem": {
+      "additionalProperties": false,
+      "description": "One track of an undo.",
+      "properties": {
+        "message": {
+          "description": "The words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it was refused.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "What became of it.",
+          "enum": [
+            "undone",
+            "refused",
+            "failed",
+            "waiting"
+          ],
+          "x-shown": true
+        },
+        "track": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track",
+        "state",
+        "reason",
+        "message"
+      ],
+      "type": "object"
+    },
+    "UndoPreviewItem": {
+      "additionalProperties": false,
+      "description": "One song of an undo preview.",
+      "properties": {
+        "action": {
+          "const": "undo",
+          "description": "Always undo.",
+          "x-shown": true
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's file, an absolute path.",
+          "x-shown": true
+        },
+        "key": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The reason's words.",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it can't be undone.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "Whether it would run.",
+          "enum": [
+            "planned",
+            "skipped"
+          ],
+          "x-shown": true
+        },
+        "step": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The kind of file step an undo would put back (swap, add_new, convert, rename).",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "key",
+        "action",
+        "state",
+        "reason",
+        "message",
+        "file",
+        "step"
+      ],
+      "type": "object"
+    },
+    "UndoPreviewRekordbox": {
+      "additionalProperties": false,
+      "description": "rekordbox's state for an undo preview.",
+      "properties": {
+        "needs_rekordbox_closed": {
+          "description": "A step that wrote rekordbox can only be undone with rekordbox quit.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "running": {
+          "description": "Whether rekordbox is open.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "running",
+        "needs_rekordbox_closed"
+      ],
+      "type": "object"
+    },
+    "UndoResult": {
+      "additionalProperties": false,
+      "description": "The result of `undo_upgrade` (and of `batch_undo`).",
+      "properties": {
+        "batch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The batch undone, null for single songs.",
+          "x-shown": false
+        },
+        "failed": {
+          "description": "How many failed.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "refused": {
+          "description": "How many were refused.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "results": {
+          "description": "One row per track.",
+          "items": {
+            "$ref": "#/$defs/UndoItem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many tracks.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "undone": {
+          "description": "How many were undone.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "words": {
+          "description": "What the undo says when it worked (\"Conversion undone. Your old file is back.\"); only on success.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "batch",
+        "total",
+        "undone",
+        "refused",
+        "failed",
+        "results",
+        "recovered"
+      ],
+      "type": "object"
+    },
+    "UndoUpgradePreviewAnswer": {
+      "additionalProperties": false,
+      "description": "What `undo_upgrade` of these songs would do, before it runs. Whether the files changed since is only known when the undo runs.",
+      "properties": {
+        "items": {
+          "description": "One item per song.",
+          "items": {
+            "$ref": "#/$defs/UndoPreviewItem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "planned": {
+          "description": "How many would be undone.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/UndoPreviewRekordbox",
+          "description": "rekordbox's state.",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "How many would not.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many songs.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "total",
+        "planned",
+        "skipped",
+        "items",
+        "rekordbox"
+      ],
+      "type": "object"
+    },
+    "Upgrade": {
+      "additionalProperties": false,
+      "description": "The better version parked for a song (`track().upgrade`); null on the song when none waits. Swap only when `swap_safe` and `swap_possible`; `cue_text` is the line to show.",
+      "properties": {
+        "alignment": {
+          "$ref": "#/$defs/Alignment",
+          "description": "How it lines up with the current file.",
+          "x-shown": true
+        },
+        "audio_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The media URL of the parked file, or null.",
+          "x-shown": false
+        },
+        "auto_refused": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutoRefused"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The refusal the sync's Auto-upgrade phase recorded, or null.",
+          "x-shown": true
+        },
+        "auto_waits": {
+          "description": "The sync met rekordbox open for this upgrade: true only while the switch is on and Same track could run.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "cue_text": {
+          "description": "The line about the cues: the measurement combined with `swap_possible`.",
+          "type": "string",
+          "x-shown": true
+        },
+        "file": {
+          "description": "The parked file's path, under Upgrades ready/.",
+          "type": "string",
+          "x-shown": false
+        },
+        "format_line": {
+          "description": "The parked version's quality in the words of the current file's `source_format_line` (\"FLAC · lossless\", \"AAC · 256 kbps\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "found": {
+          "description": "The day it was found, an ISO date.",
+          "type": "string",
+          "x-shown": true
+        },
+        "quality_line": {
+          "description": "The new version's quality, as the current file's `format_line` says it (\"FLAC · lossless\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/UpgradeRekordbox",
+          "description": "rekordbox's cached state on this Mac.",
+          "x-shown": true
+        },
+        "source": {
+          "description": "Where it came from: one of `Source`'s values or another word the engine reports.",
+          "type": "string",
+          "x-shown": true
+        },
+        "source_id": {
+          "description": "The source's own id for it.",
+          "type": "string",
+          "x-shown": false
+        },
+        "source_name": {
+          "description": "The source in short words (Qobuz, YT Music, SoundCloud).",
+          "type": "string",
+          "x-shown": true
+        },
+        "swap_how": {
+          "description": "`in_place`: an AIFF takes the audio; `new_aiff`: a new AIFF with a clean name, rekordbox's track pointed at it.",
+          "enum": [
+            "in_place",
+            "new_aiff"
+          ],
+          "x-shown": true
+        },
+        "swap_possible": {
+          "description": "Same track can run now (any format); `why_not` says why not otherwise.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "swap_safe": {
+          "description": "The two files measured as the same edit (exact or shifted).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "what": {
+          "description": "What it is (\"lossless version\", or e.g. \"256 kbps version\").",
+          "type": "string",
+          "x-shown": true
+        },
+        "why_not": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The eligibility reason key that blocks Same track, null when it can run.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "file",
+        "source",
+        "source_name",
+        "source_id",
+        "found",
+        "what",
+        "quality_line",
+        "format_line",
+        "alignment",
+        "cue_text",
+        "swap_safe",
+        "swap_possible",
+        "why_not",
+        "swap_how",
+        "rekordbox",
+        "auto_refused",
+        "auto_waits",
+        "audio_url"
+      ],
+      "type": "object"
+    },
+    "UpgradePreviewAnswer": {
+      "additionalProperties": false,
+      "description": "What an upgrade would do, answered before it runs (the dry run of `upgrade apply`; Upgrade all). Discard's items are the current file that stays and the parked download that is deleted, and it has no `space` or `rekordbox`. Reads only.",
+      "properties": {
+        "items": {
+          "description": "One item per song.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/UpgradePreviewItem"
+              },
+              {
+                "$ref": "#/$defs/DiscardPreviewItem"
+              }
+            ]
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "mode": {
+          "description": "The mode asked.",
+          "enum": [
+            "same_track",
+            "new_track",
+            "discard"
+          ],
+          "x-shown": true
+        },
+        "planned": {
+          "description": "How many would run.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/UpgradePreviewRekordbox",
+          "description": "rekordbox's state (not for Discard).",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "How many would not.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "space": {
+          "description": "What the new files need per drive (not for Discard).",
+          "items": {
+            "$ref": "#/$defs/UpgradePreviewSpace"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many songs.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "mode",
+        "total",
+        "planned",
+        "skipped",
+        "items"
+      ],
+      "type": "object"
+    },
+    "UpgradePreviewItem": {
+      "additionalProperties": false,
+      "description": "One song of an upgrade preview (`batches.preview_row`).",
+      "properties": {
+        "action": {
+          "description": "What the plan names: same_track or add_new.",
+          "type": "string",
+          "x-shown": true
+        },
+        "file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The current file's absolute path.",
+          "x-shown": true
+        },
+        "key": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        },
+        "new_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file it would make, an absolute path; null when none.",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why not, an `EligibleReason` key.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "Whether it would run.",
+          "enum": [
+            "planned",
+            "skipped"
+          ],
+          "x-shown": true
+        },
+        "superseded": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the old file would go, an absolute path; null when none.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "key",
+        "action",
+        "state",
+        "reason",
+        "file",
+        "new_file",
+        "superseded"
+      ],
+      "type": "object"
+    },
+    "UpgradePreviewRekordbox": {
+      "additionalProperties": false,
+      "description": "rekordbox's state for a batch preview.",
+      "properties": {
+        "needs_rekordbox_closed": {
+          "description": "A Same track that is not a swap must wait for rekordbox to be quit.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "running": {
+          "description": "Whether rekordbox is open.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "state": {
+          "description": "rekordbox's cached state on this Mac.",
+          "enum": [
+            "ready",
+            "none",
+            "unreadable"
+          ],
+          "x-shown": true
+        }
+      },
+      "required": [
+        "state",
+        "running",
+        "needs_rekordbox_closed"
+      ],
+      "type": "object"
+    },
+    "UpgradePreviewSpace": {
+      "additionalProperties": false,
+      "description": "What the new files need on one drive.",
+      "properties": {
+        "drive": {
+          "description": "The folder that decides the drive.",
+          "type": "string",
+          "x-shown": true
+        },
+        "enough": {
+          "description": "Whether it fits.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "free": {
+          "description": "Bytes free.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "needed": {
+          "description": "Bytes needed.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "drive",
+        "needed",
+        "free",
+        "enough"
+      ],
+      "type": "object"
+    },
+    "UpgradeRekordbox": {
+      "additionalProperties": false,
+      "description": "rekordbox's cached state on this Mac.",
+      "properties": {
+        "running": {
+          "description": "Whether rekordbox is open.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "state": {
+          "description": "`ready`: a library Discjockey can open; `none`: no rekordbox library; `unreadable`: one it cannot open.",
+          "enum": [
+            "ready",
+            "none",
+            "unreadable"
+          ],
+          "x-shown": true
+        }
+      },
+      "required": [
+        "state",
+        "running"
+      ],
+      "type": "object"
+    },
     "Which": {
       "description": "Which file of a song: the one in the library now, or the parked better version.",
       "enum": [
@@ -727,7 +6308,41 @@
     }
   },
   "answers": {
-    "freshness": "Freshness"
+    "add_bought_file": "OpResult",
+    "auto_upgrade_preview": "AutoUpgradePreviewAnswer",
+    "find_tracks": "FindTracksAnswer",
+    "freshness": "Freshness",
+    "hide": "OpResult",
+    "missing_files": "MissingResult",
+    "missing_files_preview": "MissingPreview",
+    "never_download": "NeverDownloadResult",
+    "reject_current": "OpResult",
+    "rekordbox_checked": "CheckedResult",
+    "rekordbox_preview": "RekordboxPreviewAnswer",
+    "select_listing": "SelectListingAnswer",
+    "todo": "Todo",
+    "track": "TrackAnswer",
+    "undo_upgrade": "UndoResult",
+    "undo_upgrade_preview": "UndoUpgradePreviewAnswer",
+    "upgrade": "AiffBatchResult",
+    "upgrade_all": "AiffBatchResult",
+    "upgrade_preview": "UpgradePreviewAnswer",
+    "use_candidate": "OpResult",
+    "use_link": "OpResult"
   },
-  "results": {}
+  "results": {
+    "add_bought_file": "OpResult",
+    "hide": "OpResult",
+    "missing_files": "MissingResult",
+    "never_download": "NeverDownloadResult",
+    "reject_current": "OpResult",
+    "rekordbox_checked": "CheckedResult",
+    "undo_upgrade": "UndoResult",
+    "unhide": "OpResult",
+    "upgrade_add_new": "AiffBatchResult",
+    "upgrade_batch": "AiffBatchResult",
+    "upgrade_discard": "AiffBatchResult",
+    "use_candidate": "OpResult",
+    "use_link": "OpResult"
+  }
 }

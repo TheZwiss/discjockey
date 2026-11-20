@@ -635,3 +635,56 @@ def test_the_suite_runs_with_the_check_on():
     from discjockey.hub import shapes
 
     assert shapes.CHECKING  # tests/conftest.py sets DISCJOCKEY_CHECK_SHAPES before any discjockey import
+
+
+# --- To-do, the details of a song and Missing files (E7b): a fixture answer fits its shape ---
+
+@pytest.fixture
+def hub(tmp_path, monkeypatch):
+    from hub_helpers import fake_spotify, make_api, make_root
+
+    fake_spotify(monkeypatch)
+    api, _ = make_api(make_root(tmp_path, upgrade=True))
+    return api
+
+
+def answer_without_ok(answer: dict) -> dict:
+    assert answer["ok"] is True, answer
+    return {k: v for k, v in answer.items() if k != "ok"}
+
+
+def test_a_todo_answer_fits_its_shape(hub):
+    from discjockey.hub import shapes
+
+    out = answer_without_ok(hub.todo())
+    assert [g["key"] for g in out["groups"]] == ["upgrade_ready", "not_found"]  # a parked upgrade and a missing song
+    assert shapes.validate(out, shapes.ANSWERS["todo"]) == []
+    broken = {**out, "groups": [{**out["groups"][0], "key": "nowhere"}]}
+    assert shapes.validate(broken, "Todo")  # the check can fail: the key is no group's
+
+
+def test_a_track_answer_fits_its_shape(hub):
+    from discjockey.hub import shapes
+
+    for key in ("t1", "t2", "t3"):  # a lossless file, one with a parked upgrade, one nobody found
+        assert shapes.validate(answer_without_ok(hub.track(key)), shapes.ANSWERS["track"]) == [], key
+    assert hub.track("t2")["track"]["upgrade"]["swap_how"] in ("in_place", "new_aiff")
+
+
+def test_a_missing_files_preview_answer_fits_its_shape(tmp_path, monkeypatch):
+    from hub_helpers import LOSSLESS, fake_spotify, make_api, make_root
+
+    from discjockey import db
+    from discjockey.hub import shapes
+
+    fake_spotify(monkeypatch)
+    paths = make_root(tmp_path, upgrade=True)
+    with db.connect(paths.db_file) as conn:
+        conn.execute("UPDATE files SET missing_since = ? WHERE path = ?", ("2026-11-01", LOSSLESS.removeprefix("Library/")))
+        conn.commit()
+    api, _ = make_api(paths)
+    for action in ("download_again", "remove"):
+        out = answer_without_ok(api.missing_files_preview(["t1", "t2", "nope"], action))
+        assert shapes.validate(out, shapes.ANSWERS["missing_files_preview"]) == [], action
+        assert [i["track_id"] for i in out["items"]] == ["t1", "t2", "nope"]
+        assert out["items"][0]["since"] == "2026-11-01" and out["items"][2]["reason"] == "not_missing"

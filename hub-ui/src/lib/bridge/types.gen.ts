@@ -294,3 +294,1159 @@ export type Freshness = {
   /** When the playlists were last read, an ISO time; null when none was. */
   read_at: string | null;
 };
+/** A To-do group: a `TodoFilter` without `all`. The groups always come in this order. */
+export type TodoGroupKey =
+  | 'rekordbox_check'
+  | 'missing_file'
+  | 'same_song'
+  | 'duplicate'
+  | 'upgrade_ready'
+  | 'cdj'
+  | 'not_found'
+  | 'weak'
+  | 'good_lossy'
+  | 'fake'
+  | 'other';
+/**
+ * Whether a file is there now: `here`; `offline` (its drive is not connected); `folder_missing` (its watched
+ * folder is not found); `file_missing` (the folder is there, the file's path is not: it went since the last
+ * scan, or its row waits as missing).
+ */
+export type FileState = 'here' | 'offline' | 'folder_missing' | 'file_missing';
+/**
+ * What the user can do for a song whose file waits as missing: Download again for a song in a playlist, Remove
+ * from library for any other (the song decides, `missing.action_for`).
+ */
+export type MissingAction = 'download_again' | 'remove';
+/** Why the Missing files action can't run for a song now (`missing.why_not`), the first that applies. */
+export type MissingReason =
+  | 'not_missing'
+  | 'away'
+  | 'wrong_action'
+  | 'found_twice'
+  | 'never'
+  | 'check_open'
+  | 'place_refused'
+  | 'asked';
+/** How well a parked version lines up with the current file (the measurement behind "the cues stay"). */
+export type Alignment = {
+  /** Drift over the file in milliseconds, or null when not measured. */
+  drift_ms: number | null;
+  /** Offset between the two files in milliseconds, or null when not measured. */
+  offset_ms: number | null;
+  /** The offset in samples, or null when not measured. */
+  offset_samples: number | null;
+  /** What the two files measured as: exact, shifted, different or unknown. */
+  result: string;
+  /** The measurement in words ("matches exactly"). */
+  text: string;
+};
+/** The refusal the sync's Auto-upgrade phase recorded on a parked upgrade; shown whatever the switch says. */
+export type AutoRefused = {
+  /** Why the phase left it alone. */
+  reason: 'timing' | 'not_analysed' | 'cloud' | 'space' | 'needs_choice';
+  /** The refusal in words. */
+  message: string;
+  /** When it was recorded, an ISO time. */
+  at: string | null;
+};
+/** rekordbox's cached state on this Mac. */
+export type UpgradeRekordbox = {
+  /** `ready`: a library Discjockey can open; `none`: no rekordbox library; `unreadable`: one it cannot open. */
+  state: 'ready' | 'none' | 'unreadable';
+  /** Whether rekordbox is open. */
+  running: boolean;
+};
+/**
+ * The better version parked for a song (`track().upgrade`); null on the song when none waits. Swap only when
+ * `swap_safe` and `swap_possible`; `cue_text` is the line to show.
+ */
+export type Upgrade = {
+  /** The parked file's path, under Upgrades ready/. */
+  file: string;
+  /** Where it came from: one of `Source`'s values or another word the engine reports. */
+  source: string;
+  /** The source in short words (Qobuz, YT Music, SoundCloud). */
+  source_name: string;
+  /** The source's own id for it. */
+  source_id: string;
+  /** The day it was found, an ISO date. */
+  found: string;
+  /** What it is ("lossless version", or e.g. "256 kbps version"). */
+  what: string;
+  /** The new version's quality, as the current file's `format_line` says it ("FLAC · lossless"). */
+  quality_line: string;
+  /**
+   * The parked version's quality in the words of the current file's `source_format_line` ("FLAC · lossless",
+   * "AAC · 256 kbps").
+   */
+  format_line: string;
+  /** How it lines up with the current file. */
+  alignment: Alignment;
+  /** The line about the cues: the measurement combined with `swap_possible`. */
+  cue_text: string;
+  /** The two files measured as the same edit (exact or shifted). */
+  swap_safe: boolean;
+  /** Same track can run now (any format); `why_not` says why not otherwise. */
+  swap_possible: boolean;
+  /** The eligibility reason key that blocks Same track, null when it can run. */
+  why_not: string | null;
+  /**
+   * `in_place`: an AIFF takes the audio; `new_aiff`: a new AIFF with a clean name, rekordbox's track pointed
+   * at it.
+   */
+  swap_how: 'in_place' | 'new_aiff';
+  /** rekordbox's cached state on this Mac. */
+  rekordbox: UpgradeRekordbox;
+  /** The refusal the sync's Auto-upgrade phase recorded, or null. */
+  auto_refused: AutoRefused | null;
+  /**
+   * The sync met rekordbox open for this upgrade: true only while the switch is on and Same track could run.
+   */
+  auto_waits: boolean;
+  /** The media URL of the parked file, or null. */
+  audio_url: string | null;
+};
+/**
+ * The artist's free download of a SoundCloud version: a gate page (follow, like or e-mail) or SoundCloud's own
+ * download button.
+ */
+export type FreeDownload = {
+  /** The page to open (SoundCloud's own page when `direct`). */
+  url: string;
+  /** The gate page's host (hypeddit.com). */
+  host: string;
+  /** SoundCloud's own download button, not a gate page. */
+  direct: boolean;
+  /** The title of the upload. */
+  title: string;
+  /** Who uploaded it. */
+  uploader: string;
+};
+/** The track's page on the service it was read from. */
+export type TrackLink = {
+  /** The page to open. */
+  url: string;
+  /** "Open in Spotify", "Open in Qobuz", "Open in SoundCloud" or "Open in YouTube Music". */
+  label: string;
+  /** The service the page belongs to (the logo beside "Open in …"). */
+  service: PlaylistService;
+};
+/** Where to buy the song. */
+export type TrackBuyLinks = {
+  /** A Beatport search for it. */
+  beatport: string;
+  /** A Bandcamp search for it. */
+  bandcamp: string;
+};
+/** What the CDJs refuse in a file, in words (the `cdj` of `track().aiff` and of an AIFF plan item). */
+export type CdjWords = {
+  /** To-do's one line. */
+  short: string;
+  /** The sentence for the panels. */
+  words: string;
+};
+/**
+ * What Convert and "Give it its clean name" can do for a file (issue 33 stage D); null on the song: no file, a
+ * download or a parked upgrade (the upgrade decision stands). `why_not` set means the action is blocked: for
+ * `rekordbox_unreadable`, `cloud` and `rename_blocked` the `action` and its `kind` / `to` / `new_name` /
+ * `bytes` are still the step's own (judged as if rekordbox were not in the way; no free name is a rename with
+ * `new_name` null), so the card shows Becomes, Name and Space and says why it waits. For any other reason (an
+ * `EligibleReason` key such as `named_already`, `away`) `action` is null, `kind` / `to` / `new_name` null,
+ * `bytes` 0. `from`, `lossy` and `cdj` always say what the file is.
+ */
+export type TrackAiff = {
+  /** What can run, or null when nothing can. */
+  action: 'convert' | 'rename' | null;
+  /** An `EligibleReason` key when the action is blocked, else null. */
+  why_not: string | null;
+  /** The kind of item (an `AiffKind`: flac, wav, alac, aiff_hires, tags, name, ...); null when `action` is. */
+  kind: string | null;
+  /** The file's format line ("FLAC · 24-bit · 96 kHz"). */
+  from: string | null;
+  /** What a Convert makes ("AIFF · 16-bit · 44.1 kHz"); null for a rename. */
+  to: string | null;
+  /** The file's name now. */
+  name_now: string;
+  /** The file's name when done (equal to `name_now` for a Convert whose AIFF ends where the old file was). */
+  new_name: string | null;
+  /** The room the render needs. */
+  bytes: number;
+  /** Whether the file is lossy. */
+  lossy: boolean;
+  /** What the CDJs refuse in the file, or null. */
+  cdj: CdjWords | null;
+};
+/**
+ * What the user can do for a song whose file waits as missing (`missing.view`): the single song's button, why
+ * it can't run, and what it does.
+ */
+export type MissingView = {
+  /** The ISO day of the first scan that missed the file. */
+  since: string;
+  /** Where the file was (the Folder column's words); empty without a path. */
+  place: string;
+  /** The action the song gets (the song decides, not a choice). */
+  action: MissingAction;
+  /** The single song's button: "Download again" or "Remove from library…". */
+  label: string;
+  /** The button's tone: `filled` for Download again, `danger` for Remove (it asks first). */
+  tone: 'filled' | 'danger';
+  /** Why the action can't run now, null when it can. */
+  why_not: MissingReason | null;
+  /** The reason's sentence, null when `why_not` is null. */
+  words: string | null;
+  /**
+   * The words to show under a disabled button: `words`, null when nothing holds the action back or the note
+   * above says them already (found in several places, its drive away).
+   */
+  foot_note: string | null;
+  /**
+   * What the action does for this song ("Downloads again at your next sync", "Gets the better version already
+   * waiting for it at your next sync; nothing is downloaded", "Removed from your library").
+   */
+  will: string;
+  /** A parked better version waits (Download again puts it in, Remove deletes it). */
+  upgrade_waiting: boolean;
+  /**
+   * To-do's Missing files group lists the song: true unless Download again was asked and no held refusal keeps
+   * it there.
+   */
+  in_missing_files: boolean;
+};
+/**
+ * `track().missing`: the song's `MissingView` plus the words of the details panel. Null on the song when its
+ * file isn't marked missing (a file gone since the last scan shows `file_state` `file_missing` without it).
+ */
+export type MissingDetail = MissingView & {
+  /**
+   * "Missing since 12 Nov. It was in Techno 2019."; in several places "Found in 2 places: Techno 2019 and Old
+   * crates."
+   */
+  line: string;
+  /** What can be done, by `why_not` first and then by action: the To-do panel's, with its buttons. */
+  hint: string;
+  /**
+   * The same for the Library, whose foot only opens To-do; the same text when the song was found in several
+   * places or was asked for already.
+   */
+  hint_library: string;
+};
+/**
+ * One song's details (`track`): the row plus everything the details panel shows. `audio_url` is null for every
+ * `file_state` but `here`.
+ */
+export type TrackDetail = TrackRow & {
+  /** False: an imported file whose sound isn't judged yet; `quality_line` then ends "sound not checked yet". */
+  sound_checked: boolean;
+  /**
+   * Whether the file is there now, decided per watched folder and, for a song whose file waits as missing, by
+   * the stored mark (`offline` wins when its drive is away).
+   */
+  file_state: FileState;
+  /** Where the file sits, as the Folder column says it; null without a file. */
+  place: string | null;
+  /**
+   * The cutoff in words, as the stat card says it ("16.0 kHz · where the highs end · lossless reaches about 22
+   * kHz"); null for a lossless or missing file and for a sound not checked yet.
+   */
+  cutoff_text: string | null;
+  /** The song's ISRC, or null. */
+  isrc: string | null;
+  /** The playlist folders holding the song, null until the playlists were read. */
+  playlists: string[] | null;
+  /** How many playlists hold the song; null until the playlists were read. */
+  in_playlist_count: number | null;
+  /** The file's source and quality ("YouTube OPUS · cutoff 16.0 kHz"); null without a file. */
+  quality_line: string | null;
+  /** The file itself ("AIFF · 16-bit", "WAV · 24-bit", "FLAC"); null without a file. */
+  format_line: string | null;
+  /** The source in full words ("YouTube Music", "bought", "your own file"); null without a file. */
+  source_full: string | null;
+  /**
+   * What the download was made from ("Opus · 135 kbps", "FLAC"); null without a file and for an own or bought
+   * file.
+   */
+  source_format_line: string | null;
+  /** How the source was found; null for an own or bought file and for a file from before this was stored. */
+  source_how: SourceHow | null;
+  /** The source's page; null when it is the song's own page (`track_link`). */
+  source_url: string | null;
+  /** The track's page on the service it was read from, or null. */
+  track_link: TrackLink | null;
+  /** An ISO date, `next_sync`, or null. */
+  next_qobuz_check: string | null;
+  /** The sources the user rejected for this song. */
+  rejected_sources: string[];
+  /** Search links to buy the song. */
+  buy_links: TrackBuyLinks;
+  /** The artists' free downloads found on SoundCloud while the track is not lossless. */
+  free_downloads: FreeDownload[];
+  /** The path a bought file would be dropped at. */
+  bought_name: string;
+  /** The media URL of the file; null for every `file_state` but `here`. */
+  audio_url: string | null;
+  /** The parked better version, or null. */
+  upgrade: Upgrade | null;
+  /** What Convert and the clean name can do for this file, or null. */
+  aiff: TrackAiff | null;
+  /** The song's file waits as missing (issue 43), or null. */
+  missing: MissingDetail | null;
+};
+/** The answer of `track`. */
+export type TrackAnswer = {
+  /** The song's details. */
+  track: TrackDetail;
+};
+/** Why the CDJ-3000 or the CDJ-2000NXS2 refuses or stutters on a file (`cdj.cdj_problem`). */
+export type CdjWhy = CdjWords & {
+  /** The problem's key. */
+  reason: 'format' | 'bitrate' | 'bits' | 'rate_high' | 'rate_low';
+};
+/** The AIFF batch that left a check. */
+export type RekordboxCheckBatch = {
+  /** The batch's id. */
+  id: number;
+  /** How many of its checks are still open. */
+  size: number;
+};
+/** What was written in rekordbox. */
+export type RekordboxCheckWritten = {
+  /** How many tracks. */
+  entries: number;
+  /** The fields kept as the user edited them. */
+  kept: string[];
+};
+/**
+ * A `rekordbox_check` item's check (`views.check_view`): the step that left it, what the two files measured as
+ * and what to do in rekordbox. The item's `detail` is the row's short line.
+ */
+export type RekordboxCheckView = {
+  /**
+   * The step that left the check: wrong_song, added_as_new, swapped, repointed, converted, renamed or
+   * placed_missing.
+   */
+  reason: string;
+  /** When the check was left, an ISO time, or null. */
+  since: string | null;
+  /** What the two files measured as (exact, shifted, different, unknown); null in records from before it. */
+  match: string | null;
+  /** The measured offset in milliseconds, or null. */
+  offset_ms: number | null;
+  /** Whether the audio moved against rekordbox's timeline. */
+  moved: boolean;
+  /**
+   * An added file that Discjockey rendered lined up with rekordbox's timeline of the old one: the old track's
+   * cues fit it to the sample; false for a swap and in records from before it.
+   */
+  aligned: boolean;
+  /** The whole instruction for the person. */
+  text: string;
+  /** Where the old file (added) or the copy of the old audio (swap) is now; null without an undo record. */
+  old_path: string | null;
+  /**
+   * An added file whose old file is an AIFF, so rekordbox's Relocate takes the new file; false for any other
+   * old file and for records from before it.
+   */
+  relocate: boolean;
+  /** False when Discjockey wrote rekordbox's text itself (no Reload Tag step); true for older records. */
+  reload_tag: boolean;
+  /** The AIFF batch that left the check, null when none. */
+  batch: RekordboxCheckBatch | null;
+  /** What was written in rekordbox, null when nothing. */
+  rekordbox: RekordboxCheckWritten | null;
+  /** A `renamed` check's old base name ("Artist - Title [FREE DL].aiff"), null for every other check. */
+  old_name: string | null;
+  /**
+   * The steps only the person can do in rekordbox (the command line's; the window words its own); empty for a
+   * check that leaves nothing to do.
+   */
+  person_steps: FailPersonStep[];
+};
+/**
+ * One song of a To-do group: the row plus the group's own words. `pair`, `can_undo` and the others are set
+ * only on the groups that use them. `free` and `own` are NotRequired because the engine leaves them off some
+ * items (findings, the window's types call both always there); the generated TypeScript still says `TrackRow &
+ * {...}`, where `own` is required.
+ */
+export type TodoItemBase = TrackRow & {
+  /** The group the item is in. */
+  group: TodoGroupKey;
+  /** The row's short line (what to do, or why it is here). */
+  detail: string;
+  /**
+   * The artist gives it away: a not found, weak, good lossy or fake track with a free download (the row's FREE
+   * tag). Not sent by the engine on a `rekordbox_check` item (finding).
+   */
+  free?: boolean;
+  /** Whether the item's file is there now (`FileState`), or `no_file`: the song has none (Not found). */
+  file_state: 'here' | 'offline' | 'folder_missing' | 'file_missing' | 'no_file';
+  /** `missing_file` items (issue 43): the song's waiting file, with its action and the engine's words. */
+  missing?: MissingView;
+  /**
+   * `rekordbox_check` items: the check belongs to a swap or an added file `undo_upgrade` can still put back.
+   */
+  can_undo?: boolean;
+  /** `rekordbox_check` items: the check. */
+  check?: RekordboxCheckView;
+  /** `upgrade_ready` items: why Same track can't run now (an `EligibleReason` key), null when it can. */
+  same_track?: string | null;
+  /** `cdj` items: what the CDJs refuse in the file. */
+  cdj?: CdjWhy;
+  /** `cdj` items: why Convert can't run now (an `EligibleReason` key), null when it can. */
+  aiff?: string | null;
+};
+/** One file of a question or of a duplicate group. `path` is absolute for an import folder's file. */
+export type FileSide = {
+  /** The file's id. */
+  file_id: number;
+  /** The song the file is linked to, or null. */
+  song_key: string | null;
+  /** The file's path. */
+  path: string;
+  /** The artist. */
+  artist: string;
+  /** The title. */
+  title: string;
+  /** The length in seconds. */
+  duration_s: number;
+  /** The colour class. */
+  quality: Quality;
+  /** The words next to the colour. */
+  quality_label: string;
+  /** The file is there by the folder rule only (`here`), not offline. */
+  online: boolean;
+  /**
+   * The media URL to play; null only for a file that is offline or can't be played (an import folder's file
+   * plays through `file/<file_id>`).
+   */
+  audio_url: string | null;
+  /** Whether the file is the library's file of a playlist song. */
+  in_playlist: boolean;
+};
+/** The playlist song a question is about. */
+export type QuestionPairTrack = {
+  /** The artist. */
+  artist: string;
+  /** The title. */
+  title: string;
+  /** The length in seconds. */
+  duration_s: number;
+  /** The playlist folder. */
+  folder: string;
+  /** The song's link, or null. */
+  link: string | null;
+};
+/** Why a question is asked: the artist matched, the file has no artist, the lengths differ, or one has none. */
+export type QuestionWhy = 'artist' | 'no_artist' | 'length' | 'no_length';
+/** Why the files of a group are one group. */
+export type DuplicateWhy = 'same_audio' | 'same_song';
+/** "Is this the same song?": a playlist song a file of the user's own might be. */
+export type QuestionPair = {
+  /** The playlist song's key. */
+  song_key: string;
+  /** The user's own song's key. */
+  own_key: string;
+  /** Why it is asked. */
+  why: QuestionWhy;
+  /** The file's length minus the song's in whole seconds; null with `no_length`. */
+  delta_s: number | null;
+  /** The playlist song. */
+  track: QuestionPairTrack;
+  /** The user's own file. */
+  file: FileSide;
+};
+/** A group of files that are the same audio or the same song: two or more, by file id. */
+export type DuplicatePair = {
+  /** The group's id. */
+  group_id: string;
+  /** Why the files are one group. */
+  why: DuplicateWhy;
+  /** The files of the group. */
+  files: FileSide[];
+  /**
+   * The `file_id` the panel picks to keep (the better sound, then AIFF), null when there is no clear winner.
+   */
+  recommended: number | null;
+  /** The recommendation's one line ("Recommended: best quality"). */
+  recommended_why: string | null;
+};
+/** An item that is not a batch: one of a batch's checks, or any other single item. */
+export type TodoPlainItem = TodoItemBase & {
+  /** Only the import's two groups (`same_song`, `duplicate`) have one. */
+  pair?: QuestionPair | DuplicatePair;
+  /** A batch item's key, `batch:<id>`. */
+  key?: string;
+};
+/**
+ * A `BatchCheckItem`'s batch: the open checks of one AIFF batch, as one item. The engine words the batch, the
+ * window prints the words as they are.
+ */
+export type BatchCheck = {
+  /** The batch's id. */
+  id: number;
+  /** How many open checks the batch has. */
+  size: number;
+  /** The earliest check's date. */
+  started: string | null;
+  /** `aiff:<id>`, the id the command line takes for this batch (the window ignores it). */
+  aiff_id?: string;
+  /**
+   * Who started the batch (`aiff_batches.started_by`): user, upgrade_all, make_aiff, cdj_all, auto_upgrade
+   * (the sync's Auto-upgrade phase), download_again (the same phase with the switch off, putting in the parked
+   * better version of a missing song); null when unknown.
+   */
+  started_by: string | null;
+  /** The sync's last phase made the batch: it reads as "Upgraded during your sync". */
+  from_sync: boolean;
+  /** The batch's own kind (`aiff_batches.kind`): a Convert batch says "Made AIFF"; null when unknown. */
+  kind: 'upgrade' | 'convert' | 'mixed' | null;
+  /** The To-do row's name ("3 tracks upgraded", "3 better versions put in", "3 tracks changed"). */
+  row_name: string;
+  /** The row's sub line ("today · Same track"). */
+  row_sub: string;
+  /** The title of the batch's list. */
+  list_title: string;
+  /**
+   * The summary of the "In rekordbox" card ("same track(s), cues kept", "better versions in"); null when the
+   * card has no steps.
+   */
+  card_summary: string | null;
+  /** "better versions in" when the batch holds a placement, else null. */
+  placed_summary: string | null;
+  /** The batch's checks as single items. */
+  tracks: TodoPlainItem[];
+};
+/** A To-do item as a group lists it: any of the optional keys of the groups' items. */
+export type TodoItem = TodoPlainItem & {
+  /** A batch's open checks (two or more) are one item. */
+  batch?: BatchCheck;
+};
+/** An item of the `same_song` group. */
+export type QuestionItem = TodoItemBase & {
+  /** The question. */
+  pair: QuestionPair;
+};
+/** An item of the `duplicate` group. */
+export type DuplicateItem = TodoItemBase & {
+  /** The group of files. */
+  pair: DuplicatePair;
+};
+/**
+ * An item of the `rekordbox_check` group that stands for an AIFF batch (`group` `rekordbox_check`; the first
+ * track's row fields).
+ */
+export type BatchCheckItem = TodoItemBase & {
+  /** `batch:<id>`, also the item's `track_id`. */
+  key: string;
+  /** The batch. */
+  batch: BatchCheck;
+};
+/** The `missing_file` group's `all`: what the head link and the commands' `--all` act on. */
+export type MissingAll = {
+  /** Items not hidden whose action is Download again and can run now. */
+  download_again: number;
+  /** Items not hidden whose action is Remove and can run now. */
+  remove: number;
+  /** The head link's words, "Select all · {k}" over the group's items that are not hidden; null under two. */
+  label: string | null;
+};
+/** The newest stopped batch with items left. */
+export type TodoGroupStopped = {
+  /** The batch's id. */
+  batch_id: number;
+  /** How many items are left. */
+  left: number;
+};
+/** What every To-do group has. */
+export type TodoGroupHead = {
+  /** The group's name. */
+  label: string;
+  /** The group's one line. */
+  hint: string;
+  /** The items of the group. */
+  items: TodoItem[];
+  /** The newest stopped batch with items left (`upgrade_ready`, `cdj`). */
+  stopped?: TodoGroupStopped | null;
+};
+/** The `missing_file` group (issue 43). */
+export type MissingGroup = TodoGroupHead & {
+  /** The group's key. */
+  key: 'missing_file';
+  /** Counts by action what the head link and the commands' `--all` act on. */
+  all?: MissingAll;
+};
+/**
+ * `all` of a counted group. `upgrade_ready`: Upgrade all's counts (Same track can run `n` / the edit needs a
+ * choice `m` / waits for something else `k`). `cdj`: what Convert all can do now `n` and what waits `k`, no
+ * `m`.
+ */
+export type CountedGroupAll = {
+  /** What can run now. */
+  n: number;
+  /** `upgrade_ready` only: what needs a choice. */
+  m?: number;
+  /** What waits for something else. */
+  k: number;
+};
+/** Every group but `missing_file`. `upgrade_ready` and `cdj` carry `all` and `stopped`. */
+export type CountedGroup = TodoGroupHead & {
+  /** The group's key. */
+  key: 'rekordbox_check' | 'same_song' | 'duplicate' | 'upgrade_ready' | 'cdj' | 'not_found' | 'weak' | 'good_lossy' | 'fake' | 'other';
+  /** What the group's bulk button acts on. */
+  all?: CountedGroupAll;
+};
+/** One group of the To-do page. */
+export type TodoGroup = MissingGroup | CountedGroup;
+/**
+ * The To-do page (`todo`): the groups always in the order of `TodoFilter` (the import adds `same_song` and
+ * `duplicate` after the first; issue 43 `missing_file` second). `chips` counts exclude hidden items.
+ */
+export type Todo = {
+  /**
+   * How many items each filter holds, a key for every `TodoFilter` (hidden ones left out; `chips.all` counts
+   * each song once; `rekordbox_check` counts items, a batch is one).
+   */
+  chips: Record<string, number>;
+  /**
+   * The tracks with an open check in rekordbox whatever the filter (a batch counts its `size`): the page
+   * header's number.
+   */
+  check_tracks: number;
+  /** How many hidden items there are, for "Show hidden (N)". */
+  hidden_count: number;
+  /** Whether hidden items are listed. */
+  show_hidden: boolean;
+  /**
+   * The page header's second line as parts in order of importance ("3 tracks are not lossless yet", "2 songs
+   * are missing their file"; ["Nothing to do"] when none).
+   */
+  sub: string[];
+  /** The groups with items, in order. */
+  groups: TodoGroup[];
+  /** Why the page has nothing to show, or null. */
+  empty: EmptyKind | null;
+  /**
+   * `empty`'s words for the command line ("Everything is lossless."), null for no state or one the engine has
+   * no words for.
+   */
+  empty_text: string | null;
+};
+/** One song of `missing_files_preview` (`missing.preview`). */
+export type MissingPreviewItem = {
+  /** The song's key. */
+  track_id: string;
+  /** The artist. */
+  artist: string;
+  /** The title. */
+  title: string;
+  /** Where its file was. */
+  place: string;
+  /** The ISO day its file was first missed; null when it is not missing. */
+  since: string | null;
+  /** Whether the action runs for it now. */
+  will: boolean;
+  /** Why not, null when `will`. */
+  reason: MissingReason | null;
+  /** The action's `will` sentence when it does, else the reason's sentence. */
+  words: string;
+  /** A parked better version waits (Download again puts it in, Remove deletes it). */
+  upgrade_waiting: boolean;
+};
+/** Remove's question as the engine words it (`missing.confirm_for`): the plural for several songs. */
+export type MissingConfirm = {
+  /** The question ("Remove from your library?"). */
+  title: string;
+  /** What removing does. */
+  body: string;
+  /** The button's words, "Remove". */
+  confirm_label: string;
+  /** The button's tone. */
+  tone: 'danger';
+};
+/**
+ * `missing_files_preview`: what Download again or Remove would do for these songs, one item per song in the
+ * order asked (a key that is no song is an item with `reason` `not_missing`).
+ */
+export type MissingPreview = {
+  /** The action asked. */
+  action: MissingAction;
+  /** One item per song. */
+  items: MissingPreviewItem[];
+  /** How many will run. */
+  n: number;
+  /** How many will not. */
+  skipped: number;
+  /** The one line ("2 songs download again at your next sync; 1 is skipped."). */
+  words: string;
+  /**
+   * The selection panel's button over the `n` ("Download again · 2", "Remove from library · 2…"); null when
+   * none runs.
+   */
+  button: string | null;
+  /** Remove's question for them; null for Download again and for none. */
+  confirm: MissingConfirm | null;
+};
+/** One song of a finished `missing_files` job. */
+export type MissingItemResult = {
+  /** The song's key. */
+  track_id: string;
+  /** The action asked. */
+  action: MissingAction;
+  /** What became of it. */
+  state: 'done' | 'skipped';
+  /** Why it was skipped, null when done. */
+  reason: MissingReason | null;
+  /** A done song's `will` sentence or a skipped song's reason sentence. */
+  words: string | null;
+};
+/** `JobFinished.result` of `missing_files`. Every song skipped ends the job `changed` with this result kept. */
+export type MissingResult = {
+  /** The action run. */
+  action: MissingAction;
+  /** One row per song. */
+  results: MissingItemResult[];
+  /** The keys of the songs done. */
+  done: string[];
+  /** The keys of the songs skipped. */
+  skipped: string[];
+  /** The one line in the past ("Removed 2 songs from your library; 1 is skipped."). */
+  words: string;
+  /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
+  recovered: [string, boolean][];
+};
+/** The result of `hide`, `unhide`, `add_bought_file`, `use_candidate`, `use_link` and `reject_current`. */
+export type OpResult = {
+  /** The song's key. */
+  track_id: string;
+  /** The report line of what was done. */
+  result: Result;
+  /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
+  recovered: [string, boolean][];
+};
+/** The result of `never_download`. */
+export type NeverDownloadResult = {
+  /** The song's key. */
+  track_id: string;
+  /** Whether the song is now left out of the sync. */
+  never: boolean;
+};
+/** What was written in rekordbox for one track. */
+export type ItemResultRekordbox = {
+  /** The rekordbox tracks written. */
+  entries: string[];
+  /** The fields kept as the user edited them. */
+  kept: string[];
+};
+/** One track of a batch. */
+export type ItemResult = {
+  /** The song's key. */
+  track: string;
+  /** What was done: same_track, add_new, convert, rename, ... */
+  action: string;
+  /** What became of it. */
+  state: 'planned' | 'done' | 'skipped' | 'failed' | 'undone';
+  /** An `EligibleReason` key (skipped only). */
+  reason: string | null;
+  /** The words. */
+  message: string | null;
+  /** The file's path. */
+  path: string | null;
+  /** What was written in rekordbox, or null. */
+  rekordbox: ItemResultRekordbox | null;
+};
+/**
+ * The result of `upgrade` (Same track, New track, Discard), `upgrade_all`, `batch_resume` and, in stage D,
+ * `convert`, `rename` and `make_aiff`. New track and Discard lists have the same shape with `batch` null; a
+ * job also carries it when it ends `stopped`, `rekordbox_open`, `busy` or `refused`.
+ */
+export type AiffBatchResult = {
+  /** The batch's id, null for a New track or Discard list. */
+  batch: number | null;
+  /** How the batch ended. */
+  state: 'running' | 'stopped' | 'done';
+  /** Why it stopped, null when it did not. */
+  stop_reason: 'stop' | 'rekordbox_open' | 'busy' | 'crash' | null;
+  /** How many tracks it holds. */
+  total: number;
+  /** How many were done. */
+  done: number;
+  /** How many were skipped. */
+  skipped: number;
+  /** How many failed. */
+  failed: number;
+  /** One row per track. */
+  results: ItemResult[];
+  /** The id of the copy of rekordbox's library made for it, or null. */
+  backup: string | null;
+  /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
+  recovered: [string, boolean][];
+  /** A run with a plan (`--plan`): the songs named that the plan did not have, left out. */
+  new_since_plan?: string[];
+};
+/** One track of an undo. */
+export type UndoItem = {
+  /** The song's key. */
+  track: string;
+  /** What became of it. */
+  state: 'undone' | 'refused' | 'failed' | 'waiting';
+  /** Why it was refused. */
+  reason: string | null;
+  /** The words. */
+  message: string;
+};
+/** The result of `undo_upgrade` (and of `batch_undo`). */
+export type UndoResult = {
+  /** The batch undone, null for single songs. */
+  batch: number | null;
+  /** How many tracks. */
+  total: number;
+  /** How many were undone. */
+  undone: number;
+  /** How many were refused. */
+  refused: number;
+  /** How many failed. */
+  failed: number;
+  /** One row per track. */
+  results: UndoItem[];
+  /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
+  recovered: [string, boolean][];
+  /** What the undo says when it worked ("Conversion undone. Your old file is back."); only on success. */
+  words?: string;
+};
+/** The result of `rekordbox_checked`. */
+export type CheckedResult = {
+  /** One report line per track checked. */
+  results: Result[];
+  /** The keys of the checks cleared. */
+  checked: string[];
+  /** The keys that had no open check. */
+  not_checked: string[];
+  /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
+  recovered: [string, boolean][];
+  /** Only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`). */
+  batch?: number;
+  /**
+   * Only with `batch`: the songs of the batch whose check a later batch took, each with that batch's id
+   * (`aiff:<n>`), or null when it is not an AIFF batch.
+   */
+  newer?: Record<string, string | null>;
+};
+/** One song `find_tracks` found. */
+export type FoundTrack = {
+  /** The song's key. */
+  track_id: string;
+  /** The artist. */
+  artist: string;
+  /** The title. */
+  title: string;
+  /** The file's path relative to the music folder; null without a file and for a file of an import folder. */
+  rel_path: string | null;
+  /** The file's absolute path; null without a file. */
+  path: string | null;
+};
+/**
+ * The songs that match, in artist then title order. With no hit and playlists read long ago, `next` says to
+ * read them.
+ */
+export type FindTracksAnswer = {
+  /** The songs found. */
+  rows: FoundTrack[];
+  /** How many. */
+  total: number;
+  /**
+   * `sync read`, when there is no hit and the playlists were read before their last change or more than a day
+   * ago.
+   */
+  next?: FailNext[];
+};
+/** The songs a listing selects. */
+export type SelectListingAnswer = {
+  /** Every song the screen of the listing shows, each once, in the order shown. */
+  ids: string[];
+  /** A verb's "all" that selects none: the words the window says then. */
+  message?: string;
+};
+/** rekordbox's state for a batch preview. */
+export type UpgradePreviewRekordbox = {
+  /** rekordbox's cached state on this Mac. */
+  state: 'ready' | 'none' | 'unreadable';
+  /** Whether rekordbox is open. */
+  running: boolean;
+  /** A Same track that is not a swap must wait for rekordbox to be quit. */
+  needs_rekordbox_closed: boolean;
+};
+/** One song of an upgrade preview (`batches.preview_row`). */
+export type UpgradePreviewItem = {
+  /** The song's key. */
+  key: string;
+  /** What the plan names: same_track or add_new. */
+  action: string;
+  /** Whether it would run. */
+  state: 'planned' | 'skipped';
+  /** Why not, an `EligibleReason` key. */
+  reason: string | null;
+  /** The current file's absolute path. */
+  file: string | null;
+  /** The file it would make, an absolute path; null when none. */
+  new_file: string | null;
+  /** Where the old file would go, an absolute path; null when none. */
+  superseded: string | null;
+};
+/** One song of a Discard preview. */
+export type DiscardPreviewItem = {
+  /** The song's key. */
+  key: string;
+  /** Always discard. */
+  action: 'discard';
+  /** Whether it would run. */
+  state: 'planned' | 'skipped';
+  /** Why not (`no_upgrade`). */
+  reason: string | null;
+  /** The current file (it stays), an absolute path. */
+  file: string | null;
+  /** The parked better version that is deleted for good, an absolute path. */
+  parked: string | null;
+};
+/** What the new files need on one drive. */
+export type UpgradePreviewSpace = {
+  /** The folder that decides the drive. */
+  drive: string;
+  /** Bytes needed. */
+  needed: number;
+  /** Bytes free. */
+  free: number;
+  /** Whether it fits. */
+  enough: boolean;
+};
+/**
+ * What an upgrade would do, answered before it runs (the dry run of `upgrade apply`; Upgrade all). Discard's
+ * items are the current file that stays and the parked download that is deleted, and it has no `space` or
+ * `rekordbox`. Reads only.
+ */
+export type UpgradePreviewAnswer = {
+  /** The mode asked. */
+  mode: 'same_track' | 'new_track' | 'discard';
+  /** How many songs. */
+  total: number;
+  /** How many would run. */
+  planned: number;
+  /** How many would not. */
+  skipped: number;
+  /** One item per song. */
+  items: (UpgradePreviewItem | DiscardPreviewItem)[];
+  /** What the new files need per drive (not for Discard). */
+  space?: UpgradePreviewSpace[];
+  /** rekordbox's state (not for Discard). */
+  rekordbox?: UpgradePreviewRekordbox;
+};
+/** One song of an undo preview. */
+export type UndoPreviewItem = {
+  /** The song's key. */
+  key: string;
+  /** Always undo. */
+  action: 'undo';
+  /** Whether it would run. */
+  state: 'planned' | 'skipped';
+  /** Why it can't be undone. */
+  reason: string | null;
+  /** The reason's words. */
+  message: string | null;
+  /** The song's file, an absolute path. */
+  file: string | null;
+  /** The kind of file step an undo would put back (swap, add_new, convert, rename). */
+  step: string | null;
+};
+/** rekordbox's state for an undo preview. */
+export type UndoPreviewRekordbox = {
+  /** Whether rekordbox is open. */
+  running: boolean;
+  /** A step that wrote rekordbox can only be undone with rekordbox quit. */
+  needs_rekordbox_closed: boolean;
+};
+/**
+ * What `undo_upgrade` of these songs would do, before it runs. Whether the files changed since is only known
+ * when the undo runs.
+ */
+export type UndoUpgradePreviewAnswer = {
+  /** How many songs. */
+  total: number;
+  /** How many would be undone. */
+  planned: number;
+  /** How many would not. */
+  skipped: number;
+  /** One item per song. */
+  items: UndoPreviewItem[];
+  /** rekordbox's state. */
+  rekordbox: UndoPreviewRekordbox;
+};
+/** One track of the sync's Auto-upgrade phase (`auto_upgrade.py`). */
+export type AutoUpgradeResult = {
+  /** The song's key. */
+  track: string;
+  /** The song's name. */
+  name: string;
+  /** What became of it; `would` only in a dry run. */
+  state: 'done' | 'would' | 'waiting' | 'refused' | 'failed';
+  /** A waiting row's `rekordbox_open`, `busy` or `not_reached`, a refused row's `EligibleReason` key. */
+  reason: string | null;
+  /** The words. */
+  message: string | null;
+  /**
+   * The way Same track goes, or `placed` for a placement (Download again put the parked better version in for
+   * a song whose file is missing).
+   */
+  how: 'in_place' | 'new_aiff' | 'placed' | null;
+  /** What the row does; absent in a report from before issue 43 (read it as `same_track`). */
+  action?: 'same_track' | 'place';
+};
+/**
+ * A run's Auto-upgrade block (the report's `.json` key `auto_upgrade`). Placements are rows like the others
+ * and count in `done` / `waiting` / `refused`. With the switch off the block is there only when a placement is
+ * coming or was done.
+ */
+export type AutoUpgradeBlock = {
+  /** The batch's id, null when no batch ran. */
+  batch: number | null;
+  /** The copy of rekordbox's library made for it, or null. */
+  backup: string | null;
+  /** How many were done. */
+  done: number;
+  /** How many wait (rekordbox open + busy + not reached). */
+  waiting: number;
+  /** How many the phase refuses and To-do shows. */
+  refused: number;
+  /** How many failed. */
+  failed: number;
+  /** The run was stopped. */
+  stopped: boolean;
+  /** Nothing was written: this is the plan. */
+  dry_run: boolean;
+  /** One row per track. */
+  results: AutoUpgradeResult[];
+};
+/** What the sync's last phase would do now (`sync run --auto-upgrade-only --dry-run`). */
+export type AutoUpgradePreviewAnswer = {
+  /** The phase's block, null when Settings' switch is off and no placement is coming. */
+  auto_upgrade: AutoUpgradeBlock | null;
+  /** The Sync page's before-start line for it; null when nothing is coming. */
+  start_note: string | null;
+};
+/** What rekordbox's library is like for a preview. */
+export type RekordboxPreviewState = {
+  /** The library's state. */
+  state: 'ready' | 'none' | 'unreadable';
+  /** Whether rekordbox is open. */
+  running: boolean;
+  /** What is wrong with the library, or null. */
+  problem: 'unclean' | 'busy' | 'key' | 'db_version' | 'schema' | null;
+  /** `state` in words. */
+  state_text: string;
+  /** `problem` in words. */
+  problem_text: string | null;
+  /**
+   * True while a writer of any Discjockey process holds the lock: master.db was not opened and the timing is
+   * `unreadable`.
+   */
+  writing?: boolean;
+  /** `writing` in words. */
+  writing_text?: string;
+};
+/** How the timing of the file against rekordbox came out. */
+export type RekordboxPreviewTiming = {
+  /**
+   * The outcome: no_rekordbox, not_in_rekordbox, format, no_cues, measured, not_analysed, timing, unreadable
+   * or missing_file.
+   */
+  result: string;
+  /** The measured offset in samples, null when not measured. */
+  offset_samples: number | null;
+  /** `result` in words. */
+  result_text: string;
+};
+/** An analysis file rekordbox keeps for a track. */
+export type RekordboxContentFile = {
+  /** Its path relative to rekordbox's share folder. */
+  path: string;
+  /** The hash rekordbox noted when it was made. */
+  hash: string | null;
+  /** The size rekordbox noted. */
+  size: number | null;
+  /** When its row was last changed. */
+  updated_at: string | null;
+};
+/** One rekordbox track that holds the file. */
+export type RekordboxPreviewEntry = {
+  /** The rekordbox track's id. */
+  id: string;
+  /** How many cues the analysis holds. */
+  cues: number;
+  /** The analysis holds a beat grid. */
+  grid: boolean;
+  /** The analysis holds a waveform to measure. */
+  pwv3: boolean;
+  /** The measured offset in milliseconds. */
+  offset_ms: number | null;
+  /** The expected value it snapped to, in milliseconds. */
+  expected_ms: number | null;
+  /** How well the match scored. */
+  score: number | null;
+  /** The track is in rekordbox's Cloud Library Sync. */
+  cloud: boolean;
+  /** The text fields that would stay as the user edited them. */
+  fields_kept: string[];
+  /** The path rekordbox has for the file. */
+  folder_path: string;
+  /** The analysis files rekordbox keeps for it. */
+  content_file: RekordboxContentFile[];
+  /** When the track row was last changed. */
+  updated_at: string | null;
+};
+/** What each action would do for the file: the reason key (null when it can run) and its words. */
+export type RekordboxPreviewEligible = {
+  /**
+   * Why Same track can't run (an `EligibleReason` key), null when it can; `not_in_library` for a file the
+   * library does not know.
+   */
+  same_track: string | null;
+  /** `same_track` in words ("possible" when it can run). */
+  same_track_text: string;
+  /** The same for Convert to AIFF. */
+  convert: string | null;
+  /** `convert` in words. */
+  convert_text: string;
+  /** The same for Give it its clean name. */
+  rename: string | null;
+  /** `rename` in words. */
+  rename_text: string;
+};
+/**
+ * What Same track, Convert and Rename would do for one file, and what rekordbox holds for it (read only: it
+ * decodes the file). The engine's own `ok` is part of it (it answers `ok` once: this is the same key).
+ */
+export type RekordboxPreviewAnswer = {
+  /** Always true. */
+  ok: true;
+  /** The song's key, null for a file the library does not know. */
+  track: string | null;
+  /** The file's absolute path. */
+  file: string;
+  /** The file's codec. */
+  codec: string;
+  /** The sample rate in Hz. */
+  sample_rate: number | null;
+  /** The bit depth. */
+  bits: number | null;
+  /** The file the first action that can run would make, an absolute path; null when none can. */
+  new_file: string | null;
+  /** Where the old file would go, an absolute path; null when none. */
+  superseded: string | null;
+  /** rekordbox's library. */
+  rekordbox: RekordboxPreviewState;
+  /** How the file's timing against rekordbox came out. */
+  timing: RekordboxPreviewTiming;
+  /** The rekordbox tracks that hold the file. */
+  entries: RekordboxPreviewEntry[];
+  /** What each action would do. */
+  eligible: RekordboxPreviewEligible;
+};

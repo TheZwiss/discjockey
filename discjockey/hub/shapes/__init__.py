@@ -15,11 +15,11 @@ import json
 import os
 from pathlib import Path
 
-from . import common
+from . import common, todo
 from .kernel import (ALIASES, DEFAULT, SHAPES, F, Registry, ShapeError, alias, json_schema, shape, typescript,
                      validate, values)
 
-AREAS = (common,)
+AREAS = (common, todo)
 
 
 def _merged(which: str) -> dict[str, str]:
