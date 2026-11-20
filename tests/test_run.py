@@ -19,7 +19,7 @@ from discjockey.events import (
     ActionFinished, BatchProgress, Cancelled, CancelToken, Message, ReadingPlaylist, Result, RunFinished,
 )
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack
+from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack, StoredRead
 from discjockey.report import RunLog
 from discjockey.settings import Account, Settings, save_settings
 
@@ -759,6 +759,84 @@ def test_a_sync_keeps_what_it_read_as_the_playlists_records(paths):
         (3, "t3", "Artist", "Song 3", 180000)]
 
 
+def stored_read(paths):
+    with db.connect(paths.db_file, read_only=True) as conn:
+        return db.load_read(conn)
+
+
+def test_prepare_stores_a_sync_read_with_its_lines_and_unread_and_says_its_id(paths):
+    prep = run.prepare(paths)
+    assert prep.read_id == 1
+    loaded = stored_read(paths)
+    assert loaded.id == 1 and loaded.lines == prep.lines and loaded.unread == []
+    assert [fp.tracks for fp in loaded.fetched] == [fp.tracks for fp in prep.fetched]
+    dry = run.prepare(paths, dry_run=True)  # a dry run stores one too
+    assert dry.read_id == stored_read(paths).id == 2
+
+
+def test_a_read_that_could_not_be_stored_has_no_read_id(tmp_path, monkeypatch):
+    bare = Paths(tmp_path, support=tmp_path / ".support")  # no library.db: nothing is stored, never created
+    assert run.store_read(bare, StoredRead("sync", datetime.now(), []), keep=None) is None
+    assert not bare.db_file.exists()
+
+
+def assert_derived_equals_replanned(prep):
+    """The plan worked out again from the stored read is the plan worked out again from the read in memory."""
+    derived = run.prepared_from_read(prep.paths, stored_read(prep.paths))
+    again = run.replan(prep)
+    assert [run.action_key(a) for a in derived.plan.actions] == [run.action_key(a) for a in again.plan.actions]
+    for name in ("questions", "dropped", "ambiguous", "notes"):
+        assert getattr(derived.plan, name) == getattr(again.plan, name), name
+    assert derived.unread_folders == again.unread_folders and derived.unread_members == again.unread_members
+    assert derived.lines == again.lines and derived.read_id == prep.read_id
+    return derived, again
+
+
+def test_the_plan_derived_from_the_stored_read_is_the_replanned_one(paths):
+    prep = run.prepare(paths)
+    derived, again = assert_derived_equals_replanned(prep)
+    assert len(derived.plan.actions) == 3 and [fp.tracks for fp in derived.fetched] == [fp.tracks for fp in again.fetched]
+
+
+def test_the_derived_plan_holds_for_a_paused_liked_music_line(liked):
+    from discjockey import pacing
+
+    set_liked(liked)
+    run.prepare(liked)  # Liked music read once: its record exists
+    state = library.load_state(liked)
+    pacing.record_signal(state, "auto_stop", "3 requests failed", datetime.now(), "youtube")
+    save_state(liked, state)
+    prep = run.prepare(liked)
+    assert prep.unread_folders == {"Liked_music"}
+    assert stored_read(liked).unread == ["youtube_music:LM"]
+    derived, _ = assert_derived_equals_replanned(prep)
+    assert LM_KEY in derived.unread_members["Liked_music"] and len(derived.unread_members["Liked_music"]) == 3
+
+
+def test_the_derived_plan_holds_for_a_liked_music_line_switched_off_in_settings(liked):
+    set_liked(liked)
+    run.prepare(liked)  # an older record of Liked music is stored
+    set_liked(liked, on=False)
+    prep = run.prepare(liked)
+    loaded = stored_read(liked)
+    assert [fp.line.folder for fp in loaded.fetched] == ["Hard_Bounce"] and loaded.unread == []  # left out, not unread
+    assert "youtube_music:LM" in loaded.checked  # its old record stays
+    assert_derived_equals_replanned(prep)
+
+
+def test_the_derived_plan_holds_with_a_private_soundcloud_track_and_its_token_is_not_stored(paths, monkeypatch):
+    private = SourceTrack("900", "Private One", ("Artist",), "", None, 1000, None, "soundcloud",
+                          "https://soundcloud.com/example/private-one/s-s3cr3t", secret_token="s-s3cr3t")
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, [private, *TRACKS], []))
+    prep = run.prepare(paths)
+    assert prep.fetched[0].tracks[0].secret() == "s-s3cr3t"  # this run's own read keeps it for the download
+    derived, _ = assert_derived_equals_replanned(prep)
+    assert derived.fetched[0].tracks[0].secret() is None
+    with db.connect(paths.db_file) as conn:
+        assert "s3cr3t" not in "".join(str(row) for t in ("playlist_tracks", "reads", "playlist_infos")
+                                       for row in conn.execute(f"SELECT * FROM {t}"))
+
+
 def test_a_dry_run_keeps_its_read_too_with_or_without_the_lock(paths, monkeypatch):
     save_state(paths, empty_state())  # a library with library.db
     run.prepare(paths, dry_run=True)
@@ -800,7 +878,7 @@ def test_a_failing_record_never_fails_the_read(paths, monkeypatch, caplog):
 
     def locked(*a, **kw):
         raise sqlite3.OperationalError("database is locked")
-    monkeypatch.setattr(db, "record_reads", locked)
+    monkeypatch.setattr(db, "store_read", locked)
     prep = run.prepare(paths, dry_run=True)
     assert [a.kind for a in prep.plan.actions] == ["acquire"] * 3
     [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
@@ -812,7 +890,7 @@ def test_records_of_another_version_are_one_warning_line(paths, caplog):
     fetched = run.prepare(paths, dry_run=True).fetched  # (prepare itself then refuses the records before reading)
     with db.connect(paths.db_file) as conn:
         conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(db.SCHEMA_VERSION + 1),))
-    run.record_reads(paths, fetched, datetime.now())
+    assert run.store_read(paths, StoredRead("sync", datetime.now(), fetched), keep=None) is None
     [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
     assert warning.exc_info is None and warning.getMessage() == (
         f"couldn't keep the playlists' read records: {db.NEWER}")
@@ -1007,7 +1085,8 @@ def test_a_paused_liked_music_keeps_a_song_that_left_its_higher_playlist_by_the_
     song = SourceTrack("EXAMPLEalb01", "Example Song One", ("Example Artist",), "Example Album", None, 200000, None,
                        service="youtube_music")
     with db.connect(liked.db_file) as conn:
-        db.record_reads(conn, [FetchedPlaylist(lm_line, [song], [])], datetime.now(), {"youtube_music:LM"})
+        db.store_read(conn, StoredRead("sync", datetime.now(), [FetchedPlaylist(lm_line, [song], [])], [lm_line]),
+                      {"youtube_music:LM"})
     prep = run.prepare(liked)
     assert LikedYDL.requested == [] and prep.unread_members == {"Liked_music": (LM_KEY,)}
     assert_kept_like_a_failed_read(prep)

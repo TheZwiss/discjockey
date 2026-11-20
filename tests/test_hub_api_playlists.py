@@ -5,8 +5,9 @@ from types import SimpleNamespace
 import pytest
 import yt_dlp
 from hub_helpers import (ID1, ID2, PLAYLISTS, QOBUZ_ID, QOBUZ_LINK, QOBUZ_UNREADABLE, TRACKS, fake_qobuz, fake_spotify,
-                         make_api, make_root, refreshed, track, wait_job, window)
+                         make_api, make_root, refreshed, stored, track, wait_job, window)
 
+from discjockey import db
 from discjockey import playlists_file as pf
 from discjockey import sources
 from discjockey.events import CancelToken
@@ -66,10 +67,31 @@ def test_add_a_playlist(root):
     assert added["ok"] and added["link"] == f"https://open.spotify.com/playlist/{ID3}" and added["tracks"] == 2
     assert added["readable"] and added["hint"] is None
     assert (added["playlist_id"], added["service"], added["service_name"]) == (ID3, "spotify", "Spotify")
-    assert list(api._infos) == [ID3] and list(api._extra_tracks) == [ID3]  # a Spotify playlist keeps its bare id
+    assert [list(m) for m in stored(root)] == [[ID3], [ID3]]  # a Spotify playlist keeps its bare id
     assert added["info"]["hint"] == "Follow ≠ own: make your own copy in Spotify."  # short enough for a row
     refused = api.add_playlist("https://open.spotify.com/album/x")
     assert refused["kind"] == "refused" and "service" not in refused
+
+
+def test_a_pasted_playlist_is_still_known_to_a_new_window(root):
+    """What an add read (the info and the tracks) was window memory before: now a window opened later still has it."""
+    api, rec = make_api(root)
+    assert api.add_playlist(LINK3)["ok"]
+    api, rec = make_api(root)  # a new HubApi on the same music folder
+    root.playlists_file.write_text(root.playlists_file.read_text() + f"Pasted = https://open.spotify.com/playlist/{ID3}\n")
+    row = [r for r in api.playlists()["rows"] if r["folder"] == "Pasted"][0]
+    assert row["info"]["name"] == f"Name of {ID3[:4]}" and row["tracks"] == 2
+
+
+def test_the_preview_of_an_edited_line_stores_what_it_read_as_a_check_read(root):
+    api, rec = make_api(root)
+    change = api.preview_playlist_change(lines(HARD, ("New", LINK3, True)))
+    assert change["ok"]
+    tracks, _ = stored(root)
+    assert [t.id for t in tracks[ID3]] == ["t6", "t1"]
+    with db.connect(root.db_file, read_only=True) as conn:
+        assert [r[0] for r in conn.execute("SELECT kind FROM reads")] == ["check"] * 2  # one per playlist read
+        assert db.load_read(conn) is None  # a check read is no sync read: the Sync plan has none yet
 
 
 def test_a_followed_playlist_is_not_readable(root, monkeypatch):
@@ -89,7 +111,7 @@ def test_add_a_qobuz_playlist(root, monkeypatch):
     assert added["readable"] and added["hint"] is None and added["suggested_folder"] == "Example_Playlist"
     assert added["info"]["owner_name"] == "Example Curator"
     assert added["info"]["hint"] == "Make it public in Qobuz, or use one of your own playlists."
-    assert list(api._infos) == [f"qobuz:{QOBUZ_ID}"] and list(api._extra_tracks) == [f"qobuz:{QOBUZ_ID}"]
+    assert [list(m) for m in stored(root)] == [[f"qobuz:{QOBUZ_ID}"]] * 2
 
 
 def test_a_qobuz_playlist_qobuz_wont_show_answers_with_its_service(root, monkeypatch):
@@ -97,7 +119,7 @@ def test_a_qobuz_playlist_qobuz_wont_show_answers_with_its_service(root, monkeyp
     api, rec = make_api(root)
     assert window(api.add_playlist(QOBUZ_LINK)) == {"ok": False, "kind": "playlist_unreadable", "service": "qobuz",
                                             "message": QOBUZ_UNREADABLE}
-    assert api._infos == {} and api._extra_tracks == {}
+    assert stored(root) == ({}, {})
 
 
 @pytest.mark.parametrize("kind,message", [
@@ -107,7 +129,7 @@ def test_a_qobuz_that_will_not_open_answers_with_its_service(root, monkeypatch, 
     fake_qobuz(monkeypatch, open_error=SourceError(message, kind, "qobuz"))
     api, rec = make_api(root)
     assert window(api.add_playlist(QOBUZ_LINK)) == {"ok": False, "kind": kind, "service": "qobuz", "message": message}
-    assert api._infos == {} and api._extra_tracks == {}
+    assert stored(root) == ({}, {})
 
 
 def test_a_reader_that_fails_to_close_does_not_replace_the_answer(root, monkeypatch):
@@ -216,7 +238,7 @@ def test_an_expand_that_fails_answers_with_its_kind_and_service(root, monkeypatc
     api, rec = make_api(root)
     assert window(api.add_playlist("https://soundcloud.com/you/likes")) == {
         "ok": False, "kind": "playlist_unreadable", "service": "soundcloud", "message": "Use your profile's likes link."}
-    assert api._infos == {} and api._extra_tracks == {}
+    assert stored(root) == ({}, {})
 
 
 def test_other_links_pass_expand_untouched(root, monkeypatch):
@@ -282,7 +304,7 @@ def test_preview_skips_a_service_that_will_not_open_and_reads_the_others(root, m
     refreshed(api, rec)
     c = api.preview_playlist_change(lines(HARD, ("New", LINK3, True), ("Q", QOBUZ_LINK, True)))
     assert c["ok"] and c["kind"] == "add" and c["new_downloads"] == 1  # Spotify's new playlist was read
-    assert QOBUZ_LINK not in str(api._extra_tracks) and f"qobuz:{QOBUZ_ID}" not in api._extra_tracks
+    assert f"qobuz:{QOBUZ_ID}" not in stored(root)[0]
 
 
 def test_preview_of_a_reorder_and_of_an_added_playlist(root):
@@ -398,7 +420,7 @@ def test_a_youtube_music_link_is_added_with_its_service_and_ref(root, monkeypatc
         f"youtube_music:{YTM_ID}", "youtube_music", "YouTube Music")
     assert added["link"] == YTM_LINK and added["hint"] is None
     assert added["info"]["hint"] == youtube_music.UNREADABLE_HINT
-    assert api._infos[f"youtube_music:{YTM_ID}"].service == "youtube_music"
+    assert stored(root)[1][f"youtube_music:{YTM_ID}"].service == "youtube_music"
 
 
 @pytest.mark.parametrize("pid, words", [("LL", W17), ("WL", W17), ("RDEXAMPLEmix0001", W18)])
@@ -408,7 +430,7 @@ def test_a_youtube_music_list_that_is_refused_answers_with_its_service(root, mon
     api, rec = make_api(root)
     assert window(api.add_playlist(f"https://music.youtube.com/playlist?list={pid}")) == {
         "ok": False, "kind": "playlist_unreadable", "service": "youtube_music", "message": words}
-    assert OneAnswerYDL.requested == [] and api._infos == {} and api._extra_tracks == {}  # refused before any request
+    assert OneAnswerYDL.requested == [] and stored(root) == ({}, {})  # refused before any request
 
 
 def test_your_own_likes_without_a_soundcloud_login_answer_w8(root, monkeypatch):
@@ -441,8 +463,9 @@ def test_pasting_a_soundcloud_link_asks_the_service_once(root, monkeypatch):
     api, rec = make_api(root)
     added = api.add_playlist(SC_SET)
     assert added["ok"] and added["tracks"] == 1 and added["info"]["name"] == "Example Set"
-    assert calls == ["fetch"] and api._infos["soundcloud:example-label/sets/example-set"].name == "Example Set"
-    assert api._extra_tracks["soundcloud:example-label/sets/example-set"][0].id == "900000101"
+    tracks, infos = stored(root)
+    assert calls == ["fetch"] and infos["soundcloud:example-label/sets/example-set"].name == "Example Set"
+    assert tracks["soundcloud:example-label/sets/example-set"][0].id == "900000101"
 
 
 def test_a_soundcloud_set_that_is_not_shown_answers_w5(root, monkeypatch):

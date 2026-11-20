@@ -12,13 +12,13 @@ from __future__ import annotations
 import copy
 import logging
 import sqlite3
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TypeVar
 
 from . import (
     align, auto_upgrade, config, db, library, missing, pending_signs, planner, playlists_file, quality, report as rep, sources,
@@ -30,7 +30,7 @@ from .execute import Executor
 from .hub import views
 from .fallback import FallbackSource, stream_url
 from .library import Paths, StateError
-from .models import Action, FetchedPlaylist, Plan, PlaylistLine, file_missing, split_token
+from .models import Action, FetchedPlaylist, LoadedRead, Plan, PlaylistInfo, PlaylistLine, StoredRead, file_missing, split_token
 from .pacing import Budget, Pacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .rekordbox import process
@@ -38,6 +38,7 @@ from .rekordbox.locate import locate
 from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
 
 logger = logging.getLogger(__name__)  # not `log`: that is a run's RunLog here
+T = TypeVar("T")
 
 
 class SetupProblem(Exception):
@@ -73,6 +74,7 @@ class Prepared:
     import_waiting: int = 0  # files the next import works through (library.import_left; the console's W10 line)
     unread_folders: frozenset[str] = frozenset()  # folders of lines not read this time (paused Liked music); replan keeps them
     unread_members: dict = field(default_factory=dict)  # of those, folder -> track tokens of its last stored read
+    read_id: int | None = None  # the stored read this plan is from (`store_read`'s answer; None: it could not be stored)
 
     @property
     def needs_qobuz(self) -> bool:
@@ -126,6 +128,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     emit(Message("info", "Reading your playlists..."))
     signs: list[tuple[str, str, str]] = []  # warning signs a login-using read met (Liked music), recorded below
     unread: list[PlaylistLine] = []  # lines not read because of a pause: like a failed read, their songs stay in
+    read_started = datetime.now()
     try:
         fetched = sources.read(paths, lines, emit=emit, token=token, want_info=want_info,
                                paused=paused_now(paths, state, date.today()),
@@ -135,7 +138,8 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     finally:
         if signs:
             state = record_signs(paths, state, signs, lock, dry_run)
-    record_reads(paths, fetched, datetime.now())
+    read_id = store_read(paths, StoredRead("sync", read_started, fetched, lines, [line.ref for line in unread]),
+                         keep=_listed_refs(paths))
     for fp in fetched:
         for item in fp.skipped:
             log.add_text("skipped", f"[{fp.line.folder}] {item}")
@@ -150,7 +154,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
     for key, track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, key, "; ".join(files)))
     return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting, unread_folders,
-                    unread_members)
+                    unread_members, read_id)
 
 
 # How long recording a read waits for another writer (a job's transaction, e.g. an import's scan): long enough to
@@ -159,25 +163,58 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
 RECORD_WAIT_MS = 750
 
 
-def record_reads(paths: Paths, fetched: list[FetchedPlaylist], now: datetime) -> None:
-    """Keeps what this read found as the playlists' records in library.db (plan library stage 5, D1), so the window
-    shows a playlist's songs and counts when it opens, offline, and for switched-off playlists. Every read passes
-    through here: the console's sync and dry run, the hub's read, its sync and the import's linking (prepare). The
-    records aren't library state, so this takes no library lock and also runs when the caller couldn't get it, and
-    in a dry run (it changes no music file). Best-effort: a library without library.db yet (still on state.json;
-    this never creates one), or records this Discjockey can't write (another version, a drive gone, a write that
-    waited out RECORD_WAIT_MS), keep the read as it is; the failure is logged."""
-    if not paths.db_file.exists():
-        return
+def _listed_refs(paths: Paths) -> list[str] | None:
+    """The refs of every playlists.txt line, on or off (what a sync read's records keep); None when the file can't be
+    read now (nothing is dropped then)."""
     try:
-        keep = {r.ref for r in playlists_file.load(paths.playlists_file).rows if r.ref is not None}
+        return [r.ref for r in playlists_file.load(paths.playlists_file).rows if r.ref is not None]
+    except (OSError, UnicodeError):
+        return None
+
+
+def _best_effort_write(paths: Paths, what: str, write: Callable[[sqlite3.Connection], T]) -> T | None:
+    """Runs `write(conn)` on library.db the way `store_read` does: nothing without a library.db, a short wait for
+    another writer, and any failure is one logged line (`what`), never an error. Returns what `write` returned, None
+    when it did not run."""
+    if not paths.db_file.exists():
+        return None
+    try:
         with db.connect(paths.db_file, wait_ms=RECORD_WAIT_MS) as conn:
             db.check(conn)
-            db.record_reads(conn, fetched, now, keep)
+            return write(conn)
     except StateError as e:  # records of another version, or a database SQLite refused: expected, its words say why
-        logger.warning("couldn't keep the playlists' read records: %s", e)
+        logger.warning("couldn't keep the %s: %s", what, e)
     except Exception:  # whatever went wrong, the read and what it plans stand
-        logger.warning("couldn't keep the playlists' read records", exc_info=True)
+        logger.warning("couldn't keep the %s", what, exc_info=True)
+    return None
+
+
+def store_read(paths: Paths, read: StoredRead, *, keep: Collection[str] | None) -> int | None:
+    """Stores a playlists read in library.db (`db.store_read`; issue 39 phase 2), so the window and the command line
+    show a playlist's songs and counts, offline, for switched-off playlists, and the Sync plan can be worked out
+    again from it with no new read. Every read passes through here: the console's sync and dry run, the hub's read,
+    its sync and the import's linking (prepare), a failed refresh, the Playlists page's pasted links (`kind`
+    "check"). Returns the stored read's id, or None when it was not stored. `keep` (a sync read's: the refs of every
+    playlists.txt line, on or off) drops the records of the others; a check read and a failed read pass None. The
+    records aren't library state, so this takes no library lock and also runs when the caller couldn't get it, and in
+    a dry run (it changes no music file). Best-effort: a library without library.db yet (still on state.json; this
+    never creates one), or records this Discjockey can't write (another version, a drive gone, a write that waited
+    out RECORD_WAIT_MS), keep the read as it is; the failure is logged."""
+    return _best_effort_write(paths, "playlists' read records", lambda conn: db.store_read(conn, read, keep))
+
+
+def store_infos(paths: Paths, infos: Mapping[str, PlaylistInfo], at: datetime) -> None:
+    """Keeps the playlists' names, owners and covers a read found (`db.store_infos`), best-effort like `store_read`."""
+    if infos:
+        _best_effort_write(paths, "playlists' names and covers", lambda conn: db.store_infos(conn, infos, at))
+
+
+def clear_read_problem(paths: Paths, service: str, kinds: frozenset[str] | None = None,
+                       message: str | None = None) -> bool:
+    """A login for `service` was just made: the stored read's problem about it is out of date (`db.clear_read_problem`),
+    best-effort like `store_read`. True when one was cleared."""
+    return bool(_best_effort_write(paths, "playlists' read problem",
+                                   lambda conn: db.clear_read_problem(conn, service, kinds, message)))
 
 
 def recorded_members(paths: Paths, unread: list[PlaylistLine], state: dict | None = None) -> dict[str, tuple[str, ...]]:
@@ -260,7 +297,24 @@ def replan(prep: Prepared) -> Prepared:
     plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
                         unread_folders=prep.unread_folders, unread_members=prep.unread_members)
     return Prepared(prep.paths, plan.state, settings, plan, rep.RunLog(datetime.now()), prep.lines, prep.fetched,
-                    library.import_left(prep.paths), prep.unread_folders, prep.unread_members)
+                    library.import_left(prep.paths), prep.unread_folders, prep.unread_members, prep.read_id)
+
+
+def prepared_from_read(paths: Paths, loaded: LoadedRead) -> Prepared:
+    """`replan` fed from the stored read instead of a `Prepared`: the plan worked out from library.db's newest good
+    sync read (`db.load_read`) against the state.json and the files as they are, with no new read. Lines the read did
+    not fetch because of a pause (`loaded.unread`) keep their songs in, as in `prepare`. Read-only like `replan`;
+    raises StateError or SettingsError when those files can't be read."""
+    state = library.load_state(paths)
+    settings = load_settings(paths.settings_file)
+    unread = [line for line in loaded.lines if line.ref in loaded.unread]
+    unread_folders = frozenset(line.folder for line in unread)
+    unread_members = recorded_members(paths, unread, state)
+    plan = planner.plan(loaded.fetched, state, state["files"], date.today(),
+                        first_checks=first_check_room(state, settings), unread_folders=unread_folders,
+                        unread_members=unread_members)
+    return Prepared(paths, plan.state, settings, plan, rep.RunLog(datetime.now()), loaded.lines, loaded.fetched,
+                    library.import_left(paths), unread_folders, unread_members, loaded.id)
 
 
 def link_only(paths: Paths, prep: Prepared, emit: Emit = no_emit) -> Prepared:

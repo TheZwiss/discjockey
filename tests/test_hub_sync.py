@@ -83,7 +83,7 @@ def test_refresh_reads_spotify_and_keeps_the_preview(env):
     save_state(paths, empty_state())
     before = load_state(paths)
     refresh(js, paths, store)
-    assert rec.finished().ok and rec.finished().result == {"actions": 3}
+    assert rec.finished().ok and rec.finished().result == {"actions": 3, "read_id": "read:1"}
     assert [a.track_id for a in store.prep.plan.actions] == ["t1", "t2", "t3"] and store.read_at is not None
     assert load_state(paths) == before  # read-only
     assert not (paths.data / "reports").exists()
@@ -114,6 +114,62 @@ def test_a_failed_refresh_keeps_the_last_known_preview(env, monkeypatch):
     refresh(js, paths, store)
     assert (rec.finished().ok, rec.finished().problem) == (False, "offline")
     assert store.prep is first and store.problem == "offline" and "Cannot reach" in store.message
+
+
+def test_a_refresh_names_the_read_it_stored(env):
+    paths, js, store, rec, acq, logins, tracks = env
+    save_state(paths, empty_state())
+    refresh(js, paths, store)
+    assert rec.finished().result["read_id"] == "read:1"
+    refresh(js, paths, store)
+    assert rec.finished().result["read_id"] == "read:2"
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.load_read(conn).id == 2 and db.read_head(conn).problem is None
+
+
+def test_a_failed_refresh_stores_its_problem_beside_the_last_good_tracks(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    save_state(paths, empty_state())
+    refresh(js, paths, store)
+
+    def offline(s, line):
+        raise spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
+
+    monkeypatch.setattr(spotify, "fetch_playlist", offline)
+    refresh(js, paths, store)
+    with db.connect(paths.db_file, read_only=True) as conn:
+        loaded = db.load_read(conn)
+    assert loaded.id == 1 and [t.id for t in loaded.fetched[0].tracks] == ["t1", "t2", "t3"]
+    assert (loaded.problem, loaded.problem_service, loaded.message) == ("offline", store.problem_service, store.message)
+    assert "Cannot reach" in loaded.message
+
+
+def test_a_stopped_refresh_stores_no_problem(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    save_state(paths, empty_state())
+
+    def stopped_then_failing(s, line):
+        assert js.stop_refresh()  # Stop arrives, the read ends in a failure meanwhile
+        raise spotify.SpotifyError("Cannot reach Spotify (no connection).", "offline")
+
+    monkeypatch.setattr(spotify, "fetch_playlist", stopped_then_failing)
+    job = js.start_refresh(jobs.refresh_work(paths, store))
+    assert job.done.wait(5)
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.read_head(conn) is None and store.problem is None
+
+
+def test_the_refresh_stores_the_playlists_infos_it_found(env, monkeypatch):
+    paths, js, store, rec, acq, logins, tracks = env
+    save_state(paths, empty_state())
+    page = PlaylistInfo("spotify", "0DiscjockeyExampleList", "Hard Bounce", "me", "Me", False, None, 3, True, True)
+    monkeypatch.setattr(spotify, "playlist_info", lambda s, pid, me: page)
+    monkeypatch.setattr(spotify, "current_user", lambda s: ("me", "Me"))
+    infos = {}
+    job = js.start_refresh(jobs.refresh_work(paths, store, infos=infos))
+    assert job.done.wait(5) and rec.finished().ok
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.stored_infos(conn) == infos and list(infos) == ["0DiscjockeyExampleList"]
 
 
 def test_a_missing_qobuz_login_files_the_problem_under_qobuz(env, monkeypatch):

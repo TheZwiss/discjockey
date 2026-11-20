@@ -896,6 +896,8 @@ class SpectrumAnswer(TypedDict):
 class RefreshResult(TypedDict):
     """The result of the playlists read (`refresh`)."""
     actions: Annotated[int, F("How many actions the new plan has.")]
+    read_id: Annotated[str | None, F("The read this stored (`read:<n>`); null when it could not be stored (no "
+                                     "library.db yet).")]
 
 
 @shape

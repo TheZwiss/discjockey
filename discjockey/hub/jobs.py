@@ -25,7 +25,7 @@ from .. import (batches, config, db, events as ev, folders, importer, library, p
 from ..rekordbox import session as rbsession
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
-from ..models import SERVICE_NAMES, Protected
+from ..models import SERVICE_NAMES, Protected, StoredRead
 from ..ops import OpProblem
 from ..problem import Problem
 from . import catalog, outcomes, registry, shapes
@@ -888,15 +888,21 @@ class PreviewStore:
 def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now,
                  infos: dict | None = None, lock: Callable[[], AbstractContextManager[bool]] = run.lock_held):
     """A dry run: run.prepare(dry_run=True). Changes no music file, report or download; it scans Library/ into
-    library.db first when `lock()` gets the library lock (Jobs.scan_lock), else it plans on the last scan. With
-    `infos`, also reads each playlist's name, owner and cover for the playlist page (a failure there is not a
-    problem)."""
+    library.db first when `lock()` gets the library lock (Jobs.scan_lock), else it plans on the last scan. The read
+    stores itself (`run.prepare`); one that fails with a SetupProblem stores its problem too, beside the last good
+    tracks (a stopped one stores nothing). With `infos` (a dict the read fills), also reads each playlist's name,
+    owner and cover for the playlist page and stores what it found (a failure there is not a problem). The result
+    names the stored read (`read_id`, `read:<n>`; None when it could not be stored)."""
     def work(ctx: JobContext) -> dict:
+        started = datetime.now()  # the clock `prepare` stamps its reads with: the stored reads' order is by start
         try:
             prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock,
                                want_info=infos is not None, scan=True)
         except run.SetupProblem as e:
-            store.failed(e.kind, hub_message(e.kind, str(e), e.service), e.service, ctx.token)
+            message = hub_message(e.kind, str(e), e.service)
+            store.failed(e.kind, message, e.service, ctx.token)
+            if not ctx.token.cancelled:
+                run.store_read(paths, StoredRead("sync", started, [], None, [], e.kind, e.service, message), keep=None)
             raise
         store.ready(prep, now(), ctx.token)
         ctx.token.check()
@@ -909,10 +915,12 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
             try:
                 read_infos(paths, [line.ref for line in prep.lines if line.ref not in known], infos, ctx.token,
                            run.paused_now(paths, prep.state, date.today()), lambda *sign: signs.append(sign))
-            finally:
+            finally:  # what was found stands, also when the read of the rest was stopped or failed
+                run.store_infos(paths, infos, now())
                 if signs:
                     run.record_signs(paths, prep.state, signs, lock, True)
-        return {"actions": len(prep.plan.actions)}
+        return {"actions": len(prep.plan.actions),
+                "read_id": None if prep.read_id is None else db.read_label(prep.read_id)}
     return work
 
 

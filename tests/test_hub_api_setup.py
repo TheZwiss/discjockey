@@ -77,6 +77,45 @@ def test_connecting_a_service_clears_its_stored_read_problem(root, monkeypatch):
     assert api.dashboard()["read_status"]["problem"] is None  # the page unblocks without a restart
 
 
+def store_failed_read(paths, problem, service, message):
+    from datetime import datetime
+    from discjockey import db
+    from discjockey.models import StoredRead
+    with db.connect(paths.db_file) as conn:
+        db.store_read(conn, StoredRead("sync", datetime.now(), [], None, [], problem, service, message), None)
+
+
+def stored_problem(paths):
+    from discjockey import db
+    with db.connect(paths.db_file, read_only=True) as conn:
+        head = db.read_head(conn)
+        return (head.problem, head.problem_service, head.message)
+
+
+def test_connecting_a_service_clears_the_stored_read_problem_in_library_db_too(root, monkeypatch):
+    monkeypatch.setattr(qobuz, "password_login", lambda p, e, pw: None)
+    api, rec = make_api(root)
+    store_failed_read(root, "not_set_up", "spotify", "Connect Spotify first.")
+    assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
+    assert stored_problem(root) == ("not_set_up", "spotify", "Connect Spotify first.")  # another service's stays
+    store_failed_read(root, "not_set_up", "qobuz", "Connect Qobuz first.")
+    assert wait_job(api, rec, api.setup_qobuz_login("dj@example.com", "pw")).ok
+    assert stored_problem(root) == (None, None, "")
+
+
+def test_a_saved_soundcloud_login_clears_the_stored_problem_by_the_same_rules(root):
+    api, rec = make_api(root, fallback=CheckingFallback)
+    store_failed_read(root, "offline", "soundcloud", "SoundCloud is not responding.")
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert stored_problem(root)[0] == "offline"  # a login cannot cure it
+    store_failed_read(root, "playlist_unreadable", "soundcloud", soundcloud.UNREADABLE_SET)
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert stored_problem(root)[0] == "playlist_unreadable"  # a private set's words stay
+    store_failed_read(root, "playlist_unreadable", "soundcloud", soundcloud.LIKES_HINT)
+    assert wait_job(api, rec, api.setup_account("soundcloud", "chrome")).result["saved"]
+    assert stored_problem(root) == (None, None, "")
+
+
 def test_spotify_login_can_be_cancelled(root, monkeypatch):
     root.spotify_app.write_text(json.dumps({"client_id": "0" * 32}))
 

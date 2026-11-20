@@ -57,6 +57,13 @@ def choose_music(root: Path, monkeypatch) -> Paths:
     return paths
 
 
+def stored(paths):
+    """(the tracks by playlist ref, the playlist infos by ref) the reads stored in library.db: what the Playlists page
+    shows, and all that is left of the window's memory when it closes."""
+    with db.connect(paths.db_file, read_only=True) as conn:
+        return db.stored_tracks(conn), db.stored_infos(conn)
+
+
 def make_root(tmp_path, upgrade=False):
     paths = Paths(tmp_path, support=tmp_path / ".support")
     paths.data.mkdir(parents=True, exist_ok=True)

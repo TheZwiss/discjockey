@@ -397,8 +397,6 @@ class HubApi:
         self._jobs.on_finished = self._registered_envelope  # ... and its `result.json` at the end
         self._settings_mutex = threading.Lock()  # settings.json: read, change, save — one at a time
         self._store = PreviewStore()
-        self._infos: dict = {}  # playlist ref -> models.PlaylistInfo
-        self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
         self._rb_at: str | None = None  # when `_rb_cache`'s answer was read (ISO time): the `as_of` of a `writing` answer
         # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
@@ -992,7 +990,7 @@ class HubApi:
         with self._auto_lock:
             if auto and self._store.auto_read:
                 raise OpProblem(AUTO_READ_DONE, "refused")
-            read = refresh_work(self._paths, self._store, self._svc.now, infos=self._infos,
+            read = refresh_work(self._paths, self._store, self._svc.now, infos={},
                                 lock=self._opening_scan if auto else self._jobs.scan_lock)
 
             def work(ctx) -> dict:
@@ -1612,13 +1610,31 @@ class HubApi:
 
     # --- playlists (playlists.txt stays the source of truth) ---
 
+    def _clear_read_problem(self, service: str, kinds: frozenset[str] | None = None, message: str | None = None) -> None:
+        """A login for `service` was just made: a read problem about it, in the window's memory and in the stored
+        read, is out of date (`PreviewStore.clear_service`, `db.clear_read_problem`: same rule, same arguments)."""
+        self._store.clear_service(service, kinds, message)
+        if self._bound is not None:
+            run.clear_read_problem(self._bound, service, kinds, message)
+
+    def _stored_playlists(self) -> tuple[dict, dict]:
+        """(every stored record's tracks by playlist ref, every stored playlist info by ref): what the reads found,
+        the Sync page's and the Playlists page's own (library.db; empty before there is one)."""
+        with self._move_log() as conn:
+            return (db.stored_tracks(conn), db.stored_infos(conn)) if conn is not None else ({}, {})
+
     def _tracks_by_id(self) -> dict:
-        prep = self._store.prep
-        return {**self._extra_tracks, **{fp.line.ref: fp.tracks for fp in (prep.fetched if prep else [])}}
+        return self._stored_playlists()[0]
+
+    def _store_check(self, fetched: models.FetchedPlaylist, started: datetime) -> None:
+        """Keeps the tracks of one playlist read for the Playlists page (a pasted link, an edited line) as a check
+        read: it never prunes, and a newer read of the same playlist is kept over it."""
+        run.store_read(self._paths, models.StoredRead("check", started, [fetched]), keep=None)
 
     @bridge
     def playlists(self) -> dict:
-        return views.playlists(pf.load(self._paths.playlists_file), self._tracks_by_id(), dict(self._infos),
+        tracks, infos = self._stored_playlists()
+        return views.playlists(pf.load(self._paths.playlists_file), tracks, infos,
                                self._state(), self._cover(self._images()),
                                liked_music_on=self._settings().reads_liked_music)
 
@@ -1641,6 +1657,7 @@ class HubApi:
         signs: list[tuple[str, str, str]] = []
         reader.on_signal = lambda *sign: signs.append(sign)
         reader.paused = self._paused_accounts()  # the reader refuses Liked music while paused (D6)
+        started = datetime.now()  # the clock the stored reads' order is by (run.prepare stamps its reads the same way)
         try:
             tracks, fetched = None, None
             if service in ONE_READ_SERVICES:  # their info always comes with a fetch: one read answers both
@@ -1652,11 +1669,11 @@ class HubApi:
                         reader.info(pid)  # the page's own words (fetch's are worded for playlists.txt); else this one
                     raise
             info = fetched.info if fetched is not None and fetched.info is not None else reader.info(pid)
-            self._infos[ref] = info
+            run.store_infos(self._paths, {ref: info}, self._svc.now())
             if fetched is None and info.readable:
                 fetched = reader.fetch(PlaylistLine(suggest_folder(info.name), pid, 0, service))
             if fetched is not None:
-                self._extra_tracks[ref] = fetched.tracks
+                self._store_check(fetched, started)
                 tracks = len(fetched.tracks)
         finally:
             self._close(reader)
@@ -1693,7 +1710,7 @@ class HubApi:
                             found = sources.recognise(r.link)
                             if found is None or (service == "soundcloud" and found[1] == SOUNDCLOUD_YOU):
                                 continue  # not a playlist; or your likes, whose read opens the browser login (Keychain)
-                            self._extra_tracks[r.ref] = reader.fetch(PlaylistLine("x", found[1], 0, service)).tracks
+                            self._store_check(reader.fetch(PlaylistLine("x", found[1], 0, service)), datetime.now())
                         except sources.SourceError:
                             continue
                 finally:
@@ -2680,7 +2697,7 @@ class HubApi:
             _, name = spotify.current_user(spotify.load_session(self._support))
             self._save_spotify_app(client_id, name)
             self._update_settings(lambda s: replace(s, spotify_skipped=False))
-            self._store.clear_service("spotify")  # a read problem about Spotify's login is out of date now
+            self._clear_read_problem("spotify")  # a read problem about Spotify's login is out of date now
             return {"user": name}
 
         return {"job_id": self._settings_job("setup_spotify_login", work).id}
@@ -2760,7 +2777,7 @@ class HubApi:
                 raise
             self._update_settings(lambda s: replace(s, qobuz_skipped=False).with_check(
                 "qobuz", self._check_record({"ok": True, "problem": None, "kbps": None})))
-            self._store.clear_service("qobuz")  # a read problem about Qobuz's login is out of date now
+            self._clear_read_problem("qobuz")  # a read problem about Qobuz's login is out of date now
             return {}
 
         return {"job_id": self._settings_job("setup_qobuz_login", work).id}
@@ -2829,9 +2846,9 @@ class HubApi:
             return s
         self._update_settings(change)
         if saved and service == "soundcloud":  # a read problem about SoundCloud's login (a you/likes line) is out of date now
-            self._store.clear_service("soundcloud", frozenset({"login_expired"}))  # not offline
+            self._clear_read_problem("soundcloud", frozenset({"login_expired"}))  # not offline
             # only the likes hint (W8) is about the login: a private set's "doesn't show this playlist" stays
-            self._store.clear_service("soundcloud", frozenset({"playlist_unreadable"}), soundcloud.LIKES_HINT)
+            self._clear_read_problem("soundcloud", frozenset({"playlist_unreadable"}), soundcloud.LIKES_HINT)
         return {"service": service, "browser": browser, "profile": profile, "saved": saved,
                 "check": {**{k: check[k] for k in ("ok", "problem", "kbps")},
                           "message": check_message(service, browser, check)}}
@@ -2942,7 +2959,7 @@ class HubApi:
             self._update_settings(lambda s: s.with_check("qobuz", self._check_record(
                 {"ok": found, "problem": None if found else "search_failed", "kbps": None})))
             if found:
-                self._store.clear_service("qobuz")  # the saved login works: a stored Qobuz read problem is out of date
+                self._clear_read_problem("qobuz")  # the saved login works: a stored Qobuz read problem is out of date
             if not found:
                 raise OpProblem("Logged in to Qobuz, but a test search found nothing.", "failed")
             return {}
