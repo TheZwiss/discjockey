@@ -83,6 +83,18 @@ def test_search_reports_failed_searches():
     assert notes[0].startswith("Qobuz search failed:") and notes[1] == "SoundCloud search failed: HTTP Error 403"
 
 
+def test_search_waits_for_its_slot_before_each_qobuz_request():
+    order = []
+
+    class Ordered(FakeQobuz):
+        def search(self, query, limit=10):
+            order.append("request")
+            return super().search(query, limit)
+
+    candidates.search(T, entry(), Ordered({}), FakeFallback([]), pace=lambda: order.append("slot"))
+    assert order == ["slot", "request"] * len(order[::2]) and len(order) >= 2
+
+
 @pytest.mark.parametrize("url,expected", [
     ("https://open.qobuz.com/track/123456", ("qobuz", "123456")),
     ("https://play.qobuz.com/track/123456?foo=1", ("qobuz", "123456")),

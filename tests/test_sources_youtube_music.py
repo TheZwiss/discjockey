@@ -461,10 +461,10 @@ def test_a_read_uses_no_pacer_and_no_budget(world, paths, monkeypatch):
     def boom(*a, **k):
         raise AssertionError("a read must not pace or count")
 
-    monkeypatch.setattr(pacing, "Pacer", boom)
+    monkeypatch.setattr(pacing, "SharedPacer", boom)
     monkeypatch.setattr(pacing, "Budget", boom)
     assert len(read(paths, VIDEO_LINE).tracks) == 4
-    for name in ("pacing", "Pacer", "Budget", "usage", "Acquirer", "settings", "load_settings"):
+    for name in ("pacing", "SharedPacer", "Budget", "usage", "Acquirer", "settings", "load_settings"):
         assert not hasattr(source, name)
 
 

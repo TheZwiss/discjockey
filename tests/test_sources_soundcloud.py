@@ -515,10 +515,10 @@ def test_a_read_uses_no_pacer_and_no_budget(world, paths, monkeypatch):
     def boom(*a, **k):
         raise AssertionError("a read must not touch the download protection")
 
-    monkeypatch.setattr(pacing, "Pacer", boom)
+    monkeypatch.setattr(pacing, "SharedPacer", boom)
     monkeypatch.setattr(pacing, "Budget", boom)
     assert read(paths).tracks
-    assert not hasattr(source, "pacing") and not hasattr(source, "Pacer") and not hasattr(source, "Budget")
+    assert not hasattr(source, "pacing") and not hasattr(source, "SharedPacer") and not hasattr(source, "Budget")
 
 
 # --- 2.2 / 2.3 your own likes ----------------------------------------------------------------------------------

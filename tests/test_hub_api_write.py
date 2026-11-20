@@ -1,7 +1,10 @@
 import json
 import os
+import random
 import threading
 import time
+import types
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,10 +17,12 @@ from discjockey import report as report_mod
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
-from discjockey.events import ImportProgress, SourceChosen
-from discjockey.hub import jobs, plan_store
+from discjockey.events import ImportProgress, SourceChosen, Waiting
+from discjockey.hub import jobs, plan_store, registry
 from discjockey.library import load_state, run_lock, save_state
 from discjockey.models import Candidate, ScanSummary, WatchedFolder
+from discjockey.pacing import Budget, NoPacer, SharedPacer
+from pace_helpers import FakeClock
 from discjockey.settings import Account, Settings, load_settings, save_settings
 
 
@@ -558,6 +563,145 @@ def test_searches_and_previews_wait_while_a_sync_runs(root):
         assert api.search_candidates("t2")["kind"] == "sync_running"
 
 
+@contextmanager
+def registered_job(root, kind, method, *, status="running", music="same", library_lock=None):
+    """A job of another process in the registry (its `alive` claim held, so it counts as running)."""
+    files = registry.Registry(root.support).create(
+        kind, "x", {}, "terminal", {"music": str(root.root) if music == "same" else music, "support": str(root.support)})
+    files.update(method=method, status=status, **({} if library_lock is None else {"library_lock": library_lock}))
+    files.flush()
+    try:
+        yield files
+    finally:
+        files.release_claim()
+
+
+def test_a_sync_of_any_music_folder_in_the_registry_stops_searches(root):
+    api, rec = make_api(root, fallback=FakeFallback)
+    assert api.search_candidates("t2")["ok"]
+    with registered_job(root, "sync", "start_sync", music="/another/music/folder"):  # the accounts are the support folder's
+        assert api.search_candidates("t2")["kind"] == "sync_running"
+        assert api.preview("t2", {"source": "youtube", "id": "x", "url": "https://x"})["kind"] == "sync_running"
+    assert api.search_candidates("t2")["ok"]
+
+
+def test_a_tidy_up_holding_the_library_no_longer_stops_a_search(root):
+    api, rec = make_api(root, fallback=FakeFallback)
+    with registered_job(root, "tidy", "tidy_up", library_lock=True), run_lock(root.lock):
+        assert api.search_candidates("t2")["ok"]
+    with run_lock(root.lock):  # a holder the registry knows nothing of is an older Discjockey's or the console's sync
+        assert api.search_candidates("t2")["kind"] == "sync_running"
+
+
+def test_a_queued_terminal_sync_stops_a_search_but_not_the_windows_own_sync(root):
+    api, rec = make_api(root, fallback=FakeFallback)
+    refreshed(api, rec)
+    with registered_job(root, "start_sync", "start_sync", status="queued"):  # made the CLI way: its kind is its method
+        assert api.search_candidates("t2")["kind"] == "sync_running"
+        answer = api.start_sync(api.sync_preview()["plan_id"], [])
+        assert answer["ok"]
+        wait_job(api, rec, answer)
+
+
+class SearchingQobuz:
+    def __init__(self, order):
+        self.order = order
+
+    def search(self, query, limit=10):
+        self.order.append("request")
+        return []
+
+    def close(self):
+        pass
+
+
+def test_every_qobuz_search_waits_for_its_slot(root):
+    order = []
+
+    def pacer(support, emit, token):
+        assert support == root.support
+        return types.SimpleNamespace(before_qobuz_search=lambda: order.append("slot"))
+
+    api, rec = make_api(root, fallback=FakeFallback, open_qobuz=lambda p: SearchingQobuz(order), pacer=pacer)
+    assert api.search_candidates("t2")["ok"]
+    assert order and order[::2] == ["slot"] * (len(order) // 2) and order[1::2] == ["request"] * (len(order) // 2)
+
+
+def test_a_paused_qobuz_is_left_out_of_a_search_with_a_note(root):
+    calls = []
+    state = load_state(root)
+    state["qobuz_usage"]["streak"] = {"failures_in_a_row": 3, "download_failed_in_row": False, "stopped": True}
+    save_state(root, state)
+    api, rec = make_api(root, fallback=FakeFallback, open_qobuz=lambda p: calls.append(p))
+    answer = api.search_candidates("t2")
+    assert answer["ok"] and calls == []  # Qobuz was not opened
+    assert answer["notes"] == ["Qobuz was not searched: it is paused after 3 failed requests in a row."]
+    assert [r["key"] for r in answer["candidates"]] == ["youtube:abcdefghijk", "youtube_music:abc"]
+    assert stored_streak(root) == {"failures_in_a_row": 3, "download_failed_in_row": False, "stopped": True}  # unchanged
+
+
+def test_use_this_waits_for_the_slot_a_terminal_job_reserved(root):
+    clock = FakeClock(time.time())
+    ended = []
+
+    def sleep(seconds):
+        clock.sleep(seconds)
+        if len(clock.slept) == 2:  # the other process's download ends
+            ended.append(clock.now)
+            (root.support / "pace.json").write_text(json.dumps({"v": 1, "services": {"qobuz": {
+                "last_request_at": clock.now, "last_download_end_at": clock.now, "in_flight": None, "since_break": 1,
+                "next_break": 12}}}))
+
+    (root.support / "pace.json").write_text(json.dumps({"v": 1, "services": {"qobuz": {
+        "last_request_at": clock.now, "last_download_end_at": clock.now,
+        "in_flight": {"pid": os.getppid(), "since": clock.now}, "since_break": 1, "next_break": 12}}}))
+    started = []
+
+    class Qobuz:
+        def download(self, cand, workdir, progress=None):
+            started.append(clock.now)
+            path = workdir / "q.flac"
+            path.write_bytes(b"x")
+            return path
+
+        def close(self):
+            pass
+
+    api, rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=lambda p: Qobuz(),
+                        pacer=lambda support, emit, token: SharedPacer(support, emit, token, sleep=sleep, clock=clock.time,
+                                                                       rng=random.Random(1)))
+    api.track("t2")
+    f = wait_job(api, rec, api.use_candidate("t2", QOBUZ_ROW))
+    assert f.ok
+    waits = [e for e in rec.events if isinstance(e, Waiting)]
+    assert waits and waits[0].kind == "between" and waits[0].remaining == waits[0].total
+    assert started and 20 <= started[0] - ended[0] <= 60 and waits[-1].remaining == 0
+
+
+def test_a_sync_gets_its_pacer_from_the_services(root, monkeypatch):
+    asked = []
+    api, rec = make_api(root, pacer=lambda support, emit, token: asked.append(support) or NoPacer())
+    refreshed(api, rec)
+
+    class FastAcquirer:
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
+            f = workdir / "q.aiff"
+            f.write_bytes(b"audio")
+            return AcquireResult("ready", Ready(f, "lossless", "qobuz", "q" + track.id, "flac", None, "ok"))
+
+    class FakeQobuz:
+        check = None
+
+        def close(self):
+            pass
+
+    seen_pacers = []
+    monkeypatch.setattr(run, "Acquirer", lambda qobuz, fallback, budget, pacer, *a, **k: seen_pacers.append(pacer) or FastAcquirer())
+    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: FakeQobuz()))
+    f = wait_job(api, rec, api.start_sync(*sync_plan(api)))
+    assert f.ok and asked == [root.support] and len(seen_pacers) == 1 and isinstance(seen_pacers[0], NoPacer)
+
+
 def test_bad_candidates_from_the_page_are_refused(root):
     api, rec = make_api(root)
     assert api.use_candidate("t2", {"source": "spotify", "id": "x"})["kind"] == "refused"
@@ -712,22 +856,53 @@ class RefusingQobuz:
 QOBUZ_ROW = {"source": "qobuz", "id": "q9", "title": "Get Naughty", "artist": "Armin Hermann", "duration_s": 268.0}
 
 
-def test_failed_qobuz_downloads_in_a_row_pause_qobuz_for_the_hub_session(root):
+def stored_streak(root, service="qobuz"):
+    return load_state(root).get(f"{service}_usage", {}).get("streak")
+
+
+def test_failed_qobuz_downloads_in_a_row_pause_qobuz_for_every_process_until_a_sync_starts(root):
     RefusingQobuz.tries = 0
     api, rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=lambda p: RefusingQobuz())
     api.track("t2")
     for _ in range(3):
         f = wait_job(api, rec, api.use_candidate("t2", QOBUZ_ROW))
         assert not f.ok and f.problem == "failed"
-    f = wait_job(api, rec, api.use_candidate("t2", QOBUZ_ROW))
+    assert stored_streak(root) == {"failures_in_a_row": 3, "download_failed_in_row": True, "stopped": True}
+    assert [s["kind"] for s in load_state(root)["qobuz_usage"]["signals"]][-1] == "auto_stop"
+    assert "paused until the next sync" in load_state(root)["qobuz_usage"]["signals"][-1]["message"]
+    # another window (or a terminal) of the same folder starts from the stored streak: nothing is sent to Qobuz
+    other, other_rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=lambda p: RefusingQobuz())
+    other.track("t2")
+    f = wait_job(other, other_rec, other.use_candidate("t2", QOBUZ_ROW))
     assert not f.ok and f.problem == "refused" and "Qobuz is paused" in f.message
     assert RefusingQobuz.tries == 3  # the 4th click sent nothing to Qobuz
-    assert [s["kind"] for s in load_state(root)["qobuz_usage"]["signals"]][-1] == "auto_stop"
-    f = wait_job(api, rec, api.use_link("t2", "https://open.qobuz.com/track/123"))
+    f = wait_job(other, other_rec, other.use_link("t2", "https://open.qobuz.com/track/123"))
     assert not f.ok and "Qobuz is paused" in f.message
     refreshed(api, rec)
-    wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))  # a new sync starts a new streak
-    assert api._qobuz_streak == {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
+    wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))  # a new sync ends the pause
+    assert stored_streak(root) is None
+    f = wait_job(other, other_rec, other.use_candidate("t2", QOBUZ_ROW))
+    assert not f.ok and f.problem == "failed" and RefusingQobuz.tries == 4
+
+
+def test_a_failed_download_through_an_account_pauses_it_for_the_next_window_too(root, tmp_path):
+    class Refusing(FakeFallback):
+        def download(self, cand, workdir, progress=None, section=None, account=False):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+
+        def stream_kbps(self, source, sid, account=False, secret=None):
+            return 256
+
+    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30)}))
+    api, rec = make_api(root, fallback=Refusing, process=fake_process)
+    api.track("t2")
+    row = {"source": "youtube_music", "id": "abc", "title": "Get Naughty", "artist": "Armin Hermann - Topic",
+           "duration_s": 268.0, "url": "https://music.youtube.com/watch?v=abc"}
+    for _ in range(3):
+        f = wait_job(api, rec, api.use_candidate("t2", row))
+        assert not f.ok and f.problem == "failed"
+    assert stored_streak(root, "youtube")["stopped"] is True and stored_streak(root) is None
+    assert Budget(load_state(root), lambda: None, load_settings(root.settings_file), service="youtube").stopped
 
 
 def counting_qobuz(calls):

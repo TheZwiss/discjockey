@@ -117,10 +117,9 @@ class Acquirer:
     process: Callable[..., Ready | None]  # (downloaded, track, cand, workdir, tracker) -> Ready | None
     emit: Emit = no_emit
     accounts: dict = field(default_factory=dict)  # service -> Budget, for each account service that is set up
-    account_downloaded: set = field(default_factory=set, init=False)  # a logged-in request was made: pause first
+    account_downloaded: set = field(default_factory=set, init=False)  # a logged-in request was made in this run
     misses: dict = field(default_factory=dict, init=False)  # service -> tracks in a row without a ~256 kbps stream
     given_up: set = field(default_factory=set, init=False)  # services not asked again in this run (GIVE_UP_AFTER)
-    qobuz_downloaded: bool = field(default=False, init=False)  # a protection pause is due before the next one
     qobuz_trouble: bool = field(default=False, init=False)  # a Qobuz request failed for the current track
 
     def _debug(self, text: str) -> None:
@@ -281,6 +280,28 @@ class Acquirer:
         if budget.stopped and not was_stopped:
             self.emit(Message("warning", f"{budget.name} failed several times in a row, so it is paused for the rest "
                                          "of this run. Tracks that need it wait for the next run."))
+
+    def _pause_for_account(self, service: str, tries: _Tries) -> None:
+        """Before a logged-in request (a format listing, or the download of a stream listed already): the free sources'
+        pause when the last download came from one of them, then the account's own, which the shared pacer waits out
+        only when this Mac asked the service lately. The claim it makes ends with `downloaded(service)`."""
+        if service not in self.account_downloaded and tries.attempts:  # after SoundCloud's original or the other account
+            self.pacer.between_fallback_downloads()
+        self.pacer.between_account_downloads(service)
+        self.account_downloaded.add(service)
+
+    def _list_through_account(self, c: Candidate, service: str, track: SourceTrack, tries: _Tries, *,
+                              keep: Callable[[Any], bool], **options) -> bool | str | None:
+        """`premium` as one claim of the service's pacing: the claim ends here unless `keep(answer)` says a download
+        of this stream follows (`_try` ends it then)."""
+        self._pause_for_account(service, tries)
+        answer = None
+        try:
+            answer = self.premium(c, service, track, **options)
+        finally:
+            if not keep(answer):
+                self.pacer.downloaded(service)
+        return answer
 
     def premium(self, c: Candidate, service: str, track: SourceTrack, first: bool = True, keep_low: bool = False
                 ) -> bool | str | None:
@@ -456,13 +477,9 @@ class Acquirer:
                 demoted.add(c.key)  # this song's uploads there have shown no ~256 kbps stream: no more listings
                 continue
             if account:  # the format listing is a logged-in request too: it gets the protection pause
-                if service in self.account_downloaded:
-                    self.pacer.between_account_downloads(service)
-                elif tries.attempts:
-                    self.pacer.between_fallback_downloads()
-                self.account_downloaded.add(service)
-                listed = self.premium(c, service, track, first=not tries.missed.get(service),
-                                      keep_low=c.key in account_only)
+                listed = self._list_through_account(c, service, track, tries, keep=lambda answer: answer is True,
+                                                    first=not tries.missed.get(service),
+                                                    keep_low=c.key in account_only)
                 if listed == LOW:
                     kept.add(c.key)
                 if listed is not True:  # False, None or LOW (a truthy string, but no ~256 kbps stream)
@@ -492,11 +509,7 @@ class Acquirer:
                 if self.accounts[service].exhausted():  # used up or paused: it waits, as for any account stream (§4)
                     res.kind, res.note = "queued", self.accounts[service].why_exhausted()
                     return None
-                if service in self.account_downloaded:
-                    self.pacer.between_account_downloads(service)
-                elif tries.attempts:
-                    self.pacer.between_fallback_downloads()
-                self.account_downloaded.add(service)
+                self._pause_for_account(service, tries)  # its claim ends in _try's `downloaded`
                 account = True
             elif not account and tries.attempts:
                 self.pacer.between_fallback_downloads()
@@ -525,12 +538,8 @@ class Acquirer:
             service = ACCOUNT_OF[c.source]
             if service not in self._usable() or tries.missed.get(service, 0) >= MISSES_PER_TRACK:
                 return None
-            if service in self.account_downloaded:  # the format listing is a logged-in request too
-                self.pacer.between_account_downloads(service)
-            elif tries.attempts:  # after a download from SoundCloud (an artist's original) or the other account
-                self.pacer.between_fallback_downloads()
-            self.account_downloaded.add(service)
-            if not self.premium(c, service, track, first=not tries.missed.get(service)):
+            # the format listing is a logged-in request too
+            if not self._list_through_account(c, service, track, tries, keep=bool, first=not tries.missed.get(service)):
                 tries.missed[service] = tries.missed.get(service, 0) + 1
                 return None
             state["downloads"] += 1
@@ -576,46 +585,48 @@ class Acquirer:
     def _try(self, c: Candidate, track: SourceTrack, workdir: Path, res: AcquireResult, skip: set[str],
              lossless_only: bool, tracker: Tracker, qobuz: bool, how: str,
              account: str | None = None) -> Ready | None:
-        # first, so that the protection pause can already show where the next download comes from
-        tracker.emit(SourceChosen(tracker.track_id, c.source, how, c.title, c.duration_s))
-        if qobuz and self.qobuz_downloaded:
-            self.pacer.between_qobuz_downloads()  # 20-60 s since the previous Qobuz download, before this one
-        tracker.step("download")
-        source = self.qobuz if qobuz else self.fallback
+        """One download. A Qobuz one is paced here (`between_qobuz_downloads`); an `account` one was claimed by the
+        caller with its format listing. Either way the claim ends with `downloaded`, whatever the download came to."""
+        claimed = account  # the service whose claim this call ends: set at once for an account's, after the wait for Qobuz
         try:
-            if account:
-                downloaded = self.fallback.download(c, workdir, account=True,
-                                                    progress=lambda done, total: tracker.progress(done, total, "bytes"))
-            else:
-                downloaded = source.download(c, workdir,
-                                             progress=lambda done, total: tracker.progress(done, total, "bytes"))
-        except Exception as e:
-            if c.direct:  # the download button can need a SoundCloud login; the stream is tried next
-                self._debug(f"SoundCloud original of {c.id} not available: {scrub(str(e))}")
-                return None
-            if getattr(e, "permanent", False):  # e.g. region-locked on Qobuz: never try this one again
-                res.rejected.append(c.key)
-                skip.add(c.key)
-            else:
-                res.errors.append(f"Download from {c.source} ({c.id}) failed: {scrub(str(e))}")
-                if qobuz:  # also a preview-only answer: usually the account, so it counts toward the auto-stop
-                    self._qobuz_failed(f"{track.first_artist} - {track.title}: {e}",
-                                       getattr(e, "signal", "download_rejected"))
-                elif account:
-                    text = short_error(e)
-                    self._account_failed(account, f"{track.first_artist} - {track.title}: {text}",
-                                         signal_of(e) or "download_rejected")
+            # first, so that the protection pause can already show where the next download comes from
+            tracker.emit(SourceChosen(tracker.track_id, c.source, how, c.title, c.duration_s))
             if qobuz:
-                self.qobuz_downloaded = True
-            if account:
-                self.account_downloaded.add(account)
-            return None
+                self.pacer.between_qobuz_downloads()  # 20-60 s since the previous Qobuz download ended, before this one
+                claimed = "qobuz"
+            tracker.step("download")
+            source = self.qobuz if qobuz else self.fallback
+            try:
+                if account:
+                    downloaded = self.fallback.download(c, workdir, account=True,
+                                                        progress=lambda done, total: tracker.progress(done, total, "bytes"))
+                else:
+                    downloaded = source.download(c, workdir,
+                                                 progress=lambda done, total: tracker.progress(done, total, "bytes"))
+            except Exception as e:
+                if c.direct:  # the download button can need a SoundCloud login; the stream is tried next
+                    self._debug(f"SoundCloud original of {c.id} not available: {scrub(str(e))}")
+                    return None
+                if getattr(e, "permanent", False):  # e.g. region-locked on Qobuz: never try this one again
+                    res.rejected.append(c.key)
+                    skip.add(c.key)
+                else:
+                    res.errors.append(f"Download from {c.source} ({c.id}) failed: {scrub(str(e))}")
+                    if qobuz:  # also a preview-only answer: usually the account, so it counts toward the auto-stop
+                        self._qobuz_failed(f"{track.first_artist} - {track.title}: {e}",
+                                           getattr(e, "signal", "download_rejected"))
+                    elif account:
+                        text = short_error(e)
+                        self._account_failed(account, f"{track.first_artist} - {track.title}: {text}",
+                                             signal_of(e) or "download_rejected")
+                return None
+        finally:
+            if claimed:
+                self.pacer.downloaded(claimed)
         if qobuz:
-            self.qobuz_downloaded = True
             self.budget.count()
             tracker.emit(AccountUsage("qobuz", self.budget.used_today(), self.budget.allowance()))
         if account:
-            self.account_downloaded.add(account)
             budget = self.accounts[account]
             budget.count()
             tracker.emit(AccountUsage(account, budget.used_today(), budget.allowance()))

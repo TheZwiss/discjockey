@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -80,10 +81,12 @@ def mark_protected(paths: Paths, key: str) -> None:
 
 
 def search(track: SourceTrack, entry: dict, qobuz, fallback,
-           skip: set[str] | frozenset = frozenset()) -> tuple[list[Scored], list[str]]:
+           skip: set[str] | frozenset = frozenset(), pace: Callable[[], None] | None = None
+           ) -> tuple[list[Scored], list[str]]:
     """Qobuz (by ISRC and by name) and the fallback sources, side by side. Returns the scored versions, the one in
     the library first and the others best first, and notes about searches that failed. `skip`: versions that can
-    never be used (DRM-protected), left out."""
+    never be used (DRM-protected), left out. `pace`: called before each Qobuz request (the shared pacer's
+    `before_qobuz_search`: 2-5 s after the previous Qobuz request of this Mac)."""
     found: dict[str, Candidate] = {}
     notes: list[str] = []
     qobuz_found: list[Candidate] = []
@@ -92,6 +95,8 @@ def search(track: SourceTrack, entry: dict, qobuz, fallback,
     def search_qobuz() -> None:
         for query in ([track.isrc] if track.isrc else []) + [f"{track.first_artist} {track.title}"]:
             try:
+                if pace is not None:
+                    pace()
                 qobuz_found.extend(qobuz.search(query, limit=10))
             except Exception as e:
                 qobuz_notes.append(f"Qobuz search failed: {str(e)[:200]}")
