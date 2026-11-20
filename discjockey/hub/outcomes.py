@@ -195,6 +195,27 @@ def problem_fields(kind: str, error: BaseException | None = None) -> dict:
             "person_steps": person_steps, "data": getattr(carried, "data", None)}
 
 
+_OUTCOME_PROBLEM = {"failed": "failed", "refused": "refused", "busy": "busy", "stopped": "stopped",
+                    "needs_person": "refused", "bad_args": "refused"}
+
+
+def finished_problem(envelope: Mapping) -> str | None:
+    """The problem kind (`JobFinished.problem`) a job's `result.json` stands for, as the window would have said it:
+    None for `ok` and `partial`. The envelope's `reason` when it is a bridge problem kind; the lock's and the stop
+    reasons by their kinds; else the outcome's own kind."""
+    outcome = envelope.get("outcome")
+    if outcome in ("ok", "partial"):
+        return None
+    reason = envelope.get("reason")
+    if reason in KIND_OUTCOME:
+        return reason
+    if reason == "library_lock":
+        return "busy"
+    if reason in ("stop", "stop_now"):
+        return "stopped"
+    return _OUTCOME_PROBLEM.get(outcome, "failed")
+
+
 def envelope(command: str, outcome: str, *, reason: str | None = None, message: str | None = None,
              data: Mapping | None = None, next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (),
              recovered: Iterable[Mapping] = (), job: str | None = None, as_of: Mapping | None = None,

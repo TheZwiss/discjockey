@@ -576,11 +576,32 @@
         },
         "running": {
           "type": "boolean"
+        },
+        "job": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "type",
-        "running"
+        "running",
+        "job",
+        "kind",
+        "line"
       ],
       "additionalProperties": false
     },

@@ -65,7 +65,8 @@ export function installFake(scenario: string): FakeControl {
     },
     consoleBusy(running: boolean) {
       ctx.s.console_running = running;
-      emit({ type: 'ConsoleBusy', running });
+      emit({ type: 'ConsoleBusy', running, job: running ? 'job:00000c0d' : null, kind: running ? 'sync' : null,
+        line: running ? '4 of 60' : null });
     },
     readPlaylists() { void api.refresh(); },
     rekordboxOpen(on: boolean) {

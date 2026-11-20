@@ -29,7 +29,7 @@ SAMPLES = [
     events.ImportProgress("tags", 120, 4000, 2),
     jobs.JobStarted("job:00000007", "sync", None),
     jobs.JobFinished("job:00000007", "sync", True, None, "", {"exit_code": 0}),
-    jobs.ConsoleBusy(True),
+    jobs.ConsoleBusy(True, "job:00000007", "sync", "4 of 60"),
     jobs.FileDropped("t1", "Get Naughty (Extended Mix).wav", True, ""),
     jobs.SignInPhase("youtube", "waiting", "chrome", "Chrome"),
     jobs.AppUpdate("available", "1.0.0", "1.1.0", "https://github.com/TheZwiss/discjockey/releases/tag/v1.1.0"),

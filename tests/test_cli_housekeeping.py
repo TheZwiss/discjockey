@@ -13,7 +13,7 @@ from rekordbox_helpers import make_master
 import discjockey.cli as cli
 from discjockey import __version__, db, library
 from discjockey.cli import bind, housekeeping, parser
-from discjockey.hub import catalog, shapes
+from discjockey.hub import catalog, shapes, windows
 
 
 def run_json(argv, capsys):
@@ -138,8 +138,14 @@ def test_where_resolves_exactly_as_the_window_does(tmp_path, monkeypatch, capsys
     assert env["data"] == {"music": {"path": str(paths.root), "state": "ok"}, "not_lossless": None,
                            "support": str(resolved.support), "rekordbox": str(box / "master.db"),
                            "command": housekeeping.command_path(), "version": __version__, "sandbox": None,
-                           "jobs_running": 0}
+                           "jobs_running": 0, "windows_open": 0}
     assert resolved.support == paths.support  # DISCJOCKEY_SUPPORT honoured
+    window = windows.register(resolved.support, paths.root)  # an open window is counted, and only while it is open
+    try:
+        assert run_json(["where"], capsys)[1]["data"]["windows_open"] == 1
+    finally:
+        window.close()
+    assert run_json(["where"], capsys)[1]["data"]["windows_open"] == 0
     paths.not_lossless_md.parent.mkdir(parents=True, exist_ok=True)
     paths.not_lossless_md.write_text("buy these")
     assert run_json(["where"], capsys)[1]["data"]["not_lossless"] == str(paths.not_lossless_md)

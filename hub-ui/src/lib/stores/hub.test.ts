@@ -101,7 +101,13 @@ describe('reduceHub', () => {
       result: null }).read_progress).not.toBeNull();
   });
   it('follows the console', () => {
-    expect(reduceHub(EMPTY_HUB, { type: 'ConsoleBusy', running: true }).console_running).toBe(true);
+    const busy = { type: 'ConsoleBusy' as const, running: true, job: 'job:00000007', kind: 'sync', line: '4 of 60' };
+    expect(reduceHub(EMPTY_HUB, busy).console_running).toBe(true);
+    expect(reduceHub(reduceHub(EMPTY_HUB, busy), { type: 'ConsoleBusy', running: false, job: null, kind: null, line: null })
+      .console_running).toBe(false);
+    // a holder with no registry entry (an older Discjockey) names nothing
+    expect(reduceHub(EMPTY_HUB, { type: 'ConsoleBusy', running: true, job: null, kind: null, line: null }).console_running)
+      .toBe(true);
   });
   it('AppUpdate replaces the update answer', () => {
     const url = 'https://github.com/TheZwiss/discjockey/releases/tag/v1.1.0';
@@ -267,6 +273,24 @@ describe('readNeedsSetupIn: a not_set_up without a service is a missing playlist
     expect(readNeedsSetupIn({ ...ok, problem: null }, null)).toBe(false);
     expect(readNeedsSetupIn({ ...ok, problem_service: 'qobuz' }, null)).toBe(false);
     expect(readNeedsSetupIn({ ...ok, services: [{ service: 'qobuz', name: 'Qobuz', connected: false }] }, null)).toBe(false);
+  });
+});
+
+describe('a JobFinished of another process', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it("for a job this window never saw makes the pages read again", async () => {
+    (globalThis as any).window = new EventTarget();
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
+        sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: true, todo: 2, all_tracks: 5, folders: [], not_in_playlist: 3, limits_warning: false }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+    const before = get(dataVersion);
+    dispatch({ type: 'JobFinished', job_id: 'job:0000ffff', kind: 'sync', ok: true, problem: null, message: '', result: null });
+    expect(get(dataVersion)).toBe(before + 1);
+    await refreshHub();
   });
 });
 

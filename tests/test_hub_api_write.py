@@ -206,6 +206,21 @@ def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):
     assert all(isinstance(n, int) for n in f.result.values())
 
 
+def test_a_write_refused_for_a_terminal_job_names_it_in_the_answers_data(root):
+    from discjockey.hub import outcomes, registry
+    api, rec = make_api(root)
+    api.todo()
+    files = registry.Registry(root.support).create("sync", "sync run", {}, "terminal", {"music": str(root.root)})
+    files.update(method="sync_run", library_lock=True, status="running", progress={"line": "4 of 60"})
+    files.flush()
+    answer = api.hide("t2", True)
+    assert window(answer) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}  # the words stay
+    assert answer["data"] == {"holder": {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60"}}
+    assert answer["outcome"] == "busy" and answer["reason"] == "console"
+    files.release_claim()
+    assert outcomes.KIND_OUTCOME["console"] == "busy"
+
+
 def test_rescan_library_answers_busy_and_console_at_once(root):
     api, rec = make_api(root)
     with run_lock(root.lock):
