@@ -994,6 +994,13 @@ Results:
         dicts (auto_upgrade_run passes on a Fail); Res<{}> kept for Empty methods (Res<Empty> makes ok never).
         Merged 2e28e0b2.
         E7 TOTAL: logged 1,178k vs plan 1,010k (1.17x); calls 417; cache reads 67.5M. V2 briefs got "Landed in E7".
+      - V2.1a done (Sonnet): logged 195k incl. a resumed fix (est. 215k), advisor 0k (calls/cache: see agent-cost
+        row ad4abf3f). Commits 197fbb83 + 0232fcdb. My own full pytest found a NEW flake (JobStarted now emitted after
+        the registry files are written; test_hub_api_convert.py:415 read it right after batch_resume: 1/4 runs vs
+        0/8 on base); test fixed by the same agent; its full pytest 6129/4 skipped green. FOR PHASE REVIEW:
+        test_hub_api.py:232 stops a refresh right after start (JobStarted can be dropped; older race); window job
+        state never says `stopping`; SECRET_PARAMS keyed by method; new catalog.holds_library, Jobs.record_of.
+        Merged into feat/cli-2-foundations.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
