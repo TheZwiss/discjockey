@@ -27,7 +27,7 @@ from ..library import LockHeld, Paths
 from ..models import SERVICE_NAMES, Protected
 from ..ops import OpProblem
 from ..problem import Problem
-from . import registry, shapes
+from . import outcomes, registry, shapes
 
 log = logging.getLogger(__name__)
 
@@ -319,6 +319,9 @@ class Job:
     finished: dict | None = None  # the JobFinished event
     finishing: threading.Lock = field(default_factory=threading.Lock)  # the worker and Stop never both finish it
     error: BaseException | None = None  # what the work raised (a worker process reads its `Problem` fields off it)
+    files: registry.JobFiles | None = None  # the registry record of a job the window started (`Jobs.registry`), else None
+    writer: registry.EventsWriter | None = None  # its `events.jsonl` writer
+    reducer: registry.ProgressReducer | None = None  # its `progress`
 
     def record(self, event: object) -> None:
         data = event_dict(event)
@@ -337,11 +340,16 @@ class Job:
 
 class Jobs:
     def __init__(self, lock: Path | None, emit: Emit, *, keep_awake=keep_awake,
-                 now: Callable[[], datetime] = datetime.now, inline: registry.JobFiles | None = None):
+                 now: Callable[[], datetime] = datetime.now, inline: registry.JobFiles | None = None,
+                 registry: registry.Registry | None = None):
         """`lock`: the library's .lock; None while no music folder is bound (Setup's first steps): then a write job
         only waits for the hub's other jobs, as there is no library to share with a terminal run. `inline`: the job
-        folder of a worker process (`adopt`)."""
+        folder of a worker process (`adopt`). `registry`: where the jobs this window starts are recorded
+        (`via: window`, design §6.3: `job list`, `job show` and `job stop` reach them); none: nothing is recorded. A
+        worker's inline job is already in it and is not created again."""
         self.lock, self.emit, self.keep_awake, self.now = lock, emit, keep_awake, now
+        self.registry = registry
+        self.own_ids: set[str] = set()  # the ids of this process's own jobs: the ones it started and the adopted one
         self.inline: registry.JobFiles | None = None
         self.inline_token: CancelToken | None = None  # the adopted job's token: Ctrl-C and its `stop` file cancel it
         if inline is not None:
@@ -354,6 +362,8 @@ class Jobs:
         self._closed = threading.Event()
         self._holder = threading.local()  # .on: this thread is a write job's and holds the engine lock
         self.on_locked: Callable[[], None] | None = None  # called in a write job's thread once it holds the lock
+        self.record_of: Callable[[], Mapping] | None = None  # `{method, command, args, roots}` of the call that starts a job (HubApi)
+        self.on_finished: Callable[[Job], Mapping] | None = None  # the envelope of a registered job at its end (HubApi)
         self._brief = False  # lock_briefly or a scan holds (or is about to take) the engine lock: no terminal run
         self._scanning = False  # scan_lock holds the engine lock (without the mutex): writers answer busy
         self._briefs = 0  # how many times lock_briefly has taken it (a probe that overlapped one doesn't count)
@@ -363,6 +373,7 @@ class Jobs:
         the work on the calling (main) thread, which gets the signals and holds the locks, and returns after the
         job's `JobFinished`. Its token also watches the job's `stop` file."""
         self.inline, self.inline_token = files, CancelToken(files.dir / "stop")
+        self.own_ids.add(files.id)
 
     def bind(self, lock: Path) -> None:
         """The library's lock, once a music folder is bound (at start or when it is first chosen)."""
@@ -439,10 +450,29 @@ class Jobs:
         with self._mutex:
             self._scanning = self._brief = False
 
-    def _new(self, kind: str, track_id: str | None, batch_kind: str | None = None) -> Job:
+    def _new(self, kind: str, track_id: str | None, batch_kind: str | None = None, *, library_lock: bool = False) -> Job:
+        """The job's record in memory, and (when this `Jobs` has a registry and is no worker) its record on disk: the
+        folder with its `state.json` as `queued`, the `alive` lock claimed, and its files' writers. A registry that
+        cannot be written leaves the job as it was before the registry existed: it runs, unrecorded."""
         files = self.inline
-        job_id, token = (files.id, self.inline_token) if files is not None else (registry.new_job_id(), CancelToken())
-        return Job(job_id, kind, track_id, token, self.now().isoformat(timespec="seconds"), batch_kind)
+        if files is not None:
+            return Job(files.id, kind, track_id, self.inline_token, self.now().isoformat(timespec="seconds"), batch_kind)
+        started = self.now().isoformat(timespec="seconds")
+        if self.registry is not None:
+            try:
+                record = self.record_of() if self.record_of is not None else {}
+                files = self.registry.create(kind, record.get("command") or "", record.get("args") or {}, "window",
+                                             record.get("roots") or {})
+                files.update(method=record.get("method"), library_lock=library_lock)
+                files.flush()
+                writer = files.events()
+            except Exception:  # noqa: BLE001
+                log.warning("a job of the window could not be recorded in the registry", exc_info=True)
+            else:
+                self.own_ids.add(files.id)
+                return Job(files.id, kind, track_id, CancelToken(files.dir / "stop"), started, batch_kind, files=files,
+                           writer=writer, reducer=registry.ProgressReducer(files))
+        return Job(registry.new_job_id(), kind, track_id, CancelToken(), started, batch_kind)
 
     def start(self, kind: str, work: Callable[[JobContext], dict | None], track_id: str | None = None,
               batch_kind: str | None = None, *, hold_library: bool = True) -> Job:
@@ -459,7 +489,9 @@ class Jobs:
                 raise busy
             if self.console_running():
                 raise Busy(CONSOLE_TEXT, "console")
-            job = self.current = self._new(kind, track_id, batch_kind)
+            if self.registry is not None and self.inline is None:
+                self.registry.prune(self.now())  # as every terminal job does: `start` only, never the minute's read
+            job = self.current = self._new(kind, track_id, batch_kind, library_lock=hold_library and self.lock is not None)
             if self.inline is None:
                 threading.Thread(target=self._run, args=(job, work, True, hold_library), name=f"hub-job-{job.id}",
                                  daemon=True).start()
@@ -535,6 +567,12 @@ class Jobs:
                 job.record(event)
             except Exception:
                 return
+            if job.writer is not None:  # the job's own files (a registered job); neither raises into the engine
+                job.writer.emit(event)
+                try:
+                    job.reducer(event)
+                except Exception:  # noqa: BLE001
+                    pass
             self.emit(event)
         return emit
 
@@ -548,6 +586,15 @@ class Jobs:
                 log.warning("the hook at the start of a write job failed", exc_info=True)
 
     def _run(self, job: Job, work, write: bool, hold_library: bool = True) -> None:
+        """The job's thread (the worker's main thread): a registered job holds its `alive` lock from here to the end, which
+        is after its `result.json` and `status: done` (`_finish`)."""
+        if job.files is None:
+            self._work(job, work, write, hold_library)
+        else:
+            with job.files.alive():
+                self._work(job, work, write, hold_library)
+
+    def _work(self, job: Job, work, write: bool, hold_library: bool) -> None:
         emit = self._job_emit(job)
         emit(JobStarted(job.id, job.kind, job.track_id, job.batch_kind))
         ok, problem, message, result, service = True, None, "", None, None
@@ -558,14 +605,16 @@ class Jobs:
                 with lock, self.keep_awake("Discjockey is changing your library"):
                     self._holder.on, self._holder.job = hold_library, job
                     try:
-                        if self.inline is not None:  # the worker has the library: the registry says so
-                            self.inline.update(status="running", kind=job.kind)
+                        if (files := self.inline or job.files) is not None:  # it has the library: the registry says so
+                            files.update(status="running", kind=job.kind)
                         if hold_library:
                             self._at_lock()
                         result = work(ctx)
                     finally:
                         self._holder.on, self._holder.job = False, None
             else:
+                if job.files is not None:
+                    job.files.update(status="running")
                 result = work(ctx)
             message = ctx.message
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
@@ -590,11 +639,37 @@ class Jobs:
             except Exception:
                 finished = JobFinished(job.id, job.kind, ok, problem, message, None, service)
                 job.finished = event_dict(finished)
+            if job.files is not None:
+                self._end_files(job, finished)  # before `done`: whoever sees the job ended finds its files complete
             job.done.set()
         if ok:
             shapes.note_result(job.kind, finished.result)  # test mode only: the result must fit its shape
         self.emit(finished)
         return True
+
+    def _end_files(self, job: Job, finished: JobFinished) -> None:
+        """The end of a registered job, in the registry's order (design §6.3 step 5): the events file is closed, then
+        `result.json`, then `status: done`; the `alive` lock is let go when the job's thread leaves `_run`. Never
+        fails the job."""
+        files = job.files
+        try:
+            job.writer.emit(finished)
+            job.writer.close()
+            files.write_result(self._envelope_of(job, finished))
+            files.update(status="done", ended=self.now().astimezone().isoformat(timespec="seconds"))
+        except Exception:  # noqa: BLE001
+            log.warning("the end of a job could not be written to the registry", exc_info=True)
+
+    def _envelope_of(self, job: Job, finished: JobFinished) -> Mapping:
+        if self.on_finished is not None:
+            return self.on_finished(job)
+        command = (job.files.state().get("command") or "") if job.files is not None else ""
+        if finished.ok:  # a `Jobs` without a `HubApi` around it: the plain envelope
+            return outcomes.envelope(command, "ok", message=finished.message or None, data=finished.result, job=job.id)
+        fields = outcomes.problem_fields(finished.problem or "crashed", job.error)
+        return outcomes.envelope(command, fields["outcome"], reason=fields["reason"], message=finished.message,
+                                 data={**(finished.result or {}), **(fields["data"] or {})} or None, next=fields["next"],
+                                 person_steps=fields["person_steps"], job=job.id)
 
     # --- console detection (spec 6.2): poll the lock every few seconds ---
 

@@ -89,7 +89,7 @@ BANNED_IMPORTS = {"sqlite3", "views", "db", "planner", "library", "run"}
 
 
 def test_t3_a_cli_module_calls_only_what_its_entries_name():
-    allowed = {e.method for e in catalog.ENTRIES} | {"resolve", "save_plan", "scan_next"}  # the last two: a dry run's plan and `next`
+    allowed = {e.method for e in catalog.ENTRIES} | {"resolve", "save_plan", "scan_next", "_job_envelope"}  # the last three: a dry run's plan, `next`, and the envelope of a finished job (the worker, `HubApi._job_envelope`)
     assert (CLI_DIR / "housekeeping.py").is_file()  # the command line's own words are checked like every module
     checked = 0
     for path in sorted(CLI_DIR.rglob("*.py")):

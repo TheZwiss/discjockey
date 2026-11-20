@@ -44,7 +44,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from .. import events as ev
+from .. import events as ev, words
 from ..library import write_json_atomic
 from ..problem import Problem
 from . import ids
@@ -277,6 +277,50 @@ class EventsWriter:
             self._head_file.close()
         except Exception:  # noqa: BLE001
             pass
+
+
+class ProgressReducer:
+    """The events of a job reduced to `state.json`'s `progress`: the step now running, how many of how many are done, the
+    item in work, the last message and `line`, the one line the window's foot shows (`words.job_line`). Only what
+    changed is handed to `JobFiles.update`, which rate-limits the write. The worker's job and the window's jobs both
+    use it."""
+
+    def __init__(self, files: "JobFiles"):
+        self.files = files
+        self.fields: dict = {"step": None, "done": None, "total": None, "item": None, "message": None, "line": None}
+        self._lock = threading.Lock()
+
+    def __call__(self, event: object) -> None:
+        with self._lock:
+            before = dict(self.fields)
+            self._take(event)
+            self.fields["line"] = words.job_line(self.fields)
+            changed = self.fields != before
+            now = dict(self.fields)
+        if changed:
+            self.files.update(progress=now)
+
+    def _take(self, event: object) -> None:
+        f = self.fields
+        if isinstance(event, ev.RunStarted):
+            f.update(done=0, total=event.total)
+        elif isinstance(event, ev.ActionStarted):
+            track = event.action.track
+            f.update(done=event.index - 1, total=event.total, item=f"{', '.join(track.artists)} - {track.title}")
+        elif isinstance(event, ev.ActionFinished):
+            f["done"] = (f["done"] or 0) + 1
+        elif isinstance(event, ev.StepChanged):
+            f["step"] = event.step
+        elif isinstance(event, ev.ReadingPlaylist):
+            f.update(step="reading playlists", done=event.index - 1, total=event.total, item=event.folder)
+        elif isinstance(event, (ev.MovesProgress, ev.BatchProgress)):
+            f.update(done=event.done, total=event.total)
+            if isinstance(event, ev.BatchProgress):
+                f["item"] = event.name
+        elif isinstance(event, ev.ImportProgress):
+            f.update(step=event.phase, done=event.done, total=event.total)
+        elif isinstance(event, ev.Message):
+            f["message"] = event.text
 
 
 class JobFiles:

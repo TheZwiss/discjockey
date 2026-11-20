@@ -748,3 +748,31 @@ def test_the_terminals_update_is_busy_while_a_tools_job_runs_in_the_registry(roo
     assert "updating the tools" in out and "Traceback" not in out
     monkeypatch.setattr(setup_cmd, "run_update", lambda *a: 0)
     assert cli.main(["update"]) == 0  # the job is over: not refused any more
+
+
+@pytest.mark.shapes_unchecked  # the tools update is a stub under its real kind
+def test_the_terminals_update_is_busy_while_the_windows_own_update_tools_job_runs(root, monkeypatch, capsys):
+    """S8: a tools update the window started is in the registry (`via: window`) like a terminal's: the legacy `update`
+    refuses beside it (`TOOLS_JOB_RUNNING`), and runs once it has ended."""
+    import threading
+    from hub_helpers import make_unbound_api
+    from discjockey import setup_cmd, tool_updates
+    running, release = threading.Event(), threading.Event()
+
+    def update(support, **kw):
+        running.set()
+        release.wait(20)
+        return "1", "2", False
+
+    monkeypatch.setattr(tool_updates, "update", update)
+    monkeypatch.setattr(setup_cmd, "run_update", lambda *a: pytest.fail("must not run beside a tools job"))
+    api, _ = make_unbound_api(root / ".support")
+    assert api.update_tools()["ok"] and running.wait(10)
+    try:
+        assert cli.main(["update"]) == 3
+    finally:
+        release.set()
+        assert api._jobs.wait(10)
+    assert cli.TOOLS_JOB_RUNNING in capsys.readouterr().out
+    monkeypatch.setattr(setup_cmd, "run_update", lambda *a: 0)
+    assert cli.main(["update"]) == 0  # the job is over: not refused any more

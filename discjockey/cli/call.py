@@ -338,7 +338,7 @@ def start_job(entry: Entry, kwargs: Mapping, command: str, flags: Flags, *,
     reg = registry.Registry(here.support)
     reg.prune(datetime.now())
     files = reg.create(entry.method, command, dict(kwargs), "terminal", roots)
-    files.update(method=entry.method, wait_busy=flags.wait_busy)
+    files.update(method=entry.method, wait_busy=flags.wait_busy, library_lock="library" in entry.locks)
     files.flush()
     print(follow.first_line(files.id), file=sys.stderr, flush=True)  # before anything else: a killed call keeps the id
     try:

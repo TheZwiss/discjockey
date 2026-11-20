@@ -217,3 +217,18 @@ def test_a_login_row_names_its_service_in_match_not_in_its_command():
         "setup_spotify_login": {"service": "spotify"}, "spotify_sign_out": {"service": "spotify"},
         "setup_skip_spotify": {"service": "spotify"}}
     assert all(len(e.command) == 2 for e in rows.values())
+
+
+def test_secret_arguments_never_reach_a_job_record():
+    """`SECRET_PARAMS` is every `Arg(secret=True)` of the catalogue by method; `public_args` leaves those out."""
+    assert catalog.SECRET_PARAMS == {"setup_qobuz_login": frozenset({"password"})}
+    assert catalog.public_args("setup_qobuz_login", {"email": "a@b.c", "password": "pw"}) == {"email": "a@b.c"}
+    assert catalog.public_args("hide", {"track_id": "t1", "password": "kept"}) == {"track_id": "t1", "password": "kept"}
+    assert catalog.public_args(None, {}) == {}
+
+
+def test_a_job_holds_the_library_by_its_own_record_else_by_the_catalogue():
+    assert catalog.holds_library({"method": "hide", "library_lock": True})  # a window hide: its `locks` is empty
+    assert not catalog.holds_library({"method": "rescan_library", "library_lock": False})
+    assert catalog.holds_library({"method": "rescan_library"})  # a record without the field: the `locks` column
+    assert not catalog.holds_library({"method": "settings_view"}) and not catalog.holds_library({})
