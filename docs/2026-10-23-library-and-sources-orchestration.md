@@ -981,6 +981,12 @@ Results:
         ~3 s, NO_SAMPLE empty. FOR PHASE REVIEW: RunSummary.id now required; Dashboard.next_checks nullable (window
         `?? 0` in dashboardModel.ts L70); golden page cli_golden/report_show.txt changed via fuller fixture rows;
         fake `run` accepts last / report:<stamp>. Merged 6929df67.
+      - E7d done (Sonnet): logged 268k (est. 215k, 1.24x), 102 calls, cache reads 17.5M, fresh in 672k (two cut-offs:
+        the 5-hour limit at ~04:0x until 07:50, then a network error; each resume re-read cold), out 81k, advisor 0k.
+        Commit 02142333; pytest 6106/4 skipped, npm check 0/0, bridge+setup+settings vitest 374, harness ~18 s,
+        NO_SAMPLE empty. FOR PHASE REVIEW: convert key-assertion tests and tests/fixtures/hub_convert_shapes.json
+        deleted (shapes replace them; behaviour asserts kept); optional→required fields on SetupStatus; it trimmed a
+        contract-doc bullet outside its ranges (rekordbox_status). Merged d7e3fa74.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
