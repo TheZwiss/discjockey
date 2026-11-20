@@ -557,7 +557,9 @@ SkippedMove = _record("SkippedMove", "A move that was not made.", {
     "from": Annotated[str, F("Where it is.")],
     "to": Annotated[str, F("Where it would have gone.")],
     "reason": Annotated[str, F("The code.")],
-    "text": Annotated[str, F("The plain words.")],
+    "text": Annotated[str, F("The plain words: those of `tidy_preview`'s and `undo_preview`'s `skip`, plus `changed` "
+                             "\"Changed since the list was shown\", `failed` \"Couldn't move it: {why}\" and `stopped` "
+                             "\"Not moved: the moves were stopped first\".")],
 })
 
 
@@ -567,8 +569,9 @@ class BatchResult(TypedDict):
     with it (also with problem `stopped`, then `stopped` is true)."""
     batch_id: Annotated[int | None, F("The batch's id; null when nothing was asked to move.", shown=False)]
     title: Annotated[str, F("The batch's title.")]
-    moved: Annotated[int, F("How many files moved.")]
-    headline: Annotated[str, F("The sentence to show.")]
+    moved: Annotated[int, F("How many files moved (a folder rename counts the files it carried).")]
+    headline: Annotated[str, F("The sentence to show: \"Moved {n} files.\" / \"Moved 1 file.\" (an undo: \"... back.\"), "
+                               "plus \" {k} not moved:\" when some were skipped.")]
     skipped: Annotated[list[SkippedMove], F("The moves not made.")]
     stopped: Annotated[bool, F("The user stopped it.")]
 

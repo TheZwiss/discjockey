@@ -15,11 +15,11 @@ import json
 import os
 from pathlib import Path
 
-from . import common, library, setup, todo
+from . import cli, common, library, setup, todo
 from .kernel import (ALIASES, DEFAULT, SHAPES, F, Registry, ShapeError, alias, json_schema, shape, typescript,
                      validate, values)
 
-AREAS = (common, todo, library, setup)
+AREAS = (common, todo, library, setup, cli)
 
 
 def _merged(which: str) -> dict[str, str]:
@@ -75,8 +75,8 @@ def note_answer(method: str, answer) -> None:
     if not CHECKING:
         return
     try:
-        if isinstance(answer, dict) and set(answer) == {"job_id"}:
-            return
+        if isinstance(answer, dict) and (set(answer) == {"job_id"} or answer.get("ok") is False):
+            return  # a job start, or a failure a method handed back whole (its fields are `Fail`'s, not an answer's)
         _note(f"answer of {method}", ANSWERS.get(method), answer)
     except Exception:  # noqa: BLE001
         pass

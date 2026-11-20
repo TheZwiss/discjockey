@@ -61,12 +61,11 @@ def test_a_command_with_a_mapped_shape_names_it_and_help_of_it_carries_the_schem
     assert dry[0]["dry_run_schema"] == shapes.json_schema("Freshness")
 
 
-def test_help_of_one_command_has_null_schemas_while_none_is_mapped(capsys):
-    code, env = run_json(["help", "rekordbox", "backups"], capsys)
-    row = env["data"]["commands"][0]
-    assert code == 0 and (row["schema"], row["data_schema"], row["dry_run_schema"]) == (None, None, None)
-    code, env = run_json(["help", "where"], capsys)
-    assert env["data"]["commands"][0]["data_schema"] is None
+def test_a_command_with_no_mapped_method_has_null_schemas_and_the_text_page_shows_none(capsys):
+    row = run_json(["help", "rekordbox", "backups"], capsys)[1]["data"]["commands"][0]
+    unmapped = {**row, "schema": None, "dry_run_method": None}  # every command is mapped now: a made-up row
+    [full] = housekeeping.with_schemas([unmapped])
+    assert (full["data_schema"], full["dry_run_schema"]) == (None, None)
     code = cli.main(["help", "rekordbox", "backups"])  # the text page shows no schema
     assert code == 0 and "schema" not in capsys.readouterr().out
 

@@ -1,5 +1,6 @@
 """The shapes kernel (issue 39, phase 2, design §8.2): the closed set of constructs, what it refuses, how a subclass
 and a value are read. Each test makes its own `Registry`, so none touches the product's `SHAPES`."""
+from pathlib import Path
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
 import pytest
@@ -846,3 +847,129 @@ def test_a_downloads_view_answer_fits_its_shape_with_an_account_and_a_check(tmp_
     api, _ = make_api(root)
     out = fits("downloads_view", api.downloads_view())["downloads"]
     assert out["soundcloud"]["last_check"]["kbps"] == 256 and out["youtube"]["browser"] is None
+
+
+# --- completeness (T6's end state): nothing a method answers or a job finishes with is left without a shape ---
+
+# Not shapes: the command line's own lookups (no command prints them as `data`).
+LOOKUPS = {"resolve", "result_words"}
+# Job kinds the scan below cannot read from a string in the call, with where each comes from. The wrappers
+# (`_single`, `_settings_job`, `_support_job`) pass their `kind` on; the callers name the kind as a string.
+VARIABLE_KINDS = {
+    "work": {"refresh"},                              # `_jobs.start_refresh(work)`: the read of the playlists
+    "find.kind": {"use_candidate", "use_link"},       # `_single(find.kind, ...)` in `use_*`: the candidate's kind
+    "f'upgrade_{action}'": {"upgrade_add_new", "upgrade_discard"},  # `upgrade`: `upgrade_` + NEW_TRACK_ACTION[mode]
+    "kind": set(),                                    # the bodies of `_single`, `_settings_job` and `_support_job`
+}
+BRIDGE_DIR = Path(__file__).resolve().parents[1] / "hub-ui" / "src" / "lib" / "bridge"
+
+
+def _api_methods() -> set[str]:
+    from discjockey.hub.api import CliApi, HubApi
+
+    return {m for cls in (HubApi, CliApi) for m in dir(cls)
+            if getattr(getattr(cls, m), "is_bridge", False) or getattr(getattr(cls, m), "is_cli_first", False)}
+
+
+def _started_kinds() -> tuple[set[str], set[str]]:
+    """(the job kinds `api.py` starts as a string, the arguments it starts with that are not a string)."""
+    import ast
+
+    from discjockey.hub import api
+
+    starters = {"start", "start_refresh", "start_sign_in", "_settings_job", "_support_job", "_single"}
+    found: set[str] = set()
+    variable: set[str] = set()
+
+    def words(node) -> list[str] | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return [node.value]
+        if isinstance(node, ast.IfExp):
+            body, other = words(node.body), words(node.orelse)
+            return None if body is None or other is None else body + other
+        return None
+
+    for node in ast.walk(ast.parse(Path(api.__file__).read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        f = node.func
+        name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", None)
+        if name not in starters:
+            continue
+        if name == "start" and not (isinstance(f.value, ast.Attribute) and f.value.attr == "_jobs"):
+            continue  # some other `start` (a thread, a timer)
+        kinds = words(node.args[0])
+        if kinds is None:
+            variable.add(ast.unparse(node.args[0]))
+        else:
+            found.update(kinds)
+    return found, variable
+
+
+def test_every_bridge_and_cli_first_method_has_an_answer_shape_or_a_named_exception():
+    from discjockey.hub import catalog, shapes
+
+    controls = {e.method for e in catalog.ENTRIES if e.kind == "J-control"}
+    left_out = set(catalog.WINDOW_ONLY) | set(catalog.DROPPED) | controls | LOOKUPS
+    assert sorted(_api_methods() - left_out - set(shapes.ANSWERS)) == []
+    assert LOOKUPS <= _api_methods() and not LOOKUPS & set(shapes.ANSWERS)
+
+
+def test_every_job_kind_api_py_starts_has_a_result_shape():
+    from discjockey.hub import shapes
+
+    found, variable = _started_kinds()
+    assert variable == set(VARIABLE_KINDS), "a job is started under a kind this scan cannot read: list it by hand"
+    kinds = found | {k for named in VARIABLE_KINDS.values() for k in named}
+    assert sorted(kinds - set(shapes.RESULTS)) == []
+    assert sorted(set(shapes.RESULTS) - kinds) == [], "a result shape for a kind nothing starts"
+
+
+def test_every_built_read_and_job_entry_of_the_catalogue_names_a_shape():
+    from discjockey.hub import catalog, shapes
+
+    bare = sorted(f"{e.method} ({e.command})" for e in catalog.ENTRIES
+                  if e.kind in ("R", "RJ", "B", "J") and e.planned is None and e.method not in LOOKUPS and e.schema is None)
+    assert bare == []
+    assert all(e.schema in shapes.SHAPES for e in catalog.ENTRIES if e.schema)
+
+
+def test_types_ts_declares_only_the_hand_helpers():
+    import re
+
+    text = (BRIDGE_DIR / "types.ts").read_text(encoding="utf-8")
+    declared = re.findall(r"^export (?:type|const|function) (\w+)", text, re.M)
+    assert sorted(declared) == sorted(["Res", "JobStart", "NOT_IN_PLAYLIST", "isBatch", "isQuestion", "isDuplicate"])
+
+
+def test_client_ts_has_no_inline_answer_type_but_the_window_only_and_dropped_methods():
+    import re
+
+    text = (BRIDGE_DIR / "client.ts").read_text(encoding="utf-8")
+    inline = re.findall(r"(\w+)\([^()]*\): Promise<Res<\{(\s*\})?", text)
+    # `Res<{}>` is an answer with nothing in it: `Res<Empty>` would make `ok` never (Empty is `Record<string, never>`)
+    kept = {"quit", "pick_folder", "media_url", "select", "setup_check_account"}
+    assert sorted(m for m, empty in inline if not empty and m not in kept) == []
+    assert kept <= {m for m, _ in inline}
+
+
+def test_help_json_of_every_built_command_prints_the_schema_the_shapes_make(capsys):
+    import json
+
+    from discjockey import cli as cli_main
+    from discjockey.hub import catalog, shapes
+
+    commands = sorted({e.command for e in catalog.ENTRIES if e.command and e.planned is None})
+    schemas = dry_runs = 0
+    for command in commands:
+        assert cli_main.main(["help", *command, "--json"]) == 0, command
+        rows = json.loads(capsys.readouterr().out)["data"]["commands"]
+        [row] = [r for r in rows if r["command"] == " ".join(command)]
+        primary = catalog.primary([e for e in catalog.ENTRIES if e.command == command and e.planned is None])
+        assert row["schema"] == primary.schema, command
+        assert row["data_schema"] == (shapes.json_schema(primary.schema) if primary.schema else None), command
+        dry = shapes.ANSWERS.get(primary.dry_run or "")
+        assert row["dry_run_schema"] == (shapes.json_schema(dry) if dry else None), command
+        schemas += bool(primary.schema)
+        dry_runs += bool(dry)
+    assert schemas > 25 and dry_runs > 3, (schemas, dry_runs)

@@ -1341,6 +1341,75 @@
       ],
       "type": "object"
     },
+    "AutoUpgradeRunResult": {
+      "additionalProperties": false,
+      "description": "The result of `auto_upgrade_run` (`sync run --auto-upgrade-only`): the sync's last phase alone. A job that is stopped or crashed carries it too.",
+      "properties": {
+        "auto_upgrade": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutoUpgradeBlock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The phase's block; null when Settings' switch is off and no placement was coming.",
+          "x-shown": true
+        },
+        "exit_code": {
+          "description": "How it ended: 0 well, 130 stopped, 1 crashed.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "new_since_plan": {
+          "description": "A run with `--plan`: the songs that are new since the plan, left out.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": false
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "report": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run's report id (`report:<stamp>`); null when no report was written.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "exit_code",
+        "report",
+        "auto_upgrade",
+        "recovered"
+      ],
+      "type": "object"
+    },
     "AutoUpgradeSet": {
       "additionalProperties": false,
       "description": "The result of `set_auto_upgrade`.",
@@ -1727,6 +1796,390 @@
       ],
       "type": "object"
     },
+    "BatchDetail": {
+      "additionalProperties": false,
+      "description": "One batch by its typed id: its row as `batches` lists it, and by kind its items or its moves.",
+      "properties": {
+        "backup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The rekordbox backup an AIFF batch made; null for a move batch.",
+          "x-shown": true
+        },
+        "batch": {
+          "description": "The id inside its kind.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "done": {
+          "description": "Items done (for a move batch: the files moved).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "ended": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it ended; null while it runs or never did.",
+          "x-shown": true
+        },
+        "failed": {
+          "description": "Items that failed (always 0 for a move batch).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The typed id every other command takes: `aiff:12` or `moves:12`.",
+          "type": "string",
+          "x-shown": true
+        },
+        "kind": {
+          "description": "Which kind of batch.",
+          "enum": [
+            "aiff",
+            "moves"
+          ],
+          "x-shown": true
+        },
+        "moves": {
+          "description": "A move batch's moves, in order.",
+          "items": {
+            "$ref": "#/$defs/BatchMove"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "planned": {
+          "description": "Items still planned.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "results": {
+          "description": "An AIFF batch's items, one per track.",
+          "items": {
+            "$ref": "#/$defs/BatchItem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What was picked for an AIFF batch (`selection`, `library:<view>[:<key>]`, `todo:cdj`, ...); null for a move batch.",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "Items skipped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "started": {
+          "description": "When it started, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "started_by": {
+          "description": "Who started it (an AIFF batch: `user`, `upgrade_all`, `make_aiff`, `cdj_all`, `auto_upgrade`, `download_again`; a move batch: `tidy`, `save`, `rename`, `undo`).",
+          "type": "string",
+          "x-shown": true
+        },
+        "state": {
+          "description": "How far it got.",
+          "enum": [
+            "running",
+            "stopped",
+            "done"
+          ],
+          "x-shown": true
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "stop",
+                "rekordbox_open",
+                "busy",
+                "crash"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it stopped; null when it did not (always null for a move batch).",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many items it holds.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "undone": {
+          "description": "Items undone (always 0 for a move batch: an undo is a batch of its own).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "undone_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For a move batch the typed id of the batch that undid it; null otherwise.",
+          "x-shown": true
+        },
+        "via": {
+          "description": "Where it started.",
+          "enum": [
+            "window",
+            "terminal"
+          ],
+          "x-shown": true
+        },
+        "what": {
+          "description": "An AIFF batch's `upgrade`, `convert` or `mixed`; a move batch's title.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "batch",
+        "what",
+        "started_by",
+        "state",
+        "stop_reason",
+        "started",
+        "ended",
+        "total",
+        "done",
+        "skipped",
+        "failed",
+        "planned",
+        "undone",
+        "backup",
+        "undone_by",
+        "via",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "BatchItem": {
+      "additionalProperties": false,
+      "description": "One track of an AIFF batch, with its name.",
+      "properties": {
+        "action": {
+          "description": "What was done: same_track, add_new, convert, rename, ...",
+          "type": "string",
+          "x-shown": true
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words.",
+          "x-shown": true
+        },
+        "name": {
+          "description": "The song as `Artist - Title`; its key when it is not in the library any more.",
+          "type": "string",
+          "x-shown": true
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The file's path.",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An `EligibleReason` key (skipped only).",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ItemResultRekordbox"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What was written in rekordbox, or null.",
+          "x-shown": true
+        },
+        "state": {
+          "description": "What became of it.",
+          "enum": [
+            "planned",
+            "done",
+            "skipped",
+            "failed",
+            "undone"
+          ],
+          "x-shown": true
+        },
+        "track": {
+          "description": "The song's key.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track",
+        "action",
+        "state",
+        "reason",
+        "message",
+        "path",
+        "rekordbox",
+        "name"
+      ],
+      "type": "object"
+    },
+    "BatchMove": {
+      "additionalProperties": false,
+      "description": "One move of a move batch as the records keep it.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A skip's own detail (a failure's words).",
+          "x-shown": true
+        },
+        "dst": {
+          "description": "Where it went, or would have gone.",
+          "type": "string",
+          "x-shown": true
+        },
+        "files": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For a folder move how many files it carried; null otherwise.",
+          "x-shown": true
+        },
+        "kind": {
+          "description": "A file or a folder rename.",
+          "enum": [
+            "file",
+            "folder"
+          ],
+          "x-shown": true
+        },
+        "label": {
+          "description": "The file's or folder's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A skip's reason code.",
+          "x-shown": true
+        },
+        "seq": {
+          "description": "Its place in the batch; an undo goes in reverse.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "src": {
+          "description": "Where it was.",
+          "type": "string",
+          "x-shown": true
+        },
+        "state": {
+          "description": "What became of it.",
+          "enum": [
+            "planned",
+            "done",
+            "skipped"
+          ],
+          "x-shown": true
+        },
+        "text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why a move that was not made was not, in plain words; null for the others.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "seq",
+        "kind",
+        "label",
+        "src",
+        "dst",
+        "state",
+        "reason",
+        "detail",
+        "files",
+        "text"
+      ],
+      "type": "object"
+    },
     "BatchResult": {
       "additionalProperties": false,
       "description": "What a move batch tells the page: `tidy_up`, `undo_moves` and each item of `save_playlists`' `batches` finish with it (also with problem `stopped`, then `stopped` is true).",
@@ -1744,12 +2197,12 @@
           "x-shown": false
         },
         "headline": {
-          "description": "The sentence to show.",
+          "description": "The sentence to show: \"Moved {n} files.\" / \"Moved 1 file.\" (an undo: \"... back.\"), plus \" {k} not moved:\" when some were skipped.",
           "type": "string",
           "x-shown": true
         },
         "moved": {
-          "description": "How many files moved.",
+          "description": "How many files moved (a folder rename counts the files it carried).",
           "type": "integer",
           "x-shown": true
         },
@@ -1779,6 +2232,251 @@
         "headline",
         "skipped",
         "stopped"
+      ],
+      "type": "object"
+    },
+    "BatchRow": {
+      "additionalProperties": false,
+      "description": "One batch Discjockey made, an AIFF batch (Same track, Convert, Rename) or a move batch (a tidy-up, a save, a folder rename, an undo); `batches` lists them in one list, newest first.",
+      "properties": {
+        "backup": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The rekordbox backup an AIFF batch made; null for a move batch.",
+          "x-shown": true
+        },
+        "batch": {
+          "description": "The id inside its kind.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "done": {
+          "description": "Items done (for a move batch: the files moved).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "ended": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it ended; null while it runs or never did.",
+          "x-shown": true
+        },
+        "failed": {
+          "description": "Items that failed (always 0 for a move batch).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The typed id every other command takes: `aiff:12` or `moves:12`.",
+          "type": "string",
+          "x-shown": true
+        },
+        "kind": {
+          "description": "Which kind of batch.",
+          "enum": [
+            "aiff",
+            "moves"
+          ],
+          "x-shown": true
+        },
+        "planned": {
+          "description": "Items still planned.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What was picked for an AIFF batch (`selection`, `library:<view>[:<key>]`, `todo:cdj`, ...); null for a move batch.",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "Items skipped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "started": {
+          "description": "When it started, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "started_by": {
+          "description": "Who started it (an AIFF batch: `user`, `upgrade_all`, `make_aiff`, `cdj_all`, `auto_upgrade`, `download_again`; a move batch: `tidy`, `save`, `rename`, `undo`).",
+          "type": "string",
+          "x-shown": true
+        },
+        "state": {
+          "description": "How far it got.",
+          "enum": [
+            "running",
+            "stopped",
+            "done"
+          ],
+          "x-shown": true
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "stop",
+                "rekordbox_open",
+                "busy",
+                "crash"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it stopped; null when it did not (always null for a move batch).",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many items it holds.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "undone": {
+          "description": "Items undone (always 0 for a move batch: an undo is a batch of its own).",
+          "type": "integer",
+          "x-shown": true
+        },
+        "undone_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For a move batch the typed id of the batch that undid it; null otherwise.",
+          "x-shown": true
+        },
+        "via": {
+          "description": "Where it started.",
+          "enum": [
+            "window",
+            "terminal"
+          ],
+          "x-shown": true
+        },
+        "what": {
+          "description": "An AIFF batch's `upgrade`, `convert` or `mixed`; a move batch's title.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "batch",
+        "what",
+        "started_by",
+        "state",
+        "stop_reason",
+        "started",
+        "ended",
+        "total",
+        "done",
+        "skipped",
+        "failed",
+        "planned",
+        "undone",
+        "backup",
+        "undone_by",
+        "via",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "BatchUndoPreview": {
+      "additionalProperties": false,
+      "description": "What `batch undo` of an AIFF batch would do, before it runs: one item per `done` song, newest first (the order an undo goes). Whether the files changed since is only known when the undo runs.",
+      "properties": {
+        "batch": {
+          "description": "The batch, `aiff:<n>`.",
+          "type": "string",
+          "x-shown": true
+        },
+        "items": {
+          "description": "One item per song.",
+          "items": {
+            "$ref": "#/$defs/UndoPreviewItem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "planned": {
+          "description": "How many would be undone.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/UndoPreviewRekordbox",
+          "description": "rekordbox's state.",
+          "x-shown": true
+        },
+        "skipped": {
+          "description": "How many would not.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many songs.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "total",
+        "planned",
+        "skipped",
+        "items",
+        "rekordbox",
+        "batch"
+      ],
+      "type": "object"
+    },
+    "Batches": {
+      "additionalProperties": false,
+      "description": "The batches Discjockey made, newest first.",
+      "properties": {
+        "batches": {
+          "description": "The newest batches (`--limit`).",
+          "items": {
+            "$ref": "#/$defs/BatchRow"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many batches there are of the kinds asked for.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "batches",
+        "total"
       ],
       "type": "object"
     },
@@ -2414,7 +3112,7 @@
       "description": "The result of `rekordbox_checked`.",
       "properties": {
         "batch": {
-          "description": "Only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`).",
+          "description": "Only when `rekordbox_checked` was sent a `batch_id` (the command line's `--batch`); a batch whose tracks were all checked already is a finished job with nothing in it.",
           "type": "integer",
           "x-shown": false
         },
@@ -3858,6 +4556,69 @@
         "qobuz_uses",
         "left",
         "limit"
+      ],
+      "type": "object"
+    },
+    "ExtraDay": {
+      "additionalProperties": false,
+      "description": "A one-time extra for one day (settings.json `extra_today`).",
+      "properties": {
+        "amount": {
+          "description": "How many extra downloads that day.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "date": {
+          "description": "The day, an ISO date.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "date",
+        "amount"
+      ],
+      "type": "object"
+    },
+    "FactsPreview": {
+      "additionalProperties": false,
+      "description": "The dry run of `library facts`: nothing is stored.",
+      "properties": {
+        "total": {
+          "description": "How many own files lack stored facts.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "total"
+      ],
+      "type": "object"
+    },
+    "FactsResult": {
+      "additionalProperties": false,
+      "description": "The result of `fill_facts` (`library facts`): the audio facts read for the files that had none (codec, rate, bit depth, bitrate). A second run finds none.",
+      "properties": {
+        "filled": {
+          "description": "The files whose facts were read.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "total": {
+          "description": "The files that lacked facts.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "unreadable": {
+          "description": "The files ffprobe found no sound in: marked and left out until they change.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "total",
+        "filled",
+        "unreadable"
       ],
       "type": "object"
     },
@@ -6546,7 +7307,7 @@
     },
     "NeverDownloadResult": {
       "additionalProperties": false,
-      "description": "The result of `never_download`.",
+      "description": "The result of `never_download`: it saves `state.never` and rewrites not_lossless.md.",
       "properties": {
         "never": {
           "description": "Whether the song is now left out of the sync.",
@@ -7869,7 +8630,7 @@
               "type": "null"
             }
           ],
-          "description": "The playlist service `problem` is about; null when no service's problem (a good read clears it).",
+          "description": "The playlist service `problem` is about; null when no service's problem. A good read clears it, and so does a login made for that service (a good Setup or Settings login, or a good Check again): the page never waits for a restart.",
           "x-shown": true
         },
         "read_at": {
@@ -7956,6 +8717,66 @@
       },
       "required": [
         "actions"
+      ],
+      "type": "object"
+    },
+    "RekordboxBackup": {
+      "additionalProperties": false,
+      "description": "One copy of rekordbox's library Discjockey made.",
+      "properties": {
+        "batches": {
+          "description": "The AIFF batches (ids) that wrote under it.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "created": {
+          "description": "When it was made, an ISO time; empty when the copy does not say.",
+          "type": "string",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The name `rekordbox restore` takes.",
+          "type": "string",
+          "x-shown": true
+        },
+        "size": {
+          "description": "Its size in bytes.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "tracks": {
+          "description": "How many tracks' analysis files it holds.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "created",
+        "batches",
+        "tracks",
+        "size"
+      ],
+      "type": "object"
+    },
+    "RekordboxBackups": {
+      "additionalProperties": false,
+      "description": "The copies of rekordbox's library Discjockey made, newest first (each batch that wrote rekordbox keeps one; a restore saves the library it replaced as one). Reads only the backups' own folders: rekordbox's library is never opened.",
+      "properties": {
+        "backups": {
+          "description": "The copies, newest first.",
+          "items": {
+            "$ref": "#/$defs/RekordboxBackup"
+          },
+          "type": "array",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "backups"
       ],
       "type": "object"
     },
@@ -8865,6 +9686,151 @@
       ],
       "type": "object"
     },
+    "RestorePreview": {
+      "additionalProperties": false,
+      "description": "What `rekordbox restore` of a backup would leave behind, before it runs. Nothing is saved or changed.",
+      "properties": {
+        "backup": {
+          "description": "The backup asked for.",
+          "type": "string",
+          "x-shown": true
+        },
+        "missing_after": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/RestoredTrack"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tracks that would point at a file that is not there; null when that is not known (see `rekordbox`).",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/RestorePreviewRekordbox",
+          "description": "rekordbox's state.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "backup",
+        "missing_after",
+        "rekordbox"
+      ],
+      "type": "object"
+    },
+    "RestorePreviewRekordbox": {
+      "additionalProperties": false,
+      "description": "rekordbox's state for a restore preview.",
+      "properties": {
+        "needs_rekordbox_closed": {
+          "description": "A restore only runs with rekordbox quit.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "running": {
+          "description": "Whether rekordbox is open.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "unreadable": {
+          "description": "The current library can't be read (it is what a restore can repair): `missing_after` is null.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "writing": {
+          "description": "Another Discjockey process is writing rekordbox's library: it was not opened, `missing_after` is null.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "running",
+        "needs_rekordbox_closed"
+      ],
+      "type": "object"
+    },
+    "RestoreResult": {
+      "additionalProperties": false,
+      "description": "The result of `rekordbox_restore`: rekordbox's whole library is back as the backup holds it.",
+      "properties": {
+        "missing_after": {
+          "description": "The tracks that now point at a file that is not there (Discjockey moved it to `Superseded/` since).",
+          "items": {
+            "$ref": "#/$defs/RestoredTrack"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "recovered": {
+          "description": "What a recovery of an earlier crash put right, `[what, ok]` per line.",
+          "items": {
+            "items": false,
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "restored": {
+          "description": "The backup put back.",
+          "type": "string",
+          "x-shown": true
+        },
+        "saved_current": {
+          "description": "The id of the backup that holds the library the restore replaced.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "restored",
+        "saved_current",
+        "missing_after",
+        "recovered"
+      ],
+      "type": "object"
+    },
+    "RestoredTrack": {
+      "additionalProperties": false,
+      "description": "A track that would point (or now points) at a file that is not there.",
+      "properties": {
+        "id": {
+          "description": "The track's id in rekordbox's library.",
+          "type": "string",
+          "x-shown": false
+        },
+        "path": {
+          "description": "What the track points at after the restore.",
+          "type": "string",
+          "x-shown": true
+        },
+        "was": {
+          "description": "What it pointed at before.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "path",
+        "was"
+      ],
+      "type": "object"
+    },
     "Result": {
       "additionalProperties": false,
       "description": "One report line (also `ActionFinished.result`, run sections and op results): the payload copy of `events.Result`.",
@@ -8945,7 +9911,7 @@
           "x-shown": true
         },
         "section": {
-          "description": "The report section the line belongs to (`report.SECTIONS`).",
+          "description": "The report section the line belongs to (`report.SECTIONS`). `moved`, `adopted` and `conflicts` are no longer written by new runs; they stay in the list because past runs' reports have them.",
           "type": "string",
           "x-shown": true
         },
@@ -9181,7 +10147,7 @@
           "x-shown": true
         },
         "exit_code": {
-          "description": "How it ended: 0 well, 130 stopped.",
+          "description": "How it ended: 0 well, 1 some failed, 130 stopped.",
           "type": "integer",
           "x-shown": true
         },
@@ -9401,7 +10367,7 @@
           "x-shown": true
         },
         "exit_code": {
-          "description": "How it ended: 0 well, 130 stopped.",
+          "description": "How it ended: 0 well, 1 some failed, 130 stopped.",
           "type": "integer",
           "x-shown": true
         },
@@ -9783,6 +10749,220 @@
     "SettingKey": {
       "const": "read_liked_music",
       "description": "A choice in Settings that a read needs (its key in settings.json): `setting_off` names it in `setting`."
+    },
+    "SettingsAccount": {
+      "additionalProperties": false,
+      "description": "A YouTube or SoundCloud login that is set up.",
+      "properties": {
+        "browser": {
+          "$ref": "#/$defs/Browser",
+          "description": "The browser the login is read from.",
+          "x-shown": false
+        },
+        "browser_name": {
+          "description": "The browser's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "daily_limit": {
+          "description": "How many downloads a day the account may make.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "extra": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExtraDay"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The one-time extra, null when none is set.",
+          "x-shown": true
+        },
+        "last_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LastCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The last login check; null when never checked since it was saved.",
+          "x-shown": true
+        },
+        "liked_only": {
+          "description": "A free YouTube login: used only for Liked music.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The browser profile's folder; null: the default one.",
+          "x-shown": false
+        },
+        "profile_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The profile's display name; null for the default profile.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "browser",
+        "browser_name",
+        "profile",
+        "profile_name",
+        "daily_limit",
+        "extra",
+        "last_check",
+        "liked_only"
+      ],
+      "type": "object"
+    },
+    "SettingsLabels": {
+      "additionalProperties": false,
+      "description": "The page's names of the two switches.",
+      "properties": {
+        "auto_upgrade": {
+          "description": "The Auto-upgrade switch's name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "read_liked_music": {
+          "description": "The Liked music switch's name.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "auto_upgrade",
+        "read_liked_music"
+      ],
+      "type": "object"
+    },
+    "SettingsView": {
+      "additionalProperties": false,
+      "description": "`settings show`: what Settings holds, in the window's words where it has them. It needs no music folder (the settings file is the support folder's). A file that cannot be read is `config_invalid`.",
+      "properties": {
+        "accounts": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SettingsAccount"
+          },
+          "description": "The YouTube and SoundCloud logins that are set up, by service; a service without one is absent.",
+          "type": "object",
+          "x-shown": true
+        },
+        "auto_upgrade": {
+          "description": "\"Upgrade automatically when I sync\".",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "daily_qobuz_limit": {
+          "description": "How many downloads a day Qobuz may make.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "extra": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExtraDay"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Qobuz's one-time extra, null when none is set.",
+          "x-shown": true
+        },
+        "import_skipped": {
+          "description": "Skip was pressed on \"Your existing music\".",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "labels": {
+          "$ref": "#/$defs/SettingsLabels",
+          "description": "The page's names of the two switches.",
+          "x-shown": true
+        },
+        "music_folder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The chosen music folder; null when none is chosen yet.",
+          "x-shown": true
+        },
+        "qobuz_last_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LastCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The last Qobuz login check, null when none.",
+          "x-shown": true
+        },
+        "qobuz_skipped": {
+          "description": "\"I don't have Qobuz\" was chosen.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "read_liked_music": {
+          "description": "The Liked music switch as the page shows it (on only with a YouTube login).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "spotify_skipped": {
+          "description": "\"I don't use Spotify\" was chosen.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "warnings_seen": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Per service, the time its warning signs were last seen (\"Got it\"), an ISO time.",
+          "type": "object",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "music_folder",
+        "auto_upgrade",
+        "read_liked_music",
+        "daily_qobuz_limit",
+        "qobuz_skipped",
+        "spotify_skipped",
+        "import_skipped",
+        "qobuz_last_check",
+        "extra",
+        "warnings_seen",
+        "accounts",
+        "labels"
+      ],
+      "type": "object"
     },
     "SetupStatus": {
       "additionalProperties": false,
@@ -10371,7 +11551,7 @@
           "x-shown": true
         },
         "text": {
-          "description": "The plain words.",
+          "description": "The plain words: those of `tidy_preview`'s and `undo_preview`'s `skip`, plus `changed` \"Changed since the list was shown\", `failed` \"Couldn't move it: {why}\" and `stopped` \"Not moved: the moves were stopped first\".",
           "type": "string",
           "x-shown": true
         },
@@ -14408,13 +15588,19 @@
     "answer_same_song": "Empty",
     "app_update": "AppUpdate",
     "auto_upgrade_preview": "AutoUpgradePreviewAnswer",
+    "auto_upgrade_run": "AutoUpgradeRunResult",
+    "batch_detail": "BatchDetail",
     "batch_resume": "AiffBatchResult",
     "batch_undo": "UndoResult",
+    "batch_undo_preview": "BatchUndoPreview",
+    "batches": "Batches",
     "check_import_folder": "ImportFolderCheck",
     "check_music_folder": "FolderCheck",
     "convert": "AiffBatchResult",
     "dashboard": "Dashboard",
     "downloads_view": "DownloadsViewAnswer",
+    "facts_preview": "FactsPreview",
+    "fill_facts": "FactsResult",
     "find_logins": "FindLogins",
     "find_tracks": "FindTracksAnswer",
     "freshness": "Freshness",
@@ -14430,20 +15616,28 @@
     "missing_files_preview": "MissingPreview",
     "move_batches": "MoveBatches",
     "never_download": "NeverDownloadResult",
+    "open_external": "Empty",
+    "open_licenses": "Empty",
+    "open_privacy_settings": "Empty",
+    "open_report": "Empty",
     "playlists": "Playlists",
     "preview": "PreviewAnswer",
     "preview_playlist_change": "ChangePreview",
     "qobuz_check_login": "Empty",
     "refresh": "RefreshResult",
     "reject_current": "OpResult",
+    "rekordbox_backups": "RekordboxBackups",
     "rekordbox_checked": "CheckedResult",
     "rekordbox_preview": "RekordboxPreviewAnswer",
+    "rekordbox_restore": "RestoreResult",
+    "rekordbox_restore_preview": "RestorePreview",
     "rekordbox_status": "RekordboxStatusAnswer",
     "removal_preview": "RemovalPreview",
     "remove_watched_folder": "RemovalPreview",
     "rename": "AiffBatchResult",
     "rescan_library": "ScanResult",
     "retry_music_folder": "MusicFolderAnswer",
+    "reveal": "Empty",
     "rollback_tools": "ToolsChange",
     "run": "RunAnswer",
     "runs": "Runs",
@@ -14457,6 +15651,7 @@
     "set_favourites": "FavouritesSaved",
     "set_music_folder": "MusicFolderSet",
     "set_read_liked_music": "Empty",
+    "settings_view": "SettingsView",
     "setup_account": "AccountSaved",
     "setup_check_tools": "SetupTools",
     "setup_forget_account": "AccountForgotten",
@@ -14467,6 +15662,7 @@
     "setup_skip_spotify": "Empty",
     "setup_spotify_login": "SpotifyLogin",
     "setup_status": "SetupStatus",
+    "show_in_finder": "Empty",
     "sidebar": "Sidebar",
     "spectrum": "SpectrumAnswer",
     "spotify_sign_out": "Empty",
@@ -14499,8 +15695,10 @@
     "add_liked_music": "LikedMusicAdded",
     "aiff_batch": "AiffBatchResult",
     "answer": "Empty",
+    "auto_upgrade": "AutoUpgradeRunResult",
     "batch_resume": "AiffBatchResult",
     "batch_undo": "UndoResult",
+    "facts": "FactsResult",
     "folders": "RemovalPreview",
     "hide": "OpResult",
     "import": "ImportResult",
@@ -14511,6 +15709,7 @@
     "refresh": "RefreshResult",
     "reject_current": "OpResult",
     "rekordbox_checked": "CheckedResult",
+    "rekordbox_restore": "RestoreResult",
     "rollback_tools": "ToolsChange",
     "save_limits": "SaveLimitsResult",
     "save_playlists": "SavePlaylistsResult",

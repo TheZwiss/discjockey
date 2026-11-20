@@ -589,7 +589,7 @@ class OpResult(TypedDict):
 
 @shape
 class NeverDownloadResult(TypedDict):
-    """The result of `never_download`."""
+    """The result of `never_download`: it saves `state.never` and rewrites not_lossless.md."""
     track_id: Annotated[str, F("The song's key.", shown=False)]
     never: Annotated[bool, F("Whether the song is now left out of the sync.")]
 
@@ -667,7 +667,8 @@ class CheckedResult(TypedDict):
     recovered: Annotated[list[tuple[str, bool]], F("What a recovery of an earlier crash put right, `[what, ok]` per "
                                                    "line.")]
     batch: NotRequired[Annotated[int, F("Only when `rekordbox_checked` was sent a `batch_id` (the command line's "
-                                        "`--batch`).", shown=False)]]
+                                        "`--batch`); a batch whose tracks were all checked already is a finished "
+                                        "job with nothing in it.", shown=False)]]
     newer: NotRequired[Annotated[dict[str, str | None], F(
         "Only with `batch`: the songs of the batch whose check a later batch took, each with that batch's id "
         "(`aiff:<n>`), or null when it is not an AIFF batch.", shown=False)]]

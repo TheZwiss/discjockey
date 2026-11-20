@@ -84,6 +84,10 @@ const SAMPLE_ARGS: Record<string, Args> = {
   setup_qobuz_login: ['dj@example.com', 'secret'], update_tools: [], rollback_tools: [],
   add_watched_folder: ['/Volumes/Example Drive/Old'], remove_watched_folder: [2], setup_forget_account: ['youtube'],
   spotify_sign_out: [], setup_skip_qobuz: [], setup_skip_spotify: [], set_music_folder: ['/Users/you/Music/Discjockey'],
+  // E7e: the reads that answer `{}` and belong to no area
+  show_in_finder: ['t2', 'current'], reveal: ['Library/House'], open_licenses: [], open_privacy_settings: [],
+  open_external: ['https://example.com/'],
+  open_report: async (b) => [((await b.runs()) as { runs?: { run_id: string }[] }).runs?.[0]?.run_id ?? '2026-01-01_000000'],
 };
 /** Why a mapped method cannot be called with fixed arguments. */
 const NO_SAMPLE: Record<string, string> = {};
