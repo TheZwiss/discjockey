@@ -924,6 +924,11 @@ Results:
     V2.4 19k (floor: rev/expect too common to grep), V2.5 167k, V2.6 109k; tests by hit windows: 96/80/75/6/63/28k.
     Hand check by me: PreviewStore 8 engine + 19 test hit lines = script. BEFORE (B): the user ticks extras E2-E9
     (plan v2 §7; E7 changes how phase 2-6 contract work is done) + the Qobuz "Use this" note (V2.6).
+    User: "its your responsibility to make these decisions" → decided by me (open-scope "## Decided"): E2+E3, E6,
+    E7 (FIRST in phase 2), E9, E4 in; E5 (re-decide at phase 7) and E8 out; "Use this" waits while a sync's pause
+    holds. +2 765k at plan units. Detailing split into waves: (B1) Opus wave 1 = phase 2 order/cuts/interfaces + briefs
+    E7, V2.1, V2.4 (brief-detail-wave1.md; material ~105k, est. 230-300k) RUNNING; then (C) fresh Opus brief check;
+    wave 1 builds; (B2) wave 2 briefs against the code after E7.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
