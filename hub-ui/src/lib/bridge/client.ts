@@ -5,6 +5,7 @@ import type {
   SetupStatus, SetupTools, Sidebar, SyncPreview, Todo, TodoFilter, TrackAnswer, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
   RemovalPreview, MissingAction, MissingPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, RekordboxStatusAnswer, AiffPlan, AiffScope,
+  AiffPlanAnswer, PreviewAnswer, DownloadsViewAnswer, MusicFolderSet, MusicFolderAnswer,
 } from './types';
 import { CONTRACT_METHODS } from './contract';
 import { waitForJob } from '../stores/jobs';
@@ -47,10 +48,10 @@ export interface Bridge {
   /** What Make all lossless files AIFF, a selection's Convert or the CDJ group's Convert all would do now (issue 33
    *  stage D): a read of the files' stored facts, no decoding; own files whose facts are not stored yet (at most 50) are
    *  probed in memory and never stored, as the run fills them first. `refused` for a scope that is none of the three */
-  aiff_plan(scope: AiffScope): Promise<Res<{ plan: AiffPlan }>>;
+  aiff_plan(scope: AiffScope): Promise<Res<AiffPlanAnswer>>;
   // read with network (refused with sync_running during any sync)
   search_candidates(track_id: string): Promise<Res<Candidates>>;
-  preview(track_id: string, candidate: Candidate): Promise<Res<{ url: string }>>;
+  preview(track_id: string, candidate: Candidate): Promise<Res<PreviewAnswer>>;
   add_playlist(url: string): Promise<Res<AddedPlaylist>>;
   preview_playlist_change(lines: PlaylistLine[]): Promise<Res<ChangePreview>>;
   // write jobs (outcome = JobFinished with the same job_id)
@@ -119,7 +120,7 @@ export interface Bridge {
   setup_skip_import(): Promise<Res<{}>>;
   setup_account(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
   setup_check_account(service: 'youtube' | 'soundcloud'): Promise<Res<{ service: Service; check: AccountCheck }>>;
-  downloads_view(): Promise<Res<{ downloads: DownloadsView }>>;
+  downloads_view(): Promise<Res<DownloadsViewAnswer>>;
   find_logins(service: 'youtube' | 'soundcloud'): Promise<Res<FindLogins>>;
   account_sign_in(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
   stop_sign_in(): Promise<Res<Stopped>>;
@@ -129,8 +130,8 @@ export interface Bridge {
   // the music folder
   pick_folder(start?: string | null): Promise<Res<{ path: string | null }>>;
   check_music_folder(path: string): Promise<Res<FolderCheck>>;
-  set_music_folder(path: string): Promise<Res<{ music: MusicStatus; restart: boolean }>>;
-  retry_music_folder(): Promise<Res<{ music: MusicStatus }>>;
+  set_music_folder(path: string): Promise<Res<MusicFolderSet>>;
+  retry_music_folder(): Promise<Res<MusicFolderAnswer>>;
   setup_forget_account(service: 'youtube' | 'soundcloud'): Promise<JobStart>;
 }
 

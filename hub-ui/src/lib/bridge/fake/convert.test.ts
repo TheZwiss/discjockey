@@ -1,19 +1,12 @@
 // The fake mirrors Convert to AIFF, Give it its clean name, Make all lossless files AIFF and the CDJ group of the real
-// bridge (issue 33 stage D). Every shape's keys come from tests/fixtures/hub_convert_shapes.json, which the real hub's
-// test (tests/test_hub_api_convert.py) reads too; the behaviours are the ones the plan §5 D6/D7 names.
+// bridge (issue 33 stage D). The shapes' keys are pinned by the generated schemas (fake/schemas.test.ts, T6); these
+// tests pin the behaviours the plan §5 D6/D7 names.
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { createFakeBridge } from './bridge';
 import { cdjProblem, undoneWords } from './convert';
 import type { FakeAudio, FakeState, FakeTrack } from './data';
 import type { HubEvent } from '../events';
 import type { AiffBatchResult, AiffPlan, Library, Todo, TrackDetail, UndoResult } from '../types';
-
-const SHAPES: Record<string, string[]> = JSON.parse(readFileSync(
-  fileURLToPath(new URL('../../../../../tests/fixtures/hub_convert_shapes.json', import.meta.url)), 'utf8'));
-const keys = (name: string) => [...SHAPES[name]].sort();
-const has = (o: object, name: string) => expect(Object.keys(o).sort()).toEqual(keys(name));
 
 const DIR = '/Volumes/Example/Music';
 /** An own file in DIR with the stored facts `audio` (and its extension): `convert-d7-<n>`. */
@@ -75,11 +68,9 @@ describe('the fake bridge: the CDJ rule and the plan', () => {
     own(s, 'name', AIFF_CLEAN, { file: `${DIR}/Messy [FREE DL].aiff` });
     own(s, 'named', AIFF_CLEAN);
     const mp3 = (await detail('d7-mp3')).aiff!;
-    has(mp3, 'track_aiff');
     expect(mp3).toMatchObject({ action: 'convert', why_not: null, kind: 'mp3', to: 'AIFF · 16-bit · 44.1 kHz', lossy: true,
       from: 'MP3 · 44.1 kHz · 400 kbps', name_now: 'Mira Nacht - Song mp3.mp3', new_name: 'Mira Nacht - Song mp3.aiff' });
     expect(mp3.bytes).toBeGreaterThan(0);
-    has(mp3.cdj!, 'cdj_words');
     expect((await detail('d7-name')).aiff).toMatchObject({ action: 'rename', kind: 'name', to: null, bytes: 0,
       name_now: 'Messy [FREE DL].aiff', new_name: 'Mira Nacht - Song name.aiff' });
     expect((await detail('d7-named')).aiff).toMatchObject({ action: null, why_not: 'named_already', new_name: null,
@@ -87,7 +78,6 @@ describe('the fake bridge: the CDJ rule and the plan', () => {
     s.rekordbox_state = 'unreadable';
     // blocked, but still the step's own answer (judged as if rekordbox were not in the way): Becomes, Name and Space show
     const blocked = (await detail('d7-mp3')).aiff!;
-    has(blocked, 'track_aiff');
     expect(blocked).toMatchObject({ action: 'convert', why_not: 'rekordbox_unreadable', kind: 'mp3', to: 'AIFF · 16-bit · 44.1 kHz',
       from: 'MP3 · 44.1 kHz · 400 kbps', name_now: 'Mira Nacht - Song mp3.mp3', new_name: 'Mira Nacht - Song mp3.aiff', lossy: true });
     expect(blocked.bytes).toBe(mp3.bytes);
@@ -119,9 +109,6 @@ describe('the fake bridge: the CDJ rule and the plan', () => {
     own(s, 'named', AIFF_CLEAN);
     own(s, 'away', FLAC(44100, 16), { away: 'offline' });
     const sel = await plan({ kind: 'tracks', tracks: ['d7-mp3', 'd7-named', 'd7-away', 'd7-mp3'] });
-    has(sel, 'plan'); has(sel.rekordbox, 'plan_rekordbox');
-    has(sel.items[0], 'plan_item'); has(sel.skipped[0], 'plan_left'); has(sel.waiting[0], 'plan_waiting');
-    has(sel.kinds[0], 'plan_kind'); has(sel.space[0], 'plan_space');
     expect(sel.scope).toEqual({ kind: 'tracks', tracks: ['d7-mp3', 'd7-named', 'd7-away'], label: 'Selection' });   // each song once
     expect(sel.items.map((i) => i.track)).toEqual(['d7-mp3']);              // a track listed twice counts once
     expect(sel.skipped.map((l) => [l.track, l.reason])).toEqual([['d7-named', 'named_already'], ['d7-away', 'away']]);
@@ -176,11 +163,8 @@ describe('the fake bridge: the CDJ group in To-do', () => {
     expect(shown.chips.cdj).toBe(2);
     const g = (await group('cdj'))!;
     expect(g).toMatchObject({ label: "Won't play well on CDJs", hint: 'CDJs refuse or stutter on these files', stopped: null });
-    has(g.all!, 'cdj_group_all');
     expect(g.all).toEqual({ n: 1, k: 1 });                                  // the away file waits
     expect(g.items.map((i) => i.track_id)).toEqual(['d7-mp3', 'd7-flac']);
-    expect(Object.keys(g.items[0])).toEqual(expect.arrayContaining(SHAPES.cdj_item_extra));
-    has(g.items[0].cdj!, 'cdj_why');
     expect(g.items.map((i) => [i.detail === i.cdj!.short, i.aiff, i.file_state])).toEqual([[true, null, 'here'], [true, 'away', 'offline']]);
   });
 
@@ -191,15 +175,12 @@ describe('the fake bridge: the CDJ group in To-do', () => {
     const done = await run(f.make_aiff({ kind: 'cdj' }));
     expect(done).toMatchObject({ kind: 'aiff_batch', ok: true });
     const r = done.result as AiffBatchResult;
-    has(r, 'batch_result'); has(r.results[0], 'item_result');
     expect(r).toMatchObject({ state: 'done', total: 2, done: 2, skipped: 0 });
     expect(r.results.map((i) => [i.track, i.action, i.state])).toEqual([['d7-mp3', 'convert', 'done'], ['d7-flac', 'convert', 'done']]);
     expect(await group('cdj')).toBeUndefined();                             // an AIFF now: CDJs play it
     const item = (await group('rekordbox_check'))!.items[0];
     expect(item.detail).toMatch(/ · Made AIFF$/);
-    has(item.batch!, 'batch');
     expect(item.batch).toMatchObject({ size: 2, started_by: 'cdj_all', kind: 'convert' });
-    has(item.batch!.tracks[0].check!, 'check_view');
     expect(item.batch!.tracks[0].check).toMatchObject({ reason: 'converted', old_name: null,
       old_path: 'Superseded/Mira Nacht - Song mp3.mp3' });
     expect(item.batch!.tracks[0].detail).toBe('an AIFF now: nothing to redo');
@@ -216,7 +197,6 @@ describe('the fake bridge: the CDJ group in To-do', () => {
     const r = stopped.result as AiffBatchResult;
     expect([r.state, r.stop_reason, r.done]).toEqual(['stopped', 'rekordbox_open', 0]);
     const g = (await group('cdj'))!;
-    has(g.stopped!, 'stopped');
     expect(g.stopped).toEqual({ batch_id: r.batch, left: 2 });
     expect((await group('upgrade_ready'))?.stopped ?? null).toBeNull();
     expect(((await f.library('all', null, '', 'all', null)) as Library & { ok: true }).aiff_stopped).toBeNull();   // scope todo:cdj
@@ -306,7 +286,6 @@ describe('the fake bridge: Convert, Rename and Make all', () => {
     expect(many).toMatchObject({ ok: false, problem: 'rekordbox_open' });
     const lib = (await f.library('all', null, '', 'all', null)) as Library & { ok: true };
     expect(lib.aiff_stopped).toEqual({ batch_id: (many.result as AiffBatchResult).batch, left: 2 });
-    has(lib.aiff_stopped!, 'stopped');
     // a file rekordbox doesn't hold runs while it is open
     s.tracks.find((t) => t.track_id === 'd7-a')!.inRekordbox = false;
     s.tracks.find((t) => t.track_id === 'd7-b')!.inRekordbox = false;
@@ -339,7 +318,6 @@ describe('the fake bridge: Convert, Rename and Make all', () => {
     const rn = (await run(f.undo_upgrade(['d7-c']))).result as UndoResult;
     expect(rn.words).toBe('Clean name undone. Your old name is back.');
     const rest = (await run(f.batch_undo(sr.batch!))).result as UndoResult;
-    has(rest, 'undo_result_success');
     expect(rest.words).toBe('Conversion undone. Your old file is back.');
   });
 
@@ -380,8 +358,8 @@ describe('the fake bridge: the keys an ok answer of the engine always carries (a
   it('rekordbox_status, set_auto_upgrade, a run summary and a track carry them', async () => {
     const { f, s, run, detail } = setup();
     const status = (await f.rekordbox_status()) as object;
-    expect(Object.keys(status).filter((k) => k !== 'ok').sort()).toEqual(keys('rekordbox_status'));
-    has((await run(f.set_auto_upgrade(false))).result as object, 'set_auto_upgrade_result');
+    expect(status).toMatchObject({ state: expect.any(String), running: expect.any(Boolean) });
+    expect(((await run(f.set_auto_upgrade(false))).result as { auto_upgrade: boolean }).auto_upgrade).toBe(false);
     expect(s.runs.length).toBeGreaterThan(0);
     const dash = (await f.dashboard()) as { last_runs: { kind?: string }[] };
     expect(dash.last_runs.every((r) => r.kind === 'sync')).toBe(true);

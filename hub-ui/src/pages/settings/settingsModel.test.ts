@@ -63,7 +63,7 @@ const status = (over: Partial<SetupStatus> = {}): SetupStatus => ({
   music: { state: 'ok', path: '/Users/you/Music/Discjockey', suggested: '/Users/you/Music/Discjockey' },
   tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
   playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false, spotify_skipped: false, spotify_user: 'dj',
-  existing: false, import_folders: 0, import_skipped: false,
+  existing: false, import_folders: 0, import_skipped: false, qobuz_last_check: null,
   accounts: { youtube: null, soundcloud: null },
   youtube_music: { liked_music: false, can_turn_on: false, listed: false }, ...over });
 const tools = (missing: string[] = []): SetupTools => ({ tools: { ffmpeg: true, ffprobe: true, deno: true }, missing,

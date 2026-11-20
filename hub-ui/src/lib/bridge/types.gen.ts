@@ -2654,3 +2654,1035 @@ export type ScanResult = {
   /** Copies of a file found. */
   copies: number;
 };
+/**
+ * Where the music folder stands: `ok` (bound), `not_chosen` (Setup's first step) or `missing` (config.json
+ * names a folder that is not there, e.g. an unplugged drive).
+ */
+export type MusicState = 'ok' | 'not_chosen' | 'missing';
+/**
+ * What a usable folder holds: `new` (not there yet, made on the user's choice), `empty`, `discjockey_library`
+ * (a Discjockey library already) or `other_files` (the page asks before using it).
+ */
+export type FolderKind = 'new' | 'empty' | 'discjockey_library' | 'other_files';
+/** Why a folder can't be the music folder. */
+export type FolderProblem =
+  | 'not_absolute'
+  | 'not_a_folder'
+  | 'system_folder'
+  | 'inside_app'
+  | 'is_support_dir'
+  | 'not_writable';
+/** The required step `setup_status` names next; `downloads` is Qobuz signed in or left out. */
+export type SetupStep = 'music' | 'tools' | 'spotify' | 'downloads' | 'playlists';
+/** The music folder (spec public-release §4). */
+export type MusicStatus = {
+  /** Where the folder stands. */
+  state: MusicState;
+  /** The bound or missing folder; null while none is chosen. */
+  path: string | null;
+  /** The default to offer (`~/Music/Discjockey`). */
+  suggested: string;
+};
+/** What `check_music_folder(path)` found; it changes nothing. */
+export type FolderCheck = {
+  /** The resolved folder. */
+  path: string;
+  /** Whether the folder is there. */
+  exists: boolean;
+  /** Whether it can be the music folder; false: `problem` names why. */
+  usable: boolean;
+  /** Why it is not usable, else null. */
+  problem: FolderProblem | null;
+  /** What a usable folder holds; null when it is not usable. */
+  kind: FolderKind | null;
+  /** The refusal in plain words; null when usable. */
+  message: string | null;
+};
+/** The answer of `retry_music_folder`: the status after the try. */
+export type MusicFolderAnswer = {
+  /** Where the music folder stands now. */
+  music: MusicStatus;
+};
+/** The answer of `set_music_folder(path)`: it answers at once, no job. */
+export type MusicFolderSet = {
+  /** Where the music folder stands now. */
+  music: MusicStatus;
+  /** True when the choice is saved but the open window keeps its library: ask to reopen, then `quit()`. */
+  restart: boolean;
+};
+/** The update check's last answer (event `AppUpdate`); it never touches the network. */
+export type AppUpdate = {
+  /** `unknown`: no answer yet (offline, rate limit, or a version that is not plain); the page shows nothing. */
+  state: 'available' | 'up_to_date' | 'unknown';
+  /** This app's version. */
+  current: string;
+  /** The newest version; only for `available`. */
+  latest: string | null;
+  /** The release page; only for `available`. */
+  url: string | null;
+};
+/** A saved login check (settings.json): when it ran and what it found. */
+export type LastCheck = {
+  /** Whether the login worked. */
+  ok: boolean;
+  /** What was wrong, else null. */
+  problem: string | null;
+  /** The stream quality found, else null. */
+  kbps: number | null;
+  /** When the check ran, an ISO time. */
+  at: string;
+};
+/** A YouTube or SoundCloud account that is set up. */
+export type AccountStatus = {
+  /** The browser the login is read from. */
+  browser: Browser;
+  /** The browser's name. */
+  browser_name: string;
+  /** How many downloads a day the account may make. */
+  daily_limit: number;
+  /** The browser profile's folder; null: the default one, or Safari's only one. */
+  profile: string | null;
+  /** The profile's display name; null when it can't be read. */
+  profile_name: string | null;
+  /** The last login check; null when never checked since it was saved. */
+  last_check: LastCheck | null;
+};
+/** Which tools are found. */
+export type SetupStatusTools = {
+  /** ffmpeg is found. */
+  ffmpeg: boolean;
+  /** ffprobe is found. */
+  ffprobe: boolean;
+  /** deno is found. */
+  deno: boolean;
+};
+/** The two accounts of the download logins. */
+export type SetupStatusAccounts = {
+  /** The YouTube account, or null when none is set up. */
+  youtube: AccountStatus | null;
+  /** The SoundCloud account, or null when none is set up. */
+  soundcloud: AccountStatus | null;
+};
+/** YouTube Music's Liked music. */
+export type SetupStatusYoutubeMusic = {
+  /**
+   * Settings' "Read my Liked music" is on (it only counts with a YouTube account: forgetting that login turns
+   * it off for good).
+   */
+  liked_music: boolean;
+  /** A YouTube account is set up. */
+  can_turn_on: boolean;
+  /** A Liked music line is in playlists.txt, switched on or off. */
+  listed: boolean;
+};
+/**
+ * What is set up (`setup_status()`): open the wizard while `complete` is false. It never carries a secret,
+ * only whether it is there. Setup's "Your existing music" step is not among the required ones: `existing`
+ * never changes `next_step` or `complete` and never blocks Continue.
+ */
+export type SetupStatus = {
+  /** The music folder; unbound, `playlists` and `complete` are false. */
+  music: MusicStatus;
+  /** Which tools are found. */
+  tools: SetupStatusTools;
+  /** The Spotify Client ID is saved. */
+  spotify_app: boolean;
+  /** The Spotify login is there. */
+  spotify_login: boolean;
+  /** The Qobuz login is saved (stays false when Qobuz was left out). */
+  qobuz: boolean;
+  /** playlists.txt has playlists. */
+  playlists: boolean;
+  /** Every required step is done. */
+  complete: boolean;
+  /** The first required step not done, null when none. */
+  next_step: SetupStep | null;
+  /** `discjockey.__version__` (Settings → About shows it). */
+  version: string;
+  /** "I don't have Qobuz": the Downloads step counts as done. */
+  qobuz_skipped: boolean;
+  /** "I don't use Spotify": the Spotify step counts as done; connecting Spotify clears it. */
+  spotify_skipped: boolean;
+  /** YouTube Music's Liked music. */
+  youtube_music: SetupStatusYoutubeMusic;
+  /**
+   * "Upgrade automatically when I sync" (Settings, Setup's Downloads step): on by default; false too when
+   * settings.json can't be read.
+   */
+  auto_upgrade: boolean;
+  /** Setup's "Your existing music" step is done: an import folder is watched or it was skipped. */
+  existing: boolean;
+  /** The import folders watched. */
+  import_folders: number;
+  /** Skip was pressed on "Your existing music" (`setup_skip_import`). */
+  import_skipped: boolean;
+  /** The saved Qobuz login check, null when none. */
+  qobuz_last_check: LastCheck | null;
+  /** The Spotify account's display name saved at login; null when not connected or not known. */
+  spotify_user: string | null;
+  /** The YouTube and SoundCloud accounts. */
+  accounts: SetupStatusAccounts;
+};
+/** rekordbox on this Mac now: its library's state and whether it runs; the window's pair. */
+export type RekordboxStatus = {
+  /** What rekordbox's library is like. */
+  state: 'ready' | 'none' | 'unreadable';
+  /** Whether rekordbox runs. */
+  running: boolean;
+};
+/**
+ * What `rekordbox_status()` answers: the window's pair plus the command line's richer answer (the window reads
+ * `state` and `running` only). It works without a music folder and answers from a cache while a writer holds
+ * `rekordbox.lock`.
+ */
+export type RekordboxStatusAnswer = RekordboxStatus & {
+  /** The state in words. */
+  state_text: string;
+  /** What is wrong with the library, else null. */
+  problem: 'unclean' | 'busy' | 'key' | 'db_version' | 'schema' | null;
+  /** The problem in words, else null. */
+  problem_text: string | null;
+  /** rekordbox's version, null where unknown. */
+  version: string | null;
+  /** master.db's path, null where unknown. */
+  library: string | null;
+  /** master.db's DB version, null where unknown. */
+  db_version: string | null;
+  /** master.db's modified time (local ISO, to the second), null where unknown. */
+  modified_at: string | null;
+  /** master.db's size in bytes, null where unknown. */
+  size: number | null;
+  /** Present (true) while a Discjockey writer holds `rekordbox.lock`: `state` is then the last value read. */
+  writing?: boolean;
+  /** With `writing`: when that value was read (an ISO time), null when none was read yet. */
+  as_of?: string | null;
+};
+/** One browser profile and whether it holds a login. */
+export type LoginBrowserProfile = {
+  /** The profile's folder; null is Safari's only profile. */
+  id: string | null;
+  /** The profile's display name. */
+  name: string;
+  /** Whether the profile holds a login of the service. */
+  signed_in: boolean;
+};
+/** An installed browser. */
+export type LoginBrowser = {
+  /** The browser. */
+  id: Browser;
+  /** Its name. */
+  name: string;
+  /** The Mac's default browser. */
+  default: boolean;
+  /** Whether its login files can be read. */
+  readable: boolean;
+  /** Why it can't be read: `no_access` (Safari without Full Disk Access) or `locked`; else null. */
+  problem: 'no_access' | 'locked' | null;
+  /** Its profiles and which hold a login. */
+  profiles: LoginBrowserProfile[];
+};
+/** `find_logins(service)`: the installed browsers, the default first, and which profiles hold a login. */
+export type FindLogins = {
+  /** The installed browsers, the default one first. */
+  browsers: LoginBrowser[];
+};
+/** The Qobuz rung of the ladder. */
+export type DownloadsViewQobuz = {
+  /**
+   * `on`; `off` (not signed in, or its last login check failed); `skipped` ("I don't have Qobuz"); `paused`
+   * (stopped itself today); `used_up` (today's allowance used).
+   */
+  state: 'on' | 'off' | 'skipped' | 'paused' | 'used_up';
+  /** The last login check; null when never checked since it was saved. */
+  last_check: LastCheck | null;
+  /** Live tracks from Qobuz. */
+  tracks: number;
+};
+/** A YouTube or SoundCloud rung of the ladder and its account panel. */
+export type DownloadsAccount = {
+  /**
+   * `on`; `off` (not set up, or its last check found no login / failed); `no_premium` (YouTube: a free login,
+   * used only for Liked music); `unreadable` (macOS did not let Discjockey read the browser's login);
+   * `paused`; `used_up`.
+   */
+  state: 'on' | 'off' | 'no_premium' | 'unreadable' | 'paused' | 'used_up';
+  /** The browser the login is read from, null when not set up. */
+  browser: Browser | null;
+  /** The browser's name, null when not set up. */
+  browser_name: string | null;
+  /** The browser profile's folder; null: the default one. */
+  profile: string | null;
+  /** The profile's display name; null when it can't be read. */
+  profile_name: string | null;
+  /** The last login check; null when never checked since it was saved. */
+  last_check: LastCheck | null;
+  /** The library's live lossy tracks this account brought in at about 256 kbps. */
+  tracks: number;
+};
+/** The library's live tracks (in a playlist, not hidden) counted by rung. */
+export type DownloadsViewLibrary = {
+  /** Lossless tracks (an artist's lossless original counts here). */
+  lossless: number;
+  /** Lossy stream downloads at 200 kbps or more. */
+  account: number;
+  /** The lower or unknown ones. */
+  free: number;
+};
+/**
+ * The source ladder and the account panels of Settings and Setup (spec settings-setup §6.4): each download
+ * source's state and the library counted by rung. Without a music folder the library counts are zero.
+ */
+export type DownloadsView = {
+  /** The Qobuz rung. */
+  qobuz: DownloadsViewQobuz;
+  /** The YouTube account. */
+  youtube: DownloadsAccount;
+  /** The SoundCloud account. */
+  soundcloud: DownloadsAccount;
+  /** The library counted by rung. */
+  library: DownloadsViewLibrary;
+};
+/** The answer of `downloads_view()`. */
+export type DownloadsViewAnswer = {
+  /** The ladder and the panels. */
+  downloads: DownloadsView;
+};
+/** A login checked again. */
+export type AccountCheck = {
+  /** Whether the login is usable. */
+  ok: boolean;
+  /** What is wrong, else null. */
+  problem: 'cookies_unreadable' | 'not_logged_in' | 'no_premium' | 'failed' | null;
+  /** The stream quality found, else null. */
+  kbps: number | null;
+  /** The sentence to show. */
+  message: string;
+};
+/** One download tool in Settings → This Mac. */
+export type DownloadTool = {
+  /** What this window runs; null: not installed. */
+  version: string | null;
+  /** `built_in` came with Discjockey, `updated` was brought by Update download tools. */
+  source: 'built_in' | 'updated';
+  /** The version the next start uses, when it differs: an update or a step back waits for a reopen. */
+  waiting: string | null;
+  /** What Go back would use; null: nothing to go back to. */
+  previous: string | null;
+};
+/**
+ * The two download tools by name: `yt-dlp`, and `streamrip` (always `built_in` with null `waiting` and
+ * `previous`). Keyed by name because `yt-dlp` is no identifier.
+ */
+export type DownloadTools = Record<string, DownloadTool>;
+/** Which tools are found. */
+export type SetupToolsTools = {
+  /** ffmpeg is found. */
+  ffmpeg: boolean;
+  /** ffprobe is found. */
+  ffprobe: boolean;
+  /** deno is found. */
+  deno: boolean;
+};
+/** What `setup_check_tools()` found, and the download tools of Settings → This Mac. */
+export type SetupTools = {
+  /** Which tools are found. */
+  tools: SetupToolsTools;
+  /** The tools not found. */
+  missing: string[];
+  /** For each missing tool, how to get it. */
+  hints: Record<string, string>;
+  /** The Spotify redirect address to enter in the Spotify app. */
+  redirect_uri: string;
+  /** The download tools; null when reading them failed unexpectedly (`download_tools_problem` says so). */
+  download_tools: DownloadTools | null;
+  /** A plain sentence when `download_tools` is null, else null. */
+  download_tools_problem: string | null;
+};
+/** The result of `update_tools` and `rollback_tools`: the version the next start uses before and after. */
+export type ToolsChange = {
+  /** The version the next start uses before, per tool. */
+  before: Record<string, string | null>;
+  /** The version the next start uses after, per tool. */
+  after: Record<string, string | null>;
+  /** True when that is not the version this window runs: ask to reopen, then `quit()`. */
+  restart: boolean;
+};
+/**
+ * The result of `setup_account` and `account_sign_in`: the login checked and saved (a login without Premium or
+ * Go+ is saved too).
+ */
+export type AccountSaved = {
+  /** The service. */
+  service: Service;
+  /** The browser. */
+  browser: Browser;
+  /** The profile whose login was found; null: the default one. */
+  profile: string | null;
+  /** Whether the login was saved. */
+  saved: boolean;
+  /** What the check found. */
+  check: AccountCheck;
+};
+/** The result of `setup_forget_account`. */
+export type AccountForgotten = {
+  /** The service whose saved browser was removed. */
+  service: Service;
+};
+/** The result of `setup_spotify_login`. */
+export type SpotifyLogin = {
+  /** The Spotify account's display name. */
+  user: string;
+};
+/** The result of `add_liked_music`. */
+export type LikedMusicAdded = {
+  /** The folder the Liked music line got (`Liked_music`, or `Liked_music_2`, ... when taken). */
+  folder: string;
+};
+/** The result of `set_auto_upgrade`. */
+export type AutoUpgradeSet = {
+  /** The value saved (the window ignores it, the command line says it). */
+  auto_upgrade: boolean;
+};
+/** One version of a song a source offers; send it back unchanged to `preview` and `use_candidate`. */
+export type Candidate = {
+  /** The source (`Source`'s values, or another word the engine reports). */
+  source: string;
+  /** The source's id of the version. */
+  id: string;
+  /** The title. */
+  title: string;
+  /** The artist. */
+  artist: string;
+  /** The length in seconds, else null. */
+  duration_s: number | null;
+  /** Where the version is, else null. */
+  url: string | null;
+  /** The ISRC, else null. */
+  isrc: string | null;
+  /** The album, else null. */
+  album: string | null;
+  /** The label, else null. */
+  label: string | null;
+  /** The cover's address, else null. */
+  image_url: string | null;
+  /** The version's key. */
+  key: string;
+  /** The source in short words. */
+  source_name: string;
+  /** The length against the song's, in seconds (green within 3 s); null when one is unknown. */
+  length_diff_s: number | null;
+  /** Whether `preview` can play it (not a Qobuz version). */
+  can_preview: boolean;
+  /** How well it matches, 0 to 100; null when not scored. */
+  score: number | null;
+  /** Whether it matches the song. */
+  matches: boolean;
+  /** Whether its length is close enough. */
+  length_ok: boolean;
+  /** The version in the library now (listed first). */
+  current: boolean;
+  /** The user marked it as wrong. */
+  rejected: boolean;
+};
+/** `search_candidates(track_id)`: the versions the sources offer, the current one first. */
+export type Candidates = {
+  /** The song's id. */
+  track_id: string;
+  /** The song's length in seconds. */
+  track_duration_s: number;
+  /** The words of the current file's quality. */
+  current_quality_label: string;
+  /** The versions. */
+  candidates: Candidate[];
+  /** Lines about the search. */
+  notes: string[];
+};
+/** `preview(track_id, candidate)`: 30 seconds of a version (youtube_music, soundcloud, youtube only). */
+export type PreviewAnswer = {
+  /** A media address `<audio>` plays. */
+  url: string;
+};
+/**
+ * `add_playlist(url)`: a pasted link read through its service's reader. Add the row with `link` and
+ * `suggested_folder`.
+ */
+export type AddedPlaylist = {
+  /** The playlist's ref (see `playlists()`). */
+  playlist_id: string;
+  /** The service. */
+  service: PlaylistService;
+  /** The service's name. */
+  service_name: string;
+  /** The link to store. */
+  link: string;
+  /** What the service says of the playlist, null when not readable. */
+  info: PlaylistInfo | null;
+  /** How many tracks, null when neither the tracks nor the count were read. */
+  tracks: number | null;
+  /** Whether the service shows the playlist. */
+  readable: boolean;
+  /** The folder name to offer (editable). */
+  suggested_folder: string;
+  /** When not readable: the service's words, the same as `info.hint`; else null. */
+  hint: string | null;
+};
+/**
+ * What a playlist edit would do: `moves` or `rename` (files would sit in another folder), `reroute` (only
+ * tracks without a file change folder), `add`, `switch_off` (a playlist is left out of the sync and nothing
+ * else changes), `unknown` or `none`.
+ */
+export type ChangeKind = 'moves' | 'rename' | 'reroute' | 'add' | 'switch_off' | 'unknown' | 'none';
+/** A folder whose file count a change alters. */
+export type ChangePreviewFolder = {
+  /** The folder. */
+  folder: string;
+  /** Its files before the change. */
+  before: number;
+  /** Its files after (0 for a switched-off playlist's folder). */
+  after: number;
+};
+/**
+ * A folder rename on disk a save could do: one per playlist whose folder name changes other than in case and
+ * whose old folder is in `Library/`.
+ */
+export type RenameOffer = {
+  /** The playlist folder's old name. */
+  from: string;
+  /** The new folder name. */
+  to: string;
+  /** How many files are in the folder. */
+  files: number;
+  /** False: show `why_not` instead of the choice. */
+  offered: boolean;
+  /** Why the rename is not offered ("A folder called {new} is already in your Library."); else null. */
+  why_not: string | null;
+  /** The choice's label ("Rename the folder on disk too"). */
+  option: string;
+  /** The choice's detail ("One folder move instead of {n} file moves."). */
+  detail: string;
+};
+/** Why a file can't be moved. */
+export type TidySkip = {
+  /** The code. */
+  reason: 'offline' | 'not_found' | 'name_taken';
+  /**
+   * The plain words to show ("Offline, skipped", "Not where Discjockey last saw it", "A file with this name is
+   * already in {to}"); such a row can't be ticked.
+   */
+  text: string;
+};
+/** One file a tidy-up could move: a track row plus where it goes. */
+export type TidyRow = TrackRow & {
+  /** The file's id. */
+  file_id: number;
+  /** The folder it is in, relative to `Library/` (`""` is `Library` itself, shown "Library"). */
+  from: string;
+  /** The folder the playlist order puts it in, relative to `Library/`. */
+  to: string;
+  /** The snapshot path the page sends back to `tidy_up` and `save_playlists`. */
+  from_path: string;
+  /** Who put the file where it is. */
+  placed_by: 'app' | 'user' | 'import';
+  /** Moves by default: no `skip` and placed by the app. */
+  ticked: boolean;
+  /** Placed by the user or an import: the page marks it "You put this here" and lists it apart. */
+  yours: boolean;
+  /** Why it can't be moved, else null. */
+  skip: TidySkip | null;
+  /**
+   * Save preview only: the old folder name whose rename on disk would put the file at its target; null in
+   * `tidy_preview`.
+   */
+  by_rename: string | null;
+};
+/** The "You put these here" group of the list, with its one control. */
+export type TidyYours = {
+  /** How many rows are yours. */
+  count: number;
+  /** How many of them can be moved. */
+  movable: number;
+  /** The mark on each row ("You put this here"). */
+  mark: string;
+  /** The group's header. */
+  header: string;
+  /** The control's label ("Put these in playlist order too"): it ticks every movable row of the group. */
+  control: string;
+};
+/** `tidy_preview()`: every file the playlist order puts somewhere else ("Tidy up files"). */
+export type TidyPreview = {
+  /** The files a tidy-up could move. */
+  rows: TidyRow[];
+  /** How many rows are ticked by default. */
+  ticked: number;
+  /** Two lines for the confirmation. */
+  rekordbox: string[];
+  /** "You can undo this on this page." */
+  undo_note: string;
+  /**
+   * Null, or the text shown instead of the list (nothing out of place, or only `yours` rows left: the button
+   * then stays usable).
+   */
+  empty: string | null;
+  /** The "You put these here" group; null when no row is `yours`. */
+  yours: TidyYours | null;
+};
+/** One batch of moves in the log. */
+export type MoveBatch = {
+  /** The batch's id. */
+  id: number;
+  /** When it started, an ISO time. */
+  at: string;
+  /** "Tidy-up", "Saved playlists", "Renamed {old} to {new}" or "Undo of: {title}". */
+  title: string;
+  /** The files moved (a folder rename counts the files it carried). */
+  moved: number;
+  /** The moves not made. */
+  skipped: number;
+  /** How many moves an undo could still make today; 0: the Undo button reads "Nothing left to undo". */
+  undoable: number;
+  /** The id of the latest undo of it, else null. */
+  undone_by: number | null;
+  /** "{n} files moved" / "1 file moved", plus " · {k} not moved". */
+  summary: string;
+};
+/** `move_batches()`: the 20 newest move batches, newest first; empty while nothing was ever moved. */
+export type MoveBatches = {
+  /** The newest batches. */
+  batches: MoveBatch[];
+  /** How many batches there are in all. */
+  total: number;
+};
+/** Why a move can't go back. */
+export type UndoSkip = {
+  /**
+   * The code: `offline`, `not_found`, `name_taken` as for a tidy-up, or `moved_on`, `place_taken`,
+   * `playlist_renamed`.
+   */
+  reason: string;
+  /** The plain words to show. */
+  text: string;
+};
+/** One move an undo would make. */
+export type UndoRow = {
+  /** The file's or folder's name. */
+  label: string;
+  /** `folder`: a folder rename going back. */
+  kind: 'file' | 'folder';
+  /** For a folder row how many files are in it now, else the count the rename carried; null for a file row. */
+  files: number | null;
+  /** Where it is now. */
+  from: string;
+  /** Where it goes back to. */
+  to: string;
+  /** Why it can't go back, else null. */
+  skip: UndoSkip | null;
+};
+/** `undo_preview(batch_id)`: what undoing a batch would do, move by move. */
+export type UndoPreview = {
+  /** The batch. */
+  batch_id: number;
+  /** The batch's title. */
+  title: string;
+  /** One row per move. */
+  rows: UndoRow[];
+  /** How many files go back. */
+  moving: number;
+  /**
+   * Lines for the confirmation (rekordbox; for a folder rename also that the folder and the playlist get their
+   * old name back).
+   */
+  warning: string[];
+  /** No row can go back: the page offers no Undo. */
+  nothing_left: boolean;
+};
+/** A move that was not made. */
+export type SkippedMove = {
+  /** The file's or folder's name. */
+  label: string;
+  /** Where it is. */
+  from: string;
+  /** Where it would have gone. */
+  to: string;
+  /** The code. */
+  reason: string;
+  /** The plain words. */
+  text: string;
+};
+/**
+ * What a move batch tells the page: `tidy_up`, `undo_moves` and each item of `save_playlists`' `batches`
+ * finish with it (also with problem `stopped`, then `stopped` is true).
+ */
+export type BatchResult = {
+  /** The batch's id; null when nothing was asked to move. */
+  batch_id: number | null;
+  /** The batch's title. */
+  title: string;
+  /** How many files moved. */
+  moved: number;
+  /** The sentence to show. */
+  headline: string;
+  /** The moves not made. */
+  skipped: SkippedMove[];
+  /** The user stopped it. */
+  stopped: boolean;
+};
+/** The result of `save_playlists`. */
+export type SavePlaylistsResult = {
+  /** The playlists' new version. */
+  version: string;
+  /** The move batches the save made, if any. */
+  batches: BatchResult[];
+};
+/** `save_playlists`' third argument: the answer to the save question. */
+export type SaveFiles = {
+  /** The answer to the save question. */
+  choice: 'leave' | 'move';
+  /** The folder renames to do on disk, `[old, new]`. */
+  renames: [string, string][];
+  /** The files to move, `[file_id, from_path]`. */
+  moves: [number, string][];
+};
+/** The result of `supersede_duplicate`. */
+export type SupersedeResult = {
+  /** The report line: `section` `replaced`, `path` where the file went (relative to the music folder). */
+  result: Result;
+  /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
+  recovered: [string, boolean][];
+};
+/** A track without a file yet that will land in another folder. */
+export type ChangeReroute = PlaylistTrack & {
+  /** The folder it would have gone to. */
+  from: string;
+  /** The folder it will go to. */
+  to: string;
+};
+/** The files this change would put in another folder. */
+export type ChangePreviewTidy = {
+  /** "{n} files would sit in a different folder". */
+  headline: string;
+  /** The files, each with `by_rename` set when a rename on disk would move it. */
+  rows: TidyRow[];
+};
+/**
+ * `preview_playlist_change(lines)`: what saving the playlist lines would do. A switched-on line not read yet
+ * is read once through its service's reader; a service that is not connected, or a playlist its service won't
+ * show, is skipped without an error.
+ */
+export type ChangePreview = {
+  /** What the edit does. */
+  kind: ChangeKind;
+  /** Ready to show. */
+  headline: string;
+  /**
+   * The folders whose file count changes (a switched-off playlist's folder has `after` 0 and is not shown as a
+   * change).
+   */
+  folders: ChangePreviewFolder[];
+  /** The files this change would put in another folder, null when none. */
+  tidy: ChangePreviewTidy | null;
+  /** The folder renames on disk the save could do. */
+  renames: RenameOffer[];
+  /** Tracks without a file yet that will land in another folder. */
+  reroutes: ChangeReroute[];
+  /** How many tracks are new to download. */
+  new_downloads: number;
+  /** How many days of downloads that is. */
+  days: number;
+  /** How many songs a switched-off playlist stops syncing. */
+  stopped: number;
+  /** The lines whose playlist is not known. */
+  unknown: string[];
+  /** Three or four lines for the confirmation. */
+  checklist: string[];
+  /** What is wrong with the lines (Save would be refused), else null. */
+  problem: string | null;
+};
+/** A phase of the import (`ImportProgress` events). */
+export type ImportPhase = 'scan' | 'facts' | 'tags' | 'sound' | 'link';
+/**
+ * Why a folder can't be watched: a `FolderProblem`, or `not_readable`, `not_found`, `music` (inside the music
+ * folder), `holds_music` (holds it), `watched` (inside a watched folder) or `already`.
+ */
+export type ImportFolderProblem =
+  | 'not_absolute'
+  | 'not_a_folder'
+  | 'system_folder'
+  | 'inside_app'
+  | 'is_support_dir'
+  | 'not_writable'
+  | 'not_readable'
+  | 'not_found'
+  | 'music'
+  | 'holds_music'
+  | 'watched'
+  | 'already';
+/**
+ * A watched folder: the Library (always `online`, `scanning` while an import looks for files) or an import
+ * folder.
+ */
+export type WatchedFolderRow = {
+  /** The folder's id. */
+  id: number;
+  /** The folder's path. */
+  path: string;
+  /** Its name ("Library" for the Library). */
+  name: string;
+  /** The Library or an import folder. */
+  kind: 'library' | 'import';
+  /**
+   * `offline`: its drive is not connected; `missing`: the folder is not a folder now (moved, renamed or
+   * deleted); `scanning`: an import is looking for files; `importing`: one runs and this folder has files it
+   * has not finished.
+   */
+  state: 'online' | 'offline' | 'missing' | 'scanning' | 'importing';
+  /** The tracks the folder lists, the same number the sidebar shows for it. */
+  files: number;
+  /** Files the import still works through (not read yet, or not sound-checked). */
+  waiting: number;
+  /** Files it could not read. */
+  unreadable: number;
+  /**
+   * All the folder's crates in label order, hidden ones too, with the user's switches applied (Settings'
+   * switches); the Library row has none.
+   */
+  crates: Crate[];
+  /** More than 25 crates, so they start hidden. */
+  too_many: boolean;
+};
+/** A file the import could not read. */
+export type UnreadableFile = {
+  /** The id of its folder. */
+  folder_id: number | null;
+  /** The file's path. */
+  path: string;
+  /**
+   * Why, in words ("macOS doesn't let Discjockey read it", "Discjockey can't find sound it can read in it",
+   * "The file is empty").
+   */
+  reason: string;
+};
+/**
+ * `watched_folders()`: the Library first, then the import folders by id. The live phase and counts of an
+ * import come from the `ImportProgress` event, not from here.
+ */
+export type WatchedFolders = {
+  /** The watched folders. */
+  folders: WatchedFolderRow[];
+  /** The files it could not read, in the Library and every import folder. */
+  unreadable: UnreadableFile[];
+  /** The files an import would work through now (offline drives' left out). */
+  waiting: number;
+  /** The user stopped an import this session: offer Continue import. */
+  stopped: boolean;
+};
+/** What `check_import_folder(path)` found; it changes nothing. */
+export type ImportFolderCheck = {
+  /** The resolved folder. */
+  path: string;
+  /** Whether the folder is there. */
+  exists: boolean;
+  /** Whether it can be watched; false: `problem` names why. */
+  usable: boolean;
+  /** Why it can't be watched, else null. */
+  problem: ImportFolderProblem | null;
+  /** `import` for a usable folder, else null. */
+  kind: 'import' | null;
+  /** The refusal's words, else null. */
+  message: string | null;
+  /** The paths of the watched folders inside it that it would take over (their files and links are kept). */
+  merges: string[];
+  /** One line each ("{name} is inside it and becomes part of it."). */
+  merge_hints: string[];
+};
+/** `removal_preview(folder_id)`, and the result of `remove_watched_folder` (job `folders`). */
+export type RemovalPreview = {
+  /** The folder's name. */
+  name: string;
+  /** The folder's file count. */
+  files: number;
+  /** The playlist songs whose only file is there (they download again at the next sync). */
+  redownload: number;
+};
+/**
+ * The result of the `import` job (`add_watched_folder`, `start_import`), also of a stopped one (`stopped`
+ * true).
+ */
+export type ImportResult = {
+  /** The files imported (read in either pass, not unreadable now). */
+  files: number;
+  /** The user's own songs found. */
+  own_songs: number;
+  /** The files whose sound was checked. */
+  sound_checked: number;
+  /** The files it could not read. */
+  unreadable: number;
+  /** The files the next import still works through. */
+  left: number;
+  /** The user stopped it. */
+  stopped: boolean;
+  /** The words of a link that did not happen, else null. */
+  link_note: string | null;
+};
+/**
+ * The kind of an item in the panel's order: `flac`, `wav`, `alac`, `aiff_hires` (an AIFF that is not 16-bit /
+ * 44.1 kHz), `tags` (a 16/44.1 AIFF whose tags are not the download's), `name` (a rename), `wavpack`, `ape`,
+ * `tta`, `mp3`, `aac`, `opus`, `vorbis`, then any other codec by its own name.
+ */
+export type AiffKind = string;
+/** A selection of songs. */
+export type AiffScopeTracks = {
+  /** The selection. */
+  kind: 'tracks';
+  /** The songs' keys, each song once. */
+  tracks: string[];
+};
+/** A view's own lossless files, as `library()` lists them without filter or search. */
+export type AiffScopeLossless = {
+  /** A view's lossless files. */
+  kind: 'lossless';
+  /** Which view. */
+  view: LibraryView;
+  /** The playlist or folder; null for `all` and `unlisted`. */
+  key: string | null;
+};
+/** To-do's "Won't play well on CDJs" group. */
+export type AiffScopeCdj = {
+  /** The CDJ group. */
+  kind: 'cdj';
+};
+/**
+ * What `aiff_plan`, `convert`, `rename` and `make_aiff` take: a selection, a view's lossless files, or the CDJ
+ * group.
+ */
+export type AiffScope = AiffScopeTracks | AiffScopeLossless | AiffScopeCdj;
+/** The plan's scope for a selection. */
+export type AiffPlanScopeTracks = AiffScopeTracks & {
+  /** "Selection". */
+  label: string;
+};
+/** The plan's scope for a view. */
+export type AiffPlanScopeLossless = AiffScopeLossless & {
+  /** The view's title. */
+  label: string;
+};
+/** The plan's scope for the CDJ group. */
+export type AiffPlanScopeCdj = AiffScopeCdj & {
+  /** "Won't play well on CDJs". */
+  label: string;
+};
+/** The scope as asked plus its `label`. */
+export type AiffPlanScope = AiffPlanScopeTracks | AiffPlanScopeLossless | AiffPlanScopeCdj;
+/**
+ * One file the run would change. `path`, `new_path` and `superseded` are relative to the music folder (an own
+ * file in a watched folder: absolute).
+ */
+export type AiffPlanItem = {
+  /** The song's key. */
+  track: string;
+  /** The song's name. */
+  name: string;
+  /** What the run does. */
+  action: 'convert' | 'rename';
+  /** The kind of item. */
+  kind: AiffKind;
+  /** The format line ("FLAC · 24-bit · 96 kHz", "MP3 · 44.1 kHz · 320 kbps"). */
+  from: string;
+  /** The file now. */
+  path: string;
+  /** Where it will be (a Convert whose AIFF takes the name the old file held ends at the old path). */
+  new_path: string;
+  /** Where the old file goes (Convert only); null for a rename. */
+  superseded: string | null;
+  /** The room the render needs; a rename needs none. */
+  bytes: number;
+  /** What the CDJs refuse in the file, or null. */
+  cdj: CdjWords | null;
+};
+/** A file of a `tracks` scope that is left as it is. */
+export type AiffLeft = {
+  /** The song's key. */
+  track: string;
+  /** The song's name. */
+  name: string;
+  /** An `EligibleReason` key (`named_already`, `downloaded`, `needs_convert`, `away`, ...). */
+  reason: string;
+  /** Its words. */
+  message: string;
+};
+/** Files that can't run now but may later. */
+export type AiffPlanWaiting = {
+  /** Why they wait. */
+  reason: string;
+  /** Its words. */
+  message: string;
+  /** How many files. */
+  n: number;
+};
+/** A kind of item with files. */
+export type AiffPlanKind = {
+  /** The kind. */
+  kind: AiffKind;
+  /** The panel's line ("FLAC → AIFF", "New tags", "Clean name only"). */
+  label: string;
+  /** How many items. */
+  n: number;
+};
+/** The room the new files need on one drive. */
+export type AiffPlanSpace = {
+  /** A folder on the drive. */
+  drive: string;
+  /** Bytes needed. */
+  needed: number;
+  /** Bytes free. */
+  free: number;
+  /** Whether the room is enough. */
+  enough: boolean;
+};
+/** rekordbox as the plan found it. */
+export type AiffPlanRekordbox = {
+  /** What rekordbox's library is like. */
+  state: 'ready' | 'none' | 'unreadable';
+  /** Whether rekordbox runs. */
+  running: boolean;
+  /** True when an item's file is in rekordbox's library: it must be closed. */
+  needs_closed: boolean;
+  /**
+   * Only present (true) when a writer held `rekordbox.lock`: the plan took the cached state and no lookup of
+   * rekordbox's tracks.
+   */
+  writing?: boolean;
+};
+/**
+ * The read-only plan behind a selection's Convert, Rename, Make all lossless files AIFF and the CDJ group's
+ * Convert all (`aiff_plan.AiffPlan.to_dict`).
+ */
+export type AiffPlan = {
+  /** The scope as asked plus `label`. */
+  scope: AiffPlanScope;
+  /** The files the run would change, in order. */
+  items: AiffPlanItem[];
+  /** A `tracks` scope only: the songs left as they are. */
+  skipped: AiffLeft[];
+  /**
+   * Files that can't run now but may later, each once and never an item, in the order away, file_missing,
+   * no_name, rekordbox_unreadable, cloud, rename_blocked, upgrade_waits.
+   */
+  waiting: AiffPlanWaiting[];
+  /** The kinds with files, in the panel's order. */
+  kinds: AiffPlanKind[];
+  /** How many items have a lossy file now (their AIFF sounds the same, only the format changes). */
+  lossy: number;
+  /** How many items. */
+  total: number;
+  /** The room the new files need per drive; a rename needs none. */
+  space: AiffPlanSpace[];
+  /** What `Superseded/` takes. */
+  superseded_bytes: number;
+  /** rekordbox as the plan found it. */
+  rekordbox: AiffPlanRekordbox;
+};
+/** The answer of `aiff_plan(scope)`. */
+export type AiffPlanAnswer = {
+  /** The plan. */
+  plan: AiffPlan;
+};

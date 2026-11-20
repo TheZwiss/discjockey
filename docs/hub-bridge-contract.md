@@ -432,199 +432,63 @@ the matrix's mean energy would not show it. Files cached before the field existe
 `media_url(track_id, which="current")` → `{"url"}` playable by `<audio>` / `fetch` (range requests work). The URL
 changes when the file changes (`?v=size-mtime`).
 
-`setup_status()` — `next_step`: `music|tools|spotify|downloads|playlists|null`; open the wizard when `complete` is false. `music` = MusicStatus `{state: ok|not_chosen|missing, path, suggested}`: `ok` the music folder is bound, `not_chosen` Setup's first step, `missing` config.json names a folder that isn't there (an unplugged drive); `path` the bound or missing folder, `suggested` the default to offer (`~/Music/Discjockey`). Unbound, `playlists` is false and `complete` false. `downloads` is Setup's Downloads step (Qobuz and the other download logins): done when Qobuz is signed in or left out. Setup's "Your existing music" step (after `music`) is in the status as `existing: bool` (done: an import folder is watched, or `import_skipped`), `import_folders: int` (the import folders watched) and `import_skipped: bool` (Skip was pressed, `setup_skip_import`); it is not among the required steps: it never changes `next_step` or `complete`, and never blocks Continue. `auto_upgrade: bool` (stage C) is Settings' and Setup's "Upgrade automatically when I sync" (on by default; false too when settings.json can't be read, because a sync can't start from it).
-`version`: `discjockey.__version__` (Settings → About shows it).
-`qobuz_skipped`: "I don't have Qobuz" was chosen, the `downloads` step then counts as done (`qobuz` itself stays false).
-`spotify_skipped` (stage 3): "I don't use Spotify" was chosen; the `spotify` step then counts as done (`spotify_app` /
-`spotify_login` stay false). Connecting Spotify (`setup_spotify_login`) clears it. A skipped Spotify is no problem in
-the read status unless `playlists.txt` has a Spotify line (`services` lists only the services the lines use).
-`youtube_music` (sources round): YouTube Music's Liked music, `{liked_music, can_turn_on, listed}`: `liked_music` Settings' "Read my Liked music" is on (it only counts with a YouTube account: forgetting that login turns it off for good), `can_turn_on` a YouTube account is set up, `listed` a Liked music line is in playlists.txt, switched on or off. `set_read_liked_music` changes it, `add_liked_music` lists it.
-`accounts`: `youtube` and `soundcloud`, each null or `{browser, browser_name, daily_limit, profile, profile_name,
-last_check}` (`browser`: `safari|chrome|firefox|brave|edge`; `profile` the browser profile's folder, null = the
-default or Safari's only one; `last_check` LastCheck|null, see Settings).
-```json
-{
- "ok": true,
- "music": {"state": "ok", "path": "/Users/dj/Music/Discjockey", "suggested": "/Users/dj/Music/Discjockey"},
- "tools": {
-  "ffmpeg": true,
-  "ffprobe": true,
-  "deno": true
- },
- "spotify_app": false,
- "spotify_login": false,
- "qobuz": false,
- "playlists": true,
- "complete": false,
- "next_step": "spotify",
- "version": "1.0.0",
- "qobuz_skipped": false,
- "spotify_skipped": false,
- "accounts": {
-  "youtube": null,
-  "soundcloud": {
-   "browser": "chrome",
-   "browser_name": "Chrome",
-   "daily_limit": 60
-  }
- },
- "youtube_music": {"liked_music": false, "can_turn_on": false, "listed": false}
-}
-```
+`setup_status()` — what is set up; open the wizard when `complete` is false. Unbound (no music folder yet) `playlists`
+and `complete` are false. `downloads` is Setup's Downloads step (Qobuz and the other download logins): done when Qobuz is
+signed in or left out (`qobuz_skipped`; `qobuz` itself stays false). Setup's "Your existing music" step (after `music`)
+is not among the required steps: `existing` (an import folder is watched, or `import_skipped`, set by
+`setup_skip_import`) never changes `next_step` or `complete` and never blocks Continue. `auto_upgrade` is false too when
+settings.json can't be read, because a sync can't start from it. A skipped Spotify (`spotify_skipped`) counts the
+`spotify` step as done and is no problem in the read status unless `playlists.txt` has a Spotify line (`services` lists
+only the services the lines use); connecting Spotify (`setup_spotify_login`) clears it. `youtube_music.liked_music` only
+counts with a YouTube account: forgetting that login turns it off for good; `set_read_liked_music` changes it,
+`add_liked_music` lists it. It never carries a secret, only whether it is there.
+Shape: `SetupStatus` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 `select(track_id|null)` → `{}` — call whenever the to-do selection changes (drops go to this track).
 
 ### Tidy-up and the move log (read, any time; in `LIBRARY_METHODS`)
 
-`tidy_preview()` — every file the playlist order puts somewhere else ("Tidy up files"). `rows`: a track row (as
-`library()` rows) plus `file_id`, `from` / `to` (folders relative to `Library/`; `""` is `Library` itself, shown as
-"Library"), `from_path` (the snapshot path the page sends back to `tidy_up`), `placed_by` (`app|user|import`),
-`ticked` (moves by default: no `skip` and placed by the app), `yours` (placed by the user or an import: the page marks
-it "You put this here"), `skip` (`null`, or `{reason, text}`: `offline` "Offline, skipped", `not_found` "Not where
-Discjockey last saw it", `name_taken` "A file with this name is already in {to}"; such a row cannot be ticked) and
-`by_rename` (always null here). `ticked`: how many rows are ticked by default. `rekordbox`: two lines for the
-confirmation, `undo_note` "You can undo this on this page.". `empty`: null, or the text to show instead of the list
-("Every file is where the playlist order puts it." with no rows; "{n} files are where you put them, not where the
-playlist order puts them." when only `yours` rows are left: the button then stays usable). `yours`: null, or
-`{count, movable, mark, header, control}`: the "You put these here" group of the list with its one control "Put these
-in playlist order too" (ticks every movable row of the group). Example (one row):
-```json
-{
- "ok": true,
- "rows": [
-  {
-   "track_id": "t2",
-   "artist": "Armin Hermann",
-   "title": "Get Naughty",
-   "folder": "Hard_Bounce",
-   "duration_s": 268.0,
-   "status": "not_lossless",
-   "quality": "weak",
-   "quality_label": "16.0 kHz",
-   "cutoff_hz": 16000,
-   "source": "youtube",
-   "source_name": "YouTube",
-   "in_playlists": true,
-   "hidden": false,
-   "upgrade_ready": false,
-   "path": "Library/Elsewhere/Armin Hermann - Get Naughty.aiff",
-   "added": "2026-10-13T22:15:00",
-   "cover_url": "https://i.scdn.co/image/t2",
-   "file_id": 2,
-   "from": "Elsewhere",
-   "to": "Hard_Bounce/not_lossless",
-   "from_path": "Library/Elsewhere/Armin Hermann - Get Naughty.aiff",
-   "placed_by": "app",
-   "ticked": true,
-   "yours": false,
-   "skip": null,
-   "by_rename": null
-  }
- ],
- "ticked": 1,
- "rekordbox": [
-  "rekordbox may show the moved tracks as missing.",
-  "Its Relocate finds them again by file name: Discjockey never renames them."
- ],
- "undo_note": "You can undo this on this page.",
- "empty": null,
- "yours": null
-}
-```
+`tidy_preview()` — every file the playlist order puts somewhere else ("Tidy up files"). Each row is a track row (as
+`library()` rows) with where it is and where it goes; a `skip` (`offline` "Offline, skipped", `not_found` "Not where
+Discjockey last saw it", `name_taken` "A file with this name is already in {to}") means the row cannot be ticked; `ticked`
+rows move by default (no `skip`, placed by the app). `empty` is the text shown instead of the list: "Every file is where
+the playlist order puts it." with no rows, or "{n} files are where you put them, not where the playlist order puts
+them." when only `yours` rows are left (the button then stays usable). `yours` is the "You put these here" group of the
+list with its one control "Put these in playlist order too" (ticks every movable row of the group).
+Shape: `TidyPreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 `move_batches()` — the 20 newest move batches, newest first, and how many there are in all (`total`); empty while
-nothing was ever moved. `title`: "Tidy-up", "Saved playlists", "Renamed {old} to {new}", "Undo of: {title}"; `at` the
-ISO start time; `moved` the files moved (a folder rename counts the files it carried) and `skipped` the moves not made; `undoable` how many moves an undo could still make today (0: the Undo
-button reads "Nothing left to undo"); `undone_by` the id of the latest undo of it, else null; `summary` "{n} files
-moved" / "1 file moved", plus " · {k} not moved".
-```json
-{
- "ok": true,
- "batches": [
-  {
-   "id": 1,
-   "at": "2026-10-20T21:47:00",
-   "title": "Tidy-up",
-   "moved": 1,
-   "skipped": 0,
-   "undoable": 1,
-   "undone_by": null,
-   "summary": "1 file moved"
-  }
- ],
- "total": 1
-}
-```
+nothing was ever moved. `title`: "Tidy-up", "Saved playlists", "Renamed {old} to {new}", "Undo of: {title}"; `moved` counts
+the files moved (a folder rename counts the files it carried); `undoable` is how many moves an undo could still make
+today (0: the Undo button reads "Nothing left to undo"); `summary` "{n} files moved" / "1 file moved", plus " · {k} not
+moved".
+Shape: `MoveBatches` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 `undo_preview(batch_id)` — what undoing a batch would do, move by move (a batch the log does not know: `refused`,
-"Discjockey has no record of that tidy-up."). `rows`: `{label, kind, files, from, to, skip}` (`kind` "file" or "folder"; for a folder row `files` is how many files
-are in the folder now, else the count the rename carried; for a file row it is null; `skip` as above, plus `moved_on`
-"Moved or changed since" / "The folder {new} isn't there any more", `place_taken` "Another file is in its old place
-now" / "A folder called {old} is in your Library again." / "Another playlist is called {old} now.", `playlist_renamed`
-"The playlist isn't called {new} any more"); `moving` how many files go back; `warning` lines for the confirmation
-(rekordbox; for a folder rename also that the folder and the playlist get their old name back); `nothing_left` true
-when no row can go back (the page then offers no Undo).
-```json
-{
- "ok": true,
- "batch_id": 1,
- "title": "Tidy-up",
- "rows": [
-  {
-   "label": "Armin Hermann - Get Naughty",
-   "kind": "file",
-   "files": null,
-   "from": "Hard_Bounce/not_lossless",
-   "to": "Elsewhere",
-   "skip": null
-  }
- ],
- "moving": 1,
- "warning": [
-  "1 file goes back to where it was. rekordbox may show it as missing again; Relocate finds it by file name."
- ],
- "nothing_left": false
-}
-```
+"Discjockey has no record of that tidy-up."). A row's `skip` is as above, plus `moved_on` "Moved or changed since" / "The
+folder {new} isn't there any more", `place_taken` "Another file is in its old place now" / "A folder called {old} is in
+your Library again." / "Another playlist is called {old} now.", `playlist_renamed` "The playlist isn't called {new} any
+more". For a folder row `files` is how many files are in the folder now, else the count the rename carried; for a file
+row it is null. `warning` holds the lines for the confirmation (rekordbox; for a folder rename also that the folder and
+the playlist get their old name back); `nothing_left` true: the page then offers no Undo.
+Shape: `UndoPreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 ### Read with network (refused with `sync_running` while any sync runs)
 
-`search_candidates(track_id)` → `{track_id, track_duration_s, current_quality_label, candidates: [Candidate],
-notes: [str]}`. Candidate: `source, id, title, artist, duration_s|null, url|null, isrc, album, label, image_url, key,
-source_name, length_diff_s|null, can_preview, score (0–100|null), matches, length_ok, current, rejected`. The current
-version is first (`current: true`, "you marked it as wrong"); colour `length_diff_s` green within ±3 s. Send a
-Candidate back unchanged to `preview` / `use_candidate`.
+`search_candidates(track_id)` — the versions the sources offer for a song. The current version is first (`current: true`,
+"you marked it as wrong" when `rejected`); colour `length_diff_s` green within ±3 s. Send a Candidate back unchanged to
+`preview` / `use_candidate`.
+Shape: `Candidates` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
-`preview(track_id, candidate)` → `{"url"}` — 30 s AIFF for youtube_music/soundcloud/youtube only (`can_preview`);
-qobuz → refused "Qobuz versions have no preview." Plays 20 s of it in the UI.
+`preview(track_id, candidate)` — 30 s AIFF for youtube_music/soundcloud/youtube only (`can_preview`); qobuz → refused
+"Qobuz versions have no preview." Plays 20 s of it in the UI.
+Shape: `PreviewAnswer` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 `add_playlist(url)` — pasted link, a playlist of Spotify, Qobuz, SoundCloud or YouTube Music (`sources.recognise`); its info and tracks are read
-through that service's reader. The link is first run through `sources.expand`: a short SoundCloud link (`on.soundcloud.com/…`) becomes the set's or likes list's link, and `soundcloud.com/you/likes` becomes `<your permalink>/likes` through the SoundCloud login of Settings (the stored line then needs no login; this may ask macOS for the browser's Keychain access). A failure there (or in the read) is an ordinary `ok: false` answer with its `kind` and `service`, never a rejection. `playlist_id` is the ref (see `playlists()`); `service` and `service_name` as there.
-```json
-{
- "ok": true,
- "playlist_id": "37i9dQZF1DXcBWIGoYBM5M",
- "service": "spotify",
- "service_name": "Spotify",
- "link": "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M",
- "info": {
-  "name": "Name of 37i9",
-  "owner_name": "DJ One",
-  "yours": true,
-  "collaborative": false,
-  "readable": true,
-  "image_url": null,
-  "track_count": 0,
-  "hint": "Follow ≠ own: make your own copy in Spotify."
- },
- "tracks": 0,
- "readable": true,
- "suggested_folder": "Name_of_37i9",
- "hint": null
-}
-```
-`hint` (when not readable): the service's words, the same as `info.hint`. Add the row with `link` and
-`suggested_folder` (editable). The answers that are not ok carry the service:
+through that service's reader. The link is first run through `sources.expand`: a short SoundCloud link (`on.soundcloud.com/…`) becomes the set's or likes list's link, and `soundcloud.com/you/likes` becomes `<your permalink>/likes` through the SoundCloud login of Settings (the stored line then needs no login; this may ask macOS for the browser's Keychain access). A failure there (or in the read) is an ordinary `ok: false` answer with its `kind` and `service`, never a rejection.
+Shape: `AddedPlaylist` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
+Add the row with `link` and `suggested_folder` (editable). `hint` (when not readable) is the service's words, the same as
+`info.hint`. The answers that are not ok carry the service:
 `{"ok": false, "kind": "playlist_unreadable", "service": "qobuz", "message": "Qobuz doesn't show this playlist. It
 must be public or one of yours. Check the link."}` (a Qobuz playlist Qobuz won't show), and
 `{"ok": false, "kind": "not_set_up", "service": "qobuz"|"spotify", "message": "Connect Qobuz first."}` (that service
@@ -637,87 +501,22 @@ isn't connected: nothing is read; SoundCloud and YouTube Music need no login), a
 `preview_playlist_change(lines)` — `lines`: `[{"folder", "link", "enabled"}]` in the new order (top first).
 A switched-on line whose playlist was not read yet is read once, through its own service's reader; a service that
 isn't connected, or a playlist its service won't show, is skipped without an error (that line then counts as unread). A Liked music line while the choice is off or the YouTube account is paused is not read either.
-`kind`: `moves|rename|reroute|add|switch_off|unknown|none`; `headline` ready to show (for `moves` and `rename` it is
-"{n} files would sit in a different folder" / "1 file would sit in a different folder"); `checklist` 3-4 lines (cut
-here; for `moves` and `rename`: the downloads line, "Nothing is deleted", "Files move only if you choose to", "Moves
-can be undone on this page"; for the other kinds "Happens at the next sync, not right away").
-`switch_off`: a playlist is switched off by this edit and nothing else changes (also when none of its songs was read: `stopped` 0); its
-`headline` is "Left out of the sync, its files stay" (as Sync's switch: nothing is downloaded for it, no file is deleted or moved). `folders`
-lists a switched-off playlist's folder with `after` 0, because the counts are made of the playlists that are on; the page does not show it
-as a folder whose files change.
-`tidy`: `null`, or `{headline, rows: [TidyRow]}`: the files with a place this change would put elsewhere (a `TidyRow`
-is a row of `tidy_preview()` below; `by_rename` names the old folder whose rename on disk would put the file at its
-target, else null). `renames`: `[{from, to, files, offered, why_not, option, detail}]`, one per playlist whose folder
-name changes other than in case and whose old folder is in `Library/`: `offered` false means the page shows `why_not`
-("A folder called {new} is already in your Library." / "{old} is still the folder of another playlist.") instead of the
-choice; `option` "Rename the folder on disk too", `detail` "One folder move instead of {n} file moves.". `reroutes`:
-tracks without a file yet that will land in another folder (`track_id`, `artist`, `title`, `cover_url`, `downloaded`,
-`quality`, `quality_label`, `never`, `from`, `to`). `reroute`: only such tracks change ("24 tracks will go to
-03_06_2026 instead of Powertrance"), no file moves; `problem`: what is wrong with the lines (Save would be refused),
-else null. The old `moves` list is gone. One example (rows cut to one, `folders` and `reroutes` cut):
-```json
-{
- "ok": true,
- "kind": "rename",
- "headline": "2 files would sit in a different folder",
- "tidy": {
-  "headline": "2 files would sit in a different folder",
-  "rows": [
-   {
-    "track_id": "t1",
-    "artist": "Vatoz Locoz",
-    "title": "Gimme Gimme",
-    "folder": "Hard_Bounce",
-    "duration_s": 156.0,
-    "status": "lossless",
-    "quality": "lossless",
-    "quality_label": "LOSSLESS",
-    "cutoff_hz": null,
-    "source": "qobuz",
-    "source_name": "Qobuz",
-    "in_playlists": true,
-    "hidden": false,
-    "upgrade_ready": false,
-    "path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff",
-    "added": "2026-10-13T22:15:00",
-    "cover_url": "https://i.scdn.co/image/t1",
-    "file_id": 1,
-    "from": "Hard_Bounce",
-    "to": "Hard_New",
-    "from_path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff",
-    "placed_by": "app",
-    "ticked": true,
-    "yours": false,
-    "skip": null,
-    "by_rename": "Hard_Bounce"
-   }
-  ]
- },
- "renames": [
-  {
-   "from": "Hard_Bounce",
-   "to": "Hard_New",
-   "files": 2,
-   "offered": true,
-   "why_not": null,
-   "option": "Rename the folder on disk too",
-   "detail": "One folder move instead of 2 file moves."
-  }
- ],
- "reroutes": [],
- "new_downloads": 0,
- "days": 0,
- "stopped": 0,
- "unknown": [],
- "checklist": [
-  "No downloads, no Qobuz quota used",
-  "Nothing is deleted",
-  "Files move only if you choose to",
-  "Moves can be undone on this page"
- ],
- "problem": null
-}
-```
+`headline` is ready to show (for `moves` and `rename` it is "{n} files would sit in a different folder" / "1 file would
+sit in a different folder"); `checklist` is 3-4 lines (for `moves` and `rename`: the downloads line, "Nothing is deleted",
+"Files move only if you choose to", "Moves can be undone on this page"; for the other kinds "Happens at the next sync, not
+right away").
+`switch_off`: a playlist is switched off by this edit and nothing else changes (also when none of its songs was read:
+`stopped` 0); its `headline` is "Left out of the sync, its files stay" (as Sync's switch: nothing is downloaded for it, no
+file is deleted or moved). `folders` lists a switched-off playlist's folder with `after` 0, because the counts are made of
+the playlists that are on; the page does not show it as a folder whose files change.
+`tidy` has the files with a place this change would put elsewhere (each a row of `tidy_preview()`; `by_rename` names the
+old folder whose rename on disk would put the file at its target, else null). `renames` has one offer per playlist whose
+folder name changes other than in case and whose old folder is in `Library/`: `offered` false means the page shows
+`why_not` ("A folder called {new} is already in your Library." / "{old} is still the folder of another playlist.")
+instead of the choice; `option` "Rename the folder on disk too", `detail` "One folder move instead of {n} file moves.".
+`reroute`: only tracks without a file yet change folder ("24 tracks will go to 03_06_2026 instead of Powertrance"), no
+file moves; `problem`: what is wrong with the lines (Save would be refused), else null. The old `moves` list is gone.
+Shape: `ChangePreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 ### Write jobs (→ `{"job_id"}`; outcome in `JobFinished.result`)
 
@@ -837,13 +636,11 @@ that still has a `rekordbox_check` when the run's report is written, `note` = th
 when it is missing: "The licences folder is missing from this copy of Discjockey."), `open_external(url)` (https only,
 system browser) → `{}`.
 
-`app_update()` (immediate, also without a music folder: not a library method) →
-`{"state": "available" | "up_to_date" | "unknown", "current": "1.0.0", "latest": "1.1.0" | null,
-"url": "https://github.com/TheZwiss/discjockey/releases/tag/v1.1.0" | null}`. It is the last answer of the update
-check (spec public-release §8) and never touches the network itself. `unknown` means no answer yet (offline, rate
-limit, or a version that isn't plain), and then the page shows nothing. `latest` and `url` are set only for
-`available`, and the page opens `url` with `open_external`. Read it at boot; the `AppUpdate` event brings later
-changes.
+`app_update()` (immediate, also without a music folder: not a library method) — the last answer of the update check (spec
+public-release §8); it never touches the network itself. `unknown` means no answer yet (offline, rate limit, or a version
+that isn't plain), and then the page shows nothing. `latest` and `url` are set only for `available`, and the page opens
+`url` with `open_external`. Read it at boot; the `AppUpdate` event brings later changes.
+Shape: `AppUpdate` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 `quit()` (immediate) — closes the hub window (after `update_tools` or `rollback_tools` with `restart`: the page says
 "Open Discjockey again" first, then calls it). Refused with `busy` ("Discjockey is still busy with a change. Wait until
@@ -851,52 +648,33 @@ it has finished, then quit.") while a write job runs; otherwise `{}` and the win
 
 ### Setup wizard
 
-`setup_check_tools()` (immediate):
-```json
-{
- "ok": true,
- "tools": {
-  "ffmpeg": true,
-  "ffprobe": true,
-  "deno": true
- },
- "missing": [],
- "hints": {},
- "redirect_uri": "http://127.0.0.1:8888/callback",
- "download_tools": {
-  "yt-dlp": {"version": "2026.10.21", "source": "updated", "waiting": null, "previous": "2026.10.14"},
-  "streamrip": {"version": "2.1.0", "source": "built_in", "waiting": null, "previous": null}
- },
- "download_tools_problem": null
-}
-```
-
-`download_tools` (Settings → This Mac): per tool the `version` this window runs, `source` `built_in` (came with
-Discjockey) or `updated` (Update download tools), `waiting` the version the next start uses when it differs (an update
-or a step back waits for a reopen), `previous` the version **Go back** would use (null: nothing to go back to).
-streamrip is always `built_in` with null `waiting`/`previous`. If reading them fails unexpectedly, `download_tools` is
-null and `download_tools_problem` holds a plain sentence (the logged detail stays out of it); the rest of the check
-still answers. Otherwise `download_tools_problem` is null.
+`setup_check_tools()` (immediate) — which programs are found, and the download tools of Settings → This Mac
+(`download_tools`: `version` is what this window runs, `waiting` the version the next start uses when it differs (an
+update or a step back waits for a reopen), `previous` the version **Go back** would use; streamrip is always `built_in`
+with null `waiting`/`previous`). If reading them fails unexpectedly, `download_tools` is null and `download_tools_problem`
+holds a plain sentence (the logged detail stays out of it); the rest of the check still answers.
+Shape: `SetupTools` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 | method | job kind | result |
 |---|---|---|
-| `setup_save_client_id(client_id)` (32 hex; bad format refused at once) | `setup_save_client_id` | `{}` |
-| `setup_spotify_login()` — opens the system browser; ends by itself, after 5 min (`login_failed`), or with `stop()` (`stopped`) → show Retry | `setup_spotify_login` | `{user}` |
-| `setup_qobuz_login(email, password)` — also stores `qobuz_last_check` (ok, or `login_failed` when Qobuz refuses the login; being offline or a Qobuz hiccup records nothing); a failed login puts the previous streamrip config back. An account made with Google, Apple or Facebook first sets a Qobuz password at `https://www.qobuz.com/signin/forget-password` (the page opens it with `open_external`) | `setup_qobuz_login` | `{}` (`failed` + message) |
-| `setup_skip_qobuz()` — "I don't have Qobuz": the Qobuz step counts as done | `setup_skip_qobuz` | `{}` |
-| `setup_skip_spotify()` — "I don't use Spotify": the Spotify step counts as done and sets `spotify_skipped` (playlists then come from the links of the other services); a later `setup_spotify_login` clears it | `setup_skip_spotify` | `{}` |
-| `set_read_liked_music(on)` — Settings' "Read my Liked music" (sources round): whether YouTube Music's Liked music line is read, through the YouTube login (a `YoutubeDL` of the read's own, never the download path's). Off by default; `on` must be a bool (`refused`); turning it on without a YouTube account fails `not_set_up` ("Sign in to YouTube first: Discjockey reads your Liked music through that login."). Turning it off never touches playlists.txt. While it is off a listed Liked music line is left out of every read like a switched-off line (no request, no problem, its files stay; its tracks are marked as not in a playlist like any switched-off line's); the same while the YouTube account is paused today (an `auto_stop`, `bot_check` or `rate_limited` sign recorded today), and a bot check or "too many requests" met by the Liked music read itself is recorded as the YouTube account's warning sign (Settings shows it, the account is then paused for the next Liked music reads) and ends only that line | `set_read_liked_music` | `{}` |
-| `set_auto_upgrade(on)` — "Upgrade automatically when I sync" (Settings › Upgrades, Setup's Downloads step; stage C): whether a sync ends with Same track for every upgrade that needs no decision, while rekordbox is closed. On by default; `on` must be a bool (`refused`: "on must be true or false."). A settings job like every settings write: it holds no library lock for its run; its save takes the support lock (`busy` / `support_lock` after 2 s) and the library lock for the moment of the save (`busy` / `console`). Turning it off touches nothing that waits | `set_auto_upgrade` | `{auto_upgrade}` (the value saved; the window ignores it, the command line says it) |
-| `add_liked_music()` — "Add Liked music to Playlists" (a `LIBRARY_METHODS` member): appends `Liked_music = https://music.youtube.com/playlist?list=LM` to the end of playlists.txt through the writer `save_playlists` uses (YouTube Music shares no link for it; a folder `Liked_music` taken by another playlist becomes `Liked_music_2`, …). Fails `setting_off` while the choice is off and `exists` when a Liked music line is listed already (on or off). A Playlists page with an unsaved draft meets it through its "changed elsewhere" answer (`playlists().version` changes) | `add_liked_music` | `{folder}` |
-| `setup_account(service, browser, profile?)` — `service` `youtube|soundcloud`, `browser` `safari|chrome|firefox|brave|edge`, `profile` that browser's profile folder (null: the default); checks the login in that profile (only cookie names are read), then saves the browser, the profile and the check (`last_check`). A login without Premium or Go+ is saved too (`saved: true`, its check recorded): SoundCloud's is used for downloads, YouTube's only to read Liked music and never for a download (`Settings.download_accounts`: no cookies, no limit card, no usage row, no `premium_missing`). A later check that finds Premium makes it the download account. A failed check of the saved login itself (same browser and profile) is recorded on it | `setup_account` | `{service, browser, profile, saved, check}` (`check` = AccountCheck) |
-| `setup_forget_account(service)` — removes the saved browser of that account (forgetting the YouTube login also turns Liked music off: signing in again does not turn it back on) | `setup_forget_account` | `{service}` |
-| `update_tools()` — the newest yt-dlp (+ the yt-dlp-ejs it pins) from PyPI into the support folder, tested in its own process before use; streamrip only changes with Discjockey releases. `failed` + a plain sentence (never a traceback or an OS error text) when: offline ("Couldn't reach the download server..."), the server answers with an error status ("The download server has a problem right now..."), its answer is not understood, there is no wheel for this Mac, the download was damaged, the disk refuses (the sentence names the reason in plain words: full, not allowed, refused), or the new version failed its test. The tools in use always stay. `busy` while a write job of this support folder runs (this window's, a terminal job found in the registry, or a terminal run holding the library): it takes no library lock itself, only the support lock (`.support.lock`) for its whole run, and answers `busy` / `support_lock` when another process holds that for 2 s. `stopped` when Stop is pressed (the test process ends too) | `update_tools` | `{before: {"yt-dlp": v}, after: {"yt-dlp": v}, restart}` — `before`/`after` the version the next start uses before/after; `restart` true when that isn't the version this window runs → ask to reopen, then `quit()`; already the newest: `before == after` (`restart` still true when an earlier update waits for a reopen) |
-| `rollback_tools()` — back to the yt-dlp used before the last update (the folder stepped back from is deleted unless this window runs it); `refused` "There is no earlier version to go back to."; `busy` and disk problems as `update_tools` | `rollback_tools` | `{before, after, restart}` as `update_tools` |
+| `setup_save_client_id(client_id)` (32 hex; bad format refused at once) | `setup_save_client_id` | Shape: `Empty` |
+| `setup_spotify_login()` — opens the system browser; ends by itself, after 5 min (`login_failed`), or with `stop()` (`stopped`) → show Retry | `setup_spotify_login` | Shape: `SpotifyLogin` |
+| `setup_qobuz_login(email, password)` — also stores `qobuz_last_check` (ok, or `login_failed` when Qobuz refuses the login; being offline or a Qobuz hiccup records nothing); a failed login puts the previous streamrip config back. An account made with Google, Apple or Facebook first sets a Qobuz password at `https://www.qobuz.com/signin/forget-password` (the page opens it with `open_external`) | `setup_qobuz_login` | Shape: `Empty` (`failed` + message) |
+| `setup_skip_qobuz()` — "I don't have Qobuz": the Qobuz step counts as done | `setup_skip_qobuz` | Shape: `Empty` |
+| `setup_skip_spotify()` — "I don't use Spotify": the Spotify step counts as done and sets `spotify_skipped` (playlists then come from the links of the other services); a later `setup_spotify_login` clears it | `setup_skip_spotify` | Shape: `Empty` |
+| `set_read_liked_music(on)` — Settings' "Read my Liked music" (sources round): whether YouTube Music's Liked music line is read, through the YouTube login (a `YoutubeDL` of the read's own, never the download path's). Off by default; `on` must be a bool (`refused`); turning it on without a YouTube account fails `not_set_up` ("Sign in to YouTube first: Discjockey reads your Liked music through that login."). Turning it off never touches playlists.txt. While it is off a listed Liked music line is left out of every read like a switched-off line (no request, no problem, its files stay; its tracks are marked as not in a playlist like any switched-off line's); the same while the YouTube account is paused today (an `auto_stop`, `bot_check` or `rate_limited` sign recorded today), and a bot check or "too many requests" met by the Liked music read itself is recorded as the YouTube account's warning sign (Settings shows it, the account is then paused for the next Liked music reads) and ends only that line | `set_read_liked_music` | Shape: `Empty` |
+| `set_auto_upgrade(on)` — "Upgrade automatically when I sync" (Settings › Upgrades, Setup's Downloads step; stage C): whether a sync ends with Same track for every upgrade that needs no decision, while rekordbox is closed. On by default; `on` must be a bool (`refused`: "on must be true or false."). A settings job like every settings write: it holds no library lock for its run; its save takes the support lock (`busy` / `support_lock` after 2 s) and the library lock for the moment of the save (`busy` / `console`). Turning it off touches nothing that waits | `set_auto_upgrade` | Shape: `AutoUpgradeSet` (the window ignores it, the command line says it) |
+| `add_liked_music()` — "Add Liked music to Playlists" (a `LIBRARY_METHODS` member): appends `Liked_music = https://music.youtube.com/playlist?list=LM` to the end of playlists.txt through the writer `save_playlists` uses (YouTube Music shares no link for it; a folder `Liked_music` taken by another playlist becomes `Liked_music_2`, …). Fails `setting_off` while the choice is off and `exists` when a Liked music line is listed already (on or off). A Playlists page with an unsaved draft meets it through its "changed elsewhere" answer (`playlists().version` changes) | `add_liked_music` | Shape: `LikedMusicAdded` |
+| `setup_account(service, browser, profile?)` — `service` `youtube|soundcloud`, `browser` `safari|chrome|firefox|brave|edge`, `profile` that browser's profile folder (null: the default); checks the login in that profile (only cookie names are read), then saves the browser, the profile and the check (`last_check`). A login without Premium or Go+ is saved too (`saved: true`, its check recorded): SoundCloud's is used for downloads, YouTube's only to read Liked music and never for a download (`Settings.download_accounts`: no cookies, no limit card, no usage row, no `premium_missing`). A later check that finds Premium makes it the download account. A failed check of the saved login itself (same browser and profile) is recorded on it | `setup_account` | Shape: `AccountSaved` |
+| `setup_forget_account(service)` — removes the saved browser of that account (forgetting the YouTube login also turns Liked music off: signing in again does not turn it back on) | `setup_forget_account` | Shape: `AccountForgotten` |
+| `update_tools()` — the newest yt-dlp (+ the yt-dlp-ejs it pins) from PyPI into the support folder, tested in its own process before use; streamrip only changes with Discjockey releases. `failed` + a plain sentence (never a traceback or an OS error text) when: offline ("Couldn't reach the download server..."), the server answers with an error status ("The download server has a problem right now..."), its answer is not understood, there is no wheel for this Mac, the download was damaged, the disk refuses (the sentence names the reason in plain words: full, not allowed, refused), or the new version failed its test. The tools in use always stay. `busy` while a write job of this support folder runs (this window's, a terminal job found in the registry, or a terminal run holding the library): it takes no library lock itself, only the support lock (`.support.lock`) for its whole run, and answers `busy` / `support_lock` when another process holds that for 2 s. `stopped` when Stop is pressed (the test process ends too) | `update_tools` | Shape: `ToolsChange`: `restart` true when the version the next start uses isn't the one this window runs → ask to reopen, then `quit()`; already the newest: `before == after` (`restart` still true when an earlier update waits for a reopen) |
+| `rollback_tools()` — back to the yt-dlp used before the last update (the folder stepped back from is deleted unless this window runs it); `refused` "There is no earlier version to go back to."; `busy` and disk problems as `update_tools` | `rollback_tools` | Shape: `ToolsChange` as `update_tools` |
+
+The shapes are generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`.
 
 `setup_check_account(service)` (immediate; refused with `sync_running` during any sync, and with `refused` when the account is
-not set up) — the saved login checked again → `{"service", "check"}`. AccountCheck = `{ok, problem, kbps, message}`:
-`problem` `cookies_unreadable|not_logged_in|no_premium|failed|null`, `kbps` the stream quality found (int|null),
-`message` the sentence to show.
+not set up) — the saved login checked again → `{"service", "check"}`. `check` is an AccountCheck (`problem`
+`cookies_unreadable|not_logged_in|no_premium|failed|null`); Shape: `AccountCheck` (generated, as above).
 ```json
 {
  "ok": true,
@@ -920,8 +698,8 @@ A sync may start while it waits; the check then doesn't run. Every settings writ
 
 | method | kind | result / notes |
 |---|---|---|
-| `find_logins(service)` — `youtube\|soundcloud` | immediate | `{browsers: [{id, name, default, readable, problem, profiles: [{id, name, signed_in}]}]}`: the installed browsers, the default one first. `problem` `no_access` (Safari without Full Disk Access) \| `locked` \| null; `profiles[].id` null = Safari's only profile |
-| `account_sign_in(service, browser, profile?)` — refused with `sync_running` during any sync, `busy` while another sign-in waits, `refused` for a browser that isn't installed | job `account_sign_in` (sign-in slot) | Opens the sign-in page in that browser (that Chrome/Brave/Edge profile in its own window; Firefox and Safari open their default profile), then looks every 3 s: for Chrome/Brave/Edge with a profile only that profile's login counts, otherwise a login in any profile of the browser (the chosen one first). `SignInPhase` `waiting` → `checking`; then like `setup_account`: `{service, browser, profile, saved, check}`, `profile` the one whose login was found. Ends `failed` after 10 minutes ("Didn't see a login in 10 minutes. Sign in again.") or at once when macOS refuses the browser's files (the Full Disk Access message); `stopped` by `stop_sign_in()`; `sync_running` ("… Check again after the sync.") when a sync started while it waited (no check runs); `busy` / `console` when the login was checked but a write job or a terminal run held the lock at the save (nothing saved) |
+| `find_logins(service)` — `youtube\|soundcloud` | immediate | The installed browsers, the default one first, and which profiles hold a login. `problem` `no_access` (Safari without Full Disk Access) \| `locked` \| null; `profiles[].id` null = Safari's only profile. Shape: `FindLogins` |
+| `account_sign_in(service, browser, profile?)` — refused with `sync_running` during any sync, `busy` while another sign-in waits, `refused` for a browser that isn't installed | job `account_sign_in` (sign-in slot) | Opens the sign-in page in that browser (that Chrome/Brave/Edge profile in its own window; Firefox and Safari open their default profile), then looks every 3 s: for Chrome/Brave/Edge with a profile only that profile's login counts, otherwise a login in any profile of the browser (the chosen one first). `SignInPhase` `waiting` → `checking`; then like `setup_account` (Shape: `AccountSaved`), `profile` the one whose login was found. Ends `failed` after 10 minutes ("Didn't see a login in 10 minutes. Sign in again.") or at once when macOS refuses the browser's files (the Full Disk Access message); `stopped` by `stop_sign_in()`; `sync_running` ("… Check again after the sync.") when a sync started while it waited (no check runs); `busy` / `console` when the login was checked but a write job or a terminal run held the lock at the save (nothing saved) |
 | `stop_sign_in()` | immediate | `{stopped}` — Cancel on a waiting sign-in; `stop()` never ends it, and it never ends a sync |
 | `open_privacy_settings()` | immediate | `{}` — System Settings at Full Disk Access |
 | `qobuz_check_login()` — refused with `sync_running` during any sync | job `qobuz_check_login` | `{}`: logs in with the saved login and searches once; stores `qobuz_last_check`: `login_failed` only when Qobuz refuses the login, `search_failed` when logged in but the search finds nothing (then `failed` + message). Offline, a Qobuz error or a failed search store nothing (the last check stays) and end `failed` with a plain message |
@@ -932,34 +710,11 @@ carries `profile`. A failed check of the saved login (same browser and profile) 
 "not signed in" instead of a stale ✓. `setup_check_account` records its check the same way (answered `busy` / `console` when a write job or a terminal run
 holds the lock at the save).
 
-`setup_status()` also carries `qobuz_last_check` (LastCheck\|null), `spotify_user` (the display name saved at the
-Spotify login, null when not connected) and, per account, `profile`, `profile_name`, `last_check`.
+`downloads_view()` (immediate; answers `{downloads}`) — the source ladder and the account panels of Settings and Setup
+(spec settings-setup §4, §6.4): each download source's state and the library counted by rung. A login without Premium
+(YouTube) is used only to read Liked music, never for a download. Without a music folder the library counts are zero.
+Shape: `DownloadsViewAnswer` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
-`downloads_view()` (immediate) — the source ladder and the account panels of Settings and Setup (spec
-settings-setup §4, §6.4): each download source's state and the library counted by rung.
-- `qobuz.state`: `on` · `off` (not signed in, or its last login check failed) · `skipped` ("I don't have Qobuz") ·
-  `paused` (stopped itself today) · `used_up` (today's allowance used).
-- An account's `state`: `on` · `off` (not set up, or its last check found no login / failed) · `no_premium` (YouTube: a free login, used only for Liked music) ·
-  `unreadable` (macOS didn't let Discjockey read the browser's login) · `paused` · `used_up`.
-- `last_check` = LastCheck `{ok, problem, kbps, at}` (null: never checked since it was saved). `profile` is the
-  browser profile's folder (null: the default one); `profile_name` its display name (null when it can't be read).
-- `tracks`: Qobuz — live tracks from Qobuz; an account — live lossy tracks from its source at about 256 kbps.
-- `library`: live tracks (in a playlist, not hidden): `lossless`; `account` = lossy stream downloads at ≥ 200 kbps;
-  `free` = the lower or unknown ones (an artist's lossless original counts as lossless).
-```json
-{
- "ok": true,
- "downloads": {
-  "qobuz": {"state": "on", "last_check": {"ok": true, "problem": null, "kbps": null, "at": "2026-10-22T09:15:00"}, "tracks": 412},
-  "youtube": {"state": "off", "browser": null, "browser_name": null, "profile": null, "profile_name": null,
-              "last_check": null, "tracks": 0},
-  "soundcloud": {"state": "no_premium", "browser": "chrome", "browser_name": "Chrome", "profile": "Profile 2",
-                 "profile_name": "DJ", "last_check": {"ok": false, "problem": "no_premium", "kbps": 128, "at": "2026-10-22T10:00:00"},
-                 "tracks": 0},
-  "library": {"lossless": 412, "account": 0, "free": 31}
- }
-}
-```
 
 ### The music folder
 
@@ -969,9 +724,9 @@ Where the library lives (spec public-release §4). The hub opens without one: Se
 | method | kind | result / notes |
 |---|---|---|
 | `pick_folder(start?)` | immediate | `{path}`: the Mac's folder dialog, opened at `start`, else `~/Music` (the nearest folder that exists). `path` null when the user cancelled. `refused` when no window dialog exists |
-| `check_music_folder(path)` | immediate | FolderCheck `{path, exists, usable, problem, kind, message}`; changes nothing. `path` is the resolved folder. `usable` false: `problem` names why and `message` says it in plain words. `kind` (usable folders): `new` (not there yet, made on the user's choice) · `empty` · `discjockey_library` (a Discjockey library already) · `other_files` (the page asks before using it). `problem`: `not_absolute` · `not_a_folder` · `system_folder` · `inside_app` · `is_support_dir` · `not_writable` |
-| `set_music_folder(path)` | immediate | `{music: MusicStatus, restart}`: uses the folder (made when new). Without a bound library (none chosen, or the chosen one missing) it is bound at once, `restart` false. A bound library is never swapped while the window is open: the choice is saved and `restart` is true, then the page calls `quit()`. The folder already in use again changes nothing (`restart` false). Refused: `refused` with the check's message, `busy` while a change runs, `console` while a terminal run holds the library |
-| `retry_music_folder()` | immediate | `{music}`: the missing-folder screen's Try again; binds the library when the folder is back; `music.state` becomes `not_chosen` when `config.json` no longer names a folder. With a library bound already (see "bound but missing" below) there is nothing to bind: it answers the status, `ok` once the folder is back |
+| `check_music_folder(path)` | immediate | Changes nothing. `path` is the resolved folder. `usable` false: `problem` names why and `message` says it in plain words. `kind` is set for usable folders (`other_files`: the page asks before using it). Shape: `FolderCheck` |
+| `set_music_folder(path)` | immediate | Uses the folder (made when new). Without a bound library (none chosen, or the chosen one missing) it is bound at once, `restart` false. A bound library is never swapped while the window is open: the choice is saved and `restart` is true, then the page calls `quit()`. The folder already in use again changes nothing (`restart` false). Refused: `refused` with the check's message, `busy` while a change runs, `console` while a terminal run holds the library. Shape: `MusicFolderSet` |
+| `retry_music_folder()` | immediate | The missing-folder screen's Try again; binds the library when the folder is back; `music.state` becomes `not_chosen` when `config.json` no longer names a folder. With a library bound already (see "bound but missing" below) there is nothing to bind: it answers the status, `ok` once the folder is back. Shape: `MusicFolderAnswer` |
 
 While no music folder is bound, every method in `LIBRARY_METHODS` answers `no_library` before anything runs, with
 "Choose your music folder first: it is the first step of Setup." (not chosen) or "Your music folder isn't there:
@@ -997,28 +752,27 @@ back, and "Choose another…" saves the other folder and returns `restart: true`
 ### Watched folders and the import (read: `LIBRARY_METHODS`; writes are jobs, except the brief saves)
 
 The user's own music (spec library-and-sources §10; plan library stage 4): folders Discjockey indexes where they are.
-Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views.py`) and is shown as given.
+Every word below is the engine's (`folders.py`, `importer.py`, `jobs.py`, `views.py`) and is shown as given. The shapes are generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`.
 
 | method | kind | result / notes |
 |---|---|---|
-| `watched_folders()` | read | `{folders: WatchedFolderRow[], unreadable: {folder_id, path, reason}[], waiting, stopped}`. `WatchedFolderRow = {id, path, name, kind: library\|import, state: online\|offline\|missing\|scanning\|importing, files, waiting, unreadable, crates: Crate[], too_many}` (`crates` are all the folder's crates in label order, hidden ones too, with the user's switches applied (`Crate` as in `sidebar()`); `too_many`: more than 25, so they start hidden. The Library row has `[]` and `false`): the Library first (always `online`, or `scanning` while an import looks for files; `name` "Library"; its `waiting` and `unreadable` count like an import folder's: files that came into Library/ before an import finished them), then the import folders by id. `offline`: the folder's drive is not connected (path under `/Volumes/<drive>`, that mount absent). `missing`: any other folder that is not a folder now (moved, renamed or deleted; the page says "Folder not found: moved, renamed or deleted? Put it back or remove it here." and the row keeps its ×). Both: checked live, rows kept, nothing downloads. `scanning`: an import is looking for files. `importing`: one runs and this folder has files it hasn't finished. `files`: the tracks the folder lists, the sidebar's number for the same folder (`views.listed_counts`: one definition for both; the Library row counts `Library/...`; a file the import has not read yet or could not read is no track yet and is in `waiting` or `unreadable` instead); `waiting`: files the import still works through (not read yet, or read and not sound-checked yet); `unreadable`: files it couldn't read. Top level: `unreadable` the files it couldn't read (in the Library and every import folder), each with the id of its folder and the reason in words ("macOS doesn't let Discjockey read it", "Discjockey can't find sound it can read in it"; "The file is empty" for a file of 0 bytes); `waiting` the files an import would work through now (offline drives' files left out); `stopped` true after the user stopped an import this session (the page offers Continue import). The live phase and counts come from the `ImportProgress` event, not from here |
-| `check_import_folder(path)` | read | FolderCheck `{path, exists, usable, problem, kind, message, merges, merge_hints}`; changes nothing. `usable` false: `problem` is one of `not_absolute` · `not_a_folder` · `system_folder` · `inside_app` · `is_support_dir` · `not_readable` · `not_found` · `music` · `holds_music` · `watched` · `already`, and `message` says it: "This is inside your music folder, which Discjockey watches already." · "This folder holds your music folder. Choose a folder inside it instead." · "This is inside {name}, which Discjockey watches already." · "Discjockey watches this folder already." · "That folder isn't there. If it is on a drive, connect the drive first." · "macOS doesn't let Discjockey read that folder." (and the music folder check's words for the first four). Usable: `kind` `import`; `merges` the paths of the watched folders inside it that it would take over (their files and links are kept), `merge_hints` one line each: "{name} is inside it and becomes part of it." |
-| `removal_preview(folder_id)` | read | `{name, files, redownload}`: the folder's file count, and the playlist songs whose only file is there (they download again at the next sync). `refused` for the Library or a number that is no watched folder ("That folder isn't one of the watched folders.") |
-| `add_watched_folder(path)` | write → job `import` | Checks the folder as above (`refused` with its message when it can't be watched), watches it, then imports in the same job. `JobFinished.result`: ImportResult (below) |
+| `watched_folders()` | read | The Library first (always `online`, or `scanning` while an import looks for files; `name` "Library"; its `waiting` and `unreadable` count like an import folder's: files that came into Library/ before an import finished them), then the import folders by id. `offline`: the folder's drive is not connected (path under `/Volumes/<drive>`, that mount absent). `missing`: any other folder that is not a folder now (moved, renamed or deleted; the page says "Folder not found: moved, renamed or deleted? Put it back or remove it here." and the row keeps its ×). Both: checked live, rows kept, nothing downloads. `files` is the sidebar's number for the same folder (`views.listed_counts`: one definition for both; the Library row counts `Library/...`; a file the import has not read yet or could not read is no track yet and is in `waiting` or `unreadable` instead). `crates` are the user's switches applied (`Crate` as in `sidebar()`); the Library row has none. Top level: `unreadable` lists the files it couldn't read (in the Library and every import folder), each with the id of its folder and the reason in words; `stopped` is true after the user stopped an import this session (the page offers Continue import). The live phase and counts come from the `ImportProgress` event, not from here. Shape: `WatchedFolders` |
+| `check_import_folder(path)` | read | Changes nothing. `usable` false: `problem` says why and `message` says it: "This is inside your music folder, which Discjockey watches already." · "This folder holds your music folder. Choose a folder inside it instead." · "This is inside {name}, which Discjockey watches already." · "Discjockey watches this folder already." · "That folder isn't there. If it is on a drive, connect the drive first." · "macOS doesn't let Discjockey read that folder." (and the music folder check's words for the first four). Usable: `kind` `import`; `merges` the folders inside it that it would take over (their files and links are kept). Shape: `ImportFolderCheck` |
+| `removal_preview(folder_id)` | read | The folder's file count, and the playlist songs whose only file is there (they download again at the next sync). `refused` for the Library or a number that is no watched folder ("That folder isn't one of the watched folders."). Shape: `RemovalPreview` |
+| `add_watched_folder(path)` | write → job `import` | Checks the folder as above (`refused` with its message when it can't be watched), watches it, then imports in the same job. `JobFinished.result`: `ImportResult` (below) |
 | `start_import()` | write → job `import` | "Continue import": the import again where it stopped. Also lets the import start by itself again this session (a Stop holds that) |
-| `remove_watched_folder(folder_id)` | write → job `folders` | `{name, files, redownload}` as `removal_preview` said (`name` is for the command line's words). The files stay where they are; own songs left with no file go; playlist songs left with no file download again. The preview is planned again at once. `refused` for the Library or an unknown number |
-| `answer_same_song(song_key, own_key, same)` | write → job `answer` | "Is this the same song?" answered (`same`: bool): the preview is planned again (Yes: the next plan links the file to the playlist song; No: the song downloads at the next sync, and is never asked again). `result` `{}`. `changed` when `song_key` isn't a playlist song any more |
-| `keep_duplicates(group_id, paths)` | write → job `answer` | "Keep both" / "Keep all": the group isn't asked again; it applies to every file of the group (a group can hold more than two). `paths`: the group's files' `path`s as the card showed them (list of strings, any order); `changed` when they are not the group's files now (a file id can be given out again to another file). `result` `{}` |
-| `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | One file of the group to Superseded/ (the panel's "Keep the …" sends one per file that goes); nothing is deleted. `paths`: as for `keep_duplicates`. `result` `{result: Result, recovered: []}` (`result.section` `replaced`, `result.path` where the file went, relative to the music folder). `changed` when the group isn't as the page showed it (a file gone, offline or a different group), `failed` when the move was refused (nothing moved) |
+| `remove_watched_folder(folder_id)` | write → job `folders` | The result is `RemovalPreview` as `removal_preview` said (`name` is for the command line's words). The files stay where they are; own songs left with no file go; playlist songs left with no file download again. The preview is planned again at once. `refused` for the Library or an unknown number |
+| `answer_same_song(song_key, own_key, same)` | write → job `answer` | "Is this the same song?" answered (`same`: bool): the preview is planned again (Yes: the next plan links the file to the playlist song; No: the song downloads at the next sync, and is never asked again). `result` is `Empty`. `changed` when `song_key` isn't a playlist song any more |
+| `keep_duplicates(group_id, paths)` | write → job `answer` | "Keep both" / "Keep all": the group isn't asked again; it applies to every file of the group (a group can hold more than two). `paths`: the group's files' `path`s as the card showed them (list of strings, any order); `changed` when they are not the group's files now (a file id can be given out again to another file). `result` is `Empty` |
+| `supersede_duplicate(group_id, file_id, paths)` | write → job `supersede` | One file of the group to Superseded/ (the panel's "Keep the …" sends one per file that goes); nothing is deleted. `paths`: as for `keep_duplicates`. `result` is `SupersedeResult` (`result.section` `replaced`, `result.path` where the file went, relative to the music folder). `changed` when the group isn't as the page showed it (a file gone, offline or a different group), `failed` when the move was refused (nothing moved) |
 | `set_favourites(keys)` | brief save | `{favourites: string[]}`: replaces the Favourites with `keys` (`playlist:<ref>` / `folder:<path>`, in the order given; a key given twice keeps its first place) and answers the list as stored. Not a job and no engine lock: it works during a sync, an import and a terminal run (see "Calling"). `refused` for anything but a list of such keys; `busy` ("Discjockey couldn't save that just now. Try again in a moment.") when a running job's write holds `library.db` past the 1.5 s wait, nothing changed; `refused` with "Discjockey has no records of your library yet, so it can't save that. Quit and open Discjockey again." while there is no `library.db`. A stored key that is not in `keys` and whose playlist or folder is gone right now (`sidebar()` leaves it out) stays stored, right after the nearest stored key before it that is in the new list (first if none): the UI never saw it, so a save from the UI cannot have meant to remove it (a playlist taken out of playlists.txt for a while, a folder on an unplugged drive, a briefly empty sidebar). A key in `keys` is the user's, wherever it points. The answer is the list as stored, those kept keys among them |
 | `set_crate_shown(path, shown)` | brief save | `{path, shown}`: shows (`true`) or hides (`false`) the crate at snapshot path `path` in the sidebar, or goes back to the default (`null`: shown, hidden under a folder with more than 25 crates). Settings' switch. Same rules, answers and refusals as `set_favourites` (`refused` for an empty path or a `shown` that is neither bool nor null); the path is not checked against the crates |
-| `setup_skip_import()` | brief save | `{}`: sets `import_skipped` in settings.json (Setup's "Your existing music" step counts as done). Not a job; `busy` while a job writes, `console` while a terminal run does |
+| `setup_skip_import()` | brief save | Sets `import_skipped` in settings.json (Setup's "Your existing music" step counts as done). Not a job; `busy` while a job writes, `console` while a terminal run does. Answers `Empty` |
 
 **Jobs.** `import` runs the import: `ImportProgress` events (phase `scan` · `facts` · `tags` · `sound` · `link`, `done` of `total`
-files of that phase, `unreadable` so far), then ends. `JobFinished.result` is ImportResult `{files, own_songs,
-sound_checked, unreadable, left, stopped, link_note}`: `files` the files imported (read in either pass, not unreadable
-now), `left` the files the next import still works through, `link_note` null or the words of a link that didn't happen
-("Your playlists couldn't be read, so the imported files are linked to them at the next sync."). `JobFinished.message`
+files of that phase, `unreadable` so far), then ends. `JobFinished.result` is `ImportResult` (`link_note` is null or the
+words of a link that didn't happen: "Your playlists couldn't be read, so the imported files are linked to them at the next
+sync."). `JobFinished.message`
 is the end line: "Imported {files} files." (singular: "Imported 1 file."). `stop()` ends an import between two files:
 `JobFinished` with problem `stopped`, `result` the import as far as it went (`stopped` true) and `message` "Import
 stopped with {left} files to go. It carries on where it stopped." ("1 file" when 1). What was done is written; the
@@ -1114,16 +868,14 @@ action.
 
 - **`set_auto_upgrade(on)`** (write job `set_auto_upgrade`, result `{auto_upgrade}`: the value saved, for the command line's words): see Settings. **`setup_status().auto_upgrade`**
   is the switch. `SettingKey` is unchanged (no read needs the switch).
-- **`rekordbox_status()`** (read, any time; works without a music folder, not a `LIBRARY_METHODS` member) →
-  `{state: "ready" | "none" | "unreadable", running: bool, state_text, problem: "unclean" | "busy" | "key" | "db_version" |
-  "schema" | null, problem_text, version, library, db_version, modified_at, size}` (issue 39: the command line's richer
-  answer; the window reads `state` and `running` only; `version` is rekordbox's own, `library` the path of master.db,
-  `modified_at` its local modified time to the second and `size` its size, so "master.db untouched meanwhile" can be
-  checked; each is null where unknown), plus `writing: true` and `as_of` (ISO time the value was
-  read, or null) only while a writer holds `rekordbox.lock`. `state` is the cached `_rekordbox_status()` (one read open
-  per change of master.db; with a writer holding the lock it answers its last value), `running` is asked on every
+- **`rekordbox_status()`** (read, any time; works without a music folder, not a `LIBRARY_METHODS` member): issue 39's
+  command line gets a richer answer than the window, which reads `state` and `running` only (`library` is the path of
+  master.db, `modified_at` its local modified time to the second and `size` its size, so "master.db untouched meanwhile"
+  can be checked). `state` is the cached `_rekordbox_status()` (one read open per change of master.db; with a writer
+  holding `rekordbox.lock` it answers its last value, with `writing: true` and `as_of`), `running` is asked on every
   call. The Sync page reads it when it opens and when the window gets focus again (no timer); `none`: no rekordbox
-  library on this Mac, `unreadable`: one Discjockey cannot open.
+  library on this Mac, `unreadable`: one Discjockey cannot open. Shape: `RekordboxStatusAnswer` (generated:
+  `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 - **`sync_preview().auto_upgrade`** → `{on: bool, ready: n, places: p, place_notes: {closed, open} | null} | null`. `on` is the Auto-upgrade switch. `n` = the phase's upgrade set now: To-do's Upgrade ready
   list (hidden left out, songs waiting for an answer to "Is this the same song?" left out) filtered by the quick Same
   track answer (the cached rekordbox state; nothing of rekordbox's library is opened), minus the tracks a recorded
@@ -1210,41 +962,30 @@ action.
 ## Convert and clean names (issue 33 stage D)
 
 Convert to AIFF, Give it its clean name, Make all lossless files AIFF and To-do's "Won't play well on CDJs" group (design
-`docs/2026-11-07-rekordbox-repoint-design.md` §2, plan `docs/2026-11-13-rekordbox-stage-d-plan.md`). The key sets of
-every shape below are pinned by `tests/fixtures/hub_convert_shapes.json`, which `tests/test_hub_api_convert.py` (the real
-hub) and `hub-ui/src/lib/bridge/fake/convert.test.ts` (the fake backend) both read. Types: `types.ts` (`TrackAiff`,
-`AiffScope`, `AiffPlan`, `CdjWhy`, `CdjWords`); the new methods are in `contract.ts` and, as `LIBRARY_METHODS` members,
+`docs/2026-11-07-rekordbox-repoint-design.md` §2, plan `docs/2026-11-13-rekordbox-stage-d-plan.md`). The shapes below
+are generated (`hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`: `AiffPlan`, `AiffScope`, `AiffBatchResult`, `TrackAiff`, `CdjWhy`, `CdjWords`); the new methods are in `contract.ts` and, as `LIBRARY_METHODS` members,
 answer `no_library` without a music folder.
 
-- **`aiff_plan(scope, only?)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). `only` is the command
-  line's (`aiff rename --dry-run`; the window sends none): `"rename"` plans Rename's answer alone, as `rename` runs it (a file
-  that needs a Convert is left out, in a `tracks` scope `skipped` as `needs_convert`); any other value is `refused`. `scope` is
-  `{kind: "tracks", tracks: [key, …]}` (what the user picked; each song once), `{kind: "lossless", view:
-  "all"\|"unlisted"\|"playlist"\|"folder", key: str\|null}` (the view's own files, as `library()` lists them without filter or
-  search, whose stored codec is lossless; `key` is null for `all` / `unlisted`) or `{kind: "cdj"}` (To-do's group).
-  Anything else is `refused` ("That isn't a set of files Discjockey can make AIFF."; an empty or malformed `tracks`:
-  "No tracks were chosen."). The plan: `{scope: scope + label ("Selection", "Won't play well on CDJs", else the view's
-  title), items, skipped, waiting, kinds, lossy, total, space, superseded_bytes, rekordbox}`.
-  - `items` (the files the run would change, in order): `{track, name, action: "convert"\|"rename", kind, from, path,
-    new_path, superseded: str\|null, bytes, cdj: {short, words}\|null}`. `kind`: `flac`, `wav`, `alac`, `aiff_hires` (an AIFF
-    that isn't 16-bit / 44.1 kHz), `tags` (a 16/44.1 AIFF whose tags aren't the download's), `name` (a rename), `wavpack`,
-    `ape`, `tta`, `mp3`, `aac`, `opus`, `vorbis` or the codec's own name. `from` is the format line ("FLAC · 24-bit · 96 kHz",
-    "MP3 · 44.1 kHz · 320 kbps"); `path` the file now, `new_path` where it will be (a Convert whose AIFF takes the name the old
-    file held ends at the old path), `superseded` where the old file goes (Convert only); `bytes` the room the render needs (a
-    rename needs none).
-  - `skipped` (a `tracks` scope only): `[{track, name, reason, message}]`, the songs left as they are, `reason` an
-    eligibility key (`eligible.REASONS`: `named_already`, `downloaded`, `needs_convert`, `away`, …) with its words.
-  - `waiting`: `[{reason, message, n}]`, the files that can't run now but may later, each file once and never an item, in
-    every scope, in this order: `away`, `file_missing`, `no_name`, `rekordbox_unreadable`, `cloud`, `rename_blocked`,
-    `upgrade_waits`. `rename_blocked` is only ever the no-free-name case here, and its words (in `waiting` and `skipped`) are
-    "Every name this file could take is in use, so it keeps its name for now. Nothing was changed.", not about rekordbox.
-  - `kinds`: `[{kind, label, n}]` for the kinds with files, in the panel's order ("FLAC → AIFF", "WAV → AIFF", "ALAC → AIFF",
-    "AIFF 24-bit or above 44.1 kHz → 16-bit", "New tags", "Clean name only", then "{format} → AIFF").
-  - `lossy`: how many items have a lossy file now. `space`: `[{drive, needed, free, enough}]`, the room per drive
-    (`drive` is a folder on it). `superseded_bytes`: what `Superseded/` takes. `rekordbox`: `{state: ready\|none\|unreadable,
-    running, needs_closed, writing?}`, `needs_closed` true when an item's file is in rekordbox's library; `writing: true` (only
-    then present) says a writer of any Discjockey process held `rekordbox.lock`, so master.db was not opened and the plan took
-    rekordbox's cached state with no lookup of its tracks (as `rekordbox_status` answers `writing`).
+- **`aiff_plan(scope, only?)`** (read, any time) → `{plan: AiffPlan}` (`aiff_plan.AiffPlan.to_dict`). Shape: `AiffPlanAnswer`.
+  `only` is the command line's (`aiff rename --dry-run`; the window sends none): `"rename"` plans Rename's answer alone, as
+  `rename` runs it (a file that needs a Convert is left out, in a `tracks` scope `skipped` as `needs_convert`); any other
+  value is `refused`. `scope` is a selection (`tracks`, each song once), a view's own files (`lossless`: as `library()`
+  lists them without filter or search, whose stored codec is lossless; `key` is null for `all` / `unlisted`) or `cdj`
+  (To-do's group). Anything else is `refused` ("That isn't a set of files Discjockey can make AIFF."; an empty or malformed
+  `tracks`: "No tracks were chosen."). The plan's `scope` is the scope plus a `label` ("Selection", "Won't play well on
+  CDJs", else the view's title).
+  - `items` are the files the run would change, in order; a Convert whose AIFF takes the name the old file held ends at the
+    old path. `kinds` lists the kinds with files, in the panel's order ("FLAC → AIFF", "WAV → AIFF", "ALAC → AIFF", "AIFF
+    24-bit or above 44.1 kHz → 16-bit", "New tags", "Clean name only", then "{format} → AIFF"). `skipped` is for a `tracks`
+    scope only: the songs left as they are, `reason` an eligibility key (`eligible.REASONS`: `named_already`,
+    `downloaded`, `needs_convert`, `away`, …) with its words.
+  - `waiting` has the files that can't run now but may later, each file once and never an item, in every scope, in this
+    order: `away`, `file_missing`, `no_name`, `rekordbox_unreadable`, `cloud`, `rename_blocked`, `upgrade_waits`.
+    `rename_blocked` is only ever the no-free-name case here, and its words (in `waiting` and `skipped`) are "Every name
+    this file could take is in use, so it keeps its name for now. Nothing was changed.", not about rekordbox.
+  - `rekordbox.needs_closed` is true when an item's file is in rekordbox's library; `writing: true` (only then present) says
+    a writer of any Discjockey process held `rekordbox.lock`, so master.db was not opened and the plan took rekordbox's
+    cached state with no lookup of its tracks (as `rekordbox_status` answers `writing`).
   - A plan only reads: stored file facts, tags of the own AIFFs whose tags decide, no decoding. Own files without stored facts are read in memory (ffprobe) and never stored
     (`aiff_plan.with_facts`), for the window and the command line alike, for the files the scope looks at that `library
     facts` would store: at most 50, read again at every call, so the panel shows what the run (which fills the facts
@@ -1269,8 +1010,7 @@ answer `no_library` without a music folder.
   `aiff_plan` and add nothing of their own.
 - **Write jobs** `convert(track_ids, origin = "library" \| "todo", plan_id?)`, `rename(track_ids, plan_id?)` and `make_aiff(scope, plan_id?)` (scope
   `lossless` or `cdj`; any other is `refused`) → `{job_id}`; job kind `aiff_batch`, progress `BatchProgress`, result
-  `AiffBatchResult` (`{batch, state, stop_reason, total, done, skipped, failed, results: [{track, action, state, reason,
-  message, path, rekordbox}], backup, recovered}`, items' `action` `convert` or `rename`). One selected id is a batch
+  `AiffBatchResult` (items' `action` is `convert` or `rename`). One selected id is a batch
   "alone" (its job carries the `track_id`).
   - `plan_id` (the command line's `--plan`; the window sends none): only the items of that plan that still stand run
     (each item's answer as `aiff_plan` gives it now equals the one the dry run saw, keyed by song), as one batch; the
