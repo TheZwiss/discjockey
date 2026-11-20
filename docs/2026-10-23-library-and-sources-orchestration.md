@@ -1127,6 +1127,13 @@ Results:
         (goldens, lock drivers, schema-13 tests); pytest 6301/4 skipped on the final commit, npm check 0, vitest 382.
         Merged 3e9c1f72, pushed. Notes to review-V2.5.md. Review V2.5 (Sonnet) dispatched: BASE 52732e45, HEAD
         3e9c1f72, diff 55k tokens, exp. ~180-200k.
+      - Review V2.5 (Sonnet): logged 180k (exp. 180-200k), 55 calls, cache 6.5M, fresh in 162k, advisor 0k. 0 Critical,
+        1 Important (F1 a keep_file stopped after some moves says "Nothing was moved"), 8 Minor (F2 a crash between
+        moves loses the moved list; F3 one-file group; F4 _file_problem FIFO/NUL/relative path; F5 drop event words;
+        F6 "Add again" on permanent refusals; F7 dead groupIdOf; F8 "this session" words; F9 import-stop/scope test
+        gaps). No window logic added, no product decision. review/findings-V2.5.md. Carry to V4.6 (add-file
+        resolves relative paths) in carry-items.md. FR-V2.5 (Sonnet fix-round, F1-F9) dispatched on cli2-fv25, exp.
+        ~140k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
