@@ -1122,6 +1122,11 @@ Results:
         my full pytest on the final commit: 6268 passed / 4 skipped. Two whole commits instead of events/payloads
         (F13 rule). Notes to V2.5b.md (catalog-count test, LIBRARY_METHODS) and review-V2.5.md. Merged 32e8aeb6,
         pushed. V2.5b dispatched (cli2-14, exp. 200k).
+      - V2.5b done (Sonnet): logged 271k (exp. 200k, 1.36x), 129 calls, cache 21.6M, fresh in 258k, out 77k, advisor
+        0k. Commits dc8ea175 (one commit: engine+shapes+generated+fake+client+store+doc) + 86d0f77b static + 3dd53590
+        (goldens, lock drivers, schema-13 tests); pytest 6301/4 skipped on the final commit, npm check 0, vitest 382.
+        Merged 3e9c1f72, pushed. Notes to review-V2.5.md. Review V2.5 (Sonnet) dispatched: BASE 52732e45, HEAD
+        3e9c1f72, diff 55k tokens, exp. ~180-200k.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
