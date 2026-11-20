@@ -929,6 +929,14 @@ Results:
     holds. +2 765k at plan units. Detailing split into waves: (B1) Opus wave 1 = phase 2 order/cuts/interfaces + briefs
     E7, V2.1, V2.4 (brief-detail-wave1.md; material ~105k, est. 230-300k) RUNNING; then (C) fresh Opus brief check;
     wave 1 builds; (B2) wave 2 briefs against the code after E7.
+    E6 OUT after the user asked "is that needed for agents?" (numbers beat a PNG for agents): extras +2 585k.
+    (B1) done: Opus **371k** (est. 230-300k; 94 API calls, 21.3M cache reads, 132k out). Files in
+    .claude/issue39/phase2/: phase2-plan.md, phase2-dispatch.md, briefs E7a-E7e, V2.1a, V2.1b, V2.4 (2-4k each),
+    sizing-extras.md. Wave 1 builds 1 614k (8 Sonnet agents, 170-217k each) vs plan 1 225k; + Opus phase review
+    2x180k + fix 150k ≈ 2 124k. Wave 2: 10 agents (E4b Opus UI 320k). 8 decisions flagged for a second look
+    (types.ts re-exports types.gen.ts; shapes package per area; +3 allowed types; F(shown) default True; events
+    outside shapes; T6 real-output = suite in test mode; no secrets in window jobs' state.json; ConsoleBusy.job).
+    Next (C): fresh Opus brief check.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
