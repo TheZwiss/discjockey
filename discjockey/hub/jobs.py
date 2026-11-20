@@ -656,10 +656,11 @@ class Jobs:
 
     def status(self) -> dict:
         job, refresh, sign_in = self.current, self.refresh, self.sign_in
+        holder = self.console_holder()  # one look: `console_running` and `console` never disagree
         return {"job": job.snapshot() if job else None,
                 "sign_in": sign_in.snapshot() if sign_in else None,
                 "refresh_running": refresh is not None and not refresh.done.is_set(),
-                "console_running": self.console_running()}
+                "console_running": holder is not None, "console": holder}
 
     def _job_emit(self, job: Job) -> Emit:
         def emit(event: object) -> None:  # like HubEvents.emit: never raises into the engine

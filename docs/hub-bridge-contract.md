@@ -45,7 +45,7 @@ Pinned by tests: `tests/test_hub_api*.py` (the page sees exactly these methods: 
   page sees it through `todo()`'s `rekordbox_check` group and the report section of the same name; `track()` does not
   return it. The panel builds its numbered steps from `reason`, `match`, `offset_ms`, `moved` and `aligned`: an added file's first step is a manual Relocate, never Auto Relocate, while `relocate` is true; with `relocate` false the one step is `report.NO_RELOCATE`'s words. It keeps `text` for any other reason.
 - An own file (the import's) is in no playlist by nature: the Library table dims a row only when `!in_playlists && !own`.
-- Disable write buttons while `job_status().job.running` or `console_running`. ↻ is refused during the hub's own sync.
+- Disable write buttons while `job_status().job.running` or `console_running`. `job_status().console` is the holder (`{job, via, kind, line, text}`, null when none): a reloaded window shows the banner's words from it at once, as the `ConsoleBusy` event says them later. ↻ is refused during the hub's own sync.
 
 ### Problem kinds (`kind` on ok:false, `problem` on JobFinished)
 

@@ -42,3 +42,19 @@ describe('the Terminal job in the fake backend', () => {
     }
   });
 });
+
+describe('job_status in the fake backend', () => {
+  const holderOf = async (scenario: string) => {
+    const r = await createFakeBridge(scenario).job_status() as { ok: true; console_running: boolean; console: unknown };
+    return [r.console_running, r.console];
+  };
+  it('answers the holder the scenario holds the library with, and null when none does', async () => {
+    expect(await holderOf('normal')).toEqual([false, null]);
+    expect(await holderOf('console')).toEqual([true, { job: 'job:00000c0d', via: 'terminal', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60' }]);
+    expect(await holderOf('console:tidy')).toEqual([true, { job: 'job:00000c0d', via: 'terminal', kind: 'tidy',
+      line: '12 of 80 · Techno', text: 'Tidy-up running in the Terminal · 12 of 80 · Techno' }]);
+    expect(await holderOf('console:unknown')).toEqual([true, { job: null, via: null, kind: null, line: null,
+      text: 'A Discjockey command is running in the Terminal' }]);
+  });
+});

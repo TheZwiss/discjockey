@@ -7,6 +7,7 @@
 //   console:unknown  a holder the registry knows nothing of (an older Discjockey): the sentence for one nobody can name
 import type { FakeState } from './data';
 import type { HubEvent } from '../events';
+import type { ConsoleHolder } from '../types';
 
 const TITLES: Record<string, string> = { sync: 'Sync', tidy: 'Tidy-up' };
 /** The progress line each kind runs at in the fake (the engine's `words.job_line`) */
@@ -20,7 +21,7 @@ const holderText = (kind: string, line: string | null) =>
 
 /** Who holds the library besides the window, as `{job, via, kind, line, text}`; null while none does. A state with only
  *  `console_running` set is a Terminal sync at "4 of 60". */
-export function consoleHolder(s: FakeState) {
+export function consoleHolder(s: FakeState): ConsoleHolder | null {
   if (!s.console_running) return null;
   if (s.console_unnamed) return { job: null, via: null, kind: null, line: null, text: UNNAMED };
   const kind = s.console_kind ?? 'sync';

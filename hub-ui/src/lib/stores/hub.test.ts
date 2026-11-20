@@ -506,3 +506,25 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
     expect(hung.sidebars).toBeGreaterThan(0);
   });
 });
+
+describe('a reloaded window while another process holds the library', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it("learns the holder's words from job_status at once, and drops them when it has ended", async () => {
+    (globalThis as any).window = new EventTarget();
+    let holder: unknown = { job: 'job:00000007', via: 'terminal', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60' };
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: holder !== null, console: holder,
+        read_status: null, sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+    await refreshHub();
+    expect([get(hub).console_running, get(hub).console]).toEqual([true, { job: 'job:00000007', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60' }]);
+    holder = null;
+    await refreshHub();
+    expect([get(hub).console_running, get(hub).console]).toEqual([false, null]);
+  });
+});
