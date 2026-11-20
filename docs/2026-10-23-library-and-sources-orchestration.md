@@ -1205,18 +1205,31 @@ Results:
         while subscribed; own JobFinished applied one poll later; scenarios via pageScenarios(); sync fake's stop now
         passes job_id). FOR PHASE REVIEW: the reader cache can disagree with a fresh reader once the rolling tail has
         dropped lines (brief accepts it); positions count raw file lines (an unparseable line has a place, no event).
-      - RESUME HERE (LATEST, 2026-11-21 ~01:xx): E4b (ui-build Opus, brief E4b.md) RUNNING on .claude/worktrees/cli2-18,
-        branch feat/cli-2-terminal-live from 20c477e6 (node_modules symlinked). Phase branch feat/cli-2-foundations =
-        20c477e6 (pushed), main checkout on it. On E4b's notice: ps, agent-cost (2026-11-20 and -21), commits, its green
-        full pytest (else run it myself), merge --no-ff, push, remove worktree, append "Landed in E4b" (its report's
-        words + decisions) to shots-E4.md. Then shots E4 (Sonnet, shots-E4.md, BASE = f015d03f (before E4a) in its own
-        worktree + own Vite cacheDirs) → fix if needed → wave 2 Opus phase review in 2 halves (measure the wave 2 diff
-        first; carry every "FOR PHASE REVIEW" note in this NIGHT LOG since FR-V2.2) → Sonnet fix round(s) → `npm run
-        verify` (mine, run_in_background) → CI green → STOP for the user: the end-of-phase-2 cost checkpoint, the
-        real-copy rehearsals V2.2 + V2.5 (rehearse-V2.2.md / -V2.5.md; user present, Discjockey + rekordbox closed),
-        the merge go into main. No release.
-        WAVE 2 SPENT (logged): V2.2 831 + V2.5 775 + V2.3 437 + V2.6 634 + E9 347 + E4a 213 = 3,237k; left ≈ E4b 300
-        + shots 120 + review 350 + fix 150 ≈ 0.9M → wave 2 ≈ 4.2M (B2 plan 3,860k).
+      - E4b done (ui-build Opus, brief E4b.md): logged **237k** (exp. 300k); agent-cost: 79 calls, cache_read 13.7M,
+        fresh_in 235k, out 66k, advisor 0k. One commit 86b3019b (source + static together: the hook refused the tree
+        without the deleted assets). Its suite had 1 fail (test_the_real_repo_is_clean, unstaged deletions) → I ran the
+        full pytest on 86b3019b: 6427 passed, 4 skipped. vitest 1782. Merged 83b558c7, pushed, worktree removed.
+        Built: liveSource.ts (own / Terminal source), whichView with both syncs, "In the Terminal" sub-line, "Looking
+        up its progress…" on a late join, end screen same as own; fixed on the way: dismissedJobs (a set, not one id),
+        two-end-screens tie-break by last_sync.job, a past run by id no longer takes the live run's failure; fake files
+        the Terminal run on end. Changed 2 existing shots' scenarios (sync-before-console → console:unknown,
+        sync:up-to-date-console → Terminal tidy). FOR PHASE REVIEW: (a) E4a's terminalSync turns null when a Terminal
+        job of another kind starts, so an undismissed Terminal end screen silently becomes the plan (bug: fix in the
+        phase fix round); (b) the sidebar/foot sync indicator follows only the own sync (hubSyncRunning), a Terminal
+        sync shows only in the banner (judge: design §6.4 one sync anywhere → likely the engine's console state should
+        drive it; scope-check first); (c) the fake's job_status().last_sync never names the Terminal job (fake gap).
+        Shots E4 (Sonnet, shots-E4.md) dispatched: HEAD main checkout 83b558c7, BASE worktree shots-base at f015d03f,
+        exp. ~120k.
+      - RESUME HERE (LATEST, 2026-11-21 ~01:xx): shots E4 RUNNING (HEAD = main checkout 83b558c7, BASE = worktree
+        .claude/worktrees/shots-base detached at f015d03f). Phase branch feat/cli-2-foundations = 83b558c7 (pushed).
+        On its notice: ps (kill its vite servers if left), agent-cost, remove shots-base, log; problems → Sonnet fix
+        round (with E4b's FOR PHASE REVIEW (a) if small, else carry to the phase review). Then the wave 2 Opus phase
+        review in 2 halves (measure the diff f015d03f-era base of wave 2 first: wave 2 started after wave 1's merge;
+        carry every "FOR PHASE REVIEW" note in this NIGHT LOG since FR-V2.2) → Sonnet fix round(s) → `npm run verify`
+        (mine, run_in_background) → CI green → STOP for the user: the end-of-phase-2 cost checkpoint, the real-copy
+        rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox closed), the merge go into main. No release.
+        WAVE 2 SPENT (logged): 3,237k + E4b 237 = 3,474k; left ≈ shots 120 + review 350 + fix 150 ≈ 0.6M → wave 2
+        ≈ 4.1M (B2 plan 3,860k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
