@@ -592,12 +592,16 @@ SaveFiles = _record("SaveFiles", "`save_playlists`' third argument: the answer t
 
 
 @shape
-class SupersedeResult(TypedDict):
-    """The result of `supersede_duplicate`."""
-    result: Annotated[Result, F("The report line: `section` `replaced`, `path` where the file went (relative to the "
-                                "music folder).")]
+class KeepFileResult(TypedDict):
+    """The result of `keep_file`, also of a job that stopped after some moves (then `kept_track` is null)."""
+    results: Annotated[list[Result], F("One report line per file that went to Superseded/, in the order they moved: "
+                                       "`section` `replaced`, `path` where the file went (relative to the music "
+                                       "folder). Fewer than the group's other files when a move stopped the job.")]
     recovered: Annotated[list[tuple[str, bool]], F("What a recovery of an earlier crash put right, `[what, ok]` per "
                                                    "line.")]
+    kept_track: Annotated[str | None, F("The key of the song the kept file belongs to afterwards (a playlist song may "
+                                        "have taken the file over from an own song); null when the file is linked to "
+                                        "no song, or the job stopped before the end.")]
 
 
 # --- the change a playlist edit would make ---
@@ -879,7 +883,7 @@ ANSWERS: dict[str, str] = {
     # J methods: the shape of the job's result
     "save_playlists": "SavePlaylistsResult", "tidy_up": "BatchResult", "undo_moves": "BatchResult",
     "add_watched_folder": "ImportResult", "remove_watched_folder": "RemovalPreview", "start_import": "ImportResult",
-    "answer_same_song": "Empty", "keep_duplicates": "Empty", "supersede_duplicate": "SupersedeResult",
+    "answer_same_song": "Empty", "keep_duplicates": "Empty", "keep_file": "KeepFileResult",
     "set_read_liked_music": "Empty", "add_liked_music": "LikedMusicAdded", "set_auto_upgrade": "AutoUpgradeSet",
     "setup_account": "AccountSaved", "account_sign_in": "AccountSaved", "qobuz_check_login": "Empty",
     "spotify_sign_out": "Empty", "setup_forget_account": "AccountForgotten", "setup_save_client_id": "Empty",
@@ -889,7 +893,7 @@ ANSWERS: dict[str, str] = {
     "batch_resume": "AiffBatchResult", "batch_undo": "UndoResult",
 }
 RESULTS: dict[str, str] = {
-    "import": "ImportResult", "folders": "RemovalPreview", "answer": "Empty", "supersede": "SupersedeResult",
+    "import": "ImportResult", "folders": "RemovalPreview", "answer": "Empty", "supersede": "KeepFileResult",
     "save_playlists": "SavePlaylistsResult", "tidy": "BatchResult", "undo_moves": "BatchResult",
     "setup_skip_qobuz": "Empty", "setup_skip_spotify": "Empty", "set_read_liked_music": "Empty",
     "add_liked_music": "LikedMusicAdded", "set_auto_upgrade": "AutoUpgradeSet", "setup_account": "AccountSaved",

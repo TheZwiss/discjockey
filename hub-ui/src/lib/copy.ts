@@ -140,6 +140,9 @@ export const BANNER = {
 export const DROP_BLOCKED = "macOS didn't let Discjockey read this file. Move it to Downloads, or allow access in "
   + 'System Settings → Privacy & Security → Files and Folders.';
 
+/** A readable file dropped while no to-do item is open (the window's own selection, not an engine fact). */
+export const DROP_NO_TRACK = 'Select the track in the to-do list first, then drop the file on the window.';
+
 export const STEP_LABEL: Record<string, string> = {
   search: 'Searching', download: 'Downloading', check: 'Checking', convert: 'Converting', analyse: 'Analysing',
   compare: 'Comparing',

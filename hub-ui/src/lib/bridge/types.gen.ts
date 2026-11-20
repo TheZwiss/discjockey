@@ -3411,12 +3411,21 @@ export type SaveFiles = {
   /** The files to move, `[file_id, from_path]`. */
   moves: [number, string][];
 };
-/** The result of `supersede_duplicate`. */
-export type SupersedeResult = {
-  /** The report line: `section` `replaced`, `path` where the file went (relative to the music folder). */
-  result: Result;
+/** The result of `keep_file`, also of a job that stopped after some moves (then `kept_track` is null). */
+export type KeepFileResult = {
+  /**
+   * One report line per file that went to Superseded/, in the order they moved: `section` `replaced`, `path`
+   * where the file went (relative to the music folder). Fewer than the group's other files when a move stopped
+   * the job.
+   */
+  results: Result[];
   /** What a recovery of an earlier crash put right, `[what, ok]` per line. */
   recovered: [string, boolean][];
+  /**
+   * The key of the song the kept file belongs to afterwards (a playlist song may have taken the file over from
+   * an own song); null when the file is linked to no song, or the job stopped before the end.
+   */
+  kept_track: string | null;
 };
 /** A track without a file yet that will land in another folder. */
 export type ChangeReroute = PlaylistTrack & {

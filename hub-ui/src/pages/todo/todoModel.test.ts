@@ -221,21 +221,24 @@ describe('texts', () => {
 });
 
 describe('FileDropped decision', () => {
-  const ev = (more: Partial<{ track_id: string | null; readable: boolean; message: string }>) =>
-    ({ track_id: 't17', name: 'Armin Hermann - Get Naughty.wav', readable: true, message: '', ...more });
-  it('adds a readable file dropped on the selected track', () => {
-    expect(dropDecision(ev({}), 't17')).toEqual({ do: 'add' });
+  // the target is the to-do item the window had open when the file came (`dropTarget`); the event names no track
+  const ev = (more: Partial<{ path: string | null; readable: boolean; message: string }> = {}) =>
+    ({ name: 'Armin Hermann - Get Naughty.wav', path: '/Users/you/Downloads/Armin Hermann - Get Naughty.wav',
+       readable: true, message: '', ...more });
+  it('adds a readable file dropped on the open track', () => {
+    expect(dropDecision(ev(), 't17', 't17')).toEqual({ do: 'add' });
   });
   it('shows the message in the drop zone when macOS blocked the file', () => {
-    expect(dropDecision(ev({ readable: false, message: "macOS didn't let Discjockey read this file." }), 't17'))
+    expect(dropDecision(ev({ readable: false, message: "macOS didn't let Discjockey read this file." }), 't17', 't17'))
       .toEqual({ do: 'message', text: "macOS didn't let Discjockey read this file." });
   });
-  it('leaves a drop with nothing selected to the toast', () => {
-    expect(dropDecision(ev({ track_id: null, message: 'Select the track this file belongs to, then drop it again.' }),
-      null)).toEqual({ do: 'toast' });
+  it('leaves a drop with nothing open to the toast', () => {
+    expect(dropDecision(ev(), null, 't17')).toEqual({ do: 'toast' });
+    expect(dropDecision(ev({ path: null, readable: false, message: 'Drag it from a Finder window.' }), null, null))
+      .toEqual({ do: 'toast' });
   });
-  it('ignores a drop meant for another track', () => {
-    expect(dropDecision(ev({ track_id: 't2' }), 't17')).toEqual({ do: 'ignore' });
+  it('ignores a drop for another track than this panel shows', () => {
+    expect(dropDecision(ev(), 't2', 't17')).toEqual({ do: 'ignore' });
   });
 });
 

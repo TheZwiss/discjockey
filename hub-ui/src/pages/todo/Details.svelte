@@ -18,6 +18,8 @@
   // tip and a Hint under it. After the job the song leaves the group and the page's selection moves on (MissingFlow,
   // no hold: there is nothing left to decide here); one song's words come as a toast.
   import { untrack } from 'svelte';
+  import { get } from 'svelte/store';
+  import { dropTarget } from '$lib/stores/drag';
   import type { Spectrum as Spec, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
   import { networkReadsAllowed } from '$lib/stores/hub';
@@ -118,7 +120,7 @@
   // unreadable drop on it would show nothing. Toast macOS's message like the shell does on other pages.
   $effect(() => onEvent((e) => {
     if (e.type !== 'FileDropped' || act.dropZone) return;
-    const d = dropDecision(e, track.track_id);
+    const d = dropDecision(e, get(dropTarget), track.track_id);
     if (d.do === 'message') toasts.show({ tone: 'problem', title: "Can't read this file.", body: d.text });
   }));
 

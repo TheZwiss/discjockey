@@ -3,15 +3,15 @@
 // then never_download: 47; limits, limits_what_if and save_limits: 50; the four account setup methods: 54; the three Qobuz-only methods gone: 51;
 // mark_warnings_seen: 52; downloads_view: 53; the two Qobuz web-player methods gone: 51; Settings' sign-ins: 57; rollback_tools: +1; app_update: +1; tidy_preview, move_batches, undo_preview, tidy_up, undo_moves: +5;
 // the import (library stage 4): watched_folders, check_import_folder, removal_preview, add_watched_folder,
-// remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate, setup_skip_import: +10;
+// remove_watched_folder, start_import, answer_same_song, keep_duplicates, supersede_duplicate (replaced by keep_file, V2.5), setup_skip_import: +10;
 // set_favourites and set_crate_shown (library stage 5, brief saves, no job): +2; undo_upgrade: +1;
 // set_read_liked_music and add_liked_music (sources round): +2; set_crates_shown (leftovers C2): +1;
 // rekordbox_status and set_auto_upgrade (issue 33 stage C): +2; aiff_plan, convert, rename and make_aiff (stage D): +4;
-// missing_files_preview and missing_files (issue 43): +2.)
+// missing_files_preview and missing_files (issue 43): +2; select gone with the engine's memory of the window (issue 39 V2.5): -1.)
 export const CONTRACT_METHODS = [
   // read, any time
   'dashboard', 'sidebar', 'sync_preview', 'refresh', 'stop_refresh', 'job_status', 'library', 'track', 'todo',
-  'playlists', 'limits', 'limits_what_if', 'runs', 'run', 'spectrum', 'media_url', 'setup_status', 'select',
+  'playlists', 'limits', 'limits_what_if', 'runs', 'run', 'spectrum', 'media_url', 'setup_status',
   'rekordbox_status',
   // what Make all, a selection's Convert and the CDJ group's Convert all would do (issue 33 stage D)
   'aiff_plan',
@@ -29,7 +29,7 @@ export const CONTRACT_METHODS = [
   'missing_files',
   'tidy_up', 'undo_moves',
   'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates',
-  'supersede_duplicate',
+  'keep_file',
   // Liked music (sources round): Settings' choice and "Add Liked music to Playlists"
   'set_read_liked_music', 'add_liked_music',
   // Auto-upgrade (issue 33 stage C): Settings' and Setup's switch
@@ -59,6 +59,6 @@ export const LIBRARY_METHODS = [
   'show_in_finder', 'reveal', 'open_report',
   'tidy_preview', 'move_batches', 'undo_preview', 'tidy_up', 'undo_moves',
   'watched_folders', 'set_favourites', 'set_crate_shown', 'set_crates_shown', 'check_import_folder', 'removal_preview',
-  'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates', 'supersede_duplicate',
+  'add_watched_folder', 'remove_watched_folder', 'start_import', 'answer_same_song', 'keep_duplicates', 'keep_file',
   'add_liked_music', 'missing_files_preview', 'missing_files',
 ] as const satisfies readonly ContractMethod[];

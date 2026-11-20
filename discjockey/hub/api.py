@@ -93,8 +93,8 @@ NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "re
                          "missing download", "missing remove"))  # run on what is there when --yes comes: no plan to run
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
-NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
-NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
+NO_FILE = "There is no file at {path}."
+NO_PATH = "A bought file needs the path of the file."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
 FAVOURITE_KEYS = ("playlist:", "folder:")  # what a Favourite's key starts with (plan library stage 5, D3)
@@ -121,7 +121,7 @@ LIBRARY_METHODS = frozenset((
     "rename", "make_aiff", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
-    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
+    "start_import", "answer_same_song", "keep_duplicates", "keep_file", "add_liked_music",
     "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
@@ -298,6 +298,22 @@ def _paths_list(value: object) -> bool:
     return isinstance(value, list) and all(isinstance(p, str) for p in value)
 
 
+def _file_problem(path: str | Path) -> str | None:
+    """Why `path` can't be added as a file, None when it is an absolute path of a regular file this process can open
+    for reading: the words of a missing file (NO_FILE) or of one macOS doesn't let it read (`ops.NO_ACCESS`)."""
+    p = Path(path)
+    if not p.is_absolute():
+        return NO_FILE.format(path=path)
+    try:
+        with open(p, "rb"):
+            pass
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+        return NO_FILE.format(path=path)
+    except OSError:
+        return ops.NO_ACCESS
+    return None if p.is_file() else NO_FILE.format(path=path)
+
+
 def _import_folders(paths: Paths | None) -> int:
     """How many import folders the library watches (0 without a library or library.db: nothing to read)."""
     if paths is None or not paths.db_file.exists():
@@ -410,8 +426,6 @@ class HubApi:
         # what a file's tags said (plan stage D §0.7): (path, size, mtime_ns) -> audio.FileFacts, so reopening the panel
         # reads no file again; a changed file has a new key
         self._tag_cache: dict[tuple[str, int, int], audio.FileFacts] = {}
-        self._selected: str | None = None
-        self._dropped: dict | None = None
         self._drives_seen: dict[str, str] | None = None  # the away set the drives watch saw last (None: not yet)
         self._lock = threading.Lock()
         self._auto_lock = threading.Lock()
@@ -1455,13 +1469,6 @@ class HubApi:
         state = self._shown_state() if self._bound is not None else library.empty_state()
         return {"downloads": views.downloads(state, settings, qobuz_ok, names, self._today())}
 
-    @bridge
-    def select(self, track_id: str | None) -> dict:
-        """The to-do item the page shows, so a file dropped on the window goes to that track."""
-        with self._lock:
-            self._selected = track_id
-        return {}
-
     # --- other ---
 
     @bridge
@@ -1680,29 +1687,18 @@ class HubApi:
         return self._single(find.kind, track_id, do, expect)
 
     def _on_drop(self, event: dict) -> None:
-        """pywebview's drop handler on the page (app.py): remembers the file for the selected to-do item and tells the
-        page. Runs on a thread of its own; never raises."""
+        """pywebview's drop handler on the page (app.py): tells the page which file was dropped, remembering nothing
+        (the page passes the path back in `add_bought_file`). Runs on a thread of its own; never raises."""
         try:
             files = (event.get("dataTransfer") or {}).get("files") or []
             found = next((f for f in files if f.get("pywebviewFullPath")), None)
-            with self._lock:
-                track_id = self._selected
             if found is None:
-                self._emit(FileDropped(track_id, "", False, "Discjockey could not see where this file is. Drag it "
-                                                            "from a Finder window."))
+                self._emit(FileDropped("", None, False, "Discjockey could not see where this file is. Drag it "
+                                                        "from a Finder window."))
                 return
             path = Path(found["pywebviewFullPath"])
-            try:
-                with open(path, "rb"):
-                    readable = path.is_file()
-            except OSError:
-                readable = False
-            message = "" if readable else ops.NO_ACCESS
-            if readable and track_id is None:
-                readable, message = False, NOT_SELECTED
-            with self._lock:
-                self._dropped = {"track_id": track_id, "path": path} if readable else None
-            self._emit(FileDropped(track_id, path.name, readable, message))
+            readable = _file_problem(path) is None
+            self._emit(FileDropped(path.name, str(path), readable, "" if readable else ops.NO_ACCESS))
         except Exception:
             traceback.print_exc()
 
@@ -2167,39 +2163,51 @@ class HubApi:
         return {"job_id": self._jobs.start("answer", change).id}
 
     @bridge
-    def supersede_duplicate(self, group_id: str, file_id: int, paths: list[str]) -> dict:
-        """Duplicates' "Move to Superseded" for one file of the group (a write job, kind "supersede"; nothing is
-        deleted). `paths`: the group's files' paths as the card showed them (`changed` when they are not the group's
-        any more, whatever its file ids say). The result is `{result, recovered}` as an operation's, without a
-        track."""
+    def keep_file(self, group_id: str, file_id: int, paths: list[str]) -> dict:
+        """Duplicates' "keep this file" (a write job, kind "supersede"; nothing is deleted): every other file of the
+        group goes to Superseded/, one engine job (`folders.keep_file`). `paths`: the group's files' paths as the card
+        showed them (`changed` when they are not the group's any more, whatever its file ids say, and the group stays as
+        it was). The result is `{results, recovered, kept_track}`: a report line per moved file, without a track's
+        row; a move that was refused stops the job, the files moved before it stay moved and the failed job's
+        result lists them."""
         if (not isinstance(group_id, str) or isinstance(file_id, bool) or not isinstance(file_id, int)
                 or not _paths_list(paths)):
             raise ValueError(NOT_ANSWERABLE)
-        db.group_ids(group_id)
+        ids = db.group_ids(group_id)
 
         def change(ctx) -> dict:
-            key, e = next(((k, t) for k, t in self._state()["tracks"].items() if t.get("file_id") == file_id),
-                          (None, None))
-            dst = folders_mod.supersede(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now)
-            result = Result("replaced", (e or {}).get("folder") or "", (e or {}).get("artist") or "",
-                            (e or {}).get("title") or "", key, folders_mod.MOVED.format(dst=dst),
-                            (e or {}).get("status"), (e or {}).get("source"), (e or {}).get("cutoff_hz"), dst)
-            return {"result": asdict(result), "recovered": []}
+            tracks = self._state()["tracks"]
+            held = {t.get("file_id"): (k, t) for k, t in tracks.items() if t.get("file_id") in ids}
+
+            def body(kept: folders_mod.KeptFile) -> dict:
+                results = []
+                for moved_id, dst in kept.moved:
+                    key, e = held.get(moved_id, (None, {}))
+                    results.append(asdict(Result(
+                        "replaced", e.get("folder") or "", e.get("artist") or "", e.get("title") or "", key,
+                        folders_mod.MOVED.format(dst=dst), e.get("status"), e.get("source"), e.get("cutoff_hz"), dst)))
+                return {"results": results, "recovered": [], "kept_track": kept.kept_track}
+
+            try:
+                kept = folders_mod.keep_file(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now)
+            except folders_mod.KeepStopped as stopped:
+                ctx.failed_result = body(stopped.kept)
+                raise
+            ctx.message = kept.words()
+            return body(kept)
 
         return {"job_id": self._jobs.start("supersede", change).id}
 
     @bridge
-    def add_bought_file(self, track_id: str, expect: str | None = None) -> dict:
-        with self._lock:
-            dropped = self._dropped
-            if not dropped or dropped["track_id"] != track_id:
-                raise OpProblem(NO_DROP, "refused")
-        answer = self._single("add_bought_file", track_id, lambda state, ctx: ops.add_bought_file(
-            self._paths, state, track_id, dropped["path"], analyze=self._svc.analyze, now=self._svc.now), expect)
-        with self._lock:  # only once the job runs: a refused job (busy) keeps the file for the next "Add"
-            if self._dropped is dropped:
-                self._dropped = None
-        return answer
+    def add_bought_file(self, track_id: str, path: str, expect: str | None = None) -> dict:
+        """Adds the file at `path` (the dropped file's, from `FileDropped`) as the bought version of the track
+        (a write job): the path must be absolute, of a file this process can read; refused before a job starts."""
+        if not isinstance(path, str) or not path:
+            raise ValueError(NO_PATH)
+        if (problem := _file_problem(path)) is not None:
+            raise OpProblem(problem, "refused")
+        return self._single("add_bought_file", track_id, lambda state, ctx: ops.add_bought_file(
+            self._paths, state, track_id, Path(path), analyze=self._svc.analyze, now=self._svc.now), expect)
 
     @bridge
     def use_candidate(self, track_id: str, candidate: dict, expect: str | None = None) -> dict:

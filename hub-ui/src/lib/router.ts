@@ -180,7 +180,7 @@ async function onHashChange(): Promise<void> {
   announce();
 }
 
-/** Every route change (not the first). The shell uses it to call api.select(null) outside To-do. */
+/** Every route change (not the first). The shell uses it to clear the drop target (`dropTarget`) outside To-do. */
 export function onRouteChange(fn: (r: Route) => void): () => void {
   changeListeners.add(fn);
   return () => changeListeners.delete(fn);

@@ -611,14 +611,14 @@
         "type": {
           "const": "FileDropped"
         },
-        "track_id": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
           "type": [
             "string",
             "null"
           ]
-        },
-        "name": {
-          "type": "string"
         },
         "readable": {
           "type": "boolean"
@@ -629,8 +629,8 @@
       },
       "required": [
         "type",
-        "track_id",
         "name",
+        "path",
         "readable",
         "message"
       ],

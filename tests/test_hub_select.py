@@ -159,10 +159,8 @@ def test_a_bad_listing_is_a_problem_answer_not_a_crash(lib):
     assert cli_api(lib).select_listing("all")["reason"] == "usage"
 
 
-def test_select_listing_leaves_the_window_s_select_alone(lib):
-    api = cli_api(lib)
-    assert api.select("t2") == {"ok": True} and api._selected == "t2"
-    assert api.select_listing({})["ids"]
+def test_select_listing_needs_no_window_selection(lib):
+    assert cli_api(lib).select_listing({})["ids"]
 
 
 # --- the verb's own "all": the Upgrade all set ---

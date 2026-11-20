@@ -7,7 +7,7 @@ import { onEvent } from '$lib/bridge/events';
 import { waitForJob } from '$lib/stores/jobs';
 import type {
   AiffBatchResult, AiffPlan, AiffScope, DuplicatePair, JobSnap, JobStart, MissingAction, MissingConfirm, MissingPreview, MissingResult, RekordboxCheckView,
-  RekordboxStatus, Result, TodoItem, UndoResult,
+  RekordboxStatus, TodoItem, UndoResult,
 } from '$lib/bridge/types';
 import { latestOnly } from '$lib/latest';
 import { aiffProblem } from './aiffModel';
@@ -16,7 +16,7 @@ import { confirm } from '$lib/components/confirm';
 import { toasts } from '$lib/stores/toasts';
 import { problemCopy, successCopy } from '$lib/copy';
 import {
-  batchEnd, canTryAgain, discardConfirm, endRows, groupIdOf, isOwnCheck, progressRows, runRow, undoAsk, undoManyConfirm, undoProblem, undoneToast,
+  batchEnd, canTryAgain, discardConfirm, endRows, isOwnCheck, progressRows, runRow, undoAsk, undoManyConfirm, undoProblem, undoneToast,
   type BatchEnd,
   type BatchMode, type DuplicatePick, type RunRow, type UndoProblem, type UpgradeWays, type Way,
 } from './decisionModel';
@@ -142,8 +142,8 @@ export class AiffFlow {
 }
 
 /** "Which file stays?": the pick (the app's recommendation until the user picks) and Keep. Keeping a file is
- *  "supersede" write jobs (D10: journaled, no undo), one per file that goes; after each, the group is the one of the
- *  files left (groupIdOf), so a group of three takes two jobs. Keep both / Keep all is one "answer" job. */
+ *  one "supersede" write job (`keep_file`, D10: journaled, no undo) that moves every other file of the group. Keep both /
+ *  Keep all is one "answer" job. */
 export class DuplicateFlow {
   chosen = $state<DuplicatePick | undefined>(undefined);
   busy = $state(false);
@@ -178,19 +178,10 @@ export class DuplicateFlow {
   async #keepOne(g: DuplicatePair, keep: number): Promise<void> {
     this.busy = true;
     this.#onact?.(g.files.filter((x) => x.file_id === keep).map((x) => x.path));
-    let left = [...g.files];
-    let last: Result | null = null;
-    for (const f of g.files.filter((x) => x.file_id !== keep)) {
-      const r = await runJob<{ result: Result }>(api.supersede_duplicate(groupIdOf(left.map((x) => x.file_id)), f.file_id,
-        left.map((x) => x.path)), { success: false });
-      if (!r.ok) break;
-      last = r.result?.result ?? null;
-      left = left.filter((x) => x !== f);
-    }
+    // one engine job moves every other file; its toast is the engine's own line ("Moved to …" / "Moved 2 files …")
+    const r = await runJob(api.keep_file(g.group_id, keep, g.files.map((f) => f.path)), { success: false });
     this.busy = false;
-    const moved = g.files.length - left.length;
-    if (moved === 1 && last?.note) toasts.show({ tone: 'success', title: last.note });
-    else if (moved > 1) toasts.show({ tone: 'success', title: `Moved ${moved} files to Superseded/.` });
+    if (r.ok && r.message) toasts.show({ tone: 'success', title: r.message });
   }
 }
 

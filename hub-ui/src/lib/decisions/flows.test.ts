@@ -5,12 +5,12 @@ import { get } from 'svelte/store';
 import { _resetBridge, api, installBridge } from '../bridge/client';
 import { dispatch, onEvent } from '../bridge/events';
 import { createFakeBridge } from '../bridge/fake/bridge';
-import type { AiffBatchResult, JobSnap, Todo, TodoItem } from '../bridge/types';
+import type { AiffBatchResult, DuplicateItem, JobSnap, Todo, TodoItem } from '../bridge/types';
 import { answerConfirm, confirmRequest } from '../components/confirm';
 import { _resetJobs, waitForJob } from '../stores/jobs';
 import { toasts } from '../stores/toasts';
 import { artistTitle } from '../format';
-import { AiffBatchFlow, AiffFlow, ChecksFlow, MissingFlow, UpgradeBatchFlow, UpgradeFlow } from './flows.svelte';
+import { AiffBatchFlow, AiffFlow, ChecksFlow, DuplicateFlow, MissingFlow, UpgradeBatchFlow, UpgradeFlow } from './flows.svelte';
 import { missingSet } from '../bridge/fake/missingFiles';
 import type { AiffScope } from '../bridge/types';
 import type { RunRow } from './decisionModel';
@@ -764,5 +764,22 @@ describe('MissingFlow (Download again and Remove from library, issue 43)', () =>
     await flow.downloadAgain([ids.twice, ids.never], { panel: true });
     expect(flow.ended).toBeNull();
     expect(get(toasts).at(-1)).toMatchObject({ tone: 'problem', body: 'Another job is running.' });
+  });
+});
+
+describe('DuplicateFlow', () => {
+  it('keeping one file is one keep_file call and the engine\'s own line is the toast', async () => {
+    const { group } = setup('todo_duplicates');
+    const pair = ((await group('duplicate'))!.items as DuplicateItem[]).find((d) => d.pair.why === 'same_song')!.pair;
+    const keep = pair.files[0].file_id;
+    const keepFile = vi.spyOn(api, 'keep_file');
+    const flow = new DuplicateFlow();
+    await flow.keep(pair, keep);
+    expect(keepFile).toHaveBeenCalledTimes(1);
+    expect(keepFile).toHaveBeenCalledWith(pair.group_id, keep, pair.files.map((f) => f.path));
+    const other = pair.files.find((f) => f.file_id !== keep)!;
+    expect(get(toasts).map((t) => t.title)).toEqual([expect.stringMatching(/^Moved to Superseded\//)]);
+    expect(get(toasts)[0].title).toContain(other.title);
+    expect(flow.busy).toBe(false);
   });
 });

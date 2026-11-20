@@ -173,31 +173,46 @@ export function keepDuplicates(ctx: FakeContext, group_id: unknown, paths: unkno
     finish(true, {});
   });
 }
-export function supersedeDuplicate(ctx: FakeContext, group_id: unknown, file_id: unknown, paths: unknown): JobStart | Fail {
+/** One file of the group to Superseded/ (the engine's `folders.supersede`): its report line, and the key of the song
+ *  that took the kept file over when the moved file was a playlist song's (the engine's heir, `folders._heir`). */
+function moveToSuperseded(ctx: FakeContext, g: FakeDuplicate, file: FileSide, kept: FileSide): { result: Result; keptTakes: string | null } {
+  const home = importFolders(ctx.s).find((f) => file.path.startsWith(f.path + '/'));
+  const dst = `Superseded/${home ? name(home.path) + '/' : ''}${name(file.path)}`;
+  g.files = g.files.filter((f) => f !== file);
+  // the engine's heir: a playlist song's file goes while a file of the user's own stays, so that file takes the
+  // song over (its quality, its place); the song's track stays, now with the kept file
+  const song = ctx.s.tracks.find((t) => t.track_id === file.song_key && !t.own);
+  const heir = song ? g.files.find((f) => f.song_key?.startsWith('local:')) : undefined;
+  if (song && heir) {
+    const lossless = heir.quality === 'lossless';
+    Object.assign(song, { file: heir.path, source: 'manual', codec: 'aiff', status: lossless ? 'lossless' : 'not_lossless',
+      cutoff_hz: lossless ? null : Math.round(parseFloat(heir.quality_label) * 1000) || null, kbps: undefined });
+  }
+  if (g.files.length < 2) ctx.s.imp.duplicates = ctx.s.imp.duplicates.filter((x) => x !== g);
+  const result: Result = { section: 'replaced', folder: '', artist: file.artist, title: file.title,
+    track_id: file.song_key, note: `Moved to ${dst}.`, status: file.quality === 'lossless' ? 'lossless' : 'not_lossless',
+    source: null, cutoff_hz: null, path: dst, error_kind: null };
+  return { result, keptTakes: song && heir === kept ? song.track_id : null };
+}
+
+/** `keep_file`: every other file of the group goes to Superseded/ in one job, as the engine's `folders.keep_file`. */
+export function keepFile(ctx: FakeContext, group_id: unknown, file_id: unknown, paths: unknown): JobStart | Fail {
   if (!isGroup(group_id) || typeof file_id !== 'number' || !Number.isInteger(file_id) || !isPaths(paths)) {
     return ctx.fail('refused', NOT_ANSWERABLE);
   }
   return asJob(ctx, 'supersede', 450, (finish) => {
     const g = ctx.s.imp.duplicates.find((x) => x.group_id === group_id);
-    const file = g?.files.find((f) => f.file_id === file_id);
-    if (!g || !file || !sameFiles(g, paths)) return finish(false, null, 'changed', CHANGED);
-    const home = importFolders(ctx.s).find((f) => file.path.startsWith(f.path + '/'));
-    const dst = `Superseded/${home ? name(home.path) + '/' : ''}${name(file.path)}`;
-    g.files = g.files.filter((f) => f !== file);
-    // the engine's heir (folders._heir): a playlist song's file goes while a file of the user's own stays, so that
-    // file takes the song over (its quality, its place); the song's track stays, now with the kept file
-    const song = ctx.s.tracks.find((t) => t.track_id === file.song_key && !t.own);
-    const heir = song ? g.files.find((f) => f.song_key?.startsWith('local:')) : undefined;
-    if (song && heir) {
-      const lossless = heir.quality === 'lossless';
-      Object.assign(song, { file: heir.path, source: 'manual', codec: 'aiff', status: lossless ? 'lossless' : 'not_lossless',
-        cutoff_hz: lossless ? null : Math.round(parseFloat(heir.quality_label) * 1000) || null, kbps: undefined });
+    const kept = g?.files.find((f) => f.file_id === file_id);
+    if (!g || !kept || !sameFiles(g, paths)) return finish(false, null, 'changed', CHANGED);
+    const results: Result[] = [];
+    let keptTrack: string | null = kept.song_key ?? null;
+    for (const file of g.files.filter((f) => f !== kept)) {
+      const moved = moveToSuperseded(ctx, g, file, kept);
+      results.push(moved.result);
+      if (moved.keptTakes) keptTrack = moved.keptTakes;
     }
-    if (g.files.length < 2) ctx.s.imp.duplicates = ctx.s.imp.duplicates.filter((x) => x !== g);
-    const result: Result = { section: 'replaced', folder: '', artist: file.artist, title: file.title,
-      track_id: file.song_key, note: `Moved to ${dst}.`, status: file.quality === 'lossless' ? 'lossless' : 'not_lossless',
-      source: null, cutoff_hz: null, path: dst, error_kind: null };
-    finish(true, { result, recovered: [] });
+    const words = results.length === 1 ? results[0].note : `Moved ${results.length} files to Superseded/.`;
+    finish(true, { results, recovered: [], kept_track: keptTrack }, null, words ?? '');
   });
 }
 

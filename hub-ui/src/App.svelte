@@ -3,6 +3,7 @@
   // and under both the frame's foot (the player bar and/or the sync). Sidebar and foot are one L-shaped frame in one
   // material, painted here once; the page sits inside it on the black background.
   import type { Component } from 'svelte';
+  import { get } from 'svelte/store';
   import { route, go } from '$lib/router';
   import { pageFor, type PageProps } from './pages/registry';
   import { hubSyncRunning, hub } from '$lib/stores/hub';
@@ -14,6 +15,8 @@
     from '$lib/stores/chrome';
   import { onEvent } from '$lib/bridge/events';
   import { toasts } from '$lib/stores/toasts';
+  import { dropTarget } from '$lib/stores/drag';
+  import { DROP_NO_TRACK } from '$lib/copy';
   import { clearReady } from '$lib/ready';
   import Sidebar from '$lib/shell/Sidebar.svelte';
   import Foot from '$lib/shell/Foot.svelte';
@@ -97,8 +100,9 @@
   // A dropped file that no track on screen can take: say so (the To-do page shows its own drops inline).
   $effect(() => onEvent((e) => {
     if (e.type !== 'FileDropped') return;
-    if (e.track_id === null || (!e.readable && $route.name !== 'todo')) {
-      toasts.show({ tone: 'problem', title: e.readable ? 'Select a track first.' : "Can't read this file.", body: e.message });
+    if (get(dropTarget) === null || (!e.readable && $route.name !== 'todo')) {
+      toasts.show({ tone: 'problem', title: e.readable ? 'Select a track first.' : "Can't read this file.",
+        body: e.readable ? DROP_NO_TRACK : e.message });
     }
   }));
 

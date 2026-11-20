@@ -481,14 +481,15 @@ export function filedAs(bought_name: string): string {
 
 // ---------- bought file (part B) ----------
 /** The FileDropped event as the page sees it. */
-export type DroppedFile = { track_id: string | null; name: string; readable: boolean; message: string };
+export type DroppedFile = { name: string; path: string | null; readable: boolean; message: string };
 export type DropDecision = { do: 'add' } | { do: 'message'; text: string } | { do: 'toast' } | { do: 'ignore' };
 
-/** What the drop zone of `selectedId` does with a FileDropped event (plan Task 67, §6.6).
- *  'toast' = nothing selected: the shell (App.svelte) already shows the event's message as a toast. */
-export function dropDecision(e: DroppedFile, selectedId: string | null): DropDecision {
-  if (e.track_id === null) return { do: 'toast' };
-  if (e.track_id !== selectedId) return { do: 'ignore' };
+/** What the drop zone of `selectedId` does with a FileDropped event (plan Task 67, §6.6). `target` is the to-do item
+ *  the window had open when the file came (the `dropTarget` store; callers pass `get(dropTarget)`).
+ *  'toast' = nothing selected: the shell (App.svelte) shows the toast. */
+export function dropDecision(e: DroppedFile, target: string | null, selectedId: string | null): DropDecision {
+  if (target === null) return { do: 'toast' };
+  if (target !== selectedId) return { do: 'ignore' };
   if (!e.readable) return { do: 'message', text: e.message };
   return { do: 'add' };
 }

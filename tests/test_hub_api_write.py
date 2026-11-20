@@ -49,12 +49,10 @@ def refusal(api, answer):
     return api._jobs.registry.get(answer["job_id"]).result()
 
 
-def a_dropped_file(api, tmp_path):
-    api.select("t2")
+def a_bought_file(tmp_path):
     src = tmp_path / "Downloads" / "Get Naughty (Extended).wav"
     src.parent.mkdir()
     src.write_bytes(b"RIFF bought")
-    drop(api, src)
     return src
 
 
@@ -62,7 +60,7 @@ STALE = "0000000000"
 SIX_WRITES = {  # name -> (api options as a function: some classes are defined further down, what to call with `expect`)
     "hide": (dict, lambda api, tmp, expect: api.hide("t2", True, expect)),
     "add_bought_file": (lambda: {"analyze": lambda p: ("pcm_s16le", None)},
-                        lambda api, tmp, expect: (a_dropped_file(api, tmp), api.add_bought_file("t2", expect))[1]),
+                        lambda api, tmp, expect: api.add_bought_file("t2", str(a_bought_file(tmp)), expect)),
     "use_candidate": (lambda: {"fallback": FakeFallback, "process": fake_process},
                       lambda api, tmp, expect: api.use_candidate("t2", api.search_candidates("t2")["candidates"][1],
                                                                  expect)),
@@ -379,37 +377,46 @@ def drop(api, path):
     api._on_drop({"type": "drop", "dataTransfer": {"files": [{"name": path.name, "pywebviewFullPath": str(path)}]}})
 
 
-def test_drop_then_add_bought_file(root, tmp_path):
+def test_a_readable_drop_is_told_with_its_path_and_nothing_is_remembered(root, tmp_path):
+    api, rec = make_api(root)
+    src = a_bought_file(tmp_path)
+    drop(api, src)
+    assert rec.events[-1] == jobs.FileDropped(src.name, str(src), True, "")
+    assert not hasattr(api, "_dropped") and not hasattr(api, "_selected") and not hasattr(api, "select")
+
+
+def test_add_bought_file_by_path_needs_no_drop_before(root, tmp_path):
     api, rec = make_api(root, analyze=lambda p: ("pcm_s16le", None))
     api.todo()
-    api.select("t2")
-    src = tmp_path / "Downloads" / "Get Naughty (Extended).wav"
-    src.parent.mkdir()
-    src.write_bytes(b"RIFF bought")
-    drop(api, src)
-    assert rec.events[-1] == jobs.FileDropped("t2", src.name, True, "")
-    f = wait_job(api, rec, api.add_bought_file("t2"))
+    src = a_bought_file(tmp_path)
+    f = wait_job(api, rec, api.add_bought_file("t2", str(src)))
     assert f.ok and f.result["result"]["section"] == "bought"
     e = load_state(root)["tracks"]["t2"]
     assert e["path"] == "Library/Hard_Bounce/Armin Hermann - Get Naughty.wav" and e["upgrade"] is None
     assert src.read_bytes() == b"RIFF bought"
-    assert api.add_bought_file("t2")["kind"] == "refused"  # the drop is used up
 
 
-def test_a_drop_for_another_track_or_without_a_selection(root, tmp_path):
+def test_add_bought_file_refuses_a_missing_or_unreadable_file_before_a_job_starts(root, tmp_path):
     api, rec = make_api(root)
-    src = tmp_path / "x.wav"
-    src.write_bytes(b"x")
-    drop(api, src)
-    assert rec.events[-1].readable is False and "Select the track" in rec.events[-1].message
-    api.select("t3")
-    drop(api, src)
-    assert api.add_bought_file("t2")["kind"] == "refused"
+    api.todo()
+    src = a_bought_file(tmp_path)
+    for gone in (str(tmp_path / "nothing.wav"), "relative.wav", str(src.parent)):
+        answer = api.add_bought_file("t2", gone)
+        assert answer["kind"] == "refused" and answer["message"] == f"There is no file at {gone}."
+    src.chmod(0)
+    try:
+        locked = api.add_bought_file("t2", str(src))
+    finally:
+        src.chmod(0o644)
+    assert locked["kind"] == "refused" and "macOS didn't let Discjockey read this file" in locked["message"]
+    for bad in ("", None, 5):  # a bad argument is the bridge's "refused" answer
+        answer = api.add_bought_file("t2", bad)
+        assert (answer["ok"], answer["kind"]) == (False, "refused")
+    assert not api._jobs.running()
 
 
 def test_a_file_macos_does_not_let_us_read(root, tmp_path):
     api, rec = make_api(root)
-    api.select("t2")
     src = tmp_path / "locked.wav"
     src.write_bytes(b"x")
     src.chmod(0)
@@ -417,7 +424,16 @@ def test_a_file_macos_does_not_let_us_read(root, tmp_path):
         drop(api, src)
     finally:
         src.chmod(0o644)
-    assert rec.events[-1].readable is False and "macOS didn't let Discjockey read this file" in rec.events[-1].message
+    event = rec.events[-1]
+    assert event == jobs.FileDropped("locked.wav", str(src), False, event.message)
+    assert "macOS didn't let Discjockey read this file" in event.message
+
+
+def test_a_drop_with_no_full_path_says_to_drag_from_finder(root):
+    api, rec = make_api(root)
+    api._on_drop({"type": "drop", "dataTransfer": {"files": [{"name": "x.wav"}]}})
+    event = rec.events[-1]
+    assert event.path is None and event.readable is False and "Drag it from a Finder window" in event.message
 
 
 def test_a_broken_drop_event_is_ignored(root):
@@ -683,16 +699,14 @@ def test_daily_limit_and_current_version_are_checked_before_qobuz_is_asked(root)
     assert calls == []  # no login, no link lookup
 
 
-def test_a_dropped_file_is_kept_when_its_job_is_refused(root, tmp_path):
+def test_a_refused_add_bought_file_job_can_be_asked_again(root, tmp_path):
     api, rec = make_api(root, analyze=lambda p: ("pcm_s16le", None))
     api.todo()
-    api.select("t2")
     src = tmp_path / "Get Naughty.wav"
     src.write_bytes(b"RIFF bought")
-    drop(api, src)
     with run_lock(root.lock):  # the console runs
-        assert api.add_bought_file("t2")["kind"] == "console"
-    f = wait_job(api, rec, api.add_bought_file("t2"))
+        assert api.add_bought_file("t2", str(src))["kind"] == "console"
+    f = wait_job(api, rec, api.add_bought_file("t2", str(src)))
     assert f.ok and f.result["result"]["section"] == "bought"
 
 
@@ -1019,8 +1033,8 @@ def test_an_answer_the_records_cannot_take_fails_in_plain_words(lib):
         assert (a["ok"], a["kind"]) == (False, "refused")
     for call in (lambda: api.keep_duplicates("not a group", []), lambda: api.keep_duplicates(5, []),
                  lambda: api.keep_duplicates("dup:1-2", "x"), lambda: api.keep_duplicates("dup:1-2", [1]),
-                 lambda: api.supersede_duplicate("dup:1-2", "x", []), lambda: api.supersede_duplicate("nope", 1, []),
-                 lambda: api.supersede_duplicate("dup:1-2", 1, None)):
+                 lambda: api.keep_file("dup:1-2", "x", []), lambda: api.keep_file("nope", 1, []),
+                 lambda: api.keep_file("dup:1-2", 1, None), lambda: api.keep_file("dup:1-2", True, [])):
         assert call()["kind"] == "refused"
 
 
@@ -1051,25 +1065,72 @@ def test_a_group_of_copies_is_one_duplicate_item_and_keep_all_answers_the_whole_
     assert api.todo()["chips"]["duplicate"] == 0 and api.sidebar()["todo"] == before - 1  # one answer, all three
 
 
-def test_moving_a_duplicate_to_superseded_keeps_the_file_and_the_others(lib, tmp_path):
+def test_keeping_one_file_of_a_duplicate_moves_the_other_to_superseded(lib, tmp_path):
     paths, folder, fakes = lib
     api, rec = make_api(paths)
     copy_dir = copies(paths, tmp_path, fakes, 2)
     wait_job(api, rec, api.add_watched_folder(str(copy_dir)))
     pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
-    moving = pair["files"][1]
+    kept, moving = pair["files"]
     shown = [f["path"] for f in pair["files"]]
-    other = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"], [shown[0], "/x/else.aiff"]))
+    other = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [shown[0], "/x/else.aiff"]))
     assert (other.ok, other.problem) == (False, "changed") and Path(moving["path"]).is_file()
-    done = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"], shown))
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], shown))
     assert (done.ok, done.kind) == (True, "supersede")
-    assert done.result["recovered"] == [] and done.result["result"]["section"] == "replaced"
-    moved_to = paths.root / done.result["result"]["path"]
+    assert done.result["recovered"] == [] and [r["section"] for r in done.result["results"]] == ["replaced"]
+    moved_to = paths.root / done.result["results"][0]["path"]
     assert moved_to.is_file() and not Path(moving["path"]).exists()  # moved, never deleted
-    assert Path(pair["files"][0]["path"]).is_file()
+    assert done.message == f"Moved to {done.result['results'][0]['path']}."
+    assert done.result["results"][0]["track_id"] == moving["song_key"]
+    assert done.result["kept_track"] == kept["song_key"] and Path(kept["path"]).is_file()
     assert api.todo()["chips"]["duplicate"] == 0
-    stale = api.supersede_duplicate(pair["group_id"], moving["file_id"], shown)
+    stale = api.keep_file(pair["group_id"], kept["file_id"], shown)
     assert wait_job(api, rec, stale).problem == "changed"
+
+
+def test_keeping_one_file_of_three_is_one_job_that_moves_the_other_two(lib, tmp_path):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][1]
+    started = len(rec.events)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert done.ok and done.message == "Moved 2 files to Superseded/."
+    assert len([e for e in rec.events[started:] if isinstance(e, jobs.JobStarted)]) == 1
+    assert sorted(r["track_id"] for r in done.result["results"]) == sorted(
+        f["song_key"] for f in pair["files"] if f is not kept)
+    assert all((paths.root / r["path"]).is_file() for r in done.result["results"])
+    assert done.result["kept_track"] == kept["song_key"] and Path(kept["path"]).is_file()
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, True, False]
+    assert api.todo()["chips"]["duplicate"] == 0
+
+
+def test_a_refused_move_of_keep_file_fails_the_job_with_the_files_moved_so_far(lib, tmp_path, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][2]
+    real, calls = library.move_path, []
+
+    def second_refused(*a, **kw):
+        calls.append(a)
+        if len(calls) == 2:
+            raise PermissionError(13, "Permission denied")
+        return real(*a, **kw)
+    monkeypatch.setattr(library, "move_path", second_refused)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert (done.ok, done.problem) == (False, "failed") and done.message.startswith("Nothing was moved: ")
+    assert len(done.result["results"]) == 1 and done.result["kept_track"] is None
+    assert (paths.root / done.result["results"][0]["path"]).is_file()
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, True, True]
+
+
+def test_supersede_duplicate_is_no_bridge_method_any_more(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    assert not hasattr(api, "supersede_duplicate") and callable(api.keep_file)
 
 
 def test_removing_a_folder_forgets_its_files_and_reports_what_downloads_again(lib):
