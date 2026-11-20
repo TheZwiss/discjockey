@@ -70,7 +70,8 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `tests/` | pytest. `conftest.py` blocks network + PyPI, stubs yt-dlp, points `DISCJOCKEY_REKORDBOX` at an empty folder and answers "rekordbox isn't running"; helpers `hub_`, `audio_`, `tools_`, `rekordbox_helpers.py` (`make_master` builds a rekordbox library); the speed-ups of `speed_*.py` and `tool_memo.py` (SQLCipher key once per key, repeated ffprobe/ffmpeg answered from memory, no drive flushes) each have an opt-out marker `real_*` for the test that pins the real thing (CONTRIBUTING.md, Tests) |
 | `docs/hub-design-language.md` | **Living. Read first for any UI work:** the hub's design rules with do/don't, the blocks, the rule checker, Sync as the reference page |
 | `docs/hub-page-brief.md` | The playbook a page agent follows to redesign one hub page (phase 2) |
-| `docs/hub-bridge-contract.md` | Living contract between `discjockey/hub` and `hub-ui`, pinned by tests |
+| `discjockey/hub/shapes/` | Every bridge and command payload as a TypedDict with each field's meaning; `python -m discjockey.hub.shapes --export` generates `hub-ui/src/lib/bridge/types.gen.ts` and `schemas.gen.json`; test mode checks every answer and job result against them |
+| `docs/hub-bridge-contract.md` | The rules between `discjockey/hub` and `hub-ui` (shapes are generated), pinned by tests |
 | `docs/issues.md` | Open bugs, wishes and pending live checks |
 | `docs/hub-mockups/` | Approved HTML mockups; `hub-ui/scripts/shots.mjs --compare` renders against them |
 | `CONTRIBUTING.md` | Developer notes: checkout, the Terminal version, tests, the UI workflow, building, the public check, releasing and the CI secrets |
@@ -219,9 +220,12 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 - **Everything tracked is public.** Never write a home path, a real name or a private address into a tracked file
   (made-up `/Users/you`, `/Users/dj` and `example.com` are fine); `scripts/check_public.sh` must pass before every
   commit (the maintainer's checkout has the denylist, so there it runs with `--require-denylist`).
-- **Contract:** any change to `discjockey/hub/api.py`, `views.py` shapes or `jobs.py` events updates
-  `docs/hub-bridge-contract.md`, `hub-ui/src/lib/bridge/types.ts` + `contract.ts`, and the fake backend in the same
-  commit.
+- **Contract:** a change to an answer of `api.py`, a shape of `views.py` or a job result changes its TypedDict in
+  `discjockey/hub/shapes/` and regenerates (`uv run python -m discjockey.hub.shapes --export`), and the fake's builder
+  of that payload, in the same commit; `contract.ts` when a bridge method is added or removed;
+  `docs/hub-bridge-contract.md` when a rule changes. An event changes its dataclass,
+  `tests/fixtures/hub_events.schema.json`, `hub-ui/src/lib/bridge/events.ts` (type and `EVENT_FIELDS`), the fake's
+  emitter and the doc's Events section, in the same commit.
 - **Design language:** any change to `hub-ui/src/lib/styles/tokens.css`, a frame or a block updates
   `docs/hub-design-language.md` (and the gallery) in the same commit; a system-level design decision goes into its
   decision log with its reason.
