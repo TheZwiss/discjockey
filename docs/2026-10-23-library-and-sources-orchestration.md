@@ -987,6 +987,13 @@ Results:
         NO_SAMPLE empty. FOR PHASE REVIEW: convert key-assertion tests and tests/fixtures/hub_convert_shapes.json
         deleted (shapes replace them; behaviour asserts kept); optional→required fields on SetupStatus; it trimmed a
         contract-doc bullet outside its ranges (rekordbox_status). Merged d7e3fa74.
+      - E7e done (Sonnet): logged 200k (est. 170k, 1.18x), 73 calls, cache reads 8.8M, fresh in 186k, out 50k, advisor
+        0k. Commits f7d0a87f (contract) + eb2ee0a0 (CLAUDE.md Contract rule, CONTRIBUTING); pytest 6112/4 skipped,
+        npm check 0/0, bridge vitest 284 (harness ~19 s). Completeness test: every bridge/cli_first method in ANSWERS
+        or a named exception, every job kind in RESULTS. FOR PHASE REVIEW: test-mode `note_answer` skips ok:false
+        dicts (auto_upgrade_run passes on a Fail); Res<{}> kept for Empty methods (Res<Empty> makes ok never).
+        Merged 2e28e0b2.
+        E7 TOTAL: logged 1,178k vs plan 1,010k (1.17x); calls 417; cache reads 67.5M. V2 briefs got "Landed in E7".
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
