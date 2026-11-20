@@ -1001,6 +1001,12 @@ Results:
         test_hub_api.py:232 stops a refresh right after start (JobStarted can be dropped; older race); window job
         state never says `stopping`; SECRET_PARAMS keyed by method; new catalog.holds_library, Jobs.record_of.
         Merged into feat/cli-2-foundations.
+      - V2.4 done (Sonnet): logged 204k (est. 192k, 1.06x), advisor 0k (agent-cost row a52ed3ba). Commits 285e02c0
+        (contract) + 9e0bea03 (static); pytest 6148/4 skipped, npm check 0/0, vitest 1721, no goldens changed.
+        Decided by it (kept, by the goal "every write checks the rev"): `upgrade` with `expect` also checks Same
+        track (_check_rev in _batch_work); rev: null on no-record rows, duplicate-group and batch items. FOR PHASE
+        REVIEW: the upgrade stale-rev refusal writes no operations-log line (the 5 other writes log `changed`);
+        `plan_id` now required in Bridge.upgrade. Merged into feat/cli-2-foundations.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
