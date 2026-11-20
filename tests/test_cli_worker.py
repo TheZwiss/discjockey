@@ -24,7 +24,7 @@ import discjockey.cli as cli
 from discjockey import events as ev
 from discjockey.cli import call, envelope, parser, worker
 from discjockey.hub import catalog, jobs
-from discjockey.hub.registry import Registry
+from discjockey.hub.registry import ProgressReducer, Registry
 
 SHIM = """
 import json, os, pathlib, sys, time
@@ -278,13 +278,14 @@ def test_the_workers_stderr_goes_to_log_txt(env):
 def test_progress_fields_are_reduced_from_the_events(tmp_path):
     files = Registry(tmp_path / "support").create("scan", "library scan", {}, "terminal",
                                                   {"music": None, "support": "/s", "rekordbox": None, "sandbox": None})
-    reducer = worker.Reducer(files)
+    reducer = ProgressReducer(files)
     reducer(ev.RunStarted(total=4))
     reducer(ev.StepChanged("t1", "download"))
     reducer(ev.ActionFinished(None, None))
     reducer(ev.Message("info", "Half way."))
     reducer(ev.MovesProgress(1, 3, 4))
-    assert files.state()["progress"] == {"step": "download", "done": 3, "total": 4, "item": None, "message": "Half way."}
+    assert files.state()["progress"] == {"step": "download", "done": 3, "total": 4, "item": None, "message": "Half way.",
+                                        "line": "3 of 4"}
     files.update(status="running")  # a status change writes at once, with the progress
     assert json.loads((files.dir / "state.json").read_text())["progress"]["done"] == 3
 
@@ -335,6 +336,46 @@ def test_two_workers_for_writes_at_once_one_runs_one_is_busy(env):
     first.open_gate()
     wait_for(first.ended)
     assert first.result()["outcome"] == "ok"
+
+
+@pytest.mark.shapes_unchecked  # the window's job is a stub under a real kind
+def test_a_terminal_write_while_a_window_job_holds_the_library_is_busy_naming_the_window_job(env, monkeypatch):
+    """The window's `hide` has no `locks` in the catalogue yet; its record's own `library_lock` makes it the holder."""
+    from hub_helpers import make_api
+    from discjockey.hub.api import HubApi, bridge
+    running, release = threading.Event(), threading.Event()
+
+    def hide(self, track_id: str, hidden: bool):
+        def work(ctx):
+            running.set()
+            release.wait(20)
+            return {}
+        return {"job_id": self._jobs.start("hide", work, track_id=track_id).id}
+
+    monkeypatch.setattr(HubApi, "hide", bridge(hide))
+    api, _ = make_api(env.paths)
+    answer = api.hide("t1", True)
+    try:
+        assert running.wait(10) and not catalog.by_method("hide")[0].locks
+        w = env.start("quick")
+        wait_for(w.ended)
+        result = w.result()
+        assert (result["outcome"], result["reason"]) == ("busy", "library_lock")
+        assert result["data"]["holder"] == {"job": answer["job_id"], "via": "window", "kind": "hide"}
+    finally:
+        release.set()
+        assert api._jobs.wait(10)
+
+
+def test_the_workers_envelope_is_the_one_the_hub_api_builds_for_a_finished_job(env):
+    w = env.start("quick")
+    wait_for(w.ended)
+    assert w.result() == envelope.envelope("library scan", "ok", data={"mode": "quick"}, job=w.id)
+    crash = env.start("crash")
+    wait_for(crash.ended)
+    result = crash.result()
+    assert result == envelope.envelope("library scan", "failed", reason="crashed", message=result["message"],
+                                       job=crash.id) and result["message"]
 
 
 def test_a_busy_library_nobody_registered_answers_console_with_an_unknown_holder(env):
@@ -534,6 +575,7 @@ def test_a_job_start_prunes_the_registry(env, monkeypatch):
                             argv=lambda i: [sys.executable, "-c", SHIM, i, "quick", str(env.tmp / "marker-prune")])
     env.seen.add(answer["job"])
     assert len(env.registry.list(all=True)) == 101  # the newest 100 stayed, five older ones went, the new job came
+    assert env.registry.get(answer["job"]).state()["library_lock"] is True  # `library scan` takes the library lock
 
 
 # --- `library scan` end to end ---

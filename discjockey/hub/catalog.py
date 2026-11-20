@@ -421,6 +421,30 @@ def by_method(method: str) -> list[Entry]:
     return [e for e in ENTRIES if e.method == method]
 
 
+# The arguments no file may keep (a password), `method -> names`: every `Arg(secret=True)` of ENTRIES. A job's `state.json`
+# holds its arguments, so every writer of one (the window's `Jobs`, the terminal's `call.start_job`) takes them through
+# `public_args`.
+SECRET_PARAMS: dict[str, frozenset[str]] = {}
+for _entry in ENTRIES:
+    if _secret := frozenset(name for name, arg in _entry.params.items() if arg.secret):
+        SECRET_PARAMS[_entry.method] = SECRET_PARAMS.get(_entry.method, frozenset()) | _secret
+
+
+def public_args(method: str | None, args: Mapping[str, object]) -> dict:
+    """`args` without the arguments of `method` that are secret (`SECRET_PARAMS`): what may be written to a job's files."""
+    secret = SECRET_PARAMS.get(method or "", frozenset())
+    return {name: value for name, value in args.items() if name not in secret}
+
+
+def holds_library(state: Mapping) -> bool:
+    """Whether the job `state` (a registry `state.json`) holds the library lock: its own `library_lock` when it says (the
+    window's jobs and the terminal's both write it), else the catalogue's `locks` column of its method (a record from
+    before the field, or one a test wrote)."""
+    if state.get("library_lock") is not None:
+        return bool(state["library_lock"])
+    return any("library" in e.locks for e in by_method(state.get("method") or ""))
+
+
 def _type_of(annotation: object) -> str:
     """`str`, `int`, `bool`, `list` or `dict` from a parameter's annotation (a string here: `from __future__`)."""
     text = annotation if isinstance(annotation, str) else getattr(annotation, "__name__", str(annotation))

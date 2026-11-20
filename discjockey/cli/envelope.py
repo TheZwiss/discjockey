@@ -4,28 +4,11 @@ message, outcome, reason, next, person_steps, data}`) into it, so the command li
 says."""
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 
-from ..hub.outcomes import EXIT, REASONS
+from ..hub.outcomes import EXIT, NO_AS_OF, REASONS, VERSION, envelope  # noqa: F401  (the envelope itself lives with the table of outcomes: the window's jobs write it too)
 
-VERSION = 1
 YOUR_TURN = "Your turn: "  # what starts each line of `person_steps` on stderr (`cli/__init__.py` notices, `follow.py`)
-NO_AS_OF = {"scanned_at": None, "read_at": None}
-
-
-def envelope(command: str, outcome: str, *, reason: str | None = None, message: str | None = None,
-             data: Mapping | None = None, next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (),
-             recovered: Iterable[Mapping] = (), job: str | None = None, as_of: Mapping | None = None,
-             sandbox: str | None = None) -> dict:
-    """The envelope, its keys in design order. `recovered` is always a list, `as_of` always has both keys."""
-    if outcome not in EXIT:
-        raise ValueError(f"no such outcome {outcome!r}")
-    if reason is not None and reason not in REASONS:
-        raise ValueError(f"no such reason {reason!r}")
-    return {"v": VERSION, "command": command, "outcome": outcome, "reason": reason, "message": message,
-            "data": dict(data) if data is not None else None, "next": [dict(n) for n in next],
-            "person_steps": [dict(s) for s in person_steps], "recovered": [dict(r) for r in recovered], "job": job,
-            "as_of": {**NO_AS_OF, **(as_of or {})}, "sandbox": sandbox}
 
 
 def problem(command: str, outcome: str, reason: str, message: str | None = None, **fields) -> dict:

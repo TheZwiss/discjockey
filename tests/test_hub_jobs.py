@@ -1,12 +1,15 @@
+import json
+import os
 import threading
 import time
 from contextlib import contextmanager
 
 import pytest
 
-from discjockey import library, run
+from discjockey import events as ev, library, qobuz, run
 from discjockey.events import AccountUsage, ActionFinished, Cancelled, Message, PlannedAction, Progress, Result, RunStarted
-from discjockey.hub import jobs
+from discjockey.hub import jobs, registry
+from discjockey.hub.api import HubApi, bridge
 from discjockey.hub.jobs import Busy, Jobs
 from discjockey.models import Protected
 from discjockey.library import Paths, run_lock
@@ -547,3 +550,198 @@ def test_an_older_plan_arriving_late_leaves_the_newer_preview():
     assert store.read_at == datetime(2026, 10, 25, 12, 6)
     store.ready(prep(7), datetime(2026, 10, 25, 12, 7))
     assert store.prep.state["generation"] == 7
+
+
+# --- the window's jobs in the registry (issue 39 phase 2, V2.1a) ---
+
+from hub_helpers import make_api, make_root  # noqa: E402
+
+
+@pytest.fixture
+def hub(tmp_path):
+    """A hub bound to a small library: its window jobs write to `<support>/jobs/`."""
+    paths = make_root(tmp_path / "music")
+    api, rec = make_api(paths)
+    return api, paths, registry.Registry(paths.support)
+
+
+def stand_in(monkeypatch, name, fn):
+    """`fn` as the window's bridge method `name` (the call's name is what a job's record says it was started by)."""
+    fn.__name__ = name
+    monkeypatch.setattr(HubApi, name, bridge(fn))
+
+
+class Gated:
+    """A bridge method of the window that starts one job whose work waits for `release`."""
+
+    def __init__(self, monkeypatch, name, start):
+        self.release, self.running = threading.Event(), threading.Event()
+        stand_in(monkeypatch, name, start(self))
+
+
+def a_write(g):
+    def hide(self, track_id: str, hidden: bool):
+        def work(ctx):
+            ctx.emit(ev.MovesProgress(1, 3, 4))
+            g.running.set()
+            g.release.wait(10)
+            return {"track_id": track_id}
+        return {"job_id": self._jobs.start("hide", work, track_id=track_id).id}
+    return hide
+
+
+def wait_ended(job, files):
+    assert job.done.wait(10)
+    for _ in range(500):  # the thread lets go of `alive` a moment after the end
+        if not files.is_alive():
+            return
+        time.sleep(0.01)
+    raise AssertionError("the job still holds its alive lock")
+
+
+def test_a_window_write_job_is_in_the_registry(hub, monkeypatch):
+    api, paths, reg = hub
+    g = Gated(monkeypatch, "hide", a_write)
+    answer = api.hide("t1", True)
+    assert answer["ok"] and g.running.wait(10)
+    job = api._jobs.current
+    files = reg.get(answer["job_id"])
+    state = files.state()
+    assert files.is_alive() and state["id"] == job.id == answer["job_id"]  # alive while it runs
+    assert (state["via"], state["kind"], state["status"], state["method"]) == ("window", "hide", "running", "hide")
+    assert (state["command"], state["args"], state["library_lock"]) == ("track hide", {"track_id": "t1", "hidden": True}, True)
+    assert state["pid"] == os.getpid() and state["roots"]["music"] == str(paths.root)
+    assert state["roots"]["support"] == str(paths.support) and state["roots"]["sandbox"] is None
+    assert job.id in api._jobs.own_ids
+    g.release.set()
+    wait_ended(job, files)
+    state = files.state()
+    assert (state["status"], state["progress"]["line"]) == ("done", "3 of 4") and state["ended"]
+    result = files.result()
+    assert (result["outcome"], result["command"], result["job"]) == ("ok", "track hide", job.id)
+    assert result["data"] == {"track_id": "t1"}
+    types = [json.loads(line)["type"] for line in (files.dir / "events.jsonl").read_text().splitlines()]
+    assert types == ["JobStarted", "MovesProgress", "JobFinished"]
+
+
+def test_a_refresh_and_a_sign_in_are_registered_too_without_the_library_lock(hub, monkeypatch):
+    api, paths, reg = hub
+    g = Gated(monkeypatch, "refresh", lambda g: lambda self, auto=False: {
+        "job_id": self._jobs.start_refresh(lambda ctx: (g.running.set(), g.release.wait(10)) and None).id})
+    answer = api.refresh()
+    assert g.running.wait(10)
+    files = reg.get(answer["job_id"])
+    state = files.state()
+    assert (state["via"], state["kind"], state["method"], state["command"], state["library_lock"], state["status"]) == (
+        "window", "refresh", "refresh", "sync read", False, "running")
+    assert files.is_alive()
+    g.release.set()
+    wait_ended(api._jobs.refresh, files)
+    assert files.state()["status"] == "done" and files.result()["outcome"] == "ok"
+
+    s = Gated(monkeypatch, "account_sign_in", lambda g: lambda self, service, browser=None: {
+        "job_id": self._jobs.start_sign_in("account_sign_in", lambda ctx: (g.running.set(), g.release.wait(10)) and None).id})
+    answer = api.account_sign_in("youtube", "chrome")
+    assert s.running.wait(10)
+    files = reg.get(answer["job_id"])
+    assert (files.state()["kind"], files.state()["library_lock"], files.state()["args"]) == (
+        "account_sign_in", False, {"service": "youtube", "browser": "chrome"})
+    s.release.set()
+    wait_ended(api._jobs.sign_in, files)
+
+
+def test_a_window_job_keeps_the_password_out_of_its_files(hub, monkeypatch):
+    api, paths, reg = hub
+    monkeypatch.setattr(qobuz, "password_login", lambda *a: None)
+    answer = api.setup_qobuz_login("dj@example.org", "s3cret-pw-1")
+    assert answer["ok"]
+    job = api._jobs.current
+    files = reg.get(answer["job_id"])
+    wait_ended(job, files)
+    state = files.state()
+    assert state["args"] == {"email": "dj@example.org"} and state["command"] == "login qobuz"
+    assert state["library_lock"] is False  # a settings job holds no library lock
+    for path in files.dir.iterdir():
+        if path.is_file():
+            assert "s3cret-pw-1" not in path.read_text(), path.name
+
+
+def test_job_stop_reaches_a_window_job_between_items_and_inside_a_sleep(hub, monkeypatch):
+    from discjockey.cli import follow
+    api, paths, reg = hub
+    for name, wait in (("items", lambda ctx: [(ctx.token.check(), time.sleep(0.01)) for _ in iter(int, 1)]),
+                       ("sleep", lambda ctx: ctx.token.sleep(60))):
+        g = Gated(monkeypatch, "hide", lambda g: lambda self, track_id, hidden: {
+            "job_id": self._jobs.start("hide", lambda ctx: (g.running.set(), wait(ctx))[1]).id})
+        answer = api.hide("t1", True)
+        assert g.running.wait(10)
+        job = api._jobs.current
+        files = reg.get(answer["job_id"])
+        refused = follow.stop("job stop", files, now=True)  # the window offers only "Stop safely"
+        assert (refused["outcome"], refused["reason"]) == ("refused", "window_job") and not files.stop_requested()
+        files.request_stop()
+        began = time.monotonic()
+        wait_ended(job, files)
+        assert time.monotonic() - began < 2.5, name
+        result = files.result()
+        assert (result["outcome"], result["reason"]) == ("stopped", "stop") and files.state()["status"] == "done"
+
+
+def test_a_failed_window_job_ends_failed_with_its_reason(hub, monkeypatch):
+    api, paths, reg = hub
+
+    def boom(ctx):
+        raise RuntimeError("it broke")
+
+    stand_in(monkeypatch, "hide", lambda self, track_id, hidden: {"job_id": self._jobs.start("hide", boom).id})
+    answer = api.hide("t1", True)
+    job = api._jobs.current
+    files = reg.get(answer["job_id"])
+    wait_ended(job, files)
+    result = files.result()
+    assert (result["outcome"], result["reason"]) == ("failed", "crashed") and result["message"]
+    assert files.state()["status"] == "done"
+
+
+def test_own_ids_hold_a_started_window_job_and_an_adopted_one(tmp_path):
+    reg = registry.Registry(tmp_path / "support")
+    own = reg.create("scan", "library scan", {}, "terminal", {})
+    js = jobs.Jobs(None, lambda e: None, inline=own)
+    assert js.own_ids == {own.id}
+    own.release_claim()
+
+
+def test_the_library_job_elsewhere_ignores_the_windows_own_job_and_names_a_foreign_one(hub, monkeypatch):
+    api, paths, reg = hub
+    g = Gated(monkeypatch, "hide", a_write)
+    answer = api.hide("t1", True)
+    assert g.running.wait(10)
+    job = api._jobs.current
+    assert api._library_job_elsewhere() is None  # it is this process's own, whatever its record says
+    foreign = reg.create("scan", "library scan", {}, "terminal", {})  # another process's (the claim stays: it is alive)
+    foreign.update(method="rescan_library", status="running", library_lock=True)
+    foreign.flush()
+    assert api._library_job_elsewhere() == {"job": foreign.id, "via": "terminal", "command": "library scan"}
+    foreign.update(status="done")
+    foreign.flush()
+    foreign.release_claim()
+    g.release.set()
+    wait_ended(job, reg.get(answer["job_id"]))
+
+
+def test_a_window_job_carries_the_same_words_a_workers_does(hub, monkeypatch):
+    api, paths, reg = hub
+    done = {"track": "t2", "action": "same_track", "state": "done", "reason": None, "message": None, "path": None,
+            "rekordbox": None}
+    result = {"batch": 5, "total": 1, "done": 1, "skipped": 0, "failed": 0, "results": [done]}
+    stand_in(monkeypatch, "upgrade", lambda self, track_ids, way="": {
+        "job_id": self._jobs.start("upgrade_batch", lambda ctx: result, batch_kind="upgrade").id})
+    answer = api.upgrade(["t2"], "same")
+    job = api._jobs.current
+    files = reg.get(answer["job_id"])
+    wait_ended(job, files)
+    words = api._result_words("upgrade", result)
+    env = files.result()
+    assert env["outcome"] == "ok" and env["command"] == "upgrade apply"
+    assert env["next"] == words["next"] and env["person_steps"] == words.get("person_steps", [])
+    assert env["data"]["batch_id"] == "aiff:5" and env["message"] == "1 of 1 song done."

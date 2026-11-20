@@ -18,8 +18,8 @@ What it does, in this order:
    The job's `stop` file cancels the same token.
 6. The end, in this order: the events file is closed, `result.json`, `status: done`, then the `alive` lock is let go.
 
-`state.json`'s `progress` is the events reduced to `{step, done, total, item, message}` (`Progress`): written at every
-status change and at most once a second otherwise (`JobFiles.update`)."""
+`state.json`'s `progress` is the events reduced to `{step, done, total, item, message, line}` (`registry.ProgressReducer`,
+the window's jobs use it too): written at every status change and at most once a second otherwise (`JobFiles.update`)."""
 from __future__ import annotations
 
 import os
@@ -46,53 +46,11 @@ def _now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-class Reducer:
-    """The events of the job reduced to `state.json`'s `progress`: the step now running, how many of how many are done,
-    the item in work and the last message. Only what changed is handed to `JobFiles.update`, which rate-limits the
-    write."""
-
-    def __init__(self, files: registry.JobFiles):
-        self.files = files
-        self.fields: dict = {"step": None, "done": None, "total": None, "item": None, "message": None}
-        self._lock = threading.Lock()
-
-    def __call__(self, event: object) -> None:
-        with self._lock:
-            before = dict(self.fields)
-            self._take(event)
-            changed = self.fields != before
-            now = dict(self.fields)
-        if changed:
-            self.files.update(progress=now)
-
-    def _take(self, event: object) -> None:
-        f = self.fields
-        if isinstance(event, ev.RunStarted):
-            f.update(done=0, total=event.total)
-        elif isinstance(event, ev.ActionStarted):
-            track = event.action.track
-            f.update(done=event.index - 1, total=event.total, item=f"{', '.join(track.artists)} - {track.title}")
-        elif isinstance(event, ev.ActionFinished):
-            f["done"] = (f["done"] or 0) + 1
-        elif isinstance(event, ev.StepChanged):
-            f["step"] = event.step
-        elif isinstance(event, ev.ReadingPlaylist):
-            f.update(step="reading playlists", done=event.index - 1, total=event.total, item=event.folder)
-        elif isinstance(event, (ev.MovesProgress, ev.BatchProgress)):
-            f.update(done=event.done, total=event.total)
-            if isinstance(event, ev.BatchProgress):
-                f["item"] = event.name
-        elif isinstance(event, ev.ImportProgress):
-            f.update(step=event.phase, done=event.done, total=event.total)
-        elif isinstance(event, ev.Message):
-            f["message"] = event.text
-
-
 class Sink:
     """What the engine's events go to: the job's `events.jsonl` writer, the progress reducer, and (for the end) the
     job's own `JobFinished`."""
 
-    def __init__(self, writer: registry.EventsWriter, reducer: Reducer):
+    def __init__(self, writer: registry.EventsWriter, reducer: registry.ProgressReducer):
         self.writer, self.reducer = writer, reducer
         self.finished: jobs.JobFinished | None = None
 
@@ -186,11 +144,12 @@ class StopSignals:
 
 
 def _holder(files: registry.JobFiles, roots: dict) -> dict | None:
-    """The job that holds the library now, from the registry (`{job, via, kind}`), else None. Only a job whose command
-    takes the library lock counts (the catalogue's `locks` column): a running read job holds nothing."""
+    """The job that holds the library now, from the registry (`{job, via, kind}`), else None. Only a job that
+    holds the library lock counts (`catalog.holds_library`: its own `library_lock`, else the catalogue's `locks` column):
+    a running read job holds nothing."""
     for other in registry.Registry(files.dir.parent.parent).list(roots.get("music")):
         if other.get("id") != files.id and other.get("status") in ("running", "stopping"):
-            if not any("library" in e.locks for e in catalog.by_method(other.get("method") or "")):
+            if not catalog.holds_library(other):
                 continue
             return {"job": other["id"], "via": other.get("via"), "kind": other.get("kind")}
     return None
@@ -225,28 +184,6 @@ def _stopped_reason(env: dict, signals: StopSignals) -> dict:
     return env
 
 
-def _finished_envelope(command: str, files: registry.JobFiles, job, api=None, method: str | None = None) -> dict:
-    """The envelope of a job that ran (`JobFinished`): `result` is the data of a success, or what a failed job left. A run
-    whose items end in a state its entry counts (`Entry.partial`) is `partial`; the engine's words beside the result
-    (`CliApi.result_words`: the batch's id, the steps for the person, what to run next) are added."""
-    done = job.finished or {}
-    result = done.get("result") or {}
-    words = api.result_words(method, result) if api is not None and method and result else {}
-    words = words if words.get("ok") else {}  # words are an extra: a failure to find them leaves the answer as it is
-    entry = catalog.entry_of(method, command) if method else None
-    if done.get("ok"):
-        rows = (words.get("data") or {}).get("results", result.get("results"))  # the words' rows carry `state` where the engine's do not
-        outcome = words.get("outcome") or outcomes.run_outcome(rows, entry.partial if entry else ())  # words may say `ok`: nothing to do is no partial
-        return envelope.envelope(command, outcome, message=done.get("message") or words.get("message") or None,
-                                 data={**result, **(words.get("data") or {})}, next=words.get("next") or (),
-                                 person_steps=words.get("person_steps") or (), job=files.id)
-    fields = outcomes.problem_fields(done.get("problem") or "crashed", job.error)
-    data = {**result, **(words.get("data") or {}), **(fields["data"] or {})} or None
-    return envelope.envelope(command, fields["outcome"], reason=fields["reason"], message=done.get("message"),
-                             data=data, next=[*fields["next"], *(words.get("next") or ())],
-                             person_steps=[*fields["person_steps"], *(words.get("person_steps") or ())], job=files.id)
-
-
 def _call(api, method: str, args: dict) -> dict:
     return getattr(api, method)(**args)
 
@@ -271,13 +208,13 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
             break
         if _is_busy(answer, job):
             if _left_batch(job):
-                return _stopped_reason(_finished_envelope(command, files, job, api, method), signals)
+                return _stopped_reason(api._job_envelope(command, method, job, files.id), signals)
             return _busy(command, files, roots, job)
         if not answer.get("ok"):
             return _stopped_reason(envelope.from_answer(command, answer, job=files.id), signals)
         if job is None or job.finished is None:  # the job ended without its JobFinished (a stop in the very first moment)
             return envelope.problem(command, "failed", "worker_lost", job=files.id)
-        return _stopped_reason(_finished_envelope(command, files, job, api, method), signals)
+        return _stopped_reason(api._job_envelope(command, method, job, files.id), signals)
     except (ev.Cancelled, KeyboardInterrupt):
         return _stopped_reason(envelope.problem(command, "stopped", "stop", job=files.id), signals)
 
@@ -312,7 +249,7 @@ def _run(files: registry.JobFiles) -> int:
     ticker = caffeinate = None
     try:
         bind.adopt_environment(roots)
-        sink = Sink(writer, Reducer(files))
+        sink = Sink(writer, registry.ProgressReducer(files))
         api = bind.headless(bind.from_roots(roots), events=sink, job=files)
         entries = catalog.by_method(record["method"])
         caffeinate = Caffeinate(bool(entries) and entries[0].kind == "J")

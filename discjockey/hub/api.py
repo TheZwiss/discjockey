@@ -7,6 +7,7 @@ that is not a bridge method starts with "_", because pywebview exposes every pub
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
 import inspect
 import json
@@ -189,6 +190,11 @@ LIKED_NEEDS_LOGIN = "Sign in to YouTube first: Discjockey reads your Liked music
 LIKED_LISTED = "Liked music is in your playlists already."
 
 
+# The bridge call being answered, `(method name, its arguments without self)`, for as long as `_answering` runs it. A job
+# started inside it writes both into its registry record (`HubApi._job_record`), so `job list` says what the window started.
+CALL: contextvars.ContextVar[tuple[str, dict] | None] = contextvars.ContextVar("bridge_call", default=None)
+
+
 def _answering(fn):
     """The answer wrapper of `bridge` and `cli_first`: {"ok": true, **result} or {"ok": false, "kind", "message",
     "outcome", "reason", "next", "person_steps", "data"}; never raises. The window reads `kind` and `message`; the
@@ -196,8 +202,16 @@ def _answering(fn):
     move on, the steps only a person can do). A problem with a playlist service (a SourceError) also carries
     "service", a setting_off one "setting". A `BadId` (a typed id the command line cannot use) answers `bad_args`:
     the command line's methods raise it, and `todo` for a filter that is no group (the window sends only group keys)."""
+    signature = inspect.signature(fn)
+
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
+        try:
+            bound = dict(signature.bind(self, *args, **kwargs).arguments)
+            bound.pop(next(iter(signature.parameters)), None)  # self
+        except TypeError:  # the page called with wrong arguments: the call below answers it
+            bound = {}
+        token = CALL.set((fn.__name__, bound))
         try:
             if fn.__name__ in LIBRARY_METHODS or fn.__name__ in CLI_LIBRARY_METHODS:
                 self._need_library()  # NoLibrary -> no_library before anything starts
@@ -227,8 +241,10 @@ def _answering(fn):
             setting = getattr(e, "setting", None)  # setting_off: the choice in Settings that is off
             return {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {}),
                     **({"setting": setting} if setting else {}), **problem_fields(kind, e)}
+        finally:
+            CALL.reset(token)
 
-    call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it
+    call.__signature__ = signature  # pywebview reads the parameter names from it
     return call
 
 
@@ -364,8 +380,10 @@ class HubApi:
         self._update = update_check.Checker(self._support.cache / update_check.CACHE_NAME,
                                             fetch=lambda url: self._svc.fetch_release(url))
         self._media = media  # MediaServer, or None (no audio or covers)
-        self._jobs = Jobs(None, self._emit, now=self._svc.now)
+        self._jobs = Jobs(None, self._emit, now=self._svc.now, registry=registry.Registry(self._support.support))
         self._jobs.on_locked = self._record_waiting_signs  # a write job starts: signs that waited for the lock go in
+        self._jobs.record_of = self._job_record  # what a job the window starts writes into the registry
+        self._jobs.on_finished = self._registered_envelope  # ... and its `result.json` at the end
         self._settings_mutex = threading.Lock()  # settings.json: read, change, save — one at a time
         self._store = PreviewStore()
         self._infos: dict = {}  # playlist ref -> models.PlaylistInfo
@@ -2944,17 +2962,64 @@ class HubApi:
         return {"job_id": self._settings_job("setup_forget_account", work).id}
 
     def _library_job_elsewhere(self) -> dict | None:
-        """A write job of another process of this support folder, from the registry: a running job whose command holds
-        the library lock (the catalogue's `locks` column). `{job, via, command}`, or None. This process's own job (the
-        one a worker runs) never counts."""
-        own = self._jobs.inline.id if self._jobs.inline is not None else None
+        """A write job of another process of this support folder, from the registry: a running job that holds the
+        library lock (`catalog.holds_library`). `{job, via, command}`, or None. This process's own jobs (the one a worker
+        runs, the ones the window started: `Jobs.own_ids`) never count: their own `busy` is `Jobs.start`'s."""
+        own = self._jobs.own_ids
         for state in registry.Registry(self._support.support).list(all=True):
-            if state.get("status") not in registry.ACTIVE or state.get("id") == own:
+            if state.get("status") not in registry.ACTIVE or state.get("id") in own:
                 continue
-            entries = catalog.by_method(state.get("method") or "")
-            if any("library" in e.locks for e in entries):
+            if catalog.holds_library(state):
                 return {"job": state["id"], "via": state.get("via"), "command": state.get("command")}
         return None
+
+    def _job_record(self) -> dict:
+        """What a job this window starts says about itself in the registry: `method` and `args` of the bridge call it
+        started in (`CALL`; none outside a call), the catalogue `command` of that method, no secret argument
+        (`catalog.public_args`), and the `roots` as the command line writes them (`cli/call.start_job`)."""
+        method, args = CALL.get() or (None, {})
+        entries = catalog.by_method(method) if method else []
+        public = catalog.public_args(method, args)
+        try:
+            place = self._svc.rekordbox_place()
+        except Exception:  # noqa: BLE001  rekordbox's folder is a fact of the record, never a reason not to start
+            place = None
+        return {"method": method, "command": " ".join(catalog.primary(entries).command) if entries else "",
+                "args": json.loads(json.dumps(public, default=str)),
+                "roots": {"music": str(self._bound.root) if self._bound is not None else None,
+                          "support": str(self._support.support),
+                          "rekordbox": str(place.db.parent) if place is not None else None,
+                          "rekordbox_share": str(place.share) if place is not None else None, "sandbox": None}}
+
+    def _registered_envelope(self, job: Job) -> dict:
+        """`result.json` of a job the window started: the envelope a worker writes for the same job."""
+        state = job.files.state() if job.files is not None else {}
+        return self._job_envelope(state.get("command") or "", state.get("method"), job, job.id)
+
+    def _job_envelope(self, command: str, method: str | None, job: Job, job_id: str) -> dict:
+        """The envelope of a job that ran (`JobFinished`), for the worker and the window's jobs alike: `result` is the
+        data of a success, or what a failed job left. A run whose items end in a state its entry counts
+        (`Entry.partial`) is `partial`; the words beside the result (`_result_words`: the batch's id, the steps for the
+        person, what to run next) are added."""
+        done = job.finished or {}
+        result = done.get("result") or {}
+        try:
+            words = self._result_words(method, result) if method and result else {}
+        except Exception:  # noqa: BLE001  words are an extra: a failure to find them leaves the answer as it is
+            log.warning("the words of %s could not be found", method, exc_info=True)
+            words = {}
+        entry = catalog.entry_of(method, command) if method else None
+        if done.get("ok"):
+            rows = (words.get("data") or {}).get("results", result.get("results"))  # the words' rows carry `state` where the engine's do not
+            outcome = words.get("outcome") or outcomes.run_outcome(rows, entry.partial if entry else ())  # words may say `ok`: nothing to do is no partial
+            return outcomes.envelope(command, outcome, message=done.get("message") or words.get("message") or None,
+                                     data={**result, **(words.get("data") or {})}, next=words.get("next") or (),
+                                     person_steps=words.get("person_steps") or (), job=job_id)
+        fields = outcomes.problem_fields(done.get("problem") or "crashed", job.error)
+        data = {**result, **(words.get("data") or {}), **(fields["data"] or {})} or None
+        return outcomes.envelope(command, fields["outcome"], reason=fields["reason"], message=done.get("message"),
+                                 data=data, next=[*fields["next"], *(words.get("next") or ())],
+                                 person_steps=[*fields["person_steps"], *(words.get("person_steps") or ())], job=job_id)
 
     def _settings_job(self, kind: str, work) -> Job:
         """A job whose work writes only the support folder (settings.json, the login files; Settings, Setup, Download
@@ -2973,6 +3038,190 @@ class HubApi:
             raise Busy("Another Discjockey job is working on your music folder. Wait until it has finished.", "busy",
                        reason="library_lock", data={"holder": holder})
         return self._jobs.start(kind, work, hold_library=False)
+
+    def _result_words(self, method: str, result: dict) -> dict:
+        """What the command line says beside a finished write's `result` (design §4.4, §8.3): `{message, data, next,
+        person_steps}`, each left out when there is nothing to add. Upgrade's results (Same track, New track, Discard,
+        Upgrade all) name their batch as `aiff:<n>`, give each done song the steps only a person can do in rekordbox
+        (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
+        for the whole run. An undo says how many tracks went back; "Done, checked" gives each track a row, `done` or
+        `skipped` (nothing to check; `outcome: "ok"` when no track had one), and says that the undo ended. Read only: it looks at the records after the job. A
+        method with no words says nothing. Download again and Remove from library (and their preview) give their one line
+        (`words`); their rows already carry theirs."""
+        if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
+            return self._upgrade_words(result)
+        if method == "batch_resume" and isinstance(result.get("results"), list):
+            return self._upgrade_words(result)
+        if method == "aiff_plan" and isinstance(result.get("plan"), dict):
+            plan = result["plan"]  # a dry run that has nothing to change and nothing waiting says so, as the window's panel does
+            clean = not (plan.get("total") or plan.get("waiting") or plan.get("skipped")) and "total" in plan
+            if clean:
+                return {"message": plans.NOTHING_TO_CHANGE}
+            if lossy := plan.get("lossy"):  # lossy files grow when they become AIFF (the console's old line)
+                return {"message": engine_words.LOSSY_NOTE.format(n=lossy, are="is" if lossy == 1 else "are")}
+            return {}
+        if method in ("missing_files", "missing_files_preview") and isinstance(result.get("words"), str):
+            return {"message": result["words"]}  # the rows already carry their words (`results[].words`, `items[].words`)
+        if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
+            return self._undo_words(result)
+        if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
+            return self._checked_words(result)
+        if method == "rekordbox_restore" and "saved_current" in result:
+            return self._restore_words(result)
+        if method == "auto_upgrade_run" and "auto_upgrade" in result:
+            return self._phase_words(result)
+        if method == "auto_upgrade_preview" and "auto_upgrade" in result:
+            return {"message": engine_words.AUTO_UPGRADE_OFF} if result["auto_upgrade"] is None else {}
+        if method == "set_auto_upgrade" and isinstance(result.get("auto_upgrade"), bool):
+            return {"message": engine_words.AUTO_UPGRADE_SET[result["auto_upgrade"]]}
+        if method == "removal_preview" and "files" in result:
+            return {"message": engine_words.removal_words(result["files"], result["redownload"])}
+        if method == "remove_watched_folder" and "files" in result:
+            return {"message": f"{engine_words.REMOVED.format(name=result['name'])} "
+                               f"{engine_words.removal_words(result['files'], result['redownload'])}"}
+        if method == "check_import_folder" and result.get("message"):  # a folder that cannot be watched says why
+            return {"message": result["message"]}
+        if method == "check_import_folder" and result.get("usable") and result.get("merge_hints"):
+            return {"message": " ".join(result["merge_hints"])}  # W5: the watched folders it would take over
+        if method == "fill_facts" and "total" in result:
+            return self._facts_words(result)
+        if method in ("convert", "rename", "make_aiff") and result.get("batch") is None and result.get("total") == 0 \
+                and result.get("state") == "done" \
+                and not result.get("new_since_plan"):
+            return {"message": plans.NOTHING_TO_CHANGE}  # a plan whose files are all clean AIFFs already
+        if method in ("convert", "rename", "make_aiff") and isinstance(result.get("results"), list) and result.get("total"):
+            return self._upgrade_words(result, aiff=True)
+        return {}
+
+    def _phase_words(self, result: dict) -> dict:
+        """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
+        (`report.auto_upgrade_line`), the run's outcome (`partial` or `failed` by the tracks that failed only: a track
+        that waits or was refused is not a failure), its batch (`batch_id`), the steps only a person can do in rekordbox
+        (the upgrade batch's own words, `_upgrade_words`) and the report to read."""
+        block = result["auto_upgrade"]
+        if block is None:
+            return {"message": engine_words.AUTO_UPGRADE_OFF}
+        rows = block["results"]
+        out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
+                     "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
+        batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
+                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"],
+                                                         "action": r.get("action", "same_track")}
+                                                        for r in rows if r["state"] in ("done", "failed")]}
+        words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
+        if "batch_id" in (words.get("data") or {}):
+            out["data"] = {"batch_id": words["data"]["batch_id"]}
+        out["next"] = [*(words.get("next") or ())]
+        if result.get("report"):
+            out["next"].append({"run": f"report show {result['report']}", "why": "what this run did, track by track"})
+        if words.get("person_steps"):
+            out["person_steps"] = words["person_steps"]
+        return out
+
+    @staticmethod
+    def _facts_words(result: dict) -> dict:
+        """`library facts`: how many files were read, how many could not be."""
+        total, filled = result["total"], result["filled"]
+        if not total:
+            return {"message": engine_words.FACTS_NONE}
+        message = engine_words.FACTS_READ.format(n=filled, s="" if filled == 1 else "s")
+        if filled < total:
+            left = total - filled
+            message += " " + engine_words.FACTS_UNREADABLE.format(n=left, s="" if left == 1 else "s",
+                                                                 stay="stays" if left == 1 else "stay")
+        return {"message": message}
+
+    def _restore_words(self, result: dict) -> dict:
+        """`rekordbox restore`: what was put back, where the library as it was is saved, and (when some tracks now point
+        at files Discjockey moved to `Superseded/`) the batches to undo first."""
+        out: dict = {"message": engine_words.RESTORED.format(backup=result["restored"], saved=result["saved_current"])}
+        if result["missing_after"]:
+            out["message"] += " " + engine_words.MISSING_AFTER.format(n=len(result["missing_after"]))
+            out["next"] = [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
+        return out
+
+    def _upgrade_words(self, result: dict, aiff: bool = False) -> dict:
+        """The words of an upgrade's batch, a resumed one and (`aiff`) a Convert, Rename or Make all lossless files AIFF
+        run: its `batch_id`, what to run next, the steps for the person and the one line that says what was done (an
+        AIFF run says it in its own words; it points at `check list` only when a step is left in rekordbox)."""
+        out: dict = {}
+        results = result["results"]
+        if isinstance(result.get("batch"), int):
+            batch = f"aiff:{result['batch']}"
+            out["data"] = {"batch_id": batch}
+            if result.get("state") == "stopped" and result.get("stop_reason") == "busy":
+                out["next"] = [{"run": f"batch resume {batch}",
+                                "why": "carries on where it stopped, once the other Discjockey is done"}]
+            if result.get("done"):
+                out["next"] = [*out.get("next", ()), {"run": f"batch show {batch}", "why": "every song of this batch"},
+                               *([] if aiff else [{"run": "check list", "why": "what is left to do in rekordbox"}])]
+        if aiff:
+            out["message"] = engine_words.aiff_summary(results, result["done"], result["skipped"] + result["failed"])
+        else:
+            parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
+            parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed")))
+                      if n]
+            out["message"] = ", ".join(parts) + "."
+        tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
+            r.get("state") == "done" and r.get("action") != "discard" for r in results) else {}
+        steps, grouped, rows = [], {"reload_tag": [], "look": []}, []
+        for r in results:
+            mine = []
+            if r.get("state") == "done" and r.get("action") != "discard":  # a discard changes no file, so nothing to check
+                its = r.get("path") or (tracks.get(r["track"]) or {}).get("path")  # a placement's row carries none: the song's file now
+                new_file = str(self._paths.root / its) if r.get("action") in ("add_new", "place") and its else None
+                mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
+                for step in mine:
+                    (steps if step["id"] == "step:relocate_new" else grouped[step["id"].removeprefix("step:")]).append(step)
+            rows.append({**r, "person_steps": mine})
+        for name, group in grouped.items():  # one step per kind: reload the tags of these, have a look at those
+            if group:
+                keys = " ".join(step["then"].removeprefix("check done ") for step in group)
+                then = f"check done --batch aiff:{result['batch']}" if isinstance(result.get("batch"), int) else f"check done {keys}"
+                steps.append({**outcomes.person_step(name, tracks=keys), "then": then})
+        out["data"] = {**out.get("data", {}), "results": rows}
+        if steps:
+            out["person_steps"] = steps
+            if aiff and isinstance(result.get("batch"), int) and result.get("done"):
+                out["next"] = [*out.get("next", ()), {"run": "check list", "why": "what is left to do in rekordbox"}]
+        return out
+
+    def _undo_words(self, result: dict) -> dict:
+        """`track undo`: how many tracks went back; each track that now has its better version waiting again is
+        `upgrade list`'s."""
+        undone = [r["track"] for r in result["results"] if r.get("state") == "undone"]
+        total = len(result["results"])
+        out: dict = {"message": f"{len(undone)} of {total} {'track' if total == 1 else 'tracks'} undone."}
+        tracks = library.load_state(self._paths)["tracks"] if self._paths and undone else {}
+        if any((tracks.get(t) or {}).get("upgrade") for t in undone):
+            out["next"] = [{"run": "upgrade list", "why": "the better versions wait there again"}]
+        return out
+
+    def _checked_words(self, result: dict) -> dict:
+        """`check done`: a row per track (`done`, or `skipped` when it had nothing to check), what the answer says:
+        the reminder and the undo of these tracks are over."""
+        notes = {r["track_id"]: r.get("note") for r in result.get("results") or ()}
+        rows = [{"track": t, "action": "check", "state": "done", "reason": None, "message": notes.get(t)}
+                for t in result["checked"]]
+        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "nothing_to_check",
+                  "message": NOTHING_TO_CHECK_ONE} for t in result.get("not_checked") or ()]
+        newer = result.get("newer") or {}
+        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "newer_batch",
+                  "message": NEWER_CHECK.format(later=b) if b else NEWER_CHECK_STEP.format(track=t)}
+                 for t, b in newer.items()]
+        checked, skipped = len(result["checked"]), len(result.get("not_checked") or ()) + len(newer)
+        if not checked:  # nothing to check is no error (an `--all` with none open, or only such tracks named): ok, total 0
+            return {"message": NOTHING_TO_CHECK, "outcome": "ok",
+                    "data": {"results": rows, "total": 0, "done": 0, "skipped": skipped, "failed": 0}}
+        message = f"{checked} of {len(rows)} tracks checked in rekordbox." if skipped else \
+            f"{checked} {'track' if checked == 1 else 'tracks'} checked in rekordbox."
+        message += CHECK_ENDS_UNDO
+        if skipped:
+            message += f" {skipped - len(newer)} had nothing to check." if skipped > len(newer) else ""
+            if newer:
+                message += f" {len(newer)} belong{'s' if len(newer) == 1 else ''} to a later change."
+        return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
+                                             "failed": 0}}
 
     @bridge
     def update_tools(self) -> dict:
@@ -3204,187 +3453,9 @@ class CliApi(HubApi):
     @cli_first
     def result_words(self, method: str, result: dict) -> dict:
         """What the command line says beside a finished write's `result` (design §4.4, §8.3): `{message, data, next,
-        person_steps}`, each left out when there is nothing to add. Upgrade's results (Same track, New track, Discard,
-        Upgrade all) name their batch as `aiff:<n>`, give each done song the steps only a person can do in rekordbox
-        (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
-        for the whole run. An undo says how many tracks went back; "Done, checked" gives each track a row, `done` or
-        `skipped` (nothing to check; `outcome: "ok"` when no track had one), and says that the undo ended. Read only: it looks at the records after the job. A
-        method with no words says nothing. Download again and Remove from library (and their preview) give their one line
-        (`words`); their rows already carry theirs."""
-        if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
-            return self._upgrade_words(result)
-        if method == "batch_resume" and isinstance(result.get("results"), list):
-            return self._upgrade_words(result)
-        if method == "aiff_plan" and isinstance(result.get("plan"), dict):
-            plan = result["plan"]  # a dry run that has nothing to change and nothing waiting says so, as the window's panel does
-            clean = not (plan.get("total") or plan.get("waiting") or plan.get("skipped")) and "total" in plan
-            if clean:
-                return {"message": plans.NOTHING_TO_CHANGE}
-            if lossy := plan.get("lossy"):  # lossy files grow when they become AIFF (the console's old line)
-                return {"message": engine_words.LOSSY_NOTE.format(n=lossy, are="is" if lossy == 1 else "are")}
-            return {}
-        if method in ("missing_files", "missing_files_preview") and isinstance(result.get("words"), str):
-            return {"message": result["words"]}  # the rows already carry their words (`results[].words`, `items[].words`)
-        if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
-            return self._undo_words(result)
-        if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
-            return self._checked_words(result)
-        if method == "rekordbox_restore" and "saved_current" in result:
-            return self._restore_words(result)
-        if method == "auto_upgrade_run" and "auto_upgrade" in result:
-            return self._phase_words(result)
-        if method == "auto_upgrade_preview" and "auto_upgrade" in result:
-            return {"message": engine_words.AUTO_UPGRADE_OFF} if result["auto_upgrade"] is None else {}
-        if method == "set_auto_upgrade" and isinstance(result.get("auto_upgrade"), bool):
-            return {"message": engine_words.AUTO_UPGRADE_SET[result["auto_upgrade"]]}
-        if method == "removal_preview" and "files" in result:
-            return {"message": engine_words.removal_words(result["files"], result["redownload"])}
-        if method == "remove_watched_folder" and "files" in result:
-            return {"message": f"{engine_words.REMOVED.format(name=result['name'])} "
-                               f"{engine_words.removal_words(result['files'], result['redownload'])}"}
-        if method == "check_import_folder" and result.get("message"):  # a folder that cannot be watched says why
-            return {"message": result["message"]}
-        if method == "check_import_folder" and result.get("usable") and result.get("merge_hints"):
-            return {"message": " ".join(result["merge_hints"])}  # W5: the watched folders it would take over
-        if method == "fill_facts" and "total" in result:
-            return self._facts_words(result)
-        if method in ("convert", "rename", "make_aiff") and result.get("batch") is None and result.get("total") == 0 \
-                and result.get("state") == "done" \
-                and not result.get("new_since_plan"):
-            return {"message": plans.NOTHING_TO_CHANGE}  # a plan whose files are all clean AIFFs already
-        if method in ("convert", "rename", "make_aiff") and isinstance(result.get("results"), list) and result.get("total"):
-            return self._upgrade_words(result, aiff=True)
-        return {}
-
-    def _phase_words(self, result: dict) -> dict:
-        """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
-        (`report.auto_upgrade_line`), the run's outcome (`partial` or `failed` by the tracks that failed only: a track
-        that waits or was refused is not a failure), its batch (`batch_id`), the steps only a person can do in rekordbox
-        (the upgrade batch's own words, `_upgrade_words`) and the report to read."""
-        block = result["auto_upgrade"]
-        if block is None:
-            return {"message": engine_words.AUTO_UPGRADE_OFF}
-        rows = block["results"]
-        out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
-                     "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
-        batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
-                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"],
-                                                         "action": r.get("action", "same_track")}
-                                                        for r in rows if r["state"] in ("done", "failed")]}
-        words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
-        if "batch_id" in (words.get("data") or {}):
-            out["data"] = {"batch_id": words["data"]["batch_id"]}
-        out["next"] = [*(words.get("next") or ())]
-        if result.get("report"):
-            out["next"].append({"run": f"report show {result['report']}", "why": "what this run did, track by track"})
-        if words.get("person_steps"):
-            out["person_steps"] = words["person_steps"]
-        return out
-
-    @staticmethod
-    def _facts_words(result: dict) -> dict:
-        """`library facts`: how many files were read, how many could not be."""
-        total, filled = result["total"], result["filled"]
-        if not total:
-            return {"message": engine_words.FACTS_NONE}
-        message = engine_words.FACTS_READ.format(n=filled, s="" if filled == 1 else "s")
-        if filled < total:
-            left = total - filled
-            message += " " + engine_words.FACTS_UNREADABLE.format(n=left, s="" if left == 1 else "s",
-                                                                 stay="stays" if left == 1 else "stay")
-        return {"message": message}
-
-    def _restore_words(self, result: dict) -> dict:
-        """`rekordbox restore`: what was put back, where the library as it was is saved, and (when some tracks now point
-        at files Discjockey moved to `Superseded/`) the batches to undo first."""
-        out: dict = {"message": engine_words.RESTORED.format(backup=result["restored"], saved=result["saved_current"])}
-        if result["missing_after"]:
-            out["message"] += " " + engine_words.MISSING_AFTER.format(n=len(result["missing_after"]))
-            out["next"] = [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
-        return out
-
-    def _upgrade_words(self, result: dict, aiff: bool = False) -> dict:
-        """The words of an upgrade's batch, a resumed one and (`aiff`) a Convert, Rename or Make all lossless files AIFF
-        run: its `batch_id`, what to run next, the steps for the person and the one line that says what was done (an
-        AIFF run says it in its own words; it points at `check list` only when a step is left in rekordbox)."""
-        out: dict = {}
-        results = result["results"]
-        if isinstance(result.get("batch"), int):
-            batch = f"aiff:{result['batch']}"
-            out["data"] = {"batch_id": batch}
-            if result.get("state") == "stopped" and result.get("stop_reason") == "busy":
-                out["next"] = [{"run": f"batch resume {batch}",
-                                "why": "carries on where it stopped, once the other Discjockey is done"}]
-            if result.get("done"):
-                out["next"] = [*out.get("next", ()), {"run": f"batch show {batch}", "why": "every song of this batch"},
-                               *([] if aiff else [{"run": "check list", "why": "what is left to do in rekordbox"}])]
-        if aiff:
-            out["message"] = engine_words.aiff_summary(results, result["done"], result["skipped"] + result["failed"])
-        else:
-            parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
-            parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed")))
-                      if n]
-            out["message"] = ", ".join(parts) + "."
-        tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
-            r.get("state") == "done" and r.get("action") != "discard" for r in results) else {}
-        steps, grouped, rows = [], {"reload_tag": [], "look": []}, []
-        for r in results:
-            mine = []
-            if r.get("state") == "done" and r.get("action") != "discard":  # a discard changes no file, so nothing to check
-                its = r.get("path") or (tracks.get(r["track"]) or {}).get("path")  # a placement's row carries none: the song's file now
-                new_file = str(self._paths.root / its) if r.get("action") in ("add_new", "place") and its else None
-                mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
-                for step in mine:
-                    (steps if step["id"] == "step:relocate_new" else grouped[step["id"].removeprefix("step:")]).append(step)
-            rows.append({**r, "person_steps": mine})
-        for name, group in grouped.items():  # one step per kind: reload the tags of these, have a look at those
-            if group:
-                keys = " ".join(step["then"].removeprefix("check done ") for step in group)
-                then = f"check done --batch aiff:{result['batch']}" if isinstance(result.get("batch"), int) else f"check done {keys}"
-                steps.append({**outcomes.person_step(name, tracks=keys), "then": then})
-        out["data"] = {**out.get("data", {}), "results": rows}
-        if steps:
-            out["person_steps"] = steps
-            if aiff and isinstance(result.get("batch"), int) and result.get("done"):
-                out["next"] = [*out.get("next", ()), {"run": "check list", "why": "what is left to do in rekordbox"}]
-        return out
-
-    def _undo_words(self, result: dict) -> dict:
-        """`track undo`: how many tracks went back; each track that now has its better version waiting again is
-        `upgrade list`'s."""
-        undone = [r["track"] for r in result["results"] if r.get("state") == "undone"]
-        total = len(result["results"])
-        out: dict = {"message": f"{len(undone)} of {total} {'track' if total == 1 else 'tracks'} undone."}
-        tracks = library.load_state(self._paths)["tracks"] if self._paths and undone else {}
-        if any((tracks.get(t) or {}).get("upgrade") for t in undone):
-            out["next"] = [{"run": "upgrade list", "why": "the better versions wait there again"}]
-        return out
-
-    def _checked_words(self, result: dict) -> dict:
-        """`check done`: a row per track (`done`, or `skipped` when it had nothing to check), what the answer says:
-        the reminder and the undo of these tracks are over."""
-        notes = {r["track_id"]: r.get("note") for r in result.get("results") or ()}
-        rows = [{"track": t, "action": "check", "state": "done", "reason": None, "message": notes.get(t)}
-                for t in result["checked"]]
-        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "nothing_to_check",
-                  "message": NOTHING_TO_CHECK_ONE} for t in result.get("not_checked") or ()]
-        newer = result.get("newer") or {}
-        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "newer_batch",
-                  "message": NEWER_CHECK.format(later=b) if b else NEWER_CHECK_STEP.format(track=t)}
-                 for t, b in newer.items()]
-        checked, skipped = len(result["checked"]), len(result.get("not_checked") or ()) + len(newer)
-        if not checked:  # nothing to check is no error (an `--all` with none open, or only such tracks named): ok, total 0
-            return {"message": NOTHING_TO_CHECK, "outcome": "ok",
-                    "data": {"results": rows, "total": 0, "done": 0, "skipped": skipped, "failed": 0}}
-        message = f"{checked} of {len(rows)} tracks checked in rekordbox." if skipped else \
-            f"{checked} {'track' if checked == 1 else 'tracks'} checked in rekordbox."
-        message += CHECK_ENDS_UNDO
-        if skipped:
-            message += f" {skipped - len(newer)} had nothing to check." if skipped > len(newer) else ""
-            if newer:
-                message += f" {len(newer)} belong{'s' if len(newer) == 1 else ''} to a later change."
-        return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
-                                             "failed": 0}}
+        person_steps}`, each left out when there is nothing to add. `HubApi._result_words` finds them (the window's jobs
+        write the same words into their `result.json`); read only: it looks at the records after the job."""
+        return self._result_words(method, result)
 
     @cli_first
     def auto_upgrade_preview(self) -> dict:

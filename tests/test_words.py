@@ -22,3 +22,13 @@ def test_short_day_never_follows_the_locale(monkeypatch):
     monkeypatch.setattr(locale, "setlocale", lambda *a, **k: pytest.fail("the locale must not be used"))
     assert [words.short_day(date(2026, m, 1), date(2026, 6, 1)) for m in range(1, 13)] == [
         f"1 {mon}" for mon in ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")]
+
+
+@pytest.mark.parametrize("fields, said", [
+    ({"done": 3, "total": 12, "item": "Armin Hermann - Get Naughty", "message": "x"}, "3 of 12 · Armin Hermann - Get Naughty"),
+    ({"done": 0, "total": 5, "item": None, "message": "Half way."}, "0 of 5"),  # a known total wins over the message
+    ({"done": None, "total": None, "item": "A - B", "message": "Half way."}, "Half way."),  # no total: the message
+    ({"done": None, "total": None, "item": "A - B", "message": None}, None),  # nothing to say
+])
+def test_job_line_says_the_count_then_the_message(fields, said):
+    assert words.job_line(fields) == said

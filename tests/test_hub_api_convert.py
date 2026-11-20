@@ -411,10 +411,10 @@ def test_a_stopped_convert_batch_resumes_through_the_hub_with_the_batch_result_a
     box.running = False
     answer = api.batch_resume(f.result["batch"])
     assert api.job_status()["job"]["batch_kind"] == "convert"          # from the start, not only once it ended
-    started = [e for e in rec.events if type(e).__name__ == "JobStarted" and e.kind == "batch_resume"]
-    assert [e.batch_kind for e in started] == ["convert"]               # the live event says it too (A10)
     done = wait_job(api, rec, answer)
     assert done.ok
+    started = [e for e in rec.events if type(e).__name__ == "JobStarted" and e.kind == "batch_resume"]
+    assert [e.batch_kind for e in started] == ["convert"]               # the live event says it too (A10): it comes from the job's thread, so look once the job ended
     assert (done.result["batch"], done.result["state"], done.result["done"]) == (f.result["batch"], "done", 3)
     assert api.job_status()["job"]["kind"] == "batch_resume" and api.job_status()["job"]["batch_kind"] == "convert"
     assert batch_row(lib, f.result["batch"]).state == "done"

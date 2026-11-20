@@ -267,3 +267,14 @@ def short_day(d: date, today: date) -> str:
     """A day in few words: "12 Nov" in `today`'s year, "12 Nov 2025" otherwise."""
     day = f"{d.day} {MONTHS[d.month - 1]}"
     return day if d.year == today.year else f"{day} {d.year}"
+
+
+def job_line(fields: dict) -> str | None:
+    """The one line a running job's progress is said in (`state.json`'s `progress.line`, what the window's foot shows):
+    "3 of 12" when the total is known, with " · <item>" when an item is in work; else the last message; else None. A
+    data word (design §8.3): it counts and names, it explains nothing."""
+    total = fields.get("total")
+    if total is not None:
+        line = f"{fields.get('done') or 0} of {total}"
+        return f"{line} · {fields['item']}" if fields.get("item") else line
+    return fields.get("message") or None
