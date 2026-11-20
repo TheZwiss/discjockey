@@ -205,7 +205,7 @@ def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
         if words.get("ok") and words.get("message"):
             env["message"] = words["message"]
         env["next"] += [n for n in api.scan_next() if n not in env["next"]]
-    return env
+    return envelope.noted(env, entry.dry_run, dry=True)
 
 
 def _needs_yes(entry: Entry, command: str, kwargs: Mapping | None = None, api=None) -> dict:
@@ -284,7 +284,8 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     if (refused := refuse_job_flags(flags, command)) is not None:  # an R or B method answers at once
         return refused
     answer = getattr(api, entry.method)(**kwargs)
-    return envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None)
+    return envelope.noted(envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None),
+                          entry.method)
 
 
 def worker_argv(job_id: str) -> list[str]:

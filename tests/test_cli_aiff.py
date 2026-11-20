@@ -670,6 +670,22 @@ def test_a_dry_run_is_the_plan_the_window_shows_and_takes_no_lock_of_its_own(wor
         f"{env['data']['plan_id'][5:]}.json"]
 
 
+def test_the_cli_data_of_a_dry_run_with_a_plan_fits_its_help_schema(world, capsys):
+    """`data.plan_id` is the command line's own key beside the plan: the `dry_run_schema` `help --json` prints has it, so
+    an agent that validates `data` against it passes a correct answer (S2)."""
+    from discjockey.hub import shapes
+
+    world()
+    code, env = run_json(["aiff", "convert", "--all", "--dry-run"], capsys)
+    assert code == OK and env["data"]["plan_id"].startswith("plan:")
+    _, help_env = run_json(["help", "aiff", "convert", "--json"], capsys)
+    [row] = help_env["data"]["commands"]
+    assert row["dry_run_schema"] == shapes.json_schema("AiffPlanDryRun")
+    assert "plan_id" in row["dry_run_schema"]["$defs"]["AiffPlanDryRun"]["properties"]
+    assert shapes.validate(env["data"], "AiffPlanDryRun") == []
+    assert shapes.validate({**env["data"], "other": 1}, "AiffPlanDryRun")  # the schema still refuses a key it does not know
+
+
 def test_a_dry_run_while_a_writer_holds_rekordbox_lock_plans_blind_and_says_writing(world, capsys):
     """The carry item of V1.7's review: master.db is read only while the shared lock is held and never opened under a
     writer's; the plan then takes rekordbox's cached state and says so, as `rekordbox status` and the restore dry run do."""

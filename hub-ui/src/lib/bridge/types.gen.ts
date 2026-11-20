@@ -4006,3 +4006,75 @@ export type AutoUpgradeRunResult = {
   /** A run with `--plan`: the songs that are new since the plan, left out. */
   new_since_plan?: string[];
 };
+/** `aiff convert --dry-run` and `aiff rename --dry-run`: the plan, and the id `--plan` runs it by. */
+export type AiffPlanDryRun = AiffPlanAnswer & {
+  /** The id the plan is stored under; `--plan <id>` runs it. Missing when the plan lists nothing to run. */
+  plan_id?: string;
+};
+/** `upgrade apply --dry-run`: what it would do, and the id `--plan` runs it by. */
+export type UpgradePreviewDryRun = UpgradePreviewAnswer & {
+  /**
+   * The id the plan is stored under; `--plan <id>` runs it. Missing for `upgrade discard`, which runs on what
+   * is there.
+   */
+  plan_id?: string;
+};
+/** `sync run --auto-upgrade-only --dry-run`: what the phase would do, and the id `--plan` runs it by. */
+export type AutoUpgradePreviewDryRun = AutoUpgradePreviewAnswer & {
+  /** The id the plan is stored under; `--plan <id>` runs it. Missing when the phase has nothing to run. */
+  plan_id?: string;
+};
+/** One song of a batch as the command line prints it: with the steps only a person can do for it. */
+export type UpgradeRunRow = ItemResult & {
+  /** The steps only a person can do in rekordbox for this song; empty when there are none. */
+  person_steps: FailPersonStep[];
+};
+/**
+ * The `data` of `upgrade apply`, `upgrade all`, `batch resume` and the AIFF commands: the batch's result with
+ * each row's steps for the person, and the batch's name.
+ */
+export type UpgradeRunData = Omit<AiffBatchResult, 'results'> & {
+  /** One row per track. */
+  results: UpgradeRunRow[];
+  /** The batch, `aiff:<n>`; missing when no batch was made (a New track or Discard list). */
+  batch_id?: string;
+};
+/** One track of `check done`. */
+export type CheckDoneRow = {
+  /** The song's key. */
+  track: string;
+  /** Always `check`. */
+  action: 'check';
+  /** `done`: its check is cleared; `skipped`: it had nothing to check, or a later change took its check. */
+  state: 'done' | 'skipped';
+  /** Why it was skipped, null when done. */
+  reason: 'nothing_to_check' | 'newer_batch' | null;
+  /** The words, where there are some. */
+  message: string | null;
+};
+/** The `data` of `check done`: the result with one row per track named, and how many tracks it counted. */
+export type CheckDoneData = Omit<CheckedResult, 'results'> & {
+  /** One row per track, `done` or `skipped`. */
+  results: CheckDoneRow[];
+  /** How many tracks the command looked at. */
+  total?: number;
+  /** How many were checked. */
+  done?: number;
+  /** How many had nothing to check, or belong to a later change. */
+  skipped?: number;
+  /** How many failed (always 0). */
+  failed?: number;
+};
+/** The `data` of `sync run --auto-upgrade-only`: the phase's result and the batch it made. */
+export type AutoUpgradeRunData = AutoUpgradeRunResult & {
+  /** The phase's batch, `aiff:<n>`; missing when it made none. */
+  batch_id?: string;
+};
+/**
+ * The `data` of `rekordbox preview`: the answer without the `ok` the window's answer carries (`data` never has
+ * it).
+ */
+export type RekordboxPreviewData = Omit<RekordboxPreviewAnswer, 'ok'> & {
+  /** Not in the command line's `data`. */
+  ok?: true;
+};

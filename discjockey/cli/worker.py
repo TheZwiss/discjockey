@@ -210,7 +210,7 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
             return _stopped_reason(envelope.from_answer(command, answer, job=files.id), signals)
         if job is None or job.finished is None:  # the job ended without its JobFinished (a stop in the very first moment)
             return envelope.problem(command, "failed", "worker_lost", job=files.id)
-        return _stopped_reason(api._job_envelope(command, method, job, files.id), signals)
+        return _stopped_reason(envelope.noted(api._job_envelope(command, method, job, files.id), method), signals)
     except (ev.Cancelled, KeyboardInterrupt):
         return _stopped_reason(envelope.problem(command, "stopped", "stop", job=files.id), signals)
 
@@ -232,7 +232,7 @@ def _read_job(files: registry.JobFiles, command: str, method: str, args: dict, a
         words = api.result_words(method, answer)
         env["message"] = words.get("message") if words.get("ok") else None
         env["next"] += [n for n in api.scan_next() if n not in env["next"]]
-    return env
+    return envelope.noted(env, method, dry=entry is not None and entry.dry_run == method)
 
 
 def _run(files: registry.JobFiles) -> int:
