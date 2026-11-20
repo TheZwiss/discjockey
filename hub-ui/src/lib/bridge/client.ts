@@ -2,7 +2,7 @@
 import type {
   ActionKey, AddedPlaylist, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobStart, JobStatus, Library,
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res, RunDetail,
-  RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackDetail, WhatIf, Which,
+  RunSummary, SetupStatus, SetupTools, Sidebar, Spectrum, SyncPreview, Todo, TodoFilter, TrackAnswer, WhatIf, Which,
   AccountCheck, Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
   RemovalPreview, MissingAction, MissingPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, RekordboxStatusAnswer, AiffPlan, AiffScope,
 } from './types';
@@ -17,7 +17,7 @@ export interface Bridge {
   sync_preview(): Promise<Res<SyncPreview>>;      refresh(auto?: boolean): Promise<JobStart>;
   stop_refresh(): Promise<Res<{ stopped: boolean }>>;   job_status(): Promise<Res<JobStatus>>;
   library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null): Promise<Res<Library>>;
-  track(track_id: string): Promise<Res<{ track: TrackDetail }>>;
+  track(track_id: string): Promise<Res<TrackAnswer>>;
   todo(filter: TodoFilter, show_hidden: boolean): Promise<Res<Todo>>;
   playlists(): Promise<Res<Playlists>>;
   tidy_preview(): Promise<Res<TidyPreview>>;

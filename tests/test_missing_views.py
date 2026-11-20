@@ -3,7 +3,6 @@ Library rows' `file_state`, and the `views` rows of plan §3 (`_group`, `todo_li
 `file_state`, `next_due`)."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -11,7 +10,7 @@ from hub_helpers import LOSSLESS, fake_spotify, make_api, make_root, write_state
 from test_missing_rules import PARKED, SINCE, TODAY, e, gone, own, place, state
 
 from discjockey import db, missing
-from discjockey.hub import select, views
+from discjockey.hub import select, shapes, views
 from discjockey.library import load_state
 
 
@@ -331,36 +330,24 @@ def test_the_sidebars_to_do_count_includes_a_missing_song(hub):
     assert counted["chips"]["missing_file"] == 1 and counted["chips"]["all"] == api.todo()["chips"]["all"]
 
 
-# --- the contract: the window's types name what the views send ---
+# --- the contract: the shapes name what the views send ---
 
-TYPES_TS = Path(__file__).resolve().parents[1] / "hub-ui" / "src" / "lib" / "bridge" / "types.ts"
-TYPES_GEN_TS = TYPES_TS.with_name("types.gen.ts")  # the shapes (hub/shapes) are generated there
 CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "hub-bridge-contract.md"
 
 
-def ts_type(name):
-    """The body of `export type <name> = ...;` in types.ts, up to its terminating semicolon."""
-    return re.search(rf"export type {name} =(.*?);\n(?=\n|/\*\*|export |type |//)", TYPES_TS.read_text(encoding="utf-8") + TYPES_GEN_TS.read_text(encoding="utf-8"), re.S).group(1)
-
-
-def test_types_ts_names_the_filters_actions_reasons_and_fields_the_views_send():
-    quoted = lambda body: re.findall(r"'([a-z_]+)'", body)
-    assert set(views.TODO_GROUP_KEYS) <= set(quoted(ts_type("TodoFilter")))
-    assert quoted(ts_type("MissingAction")) == list(missing.ACTIONS)
-    assert quoted(ts_type("MissingReason")) == list(missing.REASONS)
-    fields = lambda body: re.findall(r"(\w+)\??:", body)
+def test_the_shapes_name_the_filters_actions_and_reasons_the_views_send():
+    assert set(views.TODO_GROUP_KEYS) <= set(shapes.values("TodoFilter"))
+    assert list(shapes.values("MissingAction")) == list(missing.ACTIONS)
+    assert list(shapes.values("MissingReason")) == list(missing.REASONS)
     view = missing.view("t", gone(), state(t=gone()), place, TODAY)
-    assert fields(ts_type("MissingView")) == list(view)
-    assert fields(ts_type("MissingDetail")) == ["line", "hint", "hint_library"]
-    assert fields(ts_type("MissingAll")) == [*missing.ACTIONS, "label"]
-    assert fields(ts_type("MissingConfirm")) == list(missing.confirm_for(missing.REMOVE, 1))
+    assert shapes.validate(view, "MissingView") == []
     detail = missing.detail_view("t", gone(), state(t=gone()), place, TODAY)
-    assert list(detail) == [*view, "line", "hint", "hint_library"]
-    assert "in_missing_files" in fields(ts_type("LibraryRow"))             # FC: the Library rows' flag
-    assert "sub" in fields(ts_type("Todo"))                                # FC: the header's parts
+    assert list(detail) == [*view, "line", "hint", "hint_library"]       # the details add the three lines
+    assert shapes.validate(detail, "MissingDetail") == []
+    assert shapes.validate(missing.confirm_for(missing.REMOVE, 1), "MissingConfirm") == []
     out = views.todo(state(t=gone()), "all", False, {}, TODAY, place=place)
     lib = views.library(state(t=gone()), "all", None, "", "all", None, lines=[])
-    assert "in_missing_files" in lib["rows"][0] and isinstance(out["sub"], list)
+    assert "in_missing_files" in lib["rows"][0] and isinstance(out["sub"], list)   # FC: the Library's flag, the header's parts
 
 
 def test_the_contract_doc_names_every_reason_and_the_group():
