@@ -464,7 +464,7 @@ beside it below 680 px list width; What to do shows the same icons beside the ki
 
 The gallery's "Other components" (WriteButton, Badge, Cover, TrackRow, fields (CopyCode and SecretField have their own
 sections), Banner, Dialog, Ring, Spectrum, player,
-DropZone) are shared and in use, not reworked yet; phase 2 reworks each with its page. `Ring mark` is a 2 px ring
+DropZone) are shared and in use, not reworked yet (`Banner` sets `data-banner` on its root, so its status sentence counts as a container for the loose-text rule, and its text wraps inside the frame, never clips); phase 2 reworks each with its page. `Ring mark` is a 2 px ring
 with nothing inside, round a glyph (the rail's running sync): decorative (the glyph's Tip says it), its arc at the
 live pace. To-do no longer uses `TrackRow`
 (its rows are `ListRow`s) and Library's table has its own cells, so `TrackRow` is in no page any more. A round icon button that isn't a `Button` (`PlayButton`,
@@ -515,7 +515,7 @@ npm run rules -- --page sync --only sync-many,sync-end       # only the named sh
 | `button` | a button is wider than its natural size (allowed: a `wide` button in a panel foot, and the hit areas that fill by design: segments, switch rows, menu items, `[data-row-hit]`, StepStrip's `[data-step-hit]`; a button in a list's head or a row's trailing cell is checked) |
 | `primary` | more than one visible `[data-primary]` per screen, or per dialog |
 | `clipped` | at 1100 × 700: a control outside the window and not in a scroller, or a `Panel` foot not fully visible |
-| `loose-text` | more than 90 characters of text outside `[data-surface]`, `[data-note]`, `[data-infotip]` or a dialog (blocks set these markers; `lib/guards.test.ts` fails a page that writes one, or any other checker marker, by hand) |
+| `loose-text` | more than 90 characters of text outside `[data-surface]`, `[data-note]`, `[data-banner]` (the shell's `Banner`: a toned status block whose sentence carries engine data of varying length), `[data-infotip]` or a dialog (blocks set these markers; `lib/guards.test.ts` fails a page that writes one, or any other checker marker, by hand) |
 | `font-size` | a text size not in `--type-scale` |
 | `colour` | a text, background or border colour that isn't a token value (transparent is fine) |
 | `read-status` | a `[data-read-status]` outside `[data-page-header]` |
