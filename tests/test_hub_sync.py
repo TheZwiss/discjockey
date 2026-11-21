@@ -614,6 +614,37 @@ def test_the_plan_is_derived_once_per_read_records_settings_and_day(hub):
     assert len(loads) == len(derived)
 
 
+def test_a_ticked_action_whose_target_changed_under_the_same_plan_id_still_runs(hub, monkeypatch):
+    api, rec, paths, derived, loads = hub
+
+    class FastAcquirer:
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
+            f = workdir / "q.aiff"
+            f.write_bytes(b"audio")
+            return AcquireResult("ready", Ready(f, "lossless", "qobuz", "q" + track.id, "flac", None, "ok"))
+
+    class FakeQobuz:
+        check = None
+
+        def close(self):
+            pass
+
+    kept = []
+    real_select = run.select_actions
+    monkeypatch.setattr(run, "select_actions", lambda prep, *a, **k: real_select(prep, *a, **k) or kept.extend(
+        x.track_id for x in prep.plan.actions))
+    monkeypatch.setattr(run, "Acquirer", lambda *a, **k: FastAcquirer())
+    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: FakeQobuz()))
+    refreshed(api, rec)
+    first, _ = sync_plan(api)
+    paths.playlists_file.write_text(paths.playlists_file.read_text().replace("Powertrance =", "Powertrance2 ="))
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    assert plan_id == first and "act:acquire:t5:2" in ids  # the same id; its target is another folder
+    f = wait_job(api, rec, api.start_sync(plan_id, ids))
+    assert f.ok and f.result["new_since_plan"] == [] and "t5" in kept  # the one the person ticked runs
+
+
 def test_a_hub_sync_makes_its_own_read_the_plan_and_needs_a_stored_read_to_start(hub):
     api, rec, paths, derived, loads = hub
     refused = api.start_sync(api.sync_preview()["plan_id"], [])  # no read yet: no plan id (null), nothing starts
@@ -791,3 +822,15 @@ def test_a_sync_record_with_malformed_args_answers_empty_ones(hub):
     (folder / "state.json").write_text(json.dumps({"id": "job:0badc0de", "kind": "refresh", "args": {},
                                                    "roots": {"music": str(paths.root)}, "started": "2099-01-01T00:00:00"}))
     assert api.job_status()["last_sync"] is None  # a refresh is no sync
+
+
+def test_a_queued_terminal_sync_is_the_last_sync_by_its_method(hub):
+    api, rec, paths, derived, loads = hub
+    folder = paths.support / "jobs" / "job:0badc0de"
+    folder.mkdir(parents=True)
+    (folder / "state.json").write_text(json.dumps({
+        "id": "job:0badc0de", "kind": "start_sync", "method": "start_sync", "status": "queued",
+        "args": {"plan_id": "plan:0123456789ab", "selected": ["act:acquire:t1:1"]},
+        "roots": {"music": str(paths.root)}, "started": "2099-01-01T00:00:00"}))
+    last = api.job_status()["last_sync"]  # its kind is its method name until it runs
+    assert last["job"] == "job:0badc0de" and last["args"] == {"plan_id": "plan:0123456789ab", "selected": ["act:acquire:t1:1"]}

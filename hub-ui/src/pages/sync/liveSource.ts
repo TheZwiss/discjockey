@@ -8,8 +8,6 @@ import type { LastSync } from '$lib/bridge/types';
 import { markStopping, run, type RunState } from '$lib/stores/run';
 import type { SyncSource } from './view';
 
-/** The header's status line of a Terminal sync's live view, beside "Sync running" / "Stopping…" */
-export const TERMINAL_WHERE = 'In the Terminal';
 /** The progress card's line while a Terminal sync joined late is read up to where it is (`followRun` publishes once
  *  caught up): its count, card and lists are not known yet */
 export const JOINING = 'Looking up its progress…';
@@ -41,10 +39,11 @@ export const ownSource: LiveSource = {
 };
 
 /** The Terminal's sync `job`, followed in `followed`: Stop safely writes that job's stop file (`stop(job_id)`), and the
- *  followed state turns "stopping" once the job says so; until then the button stays busy */
-export function terminalSource(job: string, followed: Readable<RunState>): LiveSource {
+ *  followed state turns "stopping" once the job says so; until then the button stays busy. `where` is the engine's
+ *  words for where it runs ("In the Terminal", "In another window": `ConsoleBusy.where`), the header's status line */
+export function terminalSource(job: string, followed: Readable<RunState>, where: string | null): LiveSource {
   return {
-    kind: 'terminal', run: followed, job, where: TERMINAL_WHERE,
+    kind: 'terminal', run: followed, job, where: where ?? undefined,
     async stop() {
       const r = await api.stop(job);
       return r.ok ? { ok: true, waits: r.stopped } : { ok: false, message: r.message };

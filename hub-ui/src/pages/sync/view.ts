@@ -20,7 +20,7 @@ export type ViewInput = {
   /** the finished jobs the person went back to the plan from */
   dismissed?: ReadonlySet<string>;
   /** the Terminal's sync (`terminalSync`) and its followed state; null while there is none */
-  terminal?: { sync: TerminalSync; run: RunState } | null;
+  terminal?: { sync: Pick<TerminalSync, 'job' | 'running'>; run: RunState } | null;
   /** the newest sync of this music folder (`last_sync.job`, the engine's registry): which end is the later one */
   newest?: string | null;
 };

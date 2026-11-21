@@ -20,7 +20,7 @@
     terminal: $terminalSync && { sync: $terminalSync, run: $followed }, newest: $hub.last_sync?.job ?? null }));
   const terminalJob = $derived($terminalSync?.job ?? null);
   const source = $derived(v.view !== 'before' && v.source === 'terminal' && terminalJob
-    ? terminalSource(terminalJob, followed) : ownSource);
+    ? terminalSource(terminalJob, followed, $terminalSync?.where ?? null) : ownSource);
 </script>
 
 <div class="sync" data-view={v.view} data-source={v.view === 'before' ? null : v.source}>

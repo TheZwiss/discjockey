@@ -2267,6 +2267,11 @@ export type ConsoleHolder = {
   line: string | null;
   /** What the window says while it holds the library: the job, where it runs, how far it is. */
   text: string;
+  /**
+   * Where it runs as the Sync page's live view says it ("In the Terminal", "In another window"); null for a
+   * holder with no registry entry.
+   */
+  where: string | null;
 };
 /** The snapshot after a window reload. */
 export type JobStatus = {
@@ -2308,8 +2313,13 @@ export type JobEvents = {
   next: number;
   /** The job has ended and these were its last events. */
   done: boolean;
-  /** The job's status when it was read: queued, running, stopping, done or lost. */
-  status: string;
+  /** The job's status when it was read. */
+  status: 'queued' | 'running' | 'stopping' | 'done' | 'lost';
+  /**
+   * The job's end, from its result.json, as the watch sends it (a `JobFinished` event object; `worker_lost`
+   * when it left no result); null until `done`.
+   */
+  finished: any;
 };
 /** What `stop`, `stop_refresh` and `stop_sign_in` answer. */
 export type Stopped = {

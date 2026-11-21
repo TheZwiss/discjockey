@@ -1579,3 +1579,9 @@ def test_a_never_row_has_an_id_and_a_target_outside_the_folders_is_numbered_afte
     ids = run.action_ids(prep)
     assert ids[("acquire", "t9", "Library/B")] == "act:acquire:t9:2"
     assert ids[("adopt_bought", "t5", "Library/Elsewhere")] == "act:adopt_bought:t5:3"
+
+
+def test_an_own_songs_weekly_check_keeps_its_id_when_a_folder_is_added():
+    one = run.action_ids(_ided(["A"], [("upgrade", "local:1", "")]))
+    two = run.action_ids(_ided(["A", "B"], [("upgrade", "local:1", "")]))
+    assert list(one.values()) == list(two.values()) == ["act:upgrade:local:1:0"]  # no folder: a fixed place

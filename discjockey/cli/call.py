@@ -243,8 +243,7 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     if entry.planned:
         return envelope.usage(command, NOT_BUILT.format(command=command))
     if entry.kind == "J-control":
-        return envelope.usage(command, f"{entry.method} only reaches a job of the process that runs it: "
-                                       "use `job stop <job>`.")
+        return envelope.usage(command, f"{entry.method} is the window's Stop safely: use `job stop <job>`.")
     if flags.dry_run and not entry.dry_run:
         return envelope.usage(command, f"{command} has no --dry-run: it does not change anything or it cannot be tried first.")
     if not flags.dry_run and entry.kind not in ("R", "B", "J", "RJ"):

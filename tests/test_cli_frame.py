@@ -376,6 +376,11 @@ def test_call_and_noun_verb_refuse_without_yes(monkeypatch):
     assert env["reason"] == "needs_yes"
 
 
+def test_the_windows_stop_controls_point_to_job_stop(capsys):
+    code, env = run_json(["call", "stop", "--json"], capsys)
+    assert code == 2 and env["message"] == "stop is the window's Stop safely: use `job stop <job>`."
+
+
 def test_a_dry_run_on_a_command_without_one_is_bad_args(capsys):
     code, env = run_json(["call", "rekordbox_status", "--dry-run", "--json"], capsys)
     assert code == 2 and "no --dry-run" in env["message"]

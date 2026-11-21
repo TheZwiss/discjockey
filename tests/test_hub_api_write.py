@@ -233,7 +233,7 @@ def test_a_write_refused_for_a_terminal_job_names_it_in_the_answers_data(root):
     answer = api.hide("t2", True)
     assert window(answer) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}  # the words stay
     assert answer["data"] == {"holder": {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60",
-                                         "text": "Sync running in the Terminal · 4 of 60"}}
+                                         "text": "Sync running in the Terminal · 4 of 60", "where": "In the Terminal"}}
     assert answer["outcome"] == "busy" and answer["reason"] == "console"
     files.release_claim()
     assert outcomes.KIND_OUTCOME["console"] == "busy"
@@ -250,12 +250,12 @@ def test_a_reloaded_window_learns_who_holds_the_library_from_job_status_at_once(
         status = reloaded.job_status()
         assert status["console_running"] is True
         assert status["console"] == {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60",
-                                     "text": "Sync running in the Terminal · 4 of 60"}
+                                     "text": "Sync running in the Terminal · 4 of 60", "where": "In the Terminal"}
     with run_lock(root.lock):  # a holder the registry knows nothing of: nobody can name it
         status = make_api(root)[0].job_status()
         assert status["console_running"] is True
         assert status["console"] == {"job": None, "via": None, "kind": None, "line": None,
-                                     "text": "A Discjockey command is running in the Terminal"}
+                                     "text": "A Discjockey command is running in the Terminal", "where": None}
 
 
 def test_rescan_library_answers_busy_and_console_at_once(root):
@@ -870,6 +870,9 @@ def test_start_sync_refuses_an_id_the_plan_does_not_hold_and_a_plan_of_another_k
     answer = api.start_sync(plan_id, [ids[0], "act:acquire:t1:9"])
     assert (answer["ok"], answer["kind"]) == (False, "refused") and "act:acquire:t1:9" in answer["message"]
     assert api.start_sync(plan_id, [["acquire", "t1", "Library/A"]])["kind"] == "refused"  # the old key is no id
+    for not_a_list in (5, ids[0], {ids[0]: True}):  # no crash, and a string is not split into letters
+        answer = api.start_sync(plan_id, not_a_list)
+        assert (answer["ok"], answer["kind"]) == (False, "refused") and "`selected` is a list" in answer["message"]
     other = plan_store.save(root.support, "upgrade", str(root.root), {"upgrade:t1": {"track": "t1"}})
     assert (api.start_sync(other, [])["kind"], api.start_sync(other, [])["reason"]) == ("bad_args", "unknown_id")
     assert api.job_status()["job"] is None

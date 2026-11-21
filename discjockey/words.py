@@ -3,6 +3,10 @@ change that rekordbox does not notice by itself. The window still builds its own
 (`decisionModel.ts`); phase 6 splits these into numbered steps and takes that copy away. A later group adds the words
 of the other answers here.
 
+The module also holds the window's banner words for another process's job (`JOB_TITLES`, `job_title`, `holder_text`,
+`holder_where`, `UNNAMED_HOLDER`, `HOLDER_PLACES`, `HOLDER_WHERE`): `Jobs._holder_of` makes them, and they reach the
+window as `ConsoleBusy.text` / `ConsoleBusy.where`, `JobStatus.console` and `Busy.data.holder`.
+
 `person_steps` turns one open rekordbox check into the steps of `HubApi.todo`'s `check.person_steps`: the step's `id`
 and `then` come from `outcomes.STEPS`, its `say` is the engine's own sentence for the check (`report.check_text`, with
 the USB step where the check has one: `report.usb_step`). The track's name is its key: `check done <key>` is the next
@@ -296,12 +300,20 @@ JOB_TITLES = {
 # setup or an update
 UNNAMED_HOLDER = "A Discjockey command is running in the Terminal"
 HOLDER_PLACES = {"terminal": "the Terminal", "window": "another window"}
+# where a holder runs as the Sync page's live view names it ("In the Terminal"), carried as `ConsoleBusy.where`
+HOLDER_WHERE = {via: f"In {place}" for via, place in HOLDER_PLACES.items()}
 
 
 def job_title(kind: str) -> str:
     """The job kind as the window names it: its entry of `JOB_TITLES`, else its words with `_` as a space and a capital
     first letter ("auto_upgrade_run" says "Auto upgrade run")."""
     return JOB_TITLES.get(kind) or kind.replace("_", " ").capitalize()
+
+
+def holder_where(via: str | None) -> str:
+    """Where a holder runs, for the Sync page's live view ("In the Terminal", "In another window"): the same places as
+    `holder_text`, and a `via` the registry does not say counts as the Terminal too."""
+    return HOLDER_WHERE.get(via or "terminal", HOLDER_WHERE["terminal"])
 
 
 def holder_text(kind: str | None, via: str | None, line: str | None) -> str:

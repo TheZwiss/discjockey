@@ -236,6 +236,11 @@ def _current_logged(paths: Paths, conn, state: dict, group_id: str, file_id: int
         raise
 
 
+class NotRecorded(OpProblem):
+    """`supersede`'s move that happened but whose result the records refused (NOT_RECORDED, kind "failed"): the file is
+    at its new place, so a caller that counts moves counts this one."""
+
+
 def supersede(paths: Paths, group_id: str, file_id: int, shown: list[str], *, emit: Emit = no_emit,
               now: Callable[[], datetime] = datetime.now, on_moved: Callable[[str], None] | None = None) -> str:
     """Duplicates' "Move to Superseded" (D10): like replacing a file, the file `file_id` of the group goes to
@@ -243,8 +248,9 @@ def supersede(paths: Paths, group_id: str, file_id: int, shown: list[str], *, em
     row goes, and when it was a playlist song's while own songs' files stay, one of them takes the playlist song
     over (_heir). `shown`: the group's files' paths as the card showed them. No move batch, no undo; a line in reports/operations.jsonl. Interrupted steps are finished first.
     OpProblem(CHANGED) when the group isn't as the window showed it, OpProblem(failed) when the move was refused
-    (nothing moved). Returns where the file went. `on_moved(dst)` is called as soon as the file has moved, before the
-    log line and the report write, so a caller knows of the move even when one of those fails."""
+    (nothing moved), NotRecorded (an OpProblem) when it moved but the records refused the result. Returns where the
+    file went. `on_moved(dst)` is called as soon as the file has moved (a move the records then refused included),
+    before the log line and the report write, so a caller knows of the move even when one of those fails."""
     state = library.open_state(paths, emit)
     for message, ok in library.recover_pending(paths, state):  # as every writer's start (tidy._begin)
         emit(Message("info" if ok else "warning", message))
@@ -267,9 +273,11 @@ def supersede(paths: Paths, group_id: str, file_id: int, shown: list[str], *, em
         ops.log_operation(paths, now(), key, entry, SUPERSEDE, "failed", message)
         raise OpProblem(message, "failed") from None
     except (sqlite3.IntegrityError, ValueError):  # moved, but the records refused the result (move_files)
+        if on_moved is not None:
+            on_moved(dst)  # the file is gone from where it was: a caller's list of the moves has it
         message = NOT_RECORDED.format(dst=dst)
         ops.log_operation(paths, now(), key, entry, SUPERSEDE, "failed", message)
-        raise OpProblem(message, "failed") from None
+        raise NotRecorded(message, "failed") from None
     if on_moved is not None:
         on_moved(dst)
     message = MOVED.format(dst=dst)
@@ -310,7 +318,8 @@ def keep_file(paths: Paths, group_id: str, file_id: int, shown: list[str], *, em
     one by one (never deleted). The group is the one of the files left after each move (`models.group_id`; its `shown`
     paths narrowed the same way), so each move is checked as the window's own single move was. OpProblem(CHANGED)
     before anything moves when `file_id` is not in the group or the group isn't as shown (see _current); a refused or
-    failed move stops it with KeepStopped (its words say how many moved before it): the files moved so far stay moved.
+    failed move stops it with KeepStopped (its words say how many moved, the one the records couldn't follow included):
+    the files moved so far stay moved.
     A group of one file is `changed` too (nothing to move). `moved_out`: the list the moves are appended to as they
     happen, so a caller still has them when an unexpected error ends the call. No Stop check between the moves (each
     is one short, journaled move)."""
@@ -334,7 +343,8 @@ def keep_file(paths: Paths, group_id: str, file_id: int, shown: list[str], *, em
             supersede(paths, group_id_of(left), other.file_id, left_paths, emit=emit, now=now, on_moved=note)
         except OpProblem as p:
             kept = KeptFile(list(moved), None)
-            if not moved:  # the first move: the problem's own words ("Nothing was moved: …") are true
+            if not moved or (isinstance(p, NotRecorded) and len(moved) == 1):
+                # the first move: the problem's own words are true ("Nothing was moved: …", or "Moved to X, but …")
                 raise KeepStopped(p, kept) from None
             raise KeepStopped(p, kept, STOPPED_AFTER.format(
                 n=len(moved), total=len(files) - 1, problem=str(p).removeprefix(NOT_MOVED_HEAD))) from None

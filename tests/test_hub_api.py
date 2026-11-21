@@ -157,13 +157,26 @@ def test_a_sync_preview_that_changed_nothing_saves_nothing_new_until_an_hour_pas
     os.utime(file, ns=(1_000_000_000, 1_000_000_000))  # a mark to see a second save by
     assert api.sync_preview()["plan_id"] == first
     assert file.stat().st_mtime_ns == 1_000_000_000  # same plan, saved a moment ago: left alone
-    api._saved_plan = (first, datetime.now() - timedelta(hours=2))
+    api._saved_plan = (first, api._saved_plan[1], datetime.now() - timedelta(hours=2))
     api.sync_preview()
     assert file.stat().st_mtime_ns != 1_000_000_000  # over an hour: saved again, the 24 hours start over
     assert wait_job(api, rec, api.never_download("t4", True)).ok  # another plan: another id and file
     second = api.sync_preview()["plan_id"]
     assert second != first and plan_file(root, second).is_file()
     assert {f.name for f in (root.support / "plans").iterdir()} == {f"{first[5:]}.json", f"{second[5:]}.json"}
+
+
+def test_a_target_that_changed_under_the_same_plan_id_is_saved_at_once(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    first = api.sync_preview()["plan_id"]
+    root.playlists_file.write_text(root.playlists_file.read_text().replace("Powertrance =", "Powertrance2 ="))
+    refreshed(api, rec)
+    p = api.sync_preview()
+    assert p["plan_id"] == first  # the id hashes the action ids only
+    assert [a["to_dir"] for a in p["groups"][0]["actions"]] == ["Library/Hard_Bounce", "Library/Powertrance2"]
+    items = json.loads(plan_file(root, first).read_text())["items"]
+    assert items["act:acquire:t5:2"]["to_dir"] == "Library/Powertrance2"  # the stored plan follows what was shown
 
 
 def test_never_download_and_back(root):

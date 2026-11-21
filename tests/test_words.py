@@ -65,3 +65,11 @@ def test_every_job_kind_with_a_result_has_a_title():
 ])
 def test_holder_text_says_which_job_where_and_how_far(kind, via, line, said):
     assert words.holder_text(kind, via, line) == said
+
+
+@pytest.mark.parametrize("via, said", [
+    ("terminal", "In the Terminal"), ("window", "In another window"),
+    (None, "In the Terminal"),  # a record without `via` is told as the Terminal's, as `holder_text` does
+])
+def test_holder_where_says_where_the_holder_runs(via, said):
+    assert words.holder_where(via) == said

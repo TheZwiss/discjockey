@@ -12,23 +12,23 @@ describe('the Terminal job in the fake backend', () => {
     const s = stateOf('normal');
     s.console_running = true;
     expect(consoleEvent(s)).toEqual({ type: 'ConsoleBusy', running: true, job: 'job:00000c0d', kind: 'sync', line: '4 of 60',
-      text: 'Sync running in the Terminal · 4 of 60' });
+      text: 'Sync running in the Terminal · 4 of 60', where: 'In the Terminal' });
   });
 
   it('says what each scenario holds the library with, and nothing once it has ended', () => {
     const tidy = stateOf('console:tidy');
     expect(consoleEvent(tidy)).toMatchObject({ running: true, kind: 'tidy', line: '12 of 80 · Techno',
-      text: 'Tidy-up running in the Terminal · 12 of 80 · Techno' });
+      text: 'Tidy-up running in the Terminal · 12 of 80 · Techno', where: 'In the Terminal' });
     const unknown = stateOf('console:unknown');
     expect(consoleEvent(unknown)).toEqual({ type: 'ConsoleBusy', running: true, job: null, kind: null, line: null,
-      text: 'A Discjockey command is running in the Terminal' });
+      text: 'A Discjockey command is running in the Terminal', where: null });
     setConsole(unknown, false);
-    expect(consoleEvent(unknown)).toEqual({ type: 'ConsoleBusy', running: false, job: null, kind: null, line: null, text: null });
+    expect(consoleEvent(unknown)).toEqual({ type: 'ConsoleBusy', running: false, job: null, kind: null, line: null, text: null, where: null });
   });
 
   it('the scenarios are offered by name, and the plain console scenario still holds a Terminal sync', () => {
     expect(Object.keys(pageScenarios())).toEqual(expect.arrayContaining(['console:tidy', 'console:unknown']));
-    expect(consoleEvent(stateOf('console'))).toMatchObject({ running: true, kind: 'sync', text: 'Sync running in the Terminal · 4 of 60' });
+    expect(consoleEvent(stateOf('console'))).toMatchObject({ running: true, kind: 'sync', text: 'Sync running in the Terminal · 4 of 60', where: 'In the Terminal' });
   });
 
   it('every ConsoleBusy event fits the engine\'s schema', () => {
@@ -51,10 +51,10 @@ describe('job_status in the fake backend', () => {
   it('answers the holder the scenario holds the library with, and null when none does', async () => {
     expect(await holderOf('normal')).toEqual([false, null]);
     expect(await holderOf('console')).toEqual([true, { job: 'job:00000c0d', via: 'terminal', kind: 'sync', line: '4 of 60',
-      text: 'Sync running in the Terminal · 4 of 60' }]);
+      text: 'Sync running in the Terminal · 4 of 60', where: 'In the Terminal' }]);
     expect(await holderOf('console:tidy')).toEqual([true, { job: 'job:00000c0d', via: 'terminal', kind: 'tidy',
-      line: '12 of 80 · Techno', text: 'Tidy-up running in the Terminal · 12 of 80 · Techno' }]);
+      line: '12 of 80 · Techno', text: 'Tidy-up running in the Terminal · 12 of 80 · Techno', where: 'In the Terminal' }]);
     expect(await holderOf('console:unknown')).toEqual([true, { job: null, via: null, kind: null, line: null,
-      text: 'A Discjockey command is running in the Terminal' }]);
+      text: 'A Discjockey command is running in the Terminal', where: null }]);
   });
 });

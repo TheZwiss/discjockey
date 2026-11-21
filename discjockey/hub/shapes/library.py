@@ -589,6 +589,9 @@ class ConsoleHolder(TypedDict):
                                   "entry.")]
     line: Annotated[str | None, F("How far the holder is (\"4 of 60\"); null before it says.")]
     text: Annotated[str, F("What the window says while it holds the library: the job, where it runs, how far it is.")]
+    where: Annotated[str | None, F(
+        "Where it runs as the Sync page's live view says it (\"In the Terminal\", \"In another window\"); null for a "
+        "holder with no registry entry.")]
 
 
 @shape
@@ -616,7 +619,11 @@ class JobEvents(TypedDict):
     next: Annotated[int, F("The position to ask from next: `after` plus the lines of the files delivered (a line that "
                            "is no event has its place but is not in `events`).", shown=False)]
     done: Annotated[bool, F("The job has ended and these were its last events.", shown=False)]
-    status: Annotated[str, F("The job's status when it was read: queued, running, stopping, done or lost.", shown=False)]
+    status: Annotated[Literal["queued", "running", "stopping", "done", "lost"], F(
+        "The job's status when it was read.", shown=False)]
+    finished: Annotated[Any, F("The job's end, from its result.json, as the watch sends it (a `JobFinished` "
+                                       "event object; `worker_lost` when it left no result); null until `done`.",
+                                       shown=False)]
 
 
 @shape
