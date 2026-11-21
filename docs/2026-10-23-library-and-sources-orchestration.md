@@ -1268,15 +1268,19 @@ Results:
         Fix split by kind: FR-W2a (engine + contract: A F1 F2 F4 F5 F8 F9, B1 B3 B10 B12 B13 B14; exp. ~200k) then
         FR-W2b (window: A F3 F6 F7, B2 B4-B9 B11 + the DECIDE A; exp. ~180k). Briefs review/fix-common-w2.md,
         FR-W2a.md, FR-W2b.md. FR-W2a dispatched on cli2-fw2a (feat/cli-2-fix-w2a from e195b33d).
-      - RESUME HERE (LATEST, 2026-11-21 ~05:xx): FR-W2a RUNNING on cli2-fw2a. Phase branch = e195b33d (pushed). On its
+      - FR-W2a done (Sonnet fix-round): logged **215k** (exp. 200k), agent-cost 114 calls, cache 15.2M, fresh_in 214k,
+        out 57k, advisor 0k. Commits 2ad0a4f1 (half A F1 F2 F4 F5 F8 F9), 8c3b21a1 (B1 `finished_of` +
+        `JobEvents.finished`, follow.ts ends on it; B3 `where` from `words.holder_where`; B10 KEPT_TYPES; B12 B13 B14;
+        static). Its full pytest after the last change, staged: 6441 passed, 4 skipped; vitest 1789; npm check 0;
+        shapes --check clean. Merged 99d4c025, pushed, worktree removed. FR-W2b dispatched on cli2-fw2b
+        (feat/cli-2-fix-w2b from 99d4c025), exp. ~190k.
+      - RESUME HERE (LATEST, 2026-11-21 ~05:xx): FR-W2b RUNNING on cli2-fw2b. Phase branch = 99d4c025 (pushed). On its
         notice: ps, agent-cost, commits, green full pytest (else run it myself), merge --no-ff, push, remove worktree,
-        log. Then FR-W2b (fix-round Sonnet, brief review/FR-W2b.md, worktree cli2-fw2b from the merge, node_modules
-        symlink) → merge → `npm run verify` (mine, run_in_background, on the main checkout; look at the new
+        log. Then `npm run verify` (mine, run_in_background, on the main checkout; look at the new
         dashboard-terminal-sync shot and the sync-terminal-* shots myself) → CI green → STOP for the user: the
         end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox
         closed), the merge go into main. No release.
-        WAVE 2 SPENT (logged): 4,044k + half B 247 = 4,291k; left ≈ FR-W2a 200 + FR-W2b 180 → wave 2 ≈ 4.67M
-        (B2 plan 3,860k, 1.21x).
+        WAVE 2 SPENT (logged): 4,291k + FR-W2a 215 = 4,506k; left ≈ FR-W2b 190 → wave 2 ≈ 4.7M (B2 plan 3,860k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
