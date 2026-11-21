@@ -1232,16 +1232,27 @@ Results:
         eval, F4 = E4b note a, F5 = E4b note c, F6 sync-own-cover, F7 sidebar switch) dispatched on cli2-fe4
         (feat/cli-2-fix-e4 from 83b558c7), exp. ~140k. E4b note b (sidebar/foot follow only the own sync) goes to the
         phase review half B (design §6.4; may be DECIDE).
-      - RESUME HERE (LATEST, 2026-11-21 ~02:xx): FR-E4 RUNNING on cli2-fe4. Phase branch = 83b558c7 (pushed). On its
-        notice: ps, agent-cost, commits, its green full pytest, merge --no-ff, push, remove worktree, log. Then the
-        wave 2 Opus phase review (briefs WRITTEN: .claude/issue39/phase2/review/common-w2.md, review-w2-A.md (V2.3,
-        db786fc9..58e5820a, ~39k), review-w2-B.md (E9+E4, 831c02d4..HEAD, ~51k); replace HEAD_SHA in common-w2.md and
-        review-w2-B.md with the merge sha first) half A then half B, findings saved as review/findings-w2-A.md /
-        -B.md → one Sonnet fix round → `npm run verify` (mine, run_in_background) → CI green → STOP for the user:
-        the end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey +
-        rekordbox closed), the merge go into main. No release.
-        WAVE 2 SPENT (logged): 3,474k + shots E4 187 = 3,661k; left ≈ FR-E4 140 + review 340 + fix 150 ≈ 0.63M →
-        wave 2 ≈ 4.3M (B2 plan 3,860k).
+      - FR-E4 done (Sonnet fix-round; cut by the 5-hour limit, resumed after 04:00): logged **130k** (exp. 140k),
+        agent-cost 59 calls, cache 5.2M, fresh_in 178k, out 27k, advisor 0k. One commit 53c3cce4 (source + static).
+        F1 `stampAfter` in run.ts (strictly increasing stamps for message/Reading/ActionStarted/Finished; Progress and
+        Waiting keep the clock for the rate); F2 the message line hidden only when the Getting ready card says the
+        same text; F3 tidy eval aria-disabled; F4 only another console sync replaces a kept Terminal sync; F5 fake
+        last_sync names the Terminal job; F6 ROOT CAUSE a real V2.3b bug: `|| $run.planned.length` in LiveView's
+        selection effect stopped the plan fetch after RunStarted, so own-file covers never reached the live card
+        (real syncs too); F7 BrowserColumn `isOff()` (dim + "switched off" follow the existing `sw()` rule; half B
+        judges it). rules: 24 shots 0 problems. Its suite: 1 fail (unstaged static deletions) → I ran the full pytest
+        on 53c3cce4: 6427 passed, 4 skipped. Merged e195b33d, pushed, worktree removed.
+        Wave 2 phase review half A (Opus, review/review-w2-A.md + common-w2.md, V2.3 db786fc9..58e5820a, ~45k
+        material) dispatched at e195b33d, exp. ~160k.
+      - RESUME HERE (LATEST, 2026-11-21 ~04:xx): review half A RUNNING (read-only, main checkout e195b33d). Phase
+        branch = e195b33d (pushed). On its notice: ps, agent-cost, extract its final `# Findings` text from the task
+        output jsonl with python into review/findings-w2-A.md, log. Then half B (Opus, review/review-w2-B.md, E9+E4+
+        FR-E4 831c02d4..e195b33d, ~51k, exp. ~180k) → findings-w2-B.md → one Sonnet fix round (brief from both
+        findings; decide DECIDE items by the rules or keep for the user) → `npm run verify` (mine,
+        run_in_background) → CI green → STOP for the user: the end-of-phase-2 cost checkpoint, the real-copy
+        rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox closed), the merge go into main. No release.
+        WAVE 2 SPENT (logged): 3,661k + FR-E4 130 = 3,791k; left ≈ review 340 + fix 150 ≈ 0.49M → wave 2 ≈ 4.3M
+        (B2 plan 3,860k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
