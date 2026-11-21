@@ -1220,16 +1220,28 @@ Results:
         drive it; scope-check first); (c) the fake's job_status().last_sync never names the Terminal job (fake gap).
         Shots E4 (Sonnet, shots-E4.md) dispatched: HEAD main checkout 83b558c7, BASE worktree shots-base at f015d03f,
         exp. ~120k.
-      - RESUME HERE (LATEST, 2026-11-21 ~01:xx): shots E4 RUNNING (HEAD = main checkout 83b558c7, BASE = worktree
-        .claude/worktrees/shots-base detached at f015d03f). Phase branch feat/cli-2-foundations = 83b558c7 (pushed).
-        On its notice: ps (kill its vite servers if left), agent-cost, remove shots-base, log; problems → Sonnet fix
-        round (with E4b's FOR PHASE REVIEW (a) if small, else carry to the phase review). Then the wave 2 Opus phase
-        review in 2 halves (measure the diff f015d03f-era base of wave 2 first: wave 2 started after wave 1's merge;
-        carry every "FOR PHASE REVIEW" note in this NIGHT LOG since FR-V2.2) → Sonnet fix round(s) → `npm run verify`
-        (mine, run_in_background) → CI green → STOP for the user: the end-of-phase-2 cost checkpoint, the real-copy
-        rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox closed), the merge go into main. No release.
-        WAVE 2 SPENT (logged): 3,237k + E4b 237 = 3,474k; left ≈ shots 120 + review 350 + fix 150 ≈ 0.6M → wave 2
-        ≈ 4.1M (B2 plan 3,860k).
+      - Shots E4 (Sonnet): logged **187k** (exp. 120k, 1.55x: 94 calls incl. DOM probes, scratch Vite configs), agent-cost
+        80 calls, cache 8.2M, fresh_in 185k, out 34k, advisor 0k. OK: reading (minor: sentence twice), ended, first
+        open (caught up in ~20 ms), own live/end shots vs BASE (26 byte-identical, rest spinner/clock noise; 2 changed
+        on purpose read fine). PROBLEMS: stale "Looking up the bitrate…" while track 3 downloads (same-ms stamps when
+        follow.ts reduces a page; also own sync-converting on HEAD); sync-terminal-tidy shot eval checks
+        `start.disabled` (Button uses aria-disabled) → no PNG; pre-existing: sync-own-cover fails on BASE too (would
+        break verify); sidebar Tekke_Ecke switch ON while name grey in plan views. Note: Vite CLI has no --cacheDir
+        flag (it used scratch configs with cacheDir + --mode fake): memory reference fixed. shots-base removed.
+        FR-E4 (Sonnet fix-round, brief review/FR-E4.md: F1 monotonic stamps in reduceRun, F2 sentence once, F3 tidy
+        eval, F4 = E4b note a, F5 = E4b note c, F6 sync-own-cover, F7 sidebar switch) dispatched on cli2-fe4
+        (feat/cli-2-fix-e4 from 83b558c7), exp. ~140k. E4b note b (sidebar/foot follow only the own sync) goes to the
+        phase review half B (design §6.4; may be DECIDE).
+      - RESUME HERE (LATEST, 2026-11-21 ~02:xx): FR-E4 RUNNING on cli2-fe4. Phase branch = 83b558c7 (pushed). On its
+        notice: ps, agent-cost, commits, its green full pytest, merge --no-ff, push, remove worktree, log. Then the
+        wave 2 Opus phase review (briefs WRITTEN: .claude/issue39/phase2/review/common-w2.md, review-w2-A.md (V2.3,
+        db786fc9..58e5820a, ~39k), review-w2-B.md (E9+E4, 831c02d4..HEAD, ~51k); replace HEAD_SHA in common-w2.md and
+        review-w2-B.md with the merge sha first) half A then half B, findings saved as review/findings-w2-A.md /
+        -B.md → one Sonnet fix round → `npm run verify` (mine, run_in_background) → CI green → STOP for the user:
+        the end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey +
+        rekordbox closed), the merge go into main. No release.
+        WAVE 2 SPENT (logged): 3,474k + shots E4 187 = 3,661k; left ≈ FR-E4 140 + review 340 + fix 150 ≈ 0.63M →
+        wave 2 ≈ 4.3M (B2 plan 3,860k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
