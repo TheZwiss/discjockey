@@ -1285,13 +1285,17 @@ Results:
         length, so shortening would not hold). Side effect of A (intended): plain console scenarios now follow the
         Terminal job on every page ("1 of 5"). FR-banner (Sonnet, brief review/FR-banner.md, cli2-fbn from
         f4f78d68, exp. ~70k) dispatched.
-      - RESUME HERE (LATEST, 2026-11-21 ~06:xx): FR-banner RUNNING on cli2-fbn. Phase branch = f4f78d68 (pushed). On
-        its notice: ps, agent-cost, commit, green pytest, merge --no-ff, push, remove worktree, log. Then `npm run
-        verify` (mine, run_in_background, on the main checkout; look at dashboard-terminal-sync, library-console,
-        todo-console and the sync-terminal-* shots myself) → CI green → STOP for the user: the end-of-phase-2 cost
-        checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox closed), the merge go
-        into main. No release.
-        WAVE 2 SPENT (logged): 4,506k + FR-W2b 191 = 4,697k; left ≈ FR-banner 70 → wave 2 ≈ 4.77M (B2 plan 3,860k).
+      - FR-banner done (Sonnet fix-round): logged **56k** (exp. 70k), agent-cost 15 calls, cache 0.7M, advisor 0k.
+        12eafb59: Banner sets `data-banner` (marker in guards.ts BLOCK_MARKERS), rule 5 shelters it, overflow-wrap +
+        vertical padding var(--s-2) for a two-line banner, design-language rows, issue 44 entry removed. rules on
+        library-console, todo-console, dashboard-terminal-sync: 0 problems; pytest 6441 passed. Merged b91b179b, pushed.
+        `npm run verify` started by me on the main checkout (b91b179b, run_in_background, log scratchpad/verify.log).
+      - RESUME HERE (LATEST, 2026-11-21 ~06:xx): verify RUNNING on b91b179b (main checkout: do not switch it). On its
+        notice: read the tail; look at dashboard-terminal-sync, library-console, todo-console, sync-terminal-* shots
+        myself; then CI on the last push (gh run list --branch feat/cli-2-foundations) → STOP for the user: the
+        end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox
+        closed), the merge go into main. No release.
+        WAVE 2 SPENT (logged): 4,697k + FR-banner 56 = 4,753k (B2 plan 3,860k, 1.23x).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
