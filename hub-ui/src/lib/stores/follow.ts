@@ -98,17 +98,16 @@ function makeFollow(jobId: string): Readable<RunState> {
 
 /** The Terminal's sync the window shows (E4b routes the Sync page by it): `running` while `$hub.console` is a sync, kept
  *  with `running: false` once the console clears (the watch sends the JobFinished, then ConsoleBusy(false), in one look,
- *  so the end screen still has its job), replaced by the next console sync, null once a job of another kind holds the library. */
+ *  so the end screen still has its job), and replaced only by the next console sync. A console job of another kind (a
+ *  tidy-up, a scan) or one nobody can name does not take it away: the end screen stays until it is dismissed. */
 export type TerminalSync = { job: string; running: boolean };
 export const terminalSync: Readable<TerminalSync | null> = (() => {
   const store = writable<TerminalSync | null>(null);
   let current: TerminalSync | null = null;
   hub.subscribe((h) => {
     const c = h.console;
-    let next: TerminalSync | null;
-    if (!c) next = current && { job: current.job, running: false };
-    else if (c.kind === 'sync' && c.job) next = { job: c.job, running: true };
-    else next = null;
+    const next: TerminalSync | null = c?.kind === 'sync' && c.job ? { job: c.job, running: true }
+      : current && { job: current.job, running: false };
     if (next?.job === current?.job && next?.running === current?.running) return;
     current = next;
     store.set(next);

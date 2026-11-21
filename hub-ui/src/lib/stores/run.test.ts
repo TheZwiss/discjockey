@@ -4,6 +4,7 @@ import stoppedRaw from '$fixtures/hub_events_stopped.jsonl?raw';
 import type { HubEvent } from '../bridge/events';
 import { ACTIVE_PHASES, EMPTY_RUN, reduceRun, runFromSnapshot, type RunState } from './run';
 import { JobRecord, lineOf } from '../bridge/fake/replay';
+import { liveMessage } from '../../pages/sync/results';
 
 const lines = (raw: string): HubEvent[] => raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
 const sync = lines(syncRaw);
@@ -49,7 +50,23 @@ describe('reduceRun with the recorded sync', () => {
   it('notes when the last track started', () => {
     const i = sync.findIndex((e) => e.type === 'ActionStarted');
     expect(sync.slice(0, i).reduce<RunState>((s, e) => reduceRun(s, e, 500), EMPTY_RUN).last_started_at).toBeNull();
-    expect(reduceRun(feed(sync.slice(0, i)), sync[i], 700).last_started_at).toBe(700);
+    expect(reduceRun(feed(sync.slice(0, i)), sync[i], 2000).last_started_at).toBe(2000);
+  });
+  it('stamps events reduced in the same millisecond in order, so a message is older than the track that started after it', () => {
+    const msg = (text: string): HubEvent => ({ type: 'Message', level: 'info', text });
+    const i = sync.findIndex((e) => e.type === 'ActionStarted');
+    const before = feed(sync.slice(0, i), 1000);
+    const lookup = reduceRun(before, msg('Looking up the bitrate of 1 older download...'), 1000);
+    expect(liveMessage(lookup)).toBe('Looking up the bitrate of 1 older download...');
+    const started = reduceRun(lookup, sync[i], 1000);              // the same `now`: a page of a followed job's lines
+    expect(started.last_started_at).toBeGreaterThan(lookup.messages.at(-1)!.at);
+    expect(liveMessage(started)).toBeNull();
+    const again = reduceRun(started, msg('Qobuz paused for this run'), 1000);   // and a message after the track shows
+    expect(liveMessage(again)).toBe('Qobuz paused for this run');
+    // a finished track hides the message before it as well, and a clock that is ahead is kept
+    const done = reduceRun(again, { type: 'ActionFinished', ...(sync.find((e) => e.type === 'ActionFinished') as object) } as HubEvent, 1000);
+    expect(liveMessage(done)).toBeNull();
+    expect(reduceRun(done, sync[i], 5000).last_started_at).toBe(5000);
   });
   it('ignores Progress for another track', () => {
     const at = feed(sync.slice(0, 62));
@@ -97,7 +114,8 @@ describe('runFromSnapshot', () => {
     for (const e of evs.slice(evs.indexOf(start))) rec.record(e);
     return rec.snapshot();
   };
-  const strip = (s: RunState) => ({ ...s, messages: [], started_at: null });
+  // the stamps order the events as they were reduced (one more than the one before), so a snapshot's differ from a replay's
+  const strip = (s: RunState) => ({ ...s, messages: [], started_at: null, last_started_at: null, last_finished_at: null });
   for (const n of [11, 35, 65, 88, 105]) {
     it(`gives the same state as replaying the first ${n} events`, () => {
       expect(strip(runFromSnapshot(snapOf(sync.slice(0, n)), 1000))).toEqual(strip(feed(sync.slice(0, n))));

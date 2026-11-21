@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { dispatch, type HubEvent } from '../bridge/events';
 import type { RunState } from './run';
+import { liveMessage } from '../../pages/sync/results';
 
 // the bridge is a stub: `job_events` answers what a test scripts; the hub's own reads (after a JobFinished) find nothing
 const calls: [string, number][] = [];
@@ -50,6 +51,16 @@ describe('followRun', () => {
     expect(w.last()).toMatchObject({ job_id: id, phase: 'running', index: 1, total: 2 });
     await tick(1000);
     expect(calls).toEqual([[id, 0], [id, 3]]);
+    w.off();
+  });
+
+  it('a page of events a message and a track share a millisecond: the message the track left behind is not shown', async () => {
+    const id = nextId();
+    script = [() => answer([started(id), message('Looking up the bitrate of 1 older download...'), runStarted(), action(1)], 4)];
+    const w = watch(id);
+    await tick();
+    expect(w.last()).toMatchObject({ phase: 'running', index: 1 });
+    expect(liveMessage(w.last())).toBeNull();
     w.off();
   });
 
@@ -213,7 +224,7 @@ describe('terminalSync', () => {
   const busy = (running: boolean, kind: string | null = 'sync', job: string | null = 'job:00000c0d'): HubEvent =>
     ({ type: 'ConsoleBusy', running, job: running ? job : null, kind: running ? kind : null, line: null, text: running ? 'Sync running in the Terminal' : null });
 
-  it('follows the console\'s sync, is kept after the console clears, and is replaced or dropped by the next holder', () => {
+  it('follows the console\'s sync, is kept after the console clears, and is replaced by the next console sync', () => {
     expect(get(terminalSync)).toBeNull();
     dispatch(busy(true));
     expect(get(terminalSync)).toEqual({ job: 'job:00000c0d', running: true });
@@ -221,11 +232,23 @@ describe('terminalSync', () => {
     expect(get(terminalSync)).toEqual({ job: 'job:00000c0d', running: false });
     dispatch(busy(true, 'sync', 'job:00000c0e'));
     expect(get(terminalSync)).toEqual({ job: 'job:00000c0e', running: true });
-    dispatch(busy(true, 'tidy'));
-    expect(get(terminalSync)).toBeNull();
     dispatch(busy(false));
-    expect(get(terminalSync)).toBeNull();          // a tidy-up's end leaves nothing to show
+  });
+
+  it('keeps an ended sync while a job of another kind (or one nobody can name) holds the library', () => {
+    dispatch(busy(true, 'sync', 'job:00000c10'));
+    dispatch(busy(false));
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false });
+    dispatch(busy(true, 'tidy', 'job:00000c11'));
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false });
+    dispatch(busy(false));
     dispatch(busy(true, null, null));
-    expect(get(terminalSync)).toBeNull();          // a holder nobody can name is no sync to follow
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false });
+    dispatch(busy(false));
+    dispatch(busy(true, 'sync', 'job:00000c12'));   // only another sync replaces it
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c12', running: true });
+    dispatch(busy(true, 'tidy', 'job:00000c13'));   // a sync that is replaced straight by a tidy-up has ended
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c12', running: false });
+    dispatch(busy(false));
   });
 });

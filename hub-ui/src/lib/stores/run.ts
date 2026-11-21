@@ -52,6 +52,12 @@ export const ACTIVE_PHASES: readonly RunState['phase'][] = ['preparing', 'runnin
 const ACTIVE = new Set<RunState['phase']>(ACTIVE_PHASES);
 const currentTrack = (s: RunState) => s.current?.track_id ?? s.job_track_id;
 
+/** The stamp of the next ordering event (a message, an ActionStarted / ActionFinished): `now`, but strictly after the
+ *  newest stamp already in the state. Events reduced in a row (a followed job's page of lines, the own replay) share a
+ *  millisecond, and `liveMessage` tells "the message came first" by its stamp being older than the track's. */
+const stampAfter = (s: RunState, now: number): number =>
+  Math.max(now, 1 + Math.max(s.last_started_at ?? 0, s.last_finished_at ?? 0, s.messages.at(-1)?.at ?? 0));
+
 export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
   switch (e.type) {
     case 'JobStarted':
@@ -72,7 +78,7 @@ export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
     case 'ActionStarted':
       return { ...s, phase: s.phase === 'stopping' ? 'stopping' : 'running', index: e.index, total: e.total,
         current: e.action, step: null, progress: null, waiting: null, source: null, checked: null,
-        last_started_at: now };
+        last_started_at: stampAfter(s, now) };
     case 'StepChanged':
       if (!mine(e.track_id)) return s;
       return { ...s, step: e.step, waiting: null,
@@ -101,7 +107,7 @@ export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
       return { ...s, usage: { ...s.usage, [e.service]: u }, qobuz: e.service === 'qobuz' ? u : s.qobuz };
     }
     case 'ActionFinished':
-      return { ...s, results: [...s.results, e], last_finished_at: now, waiting: null };
+      return { ...s, results: [...s.results, e], last_finished_at: stampAfter(s, now), waiting: null };
     case 'RunFinished':
       return { ...s, run_finished: e, waiting: null };
     case 'BatchProgress':   // only a sync sends it as part of a download job: its Auto-upgrade phase
@@ -110,12 +116,12 @@ export function reduceRun(s: RunState, e: HubEvent, now: number): RunState {
         upgrade: { batch_id: e.batch_id, done: e.done, total: e.total, name: e.name, lead: e.lead, count: e.count } };
     case 'Message':
       if (e.level === 'debug') return s;
-      return { ...s, messages: [...s.messages, { level: e.level, text: e.text, at: now }].slice(-MAX_MESSAGES) };
+      return { ...s, messages: [...s.messages, { level: e.level, text: e.text, at: stampAfter(s, now) }].slice(-MAX_MESSAGES) };
     case 'ReadingPlaylist': {
       // "Reading your playlists · 2 of 7 · Powertrance" replaces the plain reading line (and the last count)
       const text = readingLine(e);
       const keep = s.messages.at(-1)?.text.startsWith(READING) ? s.messages.slice(0, -1) : s.messages;
-      return { ...s, messages: [...keep, { level: 'info' as const, text, at: now }].slice(-MAX_MESSAGES) };
+      return { ...s, messages: [...keep, { level: 'info' as const, text, at: stampAfter(s, now) }].slice(-MAX_MESSAGES) };
     }
     default:
       return s;

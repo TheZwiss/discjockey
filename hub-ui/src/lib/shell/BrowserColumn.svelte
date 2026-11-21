@@ -95,6 +95,11 @@
   /** the filter is a combobox over a listbox of links (Library); on Sync its matches are switches */
   const listbox = $derived(!onSync);
   type Sw = { on: boolean; can: boolean; tip: string };
+  /** A playlist switched off on the Playlists page whose plan holds rows of it anyway (a read from before it was
+   *  switched off) is a switch like any other on Sync (`sw`): it is not dimmed as a switched-off row, nor read out as one */
+  const heldByPlan = (r: CollectionRow) => onSync && !!$planCounts?.[r.target];
+  /** the playlist is switched off, as its row says: dimmed, "switched off", a switch that can't turn on */
+  const isOff = (r: CollectionRow) => r.kind === 'playlist' && !r.enabled && !heldByPlan(r);
   /** A row's switch on Sync: on, whether it can switch (`can`; never while a sync runs) and its tooltip. A playlist
    *  switched off on the Playlists page is never planned, so its switch stays off and can't turn on; should the plan
    *  still hold rows of it (a read from before it was switched off), it switches like any other. A folder goes by
@@ -103,7 +108,7 @@
     const n = $planCounts ? ($planCounts[r.target] ?? 0) : null;
     const running = $syncRunning;
     if (r.kind === 'playlist') {
-      const enabled = r.enabled || !!$planCounts?.[r.target];
+      const enabled = r.enabled || heldByPlan(r);
       const on = enabled && !$syncScope.off.includes(r.target);
       return { on, can: enabled && !running, tip: collectionTip(r.name, { enabled, on, n, running }) };
     }
@@ -529,7 +534,7 @@
 {#snippet inner(r: CollectionRow, count: boolean)}
   {#if !r.indent}<RowLead row={r} />{/if}
   {@render name(r.name, r.match)}
-  {#if r.kind === 'playlist' && !r.enabled}<span class="sr-only">, switched off</span>{/if}
+  {#if isOff(r)}<span class="sr-only">, switched off</span>{/if}
   {#if leadState(r)}<span class="sr-only">, {leadState(r)}</span>{/if}
   {#if r.kind === 'folder' && r.fold}<span class="chev-room" aria-hidden="true"></span>{/if}
   {#if count}<span class="n num" class:cw={r.kind === 'folder' && r.folder === 'watched'}>{r.count === null ? '' : thousands(r.count)}</span>{/if}
@@ -538,14 +543,14 @@
 {#snippet row(r: CollectionRow)}
   {#if switches(r)}
     {@const s = sw(r)}
-    <button type="button" class="row sw-row" class:out={!s.on} class:off={r.kind === 'playlist' && !r.enabled}
+    <button type="button" class="row sw-row" class:out={!s.on} class:off={isOff(r)}
       class:indent={r.indent} class:kb={hi === r.key} class:menu-on={menu?.row.key === r.key} role="switch"
       aria-checked={s.on} aria-disabled={!s.can ? true : undefined} use:tip={s.tip}
       onclick={() => flipSync(r)} data-key={r.key} id={rowId(r.key)} onpointerdown={(e) => rowDown(e, r)}
       oncontextmenu={(e) => openMenu(e, r)} onkeydown={(e) => menuKey(e, r)} data-place={r.place}
       data-test={r.kind === 'folder' ? 'browser-folder-switch' : 'browser-switch'}>
       {@render inner(r, false)}<Switch on={s.on} label={r.name}
-        disabled={!s.can && !(r.kind === 'playlist' && !r.enabled)} />
+        disabled={!s.can && !isOff(r)} />
     </button>
   {:else}
   <a class="row" class:on={at === r.key} class:kb={hi === r.key} class:off={r.kind === 'playlist' && !r.enabled}
@@ -640,7 +645,7 @@
 </div>
 
 {#if live}
-  <div class="row lift" class:off={live.row.kind === 'playlist' && !live.row.enabled} bind:this={lifted}
+  <div class="row lift" class:off={isOff(live.row)} bind:this={lifted}
     style:left="{live.left}px" style:top="{live.top}px" style:width="{live.width}px" aria-hidden="true"
     data-test="browser-lifted">
     {#if live.row.indent}<RowLead row={live.row} lead="folder" />{/if}
