@@ -74,6 +74,11 @@ describe('whichView: a sync the Terminal runs', () => {
   it('a Terminal tidy-up (no Terminal sync) keeps the plan', () => {
     expect(view({ terminal: null })).toEqual({ view: 'before' });
   });
+  it('a Terminal sync that ended keeps its end screen when a Terminal tidy-up starts after it (terminalSync keeps the sync)', () => {
+    const t = terminal(finished(TERM, '2026-11-20_210000'), false);   // what terminalSync holds while the tidy-up runs
+    expect(view({ terminal: t })).toEqual({ view: 'end', run_id: '2026-11-20_210000', source: 'terminal' });
+    expect(view({ terminal: t, dismissed: new Set([TERM]) })).toEqual({ view: 'before' });   // Done: now the plan, with the tidy-up's note
+  });
 });
 
 describe('dismissJob', () => {

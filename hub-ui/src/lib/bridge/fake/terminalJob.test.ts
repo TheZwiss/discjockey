@@ -73,6 +73,21 @@ describe('the Terminal sync a window can follow, in the fake backend', () => {
     for (const e of lines) expect(validate(e), `${JSON.stringify(e)} ${JSON.stringify(validate.errors)}`).toBe(true);
   });
 
+  it('names the Terminal job as the folder\'s newest sync (last_sync) while it runs and after it ended, with the plan it ran', async () => {
+    const f = open('console:sync-live');
+    const last = async () => (await f.bridge.job_status() as { last_sync: { job: string; args: { plan_id: string | null; selected: string[] }; ended: string | null } | null }).last_sync;
+    expect(await last()).toMatchObject({ job: JOB, ended: null, args: { plan_id: expect.stringMatching(/^plan:/), selected: expect.any(Array) } });
+    expect((await last())!.args.selected.length).toBeGreaterThan(0);
+    await tick(10 * 60_000);
+    await f.readAll();
+    const ended = await last();
+    expect(ended).toMatchObject({ job: JOB, ended: expect.any(String) });
+    expect((await f.bridge.job_status() as { last_sync: unknown }).last_sync).toEqual(ended);   // the end time stays
+    const done = open('console:sync-ended');
+    expect((await done.bridge.job_status() as { last_sync: { job: string; ended: string | null } | null }).last_sync)
+      .toMatchObject({ job: JOB, ended: expect.any(String) });
+  });
+
   it('console:sync-reading is frozen before RunStarted, and says no progress line', async () => {
     const f = open('console:sync-reading');
     await tick(60_000);

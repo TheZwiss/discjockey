@@ -37,14 +37,16 @@
   let asking = $state(false);
   // a Terminal sync's Stop was asked: busy until its job says it is stopping (no mark of the window's own)
   let stopSent = $state(false);
-  // The songs the sync was started with: until the run's own plan arrives (`$run.planned`, which wins), the engine's
-  // record of what was ticked (`last_sync`) named in the plan it was ticked from. One preview per started sync.
+  // The songs the sync was started with: the engine's record of what was ticked (`last_sync`) named in the plan it was
+  // ticked from. It stands in for the run's own plan until that arrives (`$run.planned` wins as the list) and always
+  // gives the covers: the artwork of a track's own file is in the plan's rows only, not in the run's events
+  // (`coverMap`). One preview per started sync.
   let selection = $state<Picked[]>([]);
   const previews = latestOnly();
   let asked: string | null = null;
   $effect(() => {
     const last = selectionOf(source, $hub.last_sync);
-    if (!last || $run.planned.length || asked === last.job) return;
+    if (!last || asked === last.job) return;
     asked = last.job;
     const ticket = previews.next();
     void api.sync_preview().then((r) => {
@@ -75,6 +77,8 @@
   // the bar counts finished actions, so it reaches the end when the last one is done, not when it starts
   const share = $derived(batch ? batch.share : $run.total ? Math.min(1, $run.results.length / $run.total) : null);
   const message = $derived(batch ? batch.message : liveMessage($run));
+  // the "Getting ready" card says the last info message itself (a state is shown once, §11): the line stays for any other (a warning)
+  const showMessage = $derived(message !== null && !(card.kind === 'preparing' && card.text === message));
   const stopping = $derived($run.phase === 'stopping');
   const catchingUp = $derived(joining(source, $run));
   // only a Terminal sync's view says the console state (its header); the own one leaves the banner as it was
@@ -101,7 +105,7 @@
     </div>
     <!-- muted: the live card's own bars carry the accent; the run's bar is context (§11, Task 10B fix round 1) -->
     <ProgressBar value={share} tone={batch ? 'accent' : 'muted'} pace="live" label={batch ? 'Upgrading' : 'Sync progress'} />
-    {#if message}<p class="message" data-test="sync-message" title={message}>{message}</p>{/if}
+    {#if showMessage}<p class="message" data-test="sync-message" title={message}>{message}</p>{/if}
   </Surface>
   {#if !catchingUp}
     {#if card.kind !== 'upgrading'}<SyncCard {card} {covers} />{/if}

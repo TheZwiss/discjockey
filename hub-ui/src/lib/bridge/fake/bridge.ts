@@ -160,7 +160,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       for (const e of lines) rec.record(e);
       afterSync(rid, rec);
     };
-    return terminal = new TerminalJob({ s, speed, emit, mode, reportPath: reportPath(rid), onEnded });
+    terminal = new TerminalJob({ s, speed, emit, mode, reportPath: reportPath(rid), onEnded });
+    // the newest sync of the folder is now the Terminal's, as the registry has it (any `via`): the plan it ran, every row ticked
+    const p = preview();
+    const plan = numberPlan(p, s.scope);
+    lastSync = { job: TERMINAL_JOB, args: { plan_id: plan.plan_id!, selected: p.groups.flatMap((g) => g.actions).map((a) => a.id) }, ended: null };
+    return terminal;
   };
   let pendingFinish: Finish | null = null;   // a job that only ends by itself or with stop() (Spotify login)
   let signIn: JobRecord | null = null;         // the sign-in slot (beside the write jobs, as Jobs.start_sign_in)
@@ -886,7 +891,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         lastSync = { job: job?.id ?? 'job:00000000', args: { plan_id: plan.plan_id!, selected: rows.map((a) => a.id) }, ended: null };
       }
       const last = lastSync && { job: lastSync.job, args: lastSync.args,
-        ended: job?.id === lastSync.job && job.running ? null : (lastSync.ended ??= isoLocal(new Date())) };
+        ended: (lastSync.job === TERMINAL_JOB ? terminal?.status !== 'done' : job?.id === lastSync.job && job.running)
+          ? null : (lastSync.ended ??= isoLocal(new Date())) };
       return ok({ job: job ? job.snapshot() : null, refresh_running: !!refreshJob, console_running: s.console_running,
         console: consoleHolder(s),
         read_status: readStatus(s), last_sync: last ?? null, sign_in: signIn ? signIn.snapshot() : null });
