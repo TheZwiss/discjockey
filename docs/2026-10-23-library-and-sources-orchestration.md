@@ -1290,12 +1290,19 @@ Results:
         vertical padding var(--s-2) for a two-line banner, design-language rows, issue 44 entry removed. rules on
         library-console, todo-console, dashboard-terminal-sync: 0 problems; pytest 6441 passed. Merged b91b179b, pushed.
         `npm run verify` started by me on the main checkout (b91b179b, run_in_background, log scratchpad/verify.log).
-      - RESUME HERE (LATEST, 2026-11-21 ~06:xx): verify RUNNING on b91b179b (main checkout: do not switch it). On its
-        notice: read the tail; look at dashboard-terminal-sync, library-console, todo-console, sync-terminal-* shots
-        myself; then CI on the last push (gh run list --branch feat/cli-2-foundations) → STOP for the user: the
-        end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox
-        closed), the merge go into main. No release.
-        WAVE 2 SPENT (logged): 4,697k + FR-banner 56 = 4,753k (B2 plan 3,860k, 1.23x).
+      - PHASE 2 BUILT (2026-11-21 ~06:xx): `npm run verify` on b91b179b: 1270 shots, 0 problems; CI green
+        (44864586970). My own look (fresh shots 1280/1100): dashboard-terminal-sync (banner, sidebar 3/5, foot "3 of 5 ·
+        Downloading …" agree), sync-terminal-running (one design with the own live view, Stop safely), library-console
+        (writes off, foot follows the Terminal job): OK. Dev server stopped.
+        PHASE 2 COST (logged): sizing 95 + B1 371 + C 271 + wave 1 2,665 + B2 575 (246+329) + C2 639 (290+349) +
+        wave 2 4,753 = ~9.37M. Builds+reviews+fixes vs plan: wave 1 2,665 vs 2,137 (1.25x), wave 2 4,753 vs 3,860
+        (1.23x). Wave 2 overshoot: shots E4 1.55x, review halves 1.58x / 1.24x, and one extra fix split (FR-W2a/b +
+        FR-banner) for 26 findings.
+      - STOP FOR THE USER (LATEST, 2026-11-21): phase branch feat/cli-2-foundations = b91b179b, pushed, CI green,
+        verify green. Waiting for: (1) the end-of-phase-2 cost checkpoint (numbers above); (2) the real-copy
+        rehearsals V2.2 + V2.5 (.claude/issue39/phase2/rehearse-V2.2.md / -V2.5.md; APFS clones of the real library,
+        user present, Discjockey + rekordbox closed); (3) the go to merge phase 2 into main (after the rehearsals).
+        No release. Nothing running.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
