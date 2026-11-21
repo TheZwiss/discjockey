@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BANNER, PLAN_COUNT_WORDS, consoleBanner, PLAYLIST_SERVICE_NAMES, SERVICE_SETTINGS, detailLine, problemCopy, serviceProblem } from './copy';
+import { BANNER, PLAN_COUNT_WORDS, consoleBanner, sentence, PLAYLIST_SERVICE_NAMES, SERVICE_SETTINGS, detailLine, problemCopy, serviceProblem } from './copy';
 
 describe('detailLine', () => {
   it('drops a detail that only repeats the headline', () => {
@@ -76,8 +76,11 @@ describe('consoleBanner', () => {
     expect(consoleBanner(text)).toBe(`${text}. You can look around; changes wait until it's finished.`);
     expect(consoleBanner(text, BANNER.console_tail_setup)).toBe(`${text}. You can go on with setup when it has finished.`);
   });
-  it('Setup\'s sentence for a holder nobody has named yet reads as one sentence', () => {
-    expect(consoleBanner(BANNER.console_setup_unnamed, BANNER.console_tail_setup))
-      .toBe('A Discjockey run in the terminal is busy. You can go on with setup when it has finished.');
+  it('adds no full stop after holder words that end in one (Reading your playlists...)', () => {
+    expect(sentence('Reading your playlists...')).toBe('Reading your playlists...');
+    expect(sentence('Reading your playlists…')).toBe('Reading your playlists…');
+    expect(sentence('Sync running in the Terminal · 4 of 60')).toBe('Sync running in the Terminal · 4 of 60.');
+    expect(consoleBanner('Sync running in the Terminal · Reading your playlists...'))
+      .toBe("Sync running in the Terminal · Reading your playlists... You can look around; changes wait until it's finished.");
   });
 });

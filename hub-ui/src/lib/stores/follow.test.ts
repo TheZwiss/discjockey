@@ -17,7 +17,8 @@ vi.mock('../bridge/client', () => {
     onNoLibrary: () => {},
   };
 });
-const { followRun, terminalSync } = await import('./follow');
+const { followRun, shownSync, terminalSync } = await import('./follow');
+const { run } = await import('./run');
 
 let n = 0;
 const nextId = () => `job:${(++n).toString(16).padStart(8, '0')}`;
@@ -196,20 +197,64 @@ describe('followRun', () => {
     c.off();
   });
 
-  it('an answer that arrives after the last unsubscribe changes nothing', async () => {
+  it('an answer that arrives after the last unsubscribe is kept, and the next subscriber asks from its next', async () => {
     const id = nextId();
     let release!: () => void;
-    script = [() => new Promise((r) => { release = () => r(answer([started(id)], 1)); }), () => answer([started(id)], 1)];
+    script = [() => new Promise((r) => { release = () => r(answer([started(id), runStarted()], 2)); }), () => answer([], 2)];
     const w = watch(id);
     await tick();
     w.off();
     release();
     await tick();
-    expect(vi.getTimerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);              // nothing is asked while nobody looks
+    expect(get(followRun(id))).toMatchObject({ job_id: id, phase: 'running' });   // the lines were reduced
     const again = watch(id);
     await tick();
-    expect(calls.at(-1)).toEqual([id, 0]);          // asked from where it was, the lost answer not counted
+    expect(calls.at(-1)).toEqual([id, 2]);          // the engine's reader counted them as delivered: ask from their next
+    expect(again.last().phase).toBe('running');
     again.off();
+  });
+
+  it('an end that arrives after the last unsubscribe is kept too', async () => {
+    const id = nextId();
+    let release!: () => void;
+    script = [() => new Promise((r) => { release = () => r(answer([started(id), runStarted()], 2, 'done', true, finished(id))); })];
+    const w = watch(id);
+    await tick();
+    w.off();
+    release();
+    await tick();
+    expect(get(followRun(id)).phase).toBe('finished');
+    const again = watch(id);
+    await tick(3000);
+    expect(calls.length).toBe(1);                    // over: the job is not asked again
+    again.off();
+  });
+
+  it('two Progress lines of one slot in one answer give the rate of the whole interval', async () => {
+    const id = nextId();
+    const bytes = (done: number): HubEvent => ({ type: 'Progress', track_id: 't1', step: 'download', done, total: 5000, unit: 'bytes' });
+    script = [() => answer([started(id), runStarted(), action(1), bytes(0)], 4), () => answer([bytes(500), bytes(1000)], 6)];
+    const w = watch(id);
+    await tick();
+    await tick(1000);
+    // 1000 bytes in the second between the polls, not 500 (the first line over the whole second, the second over none)
+    expect(w.last().progress).toMatchObject({ done: 1000, rate: 1000 });
+    w.off();
+  });
+
+  it('keeps the two newest followed jobs, and lets go of an unsubscribed older one; a subscribed one stays', async () => {
+    const [a, b, c, d] = [nextId(), nextId(), nextId(), nextId()];
+    script = [() => answer([started(a), runStarted()], 2)];
+    const kept = watch(a);                           // a stays subscribed
+    await tick();
+    const first = followRun(b);
+    const second = followRun(c);
+    expect(followRun(c)).toBe(second);
+    followRun(d);                                    // b is the oldest idle one: let go
+    expect(followRun(b)).not.toBe(first);
+    expect(get(followRun(a)).job_id).toBe(a);        // a was never let go
+    kept.off();
   });
 
   it('keeps the state and tries again after a failed answer, and gives up on an unknown id', async () => {
@@ -274,5 +319,56 @@ describe('terminalSync', () => {
     dispatch(busy(true, 'tidy', 'job:00000c13'));   // a sync that is replaced straight by a tidy-up has ended
     expect(get(terminalSync)).toEqual({ job: 'job:00000c12', running: false, where: 'In the Terminal' });
     dispatch(busy(false));
+  });
+});
+
+describe('shownSync (the sync the sidebar and the foot show)', () => {
+  const busy = (running: boolean, job = 'job:00000c30'): HubEvent =>
+    ({ type: 'ConsoleBusy', running, job: running ? job : null, kind: running ? 'sync' : null, line: null,
+      text: running ? 'Sync running in the Terminal' : null, where: running ? 'In the Terminal' : null });
+  const ownStarted = (job_id: string): HubEvent => ({ type: 'JobStarted', job_id, kind: 'sync', track_id: null, batch_kind: null });
+  /** Subscribes and keeps the newest value */
+  function look() {
+    let value: RunState | null | undefined;
+    const off = shownSync.subscribe((v) => { value = v; });
+    return { off, value: () => value };
+  }
+
+  it('is null while no sync runs', () => {
+    const l = look();
+    expect(l.value()).toBeNull();
+    l.off();
+  });
+
+  it('is the window\'s own run while its own sync runs, also while the Terminal holds the console state', async () => {
+    const l = look();
+    dispatch(ownStarted('job:00000c31'));
+    expect(l.value()).toBe(get(run));
+    expect(l.value()).toMatchObject({ job_id: 'job:00000c31', phase: 'preparing' });
+    dispatch(busy(true, 'job:00000c32'));
+    await tick();
+    expect(l.value()).toBe(get(run));
+    expect(calls.filter((c) => c[0] === 'job:00000c32')).toEqual([]);   // the Terminal's job is not asked while the own one is shown
+    dispatch(finished('job:00000c31'));
+    dispatch(busy(false));
+    expect(l.value()).toBeNull();
+    l.off();
+  });
+
+  it('is the Terminal\'s followed sync while the console says it runs, and null once it has ended', async () => {
+    const job = 'job:00000c33';
+    script = [() => answer([started(job), runStarted(2), action(2)], 3)];
+    const l = look();
+    dispatch(busy(true, job));
+    await tick();
+    expect(l.value()).toMatchObject({ job_id: job, job_kind: 'sync', phase: 'running', index: 2, total: 2 });
+    expect(calls[0]).toEqual([job, 0]);
+    await tick(1000);                                   // it goes on polling while shown
+    expect(calls.length).toBe(2);
+    dispatch(busy(false));
+    expect(l.value()).toBeNull();
+    l.off();
+    await tick(5000);
+    expect(calls.length).toBe(2);                       // and nothing is asked any more
   });
 });

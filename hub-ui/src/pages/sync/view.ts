@@ -1,6 +1,7 @@
 // Which Sync view shows (plan Task 65, "Which view shows"; issue 39 E4b: the Terminal's sync too). Pure, so the routing
 // rule is tested.
 import { writable } from 'svelte/store';
+import { onEvent } from '$lib/bridge/events';
 import { ACTIVE_PHASES, type RunState } from '$lib/stores/run';
 import type { TerminalSync } from '$lib/stores/follow';
 import { runIdFromReport } from '$lib/format';
@@ -21,8 +22,12 @@ export type ViewInput = {
   dismissed?: ReadonlySet<string>;
   /** the Terminal's sync (`terminalSync`) and its followed state; null while there is none */
   terminal?: { sync: Pick<TerminalSync, 'job' | 'running'>; run: RunState } | null;
-  /** the newest sync of this music folder (`last_sync.job`, the engine's registry): which end is the later one */
+  /** the newest sync of this music folder (`last_sync.job`, the engine's registry): which end is the later one. It is read
+   *  with `refreshHub`, so it may name the other end a moment longer than `lastEnd` does */
   newest?: string | null;
+  /** the sync whose JobFinished came last on this window's bus (`lastSyncEnd`: the own end, or the watch's for the Terminal's
+   *  job); it decides between two open ends before `newest` has caught up */
+  lastEnd?: string | null;
 };
 
 const ACTIVE = new Set<string>(ACTIVE_PHASES);
@@ -38,7 +43,7 @@ export function endRunId(r: RunState): string | null {
  * `#/sync/run/:run_id` → end screen. The window's own sync running → its live view. Else the Terminal's sync running
  * → its live view (also while its state catches up, and until its end has arrived). Else a sync that finished in this
  * session → its end screen, until the person went back to the plan from it; when both the own and the Terminal's
- * have one, the newer (the engine's newest sync), the own when that is not known. Else the hub store's own sync
+ * have one, the one that ended last (`lastEnd`, else the engine's newest sync), the own when that is not known. Else the hub store's own sync
  * (before the run store knows it) → its live view. Else → before the start: a Terminal job of another kind (a
  * tidy-up, a scan) keeps the plan with its note.
  */
@@ -52,13 +57,19 @@ export function whichView(i: ViewInput): SyncView {
   if (t && !ended(t.run) && (t.sync.running || ACTIVE.has(t.run.phase))) return { view: 'live', source: 'terminal' };
   const open = (r: RunState | null): r is RunState => !!r && ended(r) && r.job_id !== null && !dismissed.has(r.job_id);
   const ownEnd = open(own), terminalEnd = t !== null && open(t.run) && t.run.job_id === t.sync.job;
-  if (terminalEnd && (!ownEnd || (i.newest != null && i.newest === t.run.job_id))) {
+  const later = i.lastEnd != null && (i.lastEnd === t?.run.job_id || i.lastEnd === own?.job_id) ? i.lastEnd : i.newest;
+  if (terminalEnd && (!ownEnd || (later != null && later === t.run.job_id))) {
     return { view: 'end', run_id: endRunId(t.run), source: 'terminal' };
   }
   if (ownEnd) return { view: 'end', run_id: endRunId(i.own), source: 'own' };
   if (i.hubSyncRunning) return { view: 'live', source: 'own' };
   return { view: 'before' };
 }
+
+/** The job id of the newest sync end on the window's bus: its own JobFinished, or the watch's for a Terminal sync (events
+ *  arrive in the order they ended, which `last_sync` only catches up with after a `refreshHub`) */
+export const lastSyncEnd = writable<string | null>(null);
+onEvent((e) => { if (e.type === 'JobFinished' && e.kind === 'sync') lastSyncEnd.set(e.job_id); });
 
 /** The finished jobs the person went back to the plan from (the end screen's Done, Back to the plan, Sync the rest) */
 export const dismissedJobs = writable<ReadonlySet<string>>(new Set());

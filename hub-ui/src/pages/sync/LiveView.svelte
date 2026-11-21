@@ -45,7 +45,7 @@
   const previews = latestOnly();
   let asked: string | null = null;
   $effect(() => {
-    const last = selectionOf(source, $hub.last_sync);
+    const last = selectionOf(source, $hub.last_sync, $hub.job?.kind === 'sync' ? $hub.job.id : null);
     if (!last || asked === last.job) return;
     asked = last.job;
     const ticket = previews.next();

@@ -19,11 +19,12 @@
   import { latestOnly } from '$lib/latest';
   import { sayInBody } from '$lib/stores/shell';
   import { artistTitle, plural } from '$lib/format';
+  import { sentence } from '$lib/copy';
   import { planCounts as publishedCounts, syncScope } from '$lib/stores/syncScope';
   import { carryTicks } from './selection';
   import {
     PREF_HOW_MANY, chosenOf, dayBarEmpty, enginePresets, everyOff, inRunOrder, kindShares, leftOutBody, planCounts, sectionOf, stripLine, weeklyItems, inScope, isDownload, matches, nextSyncSet,
-    mayWaitToday, downloadsInScope, howManyOfKey, presetSelected, readHowMany, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
+    mayWaitToday, downloadsInScope, choiceFor, presetSelected, readHowMany, runTotals, scopeSet, sections, shouldAutoRead, shownPreset,
     NOTHING_TODAY, leftOutTitle, readBlockLine, runsNothingToday, sectionCounts, startLabel, startNote, toggleScope,
     type HowMany, type Section,
   } from './planModel';
@@ -114,7 +115,7 @@
   // states have no Start, so the console banner stays there (final review I1). While loading, both are claimed: the
   // body says them in nearly every outcome, and a banner drawn over the skeleton would jump away when the plan comes
   $effect(() => sayInBody({ console: loading || hasPlan, readStatus: loading || (!problem && !!preview) }));
-  const startTitle = $derived($hub.console ? `${$hub.console.text}. Its progress shows there.`
+  const startTitle = $derived($hub.console ? `${sentence($hub.console.text)} Its progress shows there.`
     : scoped.length === 0 ? 'Everything is switched off' : chosen.length === 0 ? 'Nothing ticked' : nothingToday ? NOTHING_TODAY : undefined);
 
   /** Ticks what the engine's preset for this choice holds; a choice the plan doesn't offer changes nothing. */
@@ -124,6 +125,7 @@
   }
 
   // two quick data bumps (a JobFinished, then a refresh) can answer out of order: only the newest reply is applied
+  const PLAN_KEEP_MS = 60 * 60_000;
   const previews = latestOnly();
   const dashboards = latestOnly();
   async function load() {
@@ -137,7 +139,7 @@
     const prev = { ticked, known };
     preview = r;
     known = new Set(inRunOrder(r).map((a) => a.id));
-    if (howMany === null) howMany = howManyOfKey(r.default_how_many);
+    howMany = choiceFor(howMany, r.presets, r.default_how_many, total, left);
     if (howMany === 'custom') ticked = carryTicks(r, first ? null : prev);
     else if (howMany !== null) applyPreset(howMany);
     if (r.empty === 'up_to_date') void loadUpToDate();
@@ -180,7 +182,11 @@
     void readRekordbox();
     const onFocus = () => void readRekordbox();
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    // the engine keeps the shown plan for a day and saves it again whenever a preview is asked (`PLAN_RESAVE`): a page
+    // left open for longer asks once an hour, so Start never meets "That plan is more than a day old". The ticks stay
+    // (`carryTicks`).
+    const keepPlan = setInterval(() => void load(), PLAN_KEEP_MS);
+    return () => { window.removeEventListener('focus', onFocus); clearInterval(keepPlan); };
   });
   const note = $derived(startNote({ consoleText: $hub.console?.text ?? null, nothingToday, auto: preview?.auto_upgrade ?? null,
     rekordboxRunning: rekordbox ? rekordbox.running : null }));

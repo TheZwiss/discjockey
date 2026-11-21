@@ -6,7 +6,8 @@
   import { get } from 'svelte/store';
   import { route, go } from '$lib/router';
   import { pageFor, type PageProps } from './pages/registry';
-  import { hubSyncRunning, hub } from '$lib/stores/hub';
+  import { hub } from '$lib/stores/hub';
+  import { shownSync } from '$lib/stores/follow';
   import { musicGate } from '$lib/musicFolder';
   import { attachAudio, player } from '$lib/stores/player';
   import { footShape, keyTarget, playerKey } from '$lib/shell/footModel';
@@ -51,7 +52,8 @@
     }
   });
   const chrome = $derived(entry.chrome === 'app' && gate !== 'missing');
-  const syncInFoot = $derived(chrome && $hubSyncRunning && $route.name !== 'sync');
+  // the own sync, or the Terminal's while it runs (`shownSync`); the Sync page shows it itself
+  const syncInFoot = $derived(chrome && $shownSync !== null && $route.name !== 'sync');
   // the chrome's whole width (plan library stage 5, I6): set here on the app root, so the page's edge, the foot's line
   // and the rule checker read one value; without the chrome the token's default stands
   const sidebarW = $derived(chrome ? `${$chromeLayout.sidebarW}px` : undefined);
@@ -133,7 +135,7 @@
       <ToastHost />
     </div>
   </div>
-  {#if chrome}<Foot p={$player} sync={syncInFoot} />{/if}
+  {#if chrome}<Foot p={$player} sync={syncInFoot} run={$shownSync ?? undefined} />{/if}
   {#if FakeToolbar}<FakeToolbar />{/if}
 </div>
 <svelte:window onkeydown={onKey} />

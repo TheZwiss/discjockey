@@ -5,7 +5,7 @@ import type { EstimateAccount, PlaylistService, PreviewAction, SyncAccount, Sync
 import {
   chosenOf, everyOff, folderSwitch, memberOn, sectionOf,
   FULL_SCOPE, type Scope, dayBarInput, downloadsInScope, inScope, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindShares, weeklyItems, planCounts, switchTip, dayBarEmpty, leftOutBody, stripLine,
-  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetSelected, enginePresets, howManyOfKey, readHowMany, runCount,
+  choiceFor, kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetSelected, enginePresets, howManyOfKey, readHowMany, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, leftOutTitle, startLabel, tagOf, whyOf, toggleScope, waitsWhole, whyColumn,
   DOWNLOAD_AGAIN, DOWNLOAD_AGAIN_LABEL, KINDS, KIND_SHARE, WHY,
@@ -194,6 +194,19 @@ describe('how many', () => {
     expect(shownPreset(5, list, 8, 60)).toBe(5);
     expect(shownPreset('custom', list, 8, 60)).toBe('custom');
     expect(shownPreset(10, enginePresets(tight), 195, 10)).toBe('fits');
+  });
+  it('keeps the held choice while it ticks something, takes the engine\'s first choice when none is held', () => {
+    expect(choiceFor(null, few, 'all', 8, 60)).toBe('all');
+    expect(choiceFor(null, [], null, 0, 60)).toBeNull();
+    expect(choiceFor(25, few, 'all', 8, 60)).toBe(25);          // 25 with 8 downloads still ticks "All 8"
+    expect(choiceFor('fits', tight, '5', 195, 10)).toBe('fits');
+    expect(choiceFor('custom', few, 'all', 8, 60)).toBe('custom');
+  });
+  it('falls back to the engine\'s first choice when the held one ticks nothing now (fits today with nothing left today)', () => {
+    const none = engine([['all', 'All 5', 5, ['a', 'b', 'c', 'd', 'e']]]);
+    expect(choiceFor('fits', none, 'all', 5, 0)).toBe('all');
+    expect(choiceFor('fits', [], null, 5, 0)).toBe('fits');       // no choice offered: nothing to follow
+    expect(choiceFor('fits', none, null, 5, 0)).toBe('fits');
   });
   it('reads a stored choice safely', () => {
     expect(readHowMany('fits')).toBe('fits');

@@ -7,7 +7,7 @@
   import { EMPTY_RUN, run } from '$lib/stores/run';
   import { hub, hubSyncRunning } from '$lib/stores/hub';
   import { followRun, terminalSync } from '$lib/stores/follow';
-  import { dismissedJobs, whichView } from './view';
+  import { dismissedJobs, lastSyncEnd, whichView } from './view';
   import { ownSource, terminalSource } from './liveSource';
   import BeforeStart from './BeforeStart.svelte';
   import LiveView from './LiveView.svelte';
@@ -17,7 +17,7 @@
   const NONE = readable(EMPTY_RUN);
   const followed = $derived($terminalSync ? followRun($terminalSync.job) : NONE);
   const v = $derived(whichView({ own: $run, hubSyncRunning: $hubSyncRunning, route: params.run_id, dismissed: $dismissedJobs,
-    terminal: $terminalSync && { sync: $terminalSync, run: $followed }, newest: $hub.last_sync?.job ?? null }));
+    terminal: $terminalSync && { sync: $terminalSync, run: $followed }, newest: $hub.last_sync?.job ?? null, lastEnd: $lastSyncEnd }));
   const terminalJob = $derived($terminalSync?.job ?? null);
   const source = $derived(v.view !== 'before' && v.source === 'terminal' && terminalJob
     ? terminalSource(terminalJob, followed, $terminalSync?.where ?? null) : ownSource);

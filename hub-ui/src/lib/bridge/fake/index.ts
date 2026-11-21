@@ -61,6 +61,7 @@ export function installFake(scenario: string): FakeControl {
     },
     consoleBusy(running: boolean, kind = 'sync') {
       setConsole(ctx.s, running, kind);
+      if (running && kind === 'sync') ctx.startTerminal();   // the job is in the registry before its ConsoleBusy goes out
       emit(consoleEvent(ctx.s));
     },
     readPlaylists() { void api.refresh(); },
