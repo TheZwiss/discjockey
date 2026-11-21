@@ -29,6 +29,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import fcntl
+import itertools
 import json
 import logging
 import os
@@ -53,6 +54,9 @@ log = logging.getLogger(__name__)
 
 KEEP_JOBS, KEEP_DAYS = 100, 30  # the newest 100 jobs stay, and every job of the last 30 days
 HEAD_EVENTS, TAIL_EVENTS = 2000, 10000  # events.jsonl keeps the first 2 000; events.tail.jsonl the last 10 000
+# The events that give a run its structure (what a late follower counts its bars and lists from): the tail keeps them
+# beyond its cap, in order, and drops only the other lines that fell out of it.
+KEPT_TYPES = frozenset({"JobStarted", "RunStarted", "ActionStarted", "ActionFinished", "RunFinished", "JobFinished"})
 SLOT_FLUSH_S = 0.5  # a Progress or Waiting slot is written at most twice a second
 STATE_WRITE_S = 1.0  # state.json changes other than a new status are written at most once a second
 ACTIVE = ("queued", "running", "stopping")
@@ -121,15 +125,21 @@ def _slot(event: object) -> tuple | None:
     return None
 
 
+def _is_structure(event: object) -> bool:
+    """An event the tail keeps beyond its cap (`KEPT_TYPES`)."""
+    return type(event).__name__ in KEPT_TYPES
+
+
 class EventsWriter:
     """The one writer thread of a job's `events.jsonl`. `emit` only puts the event on a queue: it never blocks (beyond a
     very short lock) and never raises, because the engine calls it inside download callbacks and error handlers.
 
     `Progress` and `Waiting` are coalesced by slot (the latest of each slot) and written at most twice a second per
     slot. The file keeps the first `head` events; after those, the events go to `events.tail.jsonl`, which keeps
-    (at least while running, exactly once closed) the last `tail`; what fell out of both is named by a `Truncated`
+    (at least while running, exactly once closed) the last `tail` and, beyond them, the run's structure lines
+    (`KEPT_TYPES`: a late follower still finds every `ActionFinished`); what fell out of both is named by a `Truncated`
     marker as the last line of `events.jsonl`: `{"type": "Truncated", "event": "Truncated", "skipped": n}` (`type`
-    is the key every event line has; `event` the one the design's decision names)."""
+    is the key every event line has; `event` the one the design's decision names; `n` counts the lines dropped)."""
 
     def __init__(self, directory: Path, *, head: int = HEAD_EVENTS, tail: int = TAIL_EVENTS,
                  clock: Callable[[], float] = time.monotonic):
@@ -140,8 +150,9 @@ class EventsWriter:
         self._cond = threading.Condition()
         self._closing = False
         self._head_lines: list[str] = []
-        self._tail_lines: deque[str] = deque()  # what events.tail.jsonl holds now (before a compaction)
-        self._after_head = 0  # events after the head, written so far
+        self._tail_lines: deque[tuple[str, bool]] = deque()  # what events.tail.jsonl holds now: (line, kept)
+        self._compact_at = 2 * tail  # the tail's length that asks for the next compaction
+        self._dropped = 0  # lines that fell out of the tail and are in no file any more
         self._marked = 0  # the skipped count the marker on disk says
         self._last_slot: dict[tuple, float] = {}
         self._pending: dict[tuple, object] = {}
@@ -205,11 +216,11 @@ class EventsWriter:
         slot = _slot(event)
         if slot is None:
             self._flush_due(final=True)  # keep the order: the newest slot values first
-            self._write(event_line(event))
+            self._write(event_line(event), _is_structure(event))
         elif self.clock() - self._last_slot.get(slot, float("-inf")) >= SLOT_FLUSH_S:
             self._pending.pop(slot, None)
             self._last_slot[slot] = self.clock()
-            self._write(event_line(event))
+            self._write(event_line(event), _is_structure(event))
         else:
             self._pending[slot] = event
 
@@ -218,9 +229,9 @@ class EventsWriter:
             if final or self.clock() - self._last_slot.get(slot, float("-inf")) >= SLOT_FLUSH_S:
                 del self._pending[slot]
                 self._last_slot[slot] = self.clock()
-                self._write(event_line(event))
+                self._write(event_line(event), _is_structure(event))
 
-    def _write(self, line: str) -> None:
+    def _write(self, line: str, kept: bool = False) -> None:
         if len(self._head_lines) < self.head_limit:
             self._head_lines.append(line)
             self._head_file.write(line + "\n")
@@ -228,29 +239,30 @@ class EventsWriter:
         if self._tail_file is None:
             self._head_file.flush()  # a follower relies on it: a line in the tail means the head is complete on disk
             self._tail_file = open(self.tail_path, "a", encoding="utf-8")
-        self._after_head += 1
-        self._tail_lines.append(line)
+        self._tail_lines.append((line, kept))
         self._tail_file.write(line + "\n")
-        if len(self._tail_lines) >= 2 * self.tail_limit:  # keeps the file from growing without end
+        if len(self._tail_lines) >= self._compact_at:  # keeps the file from growing without end
             self._compact()
 
-    def _skipped(self) -> int:
-        return max(0, self._after_head - self.tail_limit)
-
     def _compact(self) -> None:
-        while len(self._tail_lines) > self.tail_limit:
-            self._tail_lines.popleft()
+        """Drops the lines older than the last `tail` that are not structure lines (`KEPT_TYPES`); those stay."""
+        older = len(self._tail_lines) - self.tail_limit
+        if older > 0:
+            kept = [item for item in itertools.islice(self._tail_lines, older) if item[1]]
+            self._dropped += older - len(kept)
+            self._tail_lines = deque([*kept, *itertools.islice(self._tail_lines, older, None)])
+        self._compact_at = len(self._tail_lines) + self.tail_limit  # the structure lines kept do not count to the next
         if self._tail_file is not None:
             self._tail_file.close()
         tmp = self.tail_path.with_name(self.tail_path.name + ".tmp")
-        tmp.write_text("".join(line + "\n" for line in self._tail_lines), encoding="utf-8")
+        tmp.write_text("".join(line + "\n" for line, _ in self._tail_lines), encoding="utf-8")
         os.replace(tmp, self.tail_path)
         self._tail_file = open(self.tail_path, "a", encoding="utf-8")
         self._mark()
 
     def _mark(self) -> None:
         """Rewrites events.jsonl as the head and its marker when the count of skipped events changed."""
-        skipped = self._skipped()
+        skipped = self._dropped
         if skipped == self._marked:
             return
         self._marked = skipped
@@ -262,12 +274,10 @@ class EventsWriter:
         self._head_file = open(self.head_path, "a", encoding="utf-8")
 
     def _sync_files(self) -> None:
-        """What the batch wrote reaches the files (a follower reads them), and the marker follows the count."""
+        """What the batch wrote reaches the files (a follower reads them); the marker follows each compaction."""
         self._head_file.flush()
         if self._tail_file is not None:
             self._tail_file.flush()
-        if self._skipped() and self._skipped() != self._marked and self._skipped() - self._marked >= self.tail_limit:
-            self._mark()
 
     def _finish(self) -> None:
         try:

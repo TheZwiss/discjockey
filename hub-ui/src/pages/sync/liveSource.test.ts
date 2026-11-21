@@ -11,7 +11,7 @@ vi.mock('$lib/bridge/client', () => ({
 }));
 const marks = vi.fn();
 vi.mock('$lib/stores/run', async (orig) => ({ ...(await orig<typeof import('$lib/stores/run')>()), markStopping: () => marks() }));
-const { JOINING, TERMINAL_WHERE, joining, ownSource, selectionOf, terminalSource } = await import('./liveSource');
+const { JOINING, joining, ownSource, selectionOf, terminalSource } = await import('./liveSource');
 const { run } = await import('$lib/stores/run');
 
 const JOB = 'job:00000c0d';
@@ -36,10 +36,10 @@ describe('the own source', () => {
 });
 
 describe('the Terminal source', () => {
-  const t = terminalSource(JOB, followed);
+  const t = terminalSource(JOB, followed, 'In the Terminal');
   it('is the followed state, its header says where it runs', () => {
     expect(t).toMatchObject({ kind: 'terminal', job: JOB, where: 'In the Terminal' });
-    expect(TERMINAL_WHERE).toBe('In the Terminal');
+    expect(terminalSource(JOB, followed, 'In another window').where).toBe('In another window');   // the engine's words, as sent
     expect(t.run).toBe(followed);
   });
   it('Stop safely stops that job (stop(job_id)) and waits for its "stopping", with no mark of the window\'s own', async () => {
@@ -63,8 +63,8 @@ describe('selectionOf', () => {
   const last = { job: JOB, args: { plan_id: 'plan:abc', selected: ['a1'] }, ended: null };
   it('the own view takes the newest sync\'s record, the Terminal view only its own job\'s', () => {
     expect(selectionOf(ownSource, last)).toBe(last);
-    expect(selectionOf(terminalSource(JOB, followed), last)).toBe(last);
-    expect(selectionOf(terminalSource('job:00000001', followed), last)).toBeNull();
+    expect(selectionOf(terminalSource(JOB, followed, 'In the Terminal'), last)).toBe(last);
+    expect(selectionOf(terminalSource('job:00000001', followed, 'In the Terminal'), last)).toBeNull();
     expect(selectionOf(ownSource, null)).toBeNull();
   });
 });

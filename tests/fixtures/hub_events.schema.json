@@ -600,6 +600,12 @@
             "string",
             "null"
           ]
+        },
+        "where": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -608,7 +614,8 @@
         "job",
         "kind",
         "line",
-        "text"
+        "text",
+        "where"
       ],
       "additionalProperties": false
     },

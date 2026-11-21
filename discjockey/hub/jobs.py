@@ -59,12 +59,14 @@ class ConsoleBusy:
     `line` name the job from the registry (its id, its kind, its progress line); all None for a holder that has no
     registry entry (an older Discjockey: the lock probe) and when nothing runs. `text` is what the banner says
     (`words.holder_text`; for a holder with no registry entry the sentence for one nobody can name); None when nothing
-    runs."""
+    runs. `where` is where it runs as the Sync page's live view says it (`words.holder_where`: "In the Terminal", "In
+    another window"); None for a holder with no registry entry and when nothing runs."""
     running: bool
     job: str | None = None
     kind: str | None = None
     line: str | None = None
     text: str | None = None
+    where: str | None = None
 
 
 @dataclass(frozen=True)
@@ -113,6 +115,25 @@ def event_dict(event: object) -> dict:
 def event_json(event: object) -> str:
     """JSON that can be put into JavaScript source as it is (ASCII only, no "</")."""
     return json.dumps(event_dict(event), ensure_ascii=True).replace("</", "<\\/")
+
+
+def finished_of(job_id: str, kind: str, files: registry.JobFiles | None) -> JobFinished:
+    """The `JobFinished` of a job that has ended in another process, built from its `result.json` (the window's own end
+    for a foreign job: `HubEvents._foreign_ended`, and `HubApi.job_events`' `finished`). No `result.json` (the worker
+    died: state `lost`; or the job's folder is gone, `files` None) is `worker_lost`, `failed`."""
+    envelope = None
+    if files is not None:
+        try:
+            envelope = files.result()
+        except OSError:
+            envelope = None
+    if envelope is None:  # lost without a word, or its folder is gone (pruned)
+        reason = outcomes.REASONS["worker_lost"]
+        return JobFinished(job_id, kind, False, "failed", reason.text, None)
+    ok = envelope.get("outcome") in ("ok", "partial")
+    reason = outcomes.REASONS.get(envelope.get("reason") or "")
+    message = envelope.get("message") or (reason.text if reason is not None else "")
+    return JobFinished(job_id, kind, ok, outcomes.finished_problem(envelope), message, envelope.get("data"))
 
 
 def _same_slot(a: object, b: object) -> bool:
@@ -420,12 +441,13 @@ class Jobs:
     @staticmethod
     def _holder_of(states: Iterable[Mapping]) -> dict | None:
         """The newest running job among `states` (a queued one is still waiting for the lock) that holds the library lock,
-        as `{job, via, kind, line, text}` (`text`: what the window says of it, `words.holder_text`)."""
+        as `{job, via, kind, line, text, where}` (`text`: what the window says of it, `words.holder_text`; `where`:
+        `words.holder_where`)."""
         for state in states:
             if state.get("status") in registry.HOLDING and catalog.holds_library(state):
                 via, kind, line = state.get("via"), state.get("kind"), (state.get("progress") or {}).get("line")
                 return {"job": state.get("id"), "via": via, "kind": kind, "line": line,
-                        "text": words.holder_text(kind, via, line)}
+                        "text": words.holder_text(kind, via, line), "where": words.holder_where(via)}
         return None
 
     def _foreign_holder(self) -> dict | None:
@@ -450,14 +472,15 @@ class Jobs:
         return lock is not None and not lock_free(lock) and not self._brief and briefs == self._briefs
 
     def console_holder(self) -> dict | None:
-        """Who holds the library lock besides this process, as `{job, via, kind, line, text}`: a foreign job of the
+        """Who holds the library lock besides this process, as `{job, via, kind, line, text, where}`: a foreign job of the
         registry that does, else (a holder with no registry entry: an older Discjockey) the lock itself held by none of
         this process's own job or brief save, whose fields are all None but its `text`. None when nothing else holds it."""
         return self._foreign_holder() or (self._unnamed_holder() if self._console_probe() else None)
 
     @staticmethod
     def _unnamed_holder() -> dict:
-        return {"job": None, "via": None, "kind": None, "line": None, "text": words.holder_text(None, None, None)}
+        return {"job": None, "via": None, "kind": None, "line": None, "text": words.holder_text(None, None, None),
+                "where": None}
 
     def console_running(self) -> bool:
         """Another process's job holds the library lock (`console_holder`)."""
@@ -805,7 +828,7 @@ class Jobs:
             self._foreign_ended(before, now)
         if tell != self._told:
             self._told = tell
-            self.emit(ConsoleBusy(*tell, shown.get("text")))
+            self.emit(ConsoleBusy(*tell, shown.get("text"), shown.get("where")))
 
     def _foreign_ended(self, before: Mapping, now: Mapping | None) -> None:
         """A foreign job seen active at the last look is done, lost or gone: the window's `JobFinished` for it, built
@@ -815,20 +838,8 @@ class Jobs:
         if kind == "refresh" and self.refresh is not None and not self.refresh.done.is_set():
             return
         job_id = before["id"]
-        envelope = None
-        if now is not None:
-            try:
-                envelope = registry.JobFiles(self.registry.root / job_id).result()
-            except OSError:
-                envelope = None
-        if envelope is None:  # lost without a word, or its folder is gone (pruned)
-            reason = outcomes.REASONS["worker_lost"]
-            event = JobFinished(job_id, kind, False, "failed", reason.text, None)
-        else:
-            ok = envelope.get("outcome") in ("ok", "partial")
-            reason = outcomes.REASONS.get(envelope.get("reason") or "")
-            message = envelope.get("message") or (reason.text if reason is not None else "")
-            event = JobFinished(job_id, kind, ok, outcomes.finished_problem(envelope), message, envelope.get("data"))
+        files = registry.JobFiles(self.registry.root / job_id) if now is not None else None
+        event = finished_of(job_id, kind, files)
         self.emit(event)
 
     @property

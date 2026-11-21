@@ -25,14 +25,14 @@ export const TERMINAL_SCENARIOS: Record<string, TerminalMode> = {
 const holderText = (kind: string, line: string | null) =>
   `${TITLES[kind] ?? kind.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())} running in the Terminal${line ? ` · ${line}` : ''}`;
 
-/** Who holds the library besides the window, as `{job, via, kind, line, text}`; null while none does. A state with only
+/** Who holds the library besides the window, as `{job, via, kind, line, text, where}`; null while none does. A state with only
  *  `console_running` set is a Terminal sync at "4 of 60". */
 export function consoleHolder(s: FakeState): ConsoleHolder | null {
   if (!s.console_running) return null;
-  if (s.console_unnamed) return { job: null, via: null, kind: null, line: null, text: UNNAMED };
+  if (s.console_unnamed) return { job: null, via: null, kind: null, line: null, text: UNNAMED, where: null };
   const kind = s.console_kind ?? 'sync';
   const line = s.console_line === '' ? null : s.console_line ?? LINES[kind] ?? null;
-  return { job: JOB, via: 'terminal', kind, line, text: holderText(kind, line) };
+  return { job: JOB, via: 'terminal', kind, line, text: holderText(kind, line), where: 'In the Terminal' };
 }
 
 /** Puts the Terminal's `kind` job in (running) or takes it out; a running `kind` of null is a holder nobody can name */
@@ -47,7 +47,7 @@ export function setConsole(s: FakeState, running: boolean, kind: string | null =
 export function consoleEvent(s: FakeState): HubEvent {
   const h = consoleHolder(s);
   return { type: 'ConsoleBusy', running: h !== null, job: h?.job ?? null, kind: h?.kind ?? null, line: h?.line ?? null,
-    text: h?.text ?? null };
+    text: h?.text ?? null, where: h?.where ?? null };
 }
 
 export const consoleScenarios: Record<string, (s: FakeState) => void> = {

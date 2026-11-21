@@ -65,7 +65,7 @@ from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Job, Jobs, PreviewStore, SignInPhase,
-                   import_work, problem_of, refresh_work, service_of, sync_work)
+                   event_dict, finished_of, import_work, problem_of, refresh_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
@@ -1284,9 +1284,13 @@ class HubApi:
         most `JOB_EVENTS_PAGE` lines, as `job follow --jsonl` reads them: `events.jsonl`, then the rolling tail.
         Positions count the lines of the files (a line that does not parse is skipped from `events` but has its place),
         so `next` is the `after` of the following call. The window sends only 0 or the `next` it was given: the reader
-        that delivered up to there is kept (`_FollowReader`) and reads on; any other `after` starts a fresh one."""
+        that delivered up to there is kept (`_FollowReader`) and reads on; any other `after` starts a fresh one. Once
+        `done`, `finished` is the job's end as the window's `JobFinished` (from its `result.json`, `jobs.finished_of`;
+        `worker_lost` when it left none), so a follower need not find it among the lines: the file has none when the
+        worker died, and may hold another job's (a retry's) before the last."""
         files = registry.Registry(self._support.support).get(job_id)
-        status = files.state().get("status")  # before the lines: an ended job's last events are in them
+        state = files.state()
+        status = state.get("status")  # before the lines: an ended job's last events are in them
         after = max(0, int(after))
         with self._events_lock:
             follow = self._event_readers.pop(job_id, None)
@@ -1305,8 +1309,9 @@ class HubApi:
                 continue
             if isinstance(data, dict):
                 events.append(data)
-        return {"events": events, "next": next_, "status": status,
-                "done": status in ("done", "lost") and len(lines) < JOB_EVENTS_PAGE}
+        done = status in ("done", "lost") and len(lines) < JOB_EVENTS_PAGE
+        return {"events": events, "next": next_, "status": status, "done": done,
+                "finished": event_dict(finished_of(job_id, state.get("kind") or "", files)) if done else None}
 
     def _last_sync(self) -> dict | None:
         """The newest sync of this music folder in the registry (any `via`: the window's or the terminal's, a queued one

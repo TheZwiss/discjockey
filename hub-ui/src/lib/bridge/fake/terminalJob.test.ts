@@ -65,7 +65,8 @@ describe('the Terminal sync a window can follow, in the fake backend', () => {
     const { lines, last } = await f.readAll();
     expect(lines).toHaveLength(sync.length);
     expect(lines.at(-1)).toMatchObject({ type: 'JobFinished', job_id: JOB });
-    expect(last).toMatchObject({ status: 'done', done: true });
+    expect(last).toMatchObject({ status: 'done', done: true, finished: { type: 'JobFinished', job_id: JOB } });   // the engine's `finished`
+    expect(first.finished).toBeNull();                            // not before it is done
     const end = f.sent.slice(-2);
     expect(end[0]).toMatchObject({ type: 'JobFinished', job_id: JOB, kind: 'sync' });
     expect(end[1]).toMatchObject({ type: 'ConsoleBusy', running: false });
@@ -117,7 +118,7 @@ describe('the Terminal sync a window can follow, in the fake backend', () => {
     expect(f.sent).toEqual([]);                                   // nobody has looked yet
     const r = await f.read(0);
     expect(r.events).toHaveLength(sync.length);
-    expect(r).toMatchObject({ status: 'done', done: true, next: sync.length });
+    expect(r).toMatchObject({ status: 'done', done: true, next: sync.length, finished: { type: 'JobFinished', job_id: JOB } });
     await tick(1);
     expect(f.sent.map((e) => e.type)).toEqual(['JobFinished', 'ConsoleBusy']);
     expect(f.sent[1]).toMatchObject({ running: false });
@@ -172,7 +173,7 @@ describe('the Sync page on a Terminal sync of the fake (console:sync-live), thro
     await refreshHub();
     const views: SyncView[] = [];
     let sync = get(terminalSync), state: RunState | null = null;
-    expect(sync).toEqual({ job: JOB, running: true });
+    expect(sync).toEqual({ job: JOB, running: true, where: 'In the Terminal' });
     const offSync = terminalSync.subscribe((t) => { sync = t; });
     const offRun = followRun(JOB).subscribe((s) => { state = s; });   // the page's subscription keeps it polling
     const look = () => {
@@ -196,7 +197,7 @@ describe('the Sync page on a Terminal sync of the fake (console:sync-live), thro
     const run_id = (end as { run_id: string | null }).run_id;
     expect(run_id).toMatch(/^\d{4}-\d\d-\d\d_\d{6}$/);
     expect(await f.run(run_id!)).toMatchObject({ ok: true });
-    expect(get(terminalSync)).toEqual({ job: JOB, running: false });
+    expect(get(terminalSync)).toEqual({ job: JOB, running: false, where: 'In the Terminal' });
     dismissJob(JOB);
     expect(look()).toEqual({ view: 'before' });
     offRun(); offSync();

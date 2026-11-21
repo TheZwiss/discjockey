@@ -1,6 +1,7 @@
 """E4a (issue 39 phase 2): `job_events`, the window's read of any job's events.jsonl (+ its rolling tail), and
 `stop(job_id)`, the window's "Stop safely" for a job another process runs."""
 import ast
+import dataclasses
 import json
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from hub_helpers import make_unbound_api
 
 import discjockey
 from discjockey import events as ev
-from discjockey.hub import registry
+from discjockey.hub import outcomes, registry
 from discjockey.hub.api import JOB_EVENTS_PAGE
 from discjockey.hub.registry import Registry
 
@@ -70,6 +71,34 @@ def test_later_events_follow_on_and_done_comes_with_the_last_of_an_ended_job(api
     assert api.job_events(files.id, 7)["done"] is True  # asked again after the end: nothing more, still done
 
 
+def test_done_carries_the_end_from_result_json(api):
+    files = new_job(api, "done")
+    write(files, 2)
+    files.write_result(outcomes.envelope("sync run", "ok", data={"exit_code": 0}, job=files.id))
+    ok = api.job_events(files.id)
+    assert ok["done"] is True and ok["finished"] == {
+        "type": "JobFinished", "job_id": files.id, "kind": "sync", "ok": True, "problem": None, "message": "",
+        "result": {"exit_code": 0}, "service": None}
+    stopped = new_job(api, "done")
+    write(stopped, 1)
+    stopped.write_result(outcomes.envelope("sync run", "stopped", reason="stop", message="Stopped.", job=stopped.id))
+    end = api.job_events(stopped.id)["finished"]
+    assert (end["ok"], end["problem"], end["message"]) == (False, "stopped", "Stopped.")
+    # a job that ended without a word (done or lost, no result.json): the worker was lost
+    for status in ("done", "lost"):
+        silent = new_job(api, status)
+        write(silent, 1)
+        end = api.job_events(silent.id)["finished"]
+        assert (end["ok"], end["problem"], end["result"]) == (False, "failed", None)
+        assert end["message"] == outcomes.REASONS["worker_lost"].text and end["job_id"] == silent.id
+    running = new_job(api)
+    write(running, 1)
+    assert api.job_events(running.id)["finished"] is None  # not ended: no end yet
+    full = new_job(api, "done")
+    write(full, JOB_EVENTS_PAGE)
+    assert api.job_events(full.id)["finished"] is None  # the page is full: more may follow, so not done
+
+
 def test_a_fresh_hub_skips_what_was_delivered(api):
     files = new_job(api)
     write(files, 7)
@@ -101,6 +130,19 @@ def test_past_the_head_the_tail_follows_in_order_and_the_marker_never_shows(api)
     answer = api.job_events(files.id)
     assert texts(answer) == [f"m{i}" for i in (*range(5), *range(20, 30))]
     assert all(e["type"] == "Message" for e in answer["events"]) and answer["next"] == 15 and answer["done"] is True
+
+
+def test_a_fresh_read_of_a_compacted_job_delivers_every_action_finished(api):
+    from test_hub_events import ACTION, RESULT
+    files = new_job(api, "done")
+    writer = files.events(head=5, tail=10)
+    for i in range(60):
+        writer.emit(ev.ActionFinished(ACTION, dataclasses.replace(RESULT, title=f"s{i}")))
+        for j in range(9):
+            writer.emit(ev.Message("info", f"m{i}.{j}"))
+    writer.close()
+    answer = api.job_events(files.id)  # a late join (a reload): the head, then the tail as it is now
+    assert [e["result"]["title"] for e in answer["events"] if e["type"] == "ActionFinished"] == [f"s{i}" for i in range(60)]
 
 
 def test_a_line_that_does_not_parse_is_skipped_but_has_its_place(api):

@@ -3602,6 +3602,18 @@
           ],
           "description": "Where the holder runs: the Terminal or another window; null for a holder with no registry entry.",
           "x-shown": true
+        },
+        "where": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where it runs as the Sync page's live view says it (\"In the Terminal\", \"In another window\"); null for a holder with no registry entry.",
+          "x-shown": true
         }
       },
       "required": [
@@ -3609,7 +3621,8 @@
         "via",
         "kind",
         "line",
-        "text"
+        "text",
+        "where"
       ],
       "type": "object"
     },
@@ -5997,14 +6010,24 @@
           "type": "array",
           "x-shown": true
         },
+        "finished": {
+          "description": "The job's end, from its result.json, as the watch sends it (a `JobFinished` event object; `worker_lost` when it left no result); null until `done`.",
+          "x-shown": false
+        },
         "next": {
           "description": "The position to ask from next: `after` plus the lines of the files delivered (a line that is no event has its place but is not in `events`).",
           "type": "integer",
           "x-shown": false
         },
         "status": {
-          "description": "The job's status when it was read: queued, running, stopping, done or lost.",
-          "type": "string",
+          "description": "The job's status when it was read.",
+          "enum": [
+            "queued",
+            "running",
+            "stopping",
+            "done",
+            "lost"
+          ],
           "x-shown": false
         }
       },
@@ -6012,7 +6035,8 @@
         "events",
         "next",
         "done",
-        "status"
+        "status",
+        "finished"
       ],
       "type": "object"
     },

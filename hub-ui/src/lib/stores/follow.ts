@@ -1,7 +1,8 @@
 // Following a job another process runs (issue 39 E4): the engine's `job_events` read serves the job's events.jsonl
 // (+ its rolling tail), the same lines `job follow --jsonl` prints, and this store turns them into the `RunState` the
 // Sync page's live view shows for the window's own sync (`reduceRun`). The window works out nothing of its own: what
-// is on screen is what the events say, plus `status: stopping` and the end the window's watch reports.
+// is on screen is what the events say, plus `status: stopping` and the job's end, which the engine's answer carries
+// (`finished`, from the job's result.json) once the job is done.
 import { writable, type Readable } from 'svelte/store';
 import { api } from '../bridge/client';
 import { onEvent, type EventOf, type HubEvent } from '../bridge/events';
@@ -30,8 +31,6 @@ export function followRun(jobId: string): Readable<RunState> {
 function makeFollow(jobId: string): Readable<RunState> {
   let after = 0;                       // the position of the next line to ask for (the answer's `next`)
   let reduced: RunState = EMPTY_RUN;
-  let held: EventOf<'JobFinished'> | null = null;     // a `console` JobFinished line: a retry's, not the end
-  let ended: EventOf<'JobFinished'> | null = null;    // the window's own JobFinished for this job, waiting for the file's last lines
   let active = false, asking = false, again = false;
   let over = false;                    // nothing more to read: the job's last events were delivered, or the id is unknown
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -54,12 +53,10 @@ function makeFollow(jobId: string): Readable<RunState> {
     timer = setTimeout(poll, ms);
   };
 
-  /** The end the watch reports (it rebuilds the JobFinished from the job's result.json, written after its last events):
-   *  applied once the file's last lines are in, so no event after the end is lost. */
+  /** The window's own watch says the job has ended: ask at once, so the end (the answer's `finished`) shows without
+   *  waiting for the next second. The end itself comes from the answer, never from this event. */
   function onHubEvent(e: HubEvent): void {
-    if (e.type !== 'JobFinished' || e.job_id !== jobId) return;
-    if (over) { reduce(e); publish(); return; }
-    ended = e;
+    if (e.type !== 'JobFinished' || e.job_id !== jobId || over) return;
     if (asking) again = true; else schedule(0);
   }
 
@@ -73,18 +70,20 @@ function makeFollow(jobId: string): Readable<RunState> {
     if (!active) return;                                    // unsubscribed meanwhile: ask again from `from` when someone is back
     let full = false;
     if (answer?.ok) {
-      for (const e of answer.events as HubEvent[]) {
-        held = null;                                         // a later line: that JobFinished was a retry's
-        if (e.type === 'JobFinished' && e.problem === 'console') held = e; else reduce(e);
-      }
+      // a JobFinished line in the file may be a retry's (the worker runs again after `busy`), and a dead worker leaves
+      // none: the end is the answer's `finished`, never a line
+      for (const e of answer.events as HubEvent[]) if (e.type !== 'JobFinished') reduce(e);
       after = answer.next;
       full = answer.next - from >= PAGE;
       if (answer.status === 'stopping') stopping();
       if (answer.done) {
-        if (held) { reduce(held); held = null; }            // it was the last line: the job ended busy
+        const end = answer.finished as EventOf<'JobFinished'> | null;
+        if (end) {
+          if (reduced.job_id === null) { reduced = { ...reduced, job_id: end.job_id, job_kind: end.kind }; }   // the end applies to a job whose start the file lacks
+          reduce(end);
+        }
         over = true;
       }
-      if (!full && ended) { reduce(ended); ended = null; }
       if (!full) publish();                                 // while full: still catching up, nothing shown yet
     } else if (answer && (answer as { reason?: string }).reason === 'unknown_id') {
       over = true;
@@ -100,15 +99,15 @@ function makeFollow(jobId: string): Readable<RunState> {
  *  with `running: false` once the console clears (the watch sends the JobFinished, then ConsoleBusy(false), in one look,
  *  so the end screen still has its job), and replaced only by the next console sync. A console job of another kind (a
  *  tidy-up, a scan) or one nobody can name does not take it away: the end screen stays until it is dismissed. */
-export type TerminalSync = { job: string; running: boolean };
+export type TerminalSync = { job: string; running: boolean; where: string | null };
 export const terminalSync: Readable<TerminalSync | null> = (() => {
   const store = writable<TerminalSync | null>(null);
   let current: TerminalSync | null = null;
   hub.subscribe((h) => {
     const c = h.console;
-    const next: TerminalSync | null = c?.kind === 'sync' && c.job ? { job: c.job, running: true }
-      : current && { job: current.job, running: false };
-    if (next?.job === current?.job && next?.running === current?.running) return;
+    const next: TerminalSync | null = c?.kind === 'sync' && c.job ? { job: c.job, running: true, where: c.where }
+      : current && { job: current.job, running: false, where: current.where };
+    if (next?.job === current?.job && next?.running === current?.running && next?.where === current?.where) return;
     current = next;
     store.set(next);
   });

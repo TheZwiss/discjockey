@@ -21,7 +21,8 @@ const { followRun, terminalSync } = await import('./follow');
 
 let n = 0;
 const nextId = () => `job:${(++n).toString(16).padStart(8, '0')}`;
-const answer = (events: unknown[], next: number, status = 'running', done = false) => ({ ok: true, events, next, status, done });
+const answer = (events: unknown[], next: number, status = 'running', done = false, end: HubEvent | null = null) =>
+  ({ ok: true, events, next, status, done, finished: done ? end : null });
 const started = (job_id: string): HubEvent => ({ type: 'JobStarted', job_id, kind: 'sync', track_id: null, batch_kind: null });
 const runStarted = (total = 2): HubEvent => ({ type: 'RunStarted', total, actions: [] });
 const action = (index: number): HubEvent => ({ type: 'ActionStarted', index, total: 2,
@@ -89,9 +90,9 @@ describe('followRun', () => {
     w.off();
   });
 
-  it('drops a console JobFinished that more lines follow, and ends on one that is the last at done', async () => {
+  it('ignores every JobFinished line (a retry\'s end, a busy one more lines follow) and ends only on the answer\'s finished', async () => {
     const retried = nextId();
-    script = [() => answer([started(retried), finished(retried, 'console')], 2), () => answer([runStarted()], 3)];
+    script = [() => answer([started(retried), finished(retried, 'console')], 2), () => answer([started(retried), runStarted()], 4)];
     const a = watch(retried);
     await tick();
     expect(a.last().phase).toBe('preparing');      // the retry's end did not end it
@@ -100,33 +101,46 @@ describe('followRun', () => {
     a.off();
 
     const busy = nextId();
-    script = [() => answer([started(busy), finished(busy, 'console')], 2, 'done', true)];
+    script = [() => answer([started(busy), finished(busy, 'busy')], 2), () => answer([started(busy), runStarted()], 4)];
     const b = watch(busy);
     await tick();
-    expect(b.last()).toMatchObject({ phase: 'failed' });
-    expect(b.last().job_finished?.problem).toBe('console');
+    expect(b.last().phase).toBe('preparing');      // a `busy` line is retried too: it is not "didn't finish"
+    await tick(1000);
+    expect(b.last().phase).toBe('running');
     b.off();
   });
 
-  it('keeps a held console JobFinished across answers until a later line or the end', async () => {
+  it('a lost job whose file has no JobFinished ends on the answer\'s finished', async () => {
     const id = nextId();
-    script = [() => answer([started(id), finished(id, 'console')], 2), () => answer([], 2, 'done', true)];
+    const lost: HubEvent = { type: 'JobFinished', job_id: id, kind: 'sync', ok: false, problem: 'failed', message: 'The job was lost.', result: null };
+    script = [() => answer([started(id), runStarted()], 2, 'lost', true, lost)];
     const w = watch(id);
     await tick();
-    expect(w.last().phase).toBe('preparing');
-    await tick(1000);
-    expect(w.last().phase).toBe('failed');
+    expect(w.last()).toMatchObject({ phase: 'failed' });
+    expect(w.last().job_finished).toEqual(lost);
+    await tick(5000);
+    expect(calls.length).toBe(1);                  // over: not asked again
     w.off();
   });
 
-  it('the window\'s own JobFinished ends it, after the file\'s last lines are in', async () => {
+  it('applies the end to a file that holds no JobStarted line', async () => {
     const id = nextId();
-    script = [() => answer([started(id), runStarted()], 2), () => answer([action(2)], 3)];
+    const end: HubEvent = { type: 'JobFinished', job_id: id, kind: 'sync', ok: true, problem: null, message: '', result: null };
+    script = [() => answer([], 0, 'done', true, end)];
+    const w = watch(id);
+    await tick();
+    expect(w.last()).toMatchObject({ phase: 'finished', job_id: id, job_kind: 'sync' });
+    w.off();
+  });
+
+  it('the window\'s own JobFinished only makes it ask at once: the end is the answer\'s', async () => {
+    const id = nextId();
+    script = [() => answer([started(id), runStarted()], 2), () => answer([action(2)], 3, 'done', true, finished(id))];
     const w = watch(id);
     await tick();
     expect(w.last().phase).toBe('running');
     dispatch(finished(id));
-    expect(w.last().phase).toBe('running');        // not yet: the answer that follows may still carry events
+    expect(w.last().phase).toBe('running');        // the event itself changes nothing
     await tick();
     expect(calls.at(-1)).toEqual([id, 2]);          // asked at once, not in a second
     expect(w.last()).toMatchObject({ phase: 'finished', index: 2 });
@@ -150,7 +164,7 @@ describe('followRun', () => {
 
   it('stops polling after done, and a new subscriber does not start it again', async () => {
     const id = nextId();
-    script = [() => answer([started(id), finished(id)], 2, 'done', true)];
+    script = [() => answer([started(id), finished(id)], 2, 'done', true, finished(id))];
     const w = watch(id);
     await tick(10_000);
     expect(calls.length).toBe(1);
@@ -221,34 +235,44 @@ describe('followRun', () => {
 });
 
 describe('terminalSync', () => {
-  const busy = (running: boolean, kind: string | null = 'sync', job: string | null = 'job:00000c0d'): HubEvent =>
-    ({ type: 'ConsoleBusy', running, job: running ? job : null, kind: running ? kind : null, line: null, text: running ? 'Sync running in the Terminal' : null });
+  const busy = (running: boolean, kind: string | null = 'sync', job: string | null = 'job:00000c0d', where = 'In the Terminal'): HubEvent =>
+    ({ type: 'ConsoleBusy', running, job: running ? job : null, kind: running ? kind : null, line: null, text: running ? 'Sync running in the Terminal' : null,
+      where: running ? where : null });
 
   it('follows the console\'s sync, is kept after the console clears, and is replaced by the next console sync', () => {
     expect(get(terminalSync)).toBeNull();
     dispatch(busy(true));
-    expect(get(terminalSync)).toEqual({ job: 'job:00000c0d', running: true });
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c0d', running: true, where: 'In the Terminal' });
     dispatch(busy(false));
-    expect(get(terminalSync)).toEqual({ job: 'job:00000c0d', running: false });
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c0d', running: false, where: 'In the Terminal' });
     dispatch(busy(true, 'sync', 'job:00000c0e'));
-    expect(get(terminalSync)).toEqual({ job: 'job:00000c0e', running: true });
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c0e', running: true, where: 'In the Terminal' });
+    dispatch(busy(false));
+  });
+
+  it('keeps where the sync runs, as the engine says it: another window\'s sync is not "In the Terminal"', () => {
+    dispatch(busy(true, 'sync', 'job:00000c20', 'In another window'));
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c20', running: true, where: 'In another window' });
+    dispatch(busy(false));
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c20', running: false, where: 'In another window' });   // kept with the end
+    dispatch(busy(true, 'sync', 'job:00000c21'));
     dispatch(busy(false));
   });
 
   it('keeps an ended sync while a job of another kind (or one nobody can name) holds the library', () => {
     dispatch(busy(true, 'sync', 'job:00000c10'));
     dispatch(busy(false));
-    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false });
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false, where: 'In the Terminal' });
     dispatch(busy(true, 'tidy', 'job:00000c11'));
-    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false });
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false, where: 'In the Terminal' });
     dispatch(busy(false));
     dispatch(busy(true, null, null));
-    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false });
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c10', running: false, where: 'In the Terminal' });
     dispatch(busy(false));
     dispatch(busy(true, 'sync', 'job:00000c12'));   // only another sync replaces it
-    expect(get(terminalSync)).toEqual({ job: 'job:00000c12', running: true });
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c12', running: true, where: 'In the Terminal' });
     dispatch(busy(true, 'tidy', 'job:00000c13'));   // a sync that is replaced straight by a tidy-up has ended
-    expect(get(terminalSync)).toEqual({ job: 'job:00000c12', running: false });
+    expect(get(terminalSync)).toEqual({ job: 'job:00000c12', running: false, where: 'In the Terminal' });
     dispatch(busy(false));
   });
 });

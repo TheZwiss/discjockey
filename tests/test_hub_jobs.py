@@ -712,9 +712,10 @@ class Foreign:
     """A job of another process: made with `Registry.create` in the test and kept alive by its claim, not through the
     `Jobs` under test."""
 
-    def __init__(self, paths, reg, kind="sync", method="sync_run", library_lock=True, music="own", line="3 of 10"):
+    def __init__(self, paths, reg, kind="sync", method="sync_run", library_lock=True, music="own", line="3 of 10",
+                 via="terminal"):
         roots = {"music": str(paths.root) if music == "own" else music}
-        self.files = reg.create(kind, "sync run", {}, "terminal", roots)
+        self.files = reg.create(kind, "sync run", {}, via, roots)
         self.files.update(method=method, library_lock=library_lock, status="running", progress={"line": line})
         self.files.flush()
 
@@ -741,11 +742,11 @@ def test_a_foreign_job_that_holds_the_library_is_named_and_followed(watched):
     js.watch_registry(interval=0.05)
     try:
         other = Foreign(paths, reg)
-        assert wait_for(lambda: jobs.ConsoleBusy(True, other.id, "sync", "3 of 10", "Sync running in the Terminal · 3 of 10") in rec.events)
+        assert wait_for(lambda: jobs.ConsoleBusy(True, other.id, "sync", "3 of 10", "Sync running in the Terminal · 3 of 10", "In the Terminal") in rec.events)
         assert js.console_running()
         other.line("4 of 10")
         assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(True, other.id, "sync", "4 of 10",
-                                                                     "Sync running in the Terminal · 4 of 10"))
+                                                                     "Sync running in the Terminal · 4 of 10", "In the Terminal"))
         other.end()
         assert wait_for(lambda: rec.events[-1] == jobs.ConsoleBusy(False, None, None, None, None))
         assert not js.console_running()
@@ -838,16 +839,29 @@ def test_a_bare_lock_without_a_registry_entry_is_still_a_console_run(watched):
         assert js.console_running()
         js._look()
         assert rec.events[-1] == jobs.ConsoleBusy(True, None, None, None,
-                                                  "A Discjockey command is running in the Terminal")
+                                                  "A Discjockey command is running in the Terminal", None)
     js._look()
     assert rec.events[-1] == jobs.ConsoleBusy(False, None, None, None, None) and not js.console_running()
+
+
+def test_another_windows_job_is_named_as_in_another_window(watched):
+    paths, js, rec, reg = watched
+    other = Foreign(paths, reg, via="window")
+    js.watch_registry(interval=0.05)
+    try:
+        said = ("Sync running in another window · 3 of 10", "In another window")  # the live view's words, not "In the Terminal"
+        assert wait_for(lambda: jobs.ConsoleBusy(True, other.id, "sync", "3 of 10", *said) in rec.events)
+        assert js.console_holder()["where"] == "In another window"
+    finally:
+        other.end()
+        js.close()
 
 
 def test_a_write_refused_while_a_foreign_job_holds_the_library_says_who(watched):
     paths, js, rec, reg = watched
     other = Foreign(paths, reg)
     holder = {"job": other.id, "via": "terminal", "kind": "sync", "line": "3 of 10",
-              "text": "Sync running in the Terminal · 3 of 10"}
+              "text": "Sync running in the Terminal · 3 of 10", "where": "In the Terminal"}
     with pytest.raises(Busy) as excinfo:  # before the watch has looked
         js.start("hide", lambda ctx: pytest.fail("must not run"))
     assert (excinfo.value.kind, str(excinfo.value), excinfo.value.data) == ("console", jobs.CONSOLE_TEXT, {"holder": holder})
@@ -888,7 +902,8 @@ def test_the_holder_named_is_the_running_job_not_a_newer_queued_one(watched):
         js.start("hide", lambda ctx: pytest.fail("must not run"))
     assert excinfo.value.data["holder"]["job"] == running.id
     assert rec.of(jobs.ConsoleBusy) == [jobs.ConsoleBusy(True, running.id, "sync", "2 of 9",
-                                                                      "Sync running in the Terminal · 2 of 9")]
+                                                                      "Sync running in the Terminal · 2 of 9",
+                                                                      "In the Terminal")]
     running.let_go()
     waiting.let_go()
 

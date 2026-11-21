@@ -26,10 +26,12 @@ export type HubState = {
   /** counts the AppUpdate events reduced so far, so refreshHub can tell an answer that an event has overtaken */
   app_update_seq: number;
 };
-export type ConsoleState = { job: string | null; kind: string | null; line: string | null; text: string };
+export type ConsoleState = { job: string | null; kind: string | null; line: string | null; text: string;
+  /** where it runs, in the engine's words for the Sync page ("In the Terminal"); null for a holder nobody can name */
+  where: string | null };
 /** The holder of job_status as the store keeps it (the one `via` the window does not need is left out) */
 const consoleOf = (c: ConsoleHolder | null): ConsoleState | null =>
-  c ? { job: c.job, kind: c.kind, line: c.line, text: c.text } : null;
+  c ? { job: c.job, kind: c.kind, line: c.line, text: c.text, where: c.where } : null;
 export type ReadProgress = { index: number; total: number; folder: string };
 export const EMPTY_HUB: HubState = { booted: false, fake: false, job: null, sign_in: null, last_sync: null, refresh_running: false,
   console_running: false, console: null, read_status: null, setup: null, sidebar: null, read_progress: null, read_stopped: false, app_update: null,
@@ -133,7 +135,7 @@ export function reduceHub(s: HubState, e: Parameters<Parameters<typeof onEvent>[
       return s.job?.running ? { ...s, read_progress: null, job: { ...s.job, actions: e.actions ?? [] } } : s;
     case 'ConsoleBusy':
       return { ...s, console_running: e.running,
-        console: e.running && e.text !== null ? { job: e.job, kind: e.kind, line: e.line, text: e.text } : null };
+        console: e.running && e.text !== null ? { job: e.job, kind: e.kind, line: e.line, text: e.text, where: e.where } : null };
     case 'AppUpdate':
       return { ...s, app_update: { state: e.state, current: e.current, latest: e.latest, url: e.url },
         app_update_seq: s.app_update_seq + 1 };

@@ -52,22 +52,29 @@ export class TerminalJob {
     if (live) this.o.emit(consoleEvent(s));
   }
 
+  /** The job's JobFinished: the end the engine builds from result.json (the recorded stream's last one) */
+  private end(): HubEvent | null {
+    return [...this.lines].reverse().find((e) => e.type === 'JobFinished') ?? null;
+  }
+
   /** The end the window's watch sends: the job's JobFinished, then ConsoleBusy(false) */
   private report(): void {
     if (this.reported) return;
     this.reported = true;
-    const finished = [...this.lines].reverse().find((e) => e.type === 'JobFinished');
+    const finished = this.end();
     if (finished) this.o.emit(finished);
     setConsole(this.o.s, false);
     this.o.emit(consoleEvent(this.o.s));
   }
 
-  /** `job_events`: the lines from `after` on, at most `PAGE`, the status read before them */
+  /** `job_events`: the lines from `after` on, at most `PAGE`, the status read before them; once done, `finished` is the
+   *  job's end (the engine's `jobs.finished_of`: the end is no line the follower looks for) */
   read(after: number): JobEvents {
     const status = this.status;
     const events = this.lines.slice(after, after + PAGE);
     if (this.status === 'done' && !this.reported) setTimeout(() => this.report(), 0);   // "ended": the window has loaded it
-    return { events, next: after + events.length, status, done: status === 'done' && events.length < PAGE };
+    const done = status === 'done' && events.length < PAGE;
+    return { events, next: after + events.length, status, done, finished: done ? this.end() : null };
   }
 
   /** Stop safely, as `stop(job_id)` writes the stop file: false for a job that has ended */
