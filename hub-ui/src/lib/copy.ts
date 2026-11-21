@@ -138,12 +138,14 @@ export const WRITE_BLOCKED = {
 export const BANNER = {
   console_tail: "You can look around; changes wait until it's finished.",
   console_tail_setup: 'You can go on with setup when it has finished.',
-  /** Setup, `console_running` with no holder words yet (the state's first read, before the engine named it) */
-  console_setup_unnamed: 'A Discjockey run in the terminal is busy',
 } as const;
 
+/** `t` as a sentence: a full stop after it unless it already ends in one (the engine's holder text may end in "…" or ".":
+ *  "Reading your playlists..."). */
+export const sentence = (t: string): string => (/[.!?…]$/.test(t) ? t : `${t}.`);
+
 /** The holder's words (engine text), then the tail: the one composition both console banners use. */
-export const consoleBanner = (holderText: string, tail: string = BANNER.console_tail): string => `${holderText}. ${tail}`;
+export const consoleBanner = (holderText: string, tail: string = BANNER.console_tail): string => `${sentence(holderText)} ${tail}`;
 
 export const DROP_BLOCKED = "macOS didn't let Discjockey read this file. Move it to Downloads, or allow access in "
   + 'System Settings → Privacy & Security → Files and Folders.';

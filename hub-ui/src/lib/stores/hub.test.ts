@@ -269,6 +269,87 @@ describe('the last sync in job_status', () => {
   });
 });
 
+describe('the console state while the hub is read (B2, B4)', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  const JOB = 'job:00000c0d';
+  const busy = (job: string | null, line: string | null) => ({ type: 'ConsoleBusy' as const, running: true, job, kind: 'sync', line,
+    text: `Sync running in the Terminal${line ? ` · ${line}` : ''}`, where: 'In the Terminal' });
+  const none = { ok: true, job: null, refresh_running: false, console_running: false, console: null, read_status: null, sign_in: null };
+  function bridge(jobStatus: () => Promise<unknown>) {
+    (globalThis as any).window = new EventTarget();
+    installBridge({
+      job_status: jobStatus,
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+  }
+  const settle = async () => { await refreshHub(); };
+  const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  it('a ConsoleBusy naming a new job reads job_status again, so last_sync names it', async () => {
+    let reads = 0;
+    let named: string | null = null;
+    bridge(async () => { reads++; return named ? { ...none, console_running: true, last_sync: { job: named, args: { plan_id: 'plan:1', selected: [] }, ended: null },
+      console: { job: named, via: 'registry', kind: 'sync', line: null, text: 'Sync running in the Terminal', where: 'In the Terminal' } } : none; });
+    await settle();
+    reads = 0;
+    named = JOB;
+    dispatch(busy(JOB, null));
+    await flush();
+    expect(reads).toBe(1);
+    expect(get(hub).last_sync?.job).toBe(JOB);
+    named = 'job:00000c0e';   // the next Terminal sync
+    dispatch(busy('job:00000c0e', null));
+    await flush();
+    expect(reads).toBe(2);
+    expect(get(hub).last_sync?.job).toBe('job:00000c0e');
+  });
+  it('a ConsoleBusy of the job the state already holds reads nothing', async () => {
+    let reads = 0;
+    const named = { job: JOB, via: 'registry', kind: 'sync', line: null, text: 'Sync running in the Terminal', where: 'In the Terminal' };
+    bridge(async () => { reads++; return { ...none, console_running: true, console: named }; });
+    dispatch(busy(JOB, null));
+    await flush();
+    expect(get(hub).console?.job).toBe(JOB);
+    reads = 0;
+    dispatch(busy(JOB, '4 of 60'));
+    dispatch(busy(JOB, '5 of 60'));
+    await flush();
+    expect(reads).toBe(0);
+    expect(get(hub).console?.line).toBe('5 of 60');
+    dispatch(busy(null, null));   // a holder nobody can name has no job to look up
+    await flush();
+    expect(reads).toBe(0);
+  });
+
+  it('a ConsoleBusy during refreshHub\'s calls beats its older job_status answer', async () => {
+    let answer: unknown = { ...none, console_running: true,
+      console: { job: JOB, via: 'registry', kind: 'sync', line: null, text: 'Sync running in the Terminal', where: 'In the Terminal' } };
+    let gate: Promise<void> = Promise.resolve();
+    bridge(async () => { await gate; return answer; });
+    dispatch(busy(JOB, null));
+    await settle();
+    expect(get(hub).console).toMatchObject({ job: JOB, line: null });
+    // the Terminal's progress line arrives while job_status (read before it) is still on its way
+    let release: () => void = () => {};
+    gate = new Promise<void>((r) => { release = r; });
+    const read = answer;
+    const refresh = refreshHub();
+    dispatch(busy(JOB, '5 of 60'));
+    release();
+    await refresh;
+    expect(read).toBe(answer);
+    expect(get(hub).console).toMatchObject({ job: JOB, line: '5 of 60' });
+    expect(get(hub).console_running).toBe(true);
+    gate = Promise.resolve();
+    answer = none;
+    await refreshHub();   // nothing newer arrived during this one: its answer is taken again
+    expect(get(hub).console).toBeNull();
+    expect(get(hub).console_running).toBe(false);
+  });
+});
+
 describe('a scan job in job_status', () => {
   afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
   const snap = (kind: string) => ({ id: 'job:00000009', kind, track_id: null, started: '2026-10-24T10:00:00', running: true,

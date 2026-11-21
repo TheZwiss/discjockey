@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { get } from 'svelte/store';
 import { EMPTY_RUN, type RunState } from '$lib/stores/run';
-import { dismissJob, dismissedJobs, endRunId, whichView, type ViewInput } from './view';
+import { dispatch } from '$lib/bridge/events';
+import { dismissJob, dismissedJobs, endRunId, lastSyncEnd, whichView, type ViewInput } from './view';
 
 const OWN = 'job:00000002', TERM = 'job:00000c0d';
 const r = (o: Partial<RunState>, job_id = OWN): RunState => ({ ...EMPTY_RUN, job_id, job_kind: 'sync', ...o });
@@ -70,6 +71,22 @@ describe('whichView: a sync the Terminal runs', () => {
     // going back to the plan from one does not bring the other back once that was dismissed too
     expect(view({ own, terminal: t, newest: TERM, dismissed: new Set([TERM]) })).toMatchObject({ view: 'end', source: 'own' });
     expect(view({ own, terminal: t, dismissed: new Set([OWN, TERM]) })).toEqual({ view: 'before' });
+  });
+  it('both ends open: the end that arrived last wins while last_sync still names the other', () => {
+    const own = finished(OWN, '2026-10-16_141111'), t = terminal(finished(TERM, '2026-11-20_210000'), false);
+    expect(view({ own, terminal: t, newest: OWN, lastEnd: TERM })).toMatchObject({ view: 'end', source: 'terminal' });
+    expect(view({ own, terminal: t, newest: TERM, lastEnd: OWN })).toMatchObject({ view: 'end', source: 'own' });
+    // a last end that is neither open end (a tidy-up's, another job's) decides nothing: last_sync does
+    expect(view({ own, terminal: t, newest: TERM, lastEnd: 'job:00000099' })).toMatchObject({ view: 'end', source: 'terminal' });
+    expect(view({ own, terminal: t, newest: null, lastEnd: null })).toMatchObject({ view: 'end', source: 'own' });
+  });
+  it('lastSyncEnd is the job of the newest sync JobFinished on the bus, and no other kind\'s', () => {
+    dispatch({ type: 'JobFinished', job_id: TERM, kind: 'sync', ok: true, problem: null, message: '', result: null });
+    expect(get(lastSyncEnd)).toBe(TERM);
+    dispatch({ type: 'JobFinished', job_id: OWN, kind: 'import', ok: true, problem: null, message: '', result: null });
+    expect(get(lastSyncEnd)).toBe(TERM);
+    dispatch({ type: 'JobFinished', job_id: OWN, kind: 'sync', ok: true, problem: null, message: '', result: null });
+    expect(get(lastSyncEnd)).toBe(OWN);
   });
   it('a Terminal tidy-up (no Terminal sync) keeps the plan', () => {
     expect(view({ terminal: null })).toEqual({ view: 'before' });

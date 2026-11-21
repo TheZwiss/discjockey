@@ -3,32 +3,45 @@
 // Sync page's live view shows for the window's own sync (`reduceRun`). The window works out nothing of its own: what
 // is on screen is what the events say, plus `status: stopping` and the job's end, which the engine's answer carries
 // (`finished`, from the job's result.json) once the job is done.
-import { writable, type Readable } from 'svelte/store';
+import { derived, writable, type Readable } from 'svelte/store';
 import { api } from '../bridge/client';
 import { onEvent, type EventOf, type HubEvent } from '../bridge/events';
-import { hub } from './hub';
-import { ACTIVE_PHASES, EMPTY_RUN, reduceRun, type RunState } from './run';
+import { hub, hubSyncRunning } from './hub';
+import { ACTIVE_PHASES, EMPTY_RUN, reduceRun, run, type RunState } from './run';
 
 /** How often a followed job is asked for its new events */
 export const POLL_MS = 1000;
 /** The most lines one `job_events` answer carries (HubApi: JOB_EVENTS_PAGE): a full answer means more are waiting */
 export const PAGE = 500;
 
-const followed = new Map<string, Readable<RunState>>();
+/** How many followed jobs' stores are kept once nobody is subscribed: the newest ones (a job's end screen reads its store) */
+const KEEP = 2;
+type Follow = { store: Readable<RunState>; /** nobody is subscribed: the store may be let go */ idle: () => boolean };
+const followed = new Map<string, Follow>();   // in the order the jobs were followed, the newest last
 
 /**
  * The live state of the job `jobId`, one store per job id: it polls `job_events` once a second while anyone is
  * subscribed (and at once again while an answer was full), and stops after the job's last events. A job joined late
  * (or a reload) is caught up without publishing the hundreds of past states: the view gets the first state after the
- * answers stop coming back full.
+ * answers stop coming back full. Of the jobs followed before, the two newest are kept (and any that someone is still
+ * subscribed to): each holds its job's whole `RunState`.
  */
 export function followRun(jobId: string): Readable<RunState> {
-  let store = followed.get(jobId);
-  if (!store) followed.set(jobId, store = makeFollow(jobId));
-  return store;
+  let f = followed.get(jobId);
+  if (f) followed.delete(jobId);                 // followed again: now the newest
+  else {
+    f = makeFollow(jobId);
+    let extra = followed.size + 1 - KEEP;
+    for (const [id, old] of followed) {
+      if (extra <= 0) break;
+      if (old.idle()) { followed.delete(id); extra--; }
+    }
+  }
+  followed.set(jobId, f);
+  return f.store;
 }
 
-function makeFollow(jobId: string): Readable<RunState> {
+function makeFollow(jobId: string): Follow {
   let after = 0;                       // the position of the next line to ask for (the answer's `next`)
   let reduced: RunState = EMPTY_RUN;
   let active = false, asking = false, again = false;
@@ -67,12 +80,17 @@ function makeFollow(jobId: string): Readable<RunState> {
     const from = after;
     let answer: Awaited<ReturnType<typeof api.job_events>> | null = null;
     try { answer = await api.job_events(jobId, from); } catch { answer = null; } finally { asking = false; }
-    if (!active) return;                                    // unsubscribed meanwhile: ask again from `from` when someone is back
+    // an answer that arrives after the last unsubscribe is kept: the engine's reader has counted it as delivered, so the
+    // next ask goes on from its `next`, not from `from`
     let full = false;
     if (answer?.ok) {
       // a JobFinished line in the file may be a retry's (the worker runs again after `busy`), and a dead worker leaves
       // none: the end is the answer's `finished`, never a line
-      for (const e of answer.events as HubEvent[]) if (e.type !== 'JobFinished') reduce(e);
+      // only the newest of a slot's lines in one answer counts (the engine's `_slot` rule: the registry writes a Progress at
+      // most twice a second, the poll comes once a second): each reduces over the real interval, not a rate made of two
+      // lines of one millisecond
+      const lines = answer.events as HubEvent[];
+      lines.forEach((e, i) => { if (e.type !== 'JobFinished' && !sameSlot(e, lines[i + 1])) reduce(e); });
       after = answer.next;
       full = answer.next - from >= PAGE;
       if (answer.status === 'stopping') stopping();
@@ -92,8 +110,13 @@ function makeFollow(jobId: string): Readable<RunState> {
     schedule(full || more ? 0 : POLL_MS);
   }
 
-  return { subscribe: store.subscribe };
+  return { store: { subscribe: store.subscribe }, idle: () => !active };
 }
+
+/** Two adjacent `Progress` lines of one track, step and unit: the engine's slot of an update only the latest of which is
+ *  worth keeping (`registry._slot`) */
+const sameSlot = (a: HubEvent, b: HubEvent | undefined): boolean =>
+  a.type === 'Progress' && b?.type === 'Progress' && a.track_id === b.track_id && a.step === b.step && a.unit === b.unit;
 
 /** The Terminal's sync the window shows (E4b routes the Sync page by it): `running` while `$hub.console` is a sync, kept
  *  with `running: false` once the console clears (the watch sends the JobFinished, then ConsoleBusy(false), in one look,
@@ -113,3 +136,13 @@ export const terminalSync: Readable<TerminalSync | null> = (() => {
   });
   return { subscribe: store.subscribe };
 })();
+
+/** The sync the window's chrome shows outside the Sync page (the sidebar's Sync row, the foot's sync part): the window's
+ *  own run while its own sync runs, else the Terminal's sync followed (`followRun`) while the console state says one runs;
+ *  null otherwise. It picks between two engine-fed `RunState`s by the engine's console state and computes nothing of its
+ *  own. A Terminal sync costs one `job_events` poll a second on every page while it runs, shared with the Sync page's. */
+export const shownSync: Readable<RunState | null> = derived([hubSyncRunning, run, terminalSync], ([own, ownRun, terminal], set) => {
+  if (own) { set(ownRun); return; }
+  if (terminal?.running) return followRun(terminal.job).subscribe(set);
+  set(null);
+}, null as RunState | null);

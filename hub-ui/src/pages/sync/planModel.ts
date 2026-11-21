@@ -269,6 +269,16 @@ export function presetSelected(list: SyncPreset[], h: HowMany, total: number, le
   const n = presetN(h, total, left);
   return (list.find((p) => p.key === key) ?? list.find((p) => p.downloads === n))?.selected ?? null;
 }
+/** The choice the page holds after a preview (`load`): the one held stays when it ticks something or is the person's
+ *  own ('custom'), the engine's `default_how_many` is the first choice, and a held preset the plan no longer gives
+ *  ticks (a remembered "fits today" once nothing is left today) falls back to the engine's default, so the chip and
+ *  the ticks follow it instead of keeping the previous preview's ticks under a "custom" chip. */
+export function choiceFor(held: HowMany | 'custom' | null, list: SyncPreset[], defaultKey: string | null,
+  total: number, left: number): HowMany | 'custom' | null {
+  if (held === null) return howManyOfKey(defaultKey);
+  if (held === 'custom' || list.length === 0) return held;
+  return presetSelected(list, held, total, left) === null ? howManyOfKey(defaultKey) ?? held : held;
+}
 export function presetN(h: HowMany, total: number, left: number): number {
   return h === 'all' ? total : h === 'fits' ? Math.min(Math.max(left, 0), total) : Math.min(h, total);
 }

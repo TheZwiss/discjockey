@@ -113,8 +113,8 @@
   {#if status && step}
     <StepStrip steps={stripSteps(step, status)} onpick={pickStep} label="Setup steps" test="setup-steps" />
   {/if}
-  {#if $hub.console_running}
-    <Banner tone="warn" text={consoleBanner($hub.console?.text ?? BANNER.console_setup_unnamed, BANNER.console_tail_setup)} />
+  {#if $hub.console}
+    <Banner tone="warn" text={consoleBanner($hub.console.text, BANNER.console_tail_setup)} />
   {/if}
   <div class="step" data-test="setup-step" data-step={step}>
     {#if loadError && !status}

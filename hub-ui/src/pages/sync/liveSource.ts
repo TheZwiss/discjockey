@@ -20,7 +20,7 @@ export type LiveSource = {
   kind: SyncSource;
   /** the live state of the sync: the same `RunState` (and reducer) for both */
   run: Readable<RunState>;
-  /** the sync whose ticked songs (`last_sync`) name Up next until its run's plan arrives; null: the newest sync's */
+  /** the sync whose ticked songs (`last_sync`) name Up next until its run's plan arrives; null for the window's own (the hub's sync job) */
   job: string | null;
   /** the header's status line; none for the window's own */
   where: string | undefined;
@@ -51,9 +51,12 @@ export function terminalSource(job: string, followed: Readable<RunState>, where:
   };
 }
 
-/** The record of what the shown sync was started with, or null when the newest sync is another one */
-export const selectionOf = (source: Pick<LiveSource, 'job'>, last: LastSync | null): LastSync | null =>
-  last && (source.job === null || last.job === source.job) ? last : null;
+/** The record of what the shown sync was started with, or null when the newest sync is another one: the Terminal view
+ *  takes only its own job's record, the own view only the record of the window's own running sync job (`ownJob`, the
+ *  hub's sync job; null while it is not known). Until `last_sync` is read again after a start it still names the
+ *  previous sync, and its ticked songs must not show as this one's. */
+export const selectionOf = (source: Pick<LiveSource, 'kind' | 'job'>, last: LastSync | null, ownJob: string | null): LastSync | null =>
+  last && last.job === (source.kind === 'own' ? ownJob : source.job) ? last : null;
 
 /** A Terminal sync joined late whose events are still being read: nothing of it is known yet (phase idle) */
 export const joining = (source: Pick<LiveSource, 'kind'>, r: RunState): boolean =>

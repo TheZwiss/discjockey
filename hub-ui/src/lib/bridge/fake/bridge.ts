@@ -81,6 +81,9 @@ export type FakeContext = {
   later<T>(ms: number, value: () => T): Promise<T>;
   /** the plan a scenario's own `sync_preview` shows: the only one `start_sync` then knows (as the engine's stored plan) */
   knowPlan(id: string, actionIds: string[]): void;
+  /** the Terminal's sync as a job the window can follow, in the registry from the moment its ConsoleBusy goes out (the engine
+   *  has the job before the watch sees it): `last_sync` names it, `job_events` serves it. A scenario's own console already has it. */
+  startTerminal(): void;
   /** a login check's outcome saved / recorded as the engine does it (HubApi._account_result) */
   accountResult(service: 'youtube' | 'soundcloud', browser: Browser, profile: string | null, check: AccountCheck):
     { service: 'youtube' | 'soundcloud'; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
@@ -261,7 +264,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     return { ok: true, job_id: id };
   }
   const knowPlan = (id: string, ids: string[]) => { shownPlan = { id, ids: new Set(ids) }; };
-  const ctx: FakeContext = { s, speed, emit, startJob, networkBlock, fail, later, accountResult, knowPlan };
+  const ctx: FakeContext = { s, speed, emit, startJob, networkBlock, fail, later, accountResult, knowPlan,
+    startTerminal() { terminalJob(); } };
 
   /** The import as a write job (kind "import"): `adding` is a folder just watched, `resume`/`hold` start it mid-way and
    *  keep it there until Stop (scenario folders_importing). */

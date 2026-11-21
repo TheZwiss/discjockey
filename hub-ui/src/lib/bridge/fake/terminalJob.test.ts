@@ -4,6 +4,7 @@ import schema from '$fixtures/hub_events.schema.json';
 import type { HubEvent } from '../events';
 import type { JobEvents } from '../types';
 import { createFakeBridge } from './bridge';
+import { consoleEvent, setConsole } from './console';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from './replay';
 import { get } from 'svelte/store';
 import { dispatch } from '../events';
@@ -159,6 +160,28 @@ describe('the Terminal sync a window can follow, in the fake backend', () => {
     expect(f.sent.at(-1)).toMatchObject({ type: 'ConsoleBusy', running: false });
     expect(await f.bridge.stop(JOB)).toEqual({ ok: true, stopped: false });   // over: nothing to stop
     expect(await f.bridge.stop()).toEqual({ ok: true, stopped: false });      // the window's own job is another thing
+  });
+});
+
+describe('a Terminal sync that starts after the window booted (FakeControl.consoleBusy)', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it('last_sync names it once its ConsoleBusy has come, not before', async () => {
+    (globalThis as any).window = new EventTarget();
+    _resetBridge();
+    const f = createFakeBridge('normal', { speed: 1, emit: dispatch });
+    installBridge(f);
+    await refreshHub();
+    expect(get(hub).last_sync).toBeNull();
+    expect(get(terminalSync)).toBeNull();
+    // what consoleBusy(true, 'sync') does: the holder, the job in the registry, then the event
+    setConsole(f._ctx.s, true, 'sync');
+    f._ctx.startTerminal();
+    expect((await f.job_status() as { last_sync: { job: string } | null }).last_sync).toMatchObject({ job: JOB });
+    dispatch(consoleEvent(f._ctx.s));
+    await tick(0);
+    await refreshHub();
+    expect(get(hub).last_sync).toMatchObject({ job: JOB, ended: null });
+    expect(get(terminalSync)).toEqual({ job: JOB, running: true, where: 'In the Terminal' });
   });
 });
 

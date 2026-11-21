@@ -61,10 +61,12 @@ describe('the Terminal source', () => {
 
 describe('selectionOf', () => {
   const last = { job: JOB, args: { plan_id: 'plan:abc', selected: ['a1'] }, ended: null };
-  it('the own view takes the newest sync\'s record, the Terminal view only its own job\'s', () => {
-    expect(selectionOf(ownSource, last)).toBe(last);
-    expect(selectionOf(terminalSource(JOB, followed, 'In the Terminal'), last)).toBe(last);
-    expect(selectionOf(terminalSource('job:00000001', followed, 'In the Terminal'), last)).toBeNull();
-    expect(selectionOf(ownSource, null)).toBeNull();
+  it('the own view takes the record of the window\'s own sync job only, the Terminal view only its own job\'s', () => {
+    expect(selectionOf(ownSource, last, JOB)).toBe(last);
+    expect(selectionOf(ownSource, last, 'job:00000001')).toBeNull();   // last_sync still names the previous sync
+    expect(selectionOf(ownSource, last, null)).toBeNull();
+    expect(selectionOf(terminalSource(JOB, followed, 'In the Terminal'), last, null)).toBe(last);
+    expect(selectionOf(terminalSource('job:00000001', followed, 'In the Terminal'), last, JOB)).toBeNull();
+    expect(selectionOf(ownSource, null, JOB)).toBeNull();
   });
 });
