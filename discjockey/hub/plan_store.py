@@ -5,7 +5,7 @@ the plan file a dry run writes (beside `cache/` and, for a read job, its record 
 `<write> --plan plan:<12 hex>` then runs only those items, each asked again as it
 runs (the engine's own per-item checks stay): `bind` is the rule that tells an item that still stands from one whose
 answer changed (skipped, `changed`) and one that is new since the plan (left out, listed under `new_since_plan`).
-It is the window's sync rule (`run.select_actions` with `new_since_preview`) made general, so the write jobs of the
+It is the window's sync rule (`run.select_actions` with `new_since_plan`) made general, so the write jobs of the
 command line and the window's Start use one decision.
 
 The id is the hash of the plan's kind, its music folder and its sorted item keys: the same dry run twice is the same

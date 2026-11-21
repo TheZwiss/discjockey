@@ -468,7 +468,7 @@ class HubApi:
         self._plan_lock = threading.Lock()
         self._plan_cache: tuple[tuple, run.Prepared] | None = None
         # the Sync plan this window last stored in `<support>/plans/` and when (`_store_sync_plan`), under `_lock`
-        self._saved_plan: tuple[str, datetime] | None = None
+        self._saved_plan: tuple[str, dict, datetime] | None = None
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
         self._rb_at: str | None = None  # when `_rb_cache`'s answer was read (ISO time): the `as_of` of a `writing` answer
         # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
@@ -1163,8 +1163,9 @@ class HubApi:
         """Stores the plan a Sync preview answers (design §7.1, §9.2) where every process finds it, and returns its id:
         the actions the preview groups, by their ids, as `(kind, track_id, to_dir)`, with the read and the records'
         generation it was derived from. A preview is asked for on every data change, so the plan is saved when its id
-        is another than the last one this window saved or that save is over an hour old (a plan is good for 24 hours
-        from its last save). A save that fails (the support folder can't be written) is the preview's problem."""
+        is another than the last one this window saved, its actions' targets differ from that save's (the id is a hash
+        of the action ids only), or that save is over an hour old (a plan is good for 24 hours from its last save). A
+        save that fails (the support folder can't be written) is the preview's problem."""
         items = {a["id"]: {"kind": a["kind"], "track_id": a["track_id"], "to_dir": a["to_dir"]}
                  for g in preview["groups"] for a in g["actions"]}
         root = self._plan_root()
@@ -1172,11 +1173,11 @@ class HubApi:
         now = datetime.now()  # as plan_store reads the clock: it is the plan's own 24 hours
         with self._lock:
             last = self._saved_plan
-        if last is None or last[0] != identifier or now - last[1] > PLAN_RESAVE:
+        if last is None or last[0] != identifier or last[1] != items or now - last[2] > PLAN_RESAVE:
             plan_store.save(self._support.support, SYNC_PLAN, root, items,
                             {"read_id": preview["read_id"], "generation": generation}, now=now)
             with self._lock:
-                self._saved_plan = (identifier, now)
+                self._saved_plan = (identifier, items, now)
         return identifier
 
     @bridge
@@ -1308,14 +1309,16 @@ class HubApi:
                 "done": status in ("done", "lost") and len(lines) < JOB_EVENTS_PAGE}
 
     def _last_sync(self) -> dict | None:
-        """The newest sync of this music folder in the registry (any `via`: the window's or the terminal's), as `{job,
+        """The newest sync of this music folder in the registry (any `via`: the window's or the terminal's, a queued one
+        of the terminal included: its kind is still its method name `start_sync`), as `{job,
         args: {plan_id, selected}, ended}`: what the run list shows after a reload and `job show` says of what was
         ticked. Null with no sync, no library, or no registry. The recorded args are read defensively (an older or
         hand-made record has none): a plan id that is no string is None, `selected` keeps its strings."""
         registry_ = self._jobs.registry
         if registry_ is None or self._bound is None:
             return None
-        state = next((s for s in registry_.list(self._bound.root) if s.get("kind") == "sync"), None)
+        state = next((s for s in registry_.list(self._bound.root)
+                      if s.get("kind") == "sync" or s.get("method") == "start_sync"), None)  # a queued Terminal one: its method
         if state is None:
             return None
         args = state.get("args") if isinstance(state.get("args"), dict) else {}
@@ -2165,6 +2168,8 @@ class HubApi:
             raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
         plan = plan_store.load(self._support.support, plan_id, self._plan_root())
         planned = self._planned_actions(plan)
+        if selected is not None and not isinstance(selected, (list, tuple)):
+            raise ValueError("`selected` is a list of action ids of the plan.")
         chosen = list(selected or [])
         for act in chosen:
             if not isinstance(act, str) or act not in planned:

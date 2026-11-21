@@ -343,20 +343,25 @@ def action_key(a: Action) -> tuple[str, str, str]:
     return a.kind, a.track_id, a.dest_dir or f"Library/{a.folder}"
 
 
+OWN_TARGET = "Library/"  # an own song's weekly check: it goes to no playlist folder (`Action("upgrade", key, "")`)
+
+
 def action_ids(prep: Prepared) -> dict[tuple[str, str, str], str]:
     """The ids the Sync plan gives its actions (issue 39 phase 2, design §3): `act:<kind>:<track_id>:<n>`, `n` the
     1-based place of the action's target folder (`action_key`'s third word) in the plan's folder list: `Library/<folder>`
     for the distinct folders of `prep.lines`, in playlists.txt order. A target that is none of those (no action has one
-    today: `Action.dest_dir` is never set) is numbered after them, in plan order. By the folder's place, not by the
+    today: `Action.dest_dir` is never set) is numbered after them, in plan order. An own song's weekly check
+    (`OWN_TARGET`) has no folder and the fixed place 0, so adding or removing a playlist line moves none of those ids. By the folder's place, not by the
     first action that goes there: a folder that gains or loses its only action does not shift the ids of the others,
     so a person's ticks by id stay on the rows they were made for. Over the actions and the "never download" rows, as
     the preview lists both. Ids are opaque: nothing parses them. Action key -> id."""
-    places = {f"Library/{folder}": n for n, folder in enumerate(dict.fromkeys(line.folder for line in prep.lines), 1)}
+    places = {OWN_TARGET: 0}
+    places.update({f"Library/{folder}": n for n, folder in enumerate(dict.fromkeys(line.folder for line in prep.lines), 1)})
     out: dict[tuple[str, str, str], str] = {}
     for a in [*prep.plan.actions, *prep.plan.never]:
         kind, track_id, to_dir = key = action_key(a)
         if to_dir not in places:
-            places[to_dir] = len(places) + 1
+            places[to_dir] = len(places)  # after the folders (the own songs' place 0 is one of the places)
         out[key] = f"act:{kind}:{track_id}:{places[to_dir]}"
     return out
 

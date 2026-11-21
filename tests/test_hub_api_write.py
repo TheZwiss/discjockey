@@ -870,6 +870,9 @@ def test_start_sync_refuses_an_id_the_plan_does_not_hold_and_a_plan_of_another_k
     answer = api.start_sync(plan_id, [ids[0], "act:acquire:t1:9"])
     assert (answer["ok"], answer["kind"]) == (False, "refused") and "act:acquire:t1:9" in answer["message"]
     assert api.start_sync(plan_id, [["acquire", "t1", "Library/A"]])["kind"] == "refused"  # the old key is no id
+    for not_a_list in (5, ids[0], {ids[0]: True}):  # no crash, and a string is not split into letters
+        answer = api.start_sync(plan_id, not_a_list)
+        assert (answer["ok"], answer["kind"]) == (False, "refused") and "`selected` is a list" in answer["message"]
     other = plan_store.save(root.support, "upgrade", str(root.root), {"upgrade:t1": {"track": "t1"}})
     assert (api.start_sync(other, [])["kind"], api.start_sync(other, [])["reason"]) == ("bad_args", "unknown_id")
     assert api.job_status()["job"] is None

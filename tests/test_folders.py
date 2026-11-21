@@ -373,6 +373,41 @@ def test_keep_file_whose_first_move_is_refused_says_nothing_was_moved(paths, tmp
 
 
 @needs_ffmpeg
+def test_keep_file_lists_a_move_the_records_refused(paths, tmp_path, monkeypatch):
+    three_copies(paths, tmp_path)
+    gid, files = group(paths)
+    real, calls = db.finish_file_op, []
+
+    def second_refused(conn, op):
+        calls.append(op)
+        if len(calls) == 2:
+            raise sqlite3.IntegrityError("UNIQUE constraint failed")
+        return real(conn, op)
+    monkeypatch.setattr(db, "finish_file_op", second_refused)
+    with pytest.raises(folders.KeepStopped) as stopped:
+        folders.keep_file(paths, gid, files[2].file_id, seen(paths, gid), now=lambda: NOW)
+    e = stopped.value
+    assert e.kind == "failed" and str(e).startswith("Moved 2 of 2 files to Superseded/, then stopped.")
+    assert [i for i, _ in e.kept.moved] == [files[0].file_id, files[1].file_id]  # the one the records refused is listed
+    assert all((paths.root / dst).is_file() for _, dst in e.kept.moved)  # and it is where the list says
+
+
+@needs_ffmpeg
+def test_keep_file_lists_a_first_move_the_records_refused(paths, tmp_path, monkeypatch):
+    three_copies(paths, tmp_path)
+    gid, files = group(paths)
+
+    def refused(conn, op):
+        raise sqlite3.IntegrityError("UNIQUE constraint failed")
+    monkeypatch.setattr(db, "finish_file_op", refused)
+    with pytest.raises(folders.KeepStopped) as stopped:
+        folders.keep_file(paths, gid, files[2].file_id, seen(paths, gid), now=lambda: NOW)
+    e = stopped.value
+    assert [i for i, _ in e.kept.moved] == [files[0].file_id] and (paths.root / e.kept.moved[0][1]).is_file()
+    assert "records couldn't follow" in str(e) and "Nothing was moved" not in str(e)  # its own words: it did move
+
+
+@needs_ffmpeg
 def test_keep_file_reports_the_moves_made_when_an_unexpected_error_ends_it(paths, tmp_path, monkeypatch):
     three_copies(paths, tmp_path)
     gid, files = group(paths)
