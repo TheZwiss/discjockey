@@ -1244,14 +1244,24 @@ Results:
         on 53c3cce4: 6427 passed, 4 skipped. Merged e195b33d, pushed, worktree removed.
         Wave 2 phase review half A (Opus, review/review-w2-A.md + common-w2.md, V2.3 db786fc9..58e5820a, ~45k
         material) dispatched at e195b33d, exp. ~160k.
-      - RESUME HERE (LATEST, 2026-11-21 ~04:xx): review half A RUNNING (read-only, main checkout e195b33d). Phase
-        branch = e195b33d (pushed). On its notice: ps, agent-cost, extract its final `# Findings` text from the task
-        output jsonl with python into review/findings-w2-A.md, log. Then half B (Opus, review/review-w2-B.md, E9+E4+
-        FR-E4 831c02d4..e195b33d, ~51k, exp. ~180k) → findings-w2-B.md → one Sonnet fix round (brief from both
-        findings; decide DECIDE items by the rules or keep for the user) → `npm run verify` (mine,
-        run_in_background) → CI green → STOP for the user: the end-of-phase-2 cost checkpoint, the real-copy
-        rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox closed), the merge go into main. No release.
-        WAVE 2 SPENT (logged): 3,661k + FR-E4 130 = 3,791k; left ≈ review 340 + fix 150 ≈ 0.49M → wave 2 ≈ 4.3M
+      - Review half A (Opus): logged **253k** (exp. 160k, 1.58x: reproduced F1 live, benchmarked last_sync), agent-cost
+        79 calls, cache 12.5M, fresh_in 247k, out 70k, advisor 0k. 0 Critical (a stale selection can't start an
+        unticked act: ids carry kind + song), 1 Important (F1: same plan_id with a changed target → the saved plan
+        file stays old up to 1 h → a ticked download into a renamed folder is filed new_since_plan and not run; fix:
+        save rule compares items too), 8 Minor (F2 own weekly-check ids shift with the folder count; F3 own live view
+        takes the previous last_sync; F4 last_sync misses a queued Terminal sync; F5 start_sync non-list selected;
+        F6 remembered "fits" with left 0 keeps old ticks; F7 page open > 24 h refuses Start once (hourly re-preview);
+        F8 = the NOT_RECORDED move left out of keep_file's list, a bug; F9 docs), PLANNED: canRetryAdd phase 6,
+        scope applied to a run's selection V4.1, "command" in PlanExpired.next V4.1. No DECIDE. last_sync cost fine
+        (4 ms/100 jobs, not polled). Saved review/findings-w2-A.md. Half B (Opus, exp. ~200k) dispatched at e195b33d
+        (told half A's F3/F4 so it doesn't repeat them).
+      - RESUME HERE (LATEST, 2026-11-21 ~04:xx): review half B RUNNING (read-only, main checkout e195b33d). On its
+        notice: ps, agent-cost, extract its final `# Findings` text from the task output jsonl with python into
+        review/findings-w2-B.md, log. Then ONE Sonnet fix round from findings-w2-A.md + -B.md (split by kind if the
+        count is large: engine/docs vs window; decide DECIDE items by the rules or keep for the user) → `npm run
+        verify` (mine, run_in_background) → CI green → STOP for the user: the end-of-phase-2 cost checkpoint, the
+        real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox closed), the merge go into main.
+        WAVE 2 SPENT (logged): 3,791k + half A 253 = 4,044k; left ≈ half B 200 + fix 150-300 → wave 2 ≈ 4.4-4.5M
         (B2 plan 3,860k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
