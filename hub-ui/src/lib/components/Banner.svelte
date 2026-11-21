@@ -4,7 +4,7 @@
   let { tone = 'info', text, action }: { tone?: 'info' | 'warn'; text: string; action?: Action | null } = $props();
 </script>
 
-<div class="banner {tone}" role="status">
+<div class="banner {tone}" role="status" data-banner>
   <span class="dot" aria-hidden="true"></span>
   <span class="text">{text}</span>
   {#if action}
@@ -14,12 +14,12 @@
 </div>
 
 <style>
-  .banner { display: flex; align-items: center; gap: var(--s-3); min-height: var(--banner-h); padding: 0 var(--s-5);
+  .banner { display: flex; align-items: center; gap: var(--s-3); min-height: var(--banner-h); padding: var(--s-2) var(--s-5);
     border-bottom: var(--bw) solid var(--line); color: var(--text); font-size: var(--fs-small); flex-shrink: 0; }
   .dot { width: 7px; height: 7px; border-radius: var(--r-pill); background: var(--text-muted); flex-shrink: 0; }
   .warn .dot { background: var(--q-good); }
   .info .dot { background: var(--accent); }
-  .text { flex: 1; min-width: 0; }
+  .text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .act { color: var(--accent-text); font-weight: var(--fw-semi); background: none; border: 0; padding: 0; font-size: inherit;
     white-space: nowrap; }
 </style>

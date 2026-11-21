@@ -3,14 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 44. The Terminal-holder banner is longer than the rules checker's 90-character sentence (FR-W2b, 2026-11-21)
-
-Since E9 (`bb4b60e9`) the console banner says the holder's progress: "Sync running in the Terminal · 4 of 60. You can look
-around; changes wait until it's finished." is 94 characters, and `rules-page.js` rule 5 (loose text, over 90) fails it on
-`library-console`, `todo-console` and `dashboard-terminal-sync` at every size (also on the branch before FR-W2b). Decide:
-shorten the shared tail (`BANNER.console_tail`, `copy.ts`) or let the checker treat a banner's one status sentence as a
-container (amend rule 5, as the colour rule was amended). A copy or rule change: not guessed in a fix round.
-
 ## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
 
 Lock order is support, library, `rekordbox.lock` (CLAUDE.md). Every settings write follows it now (`_settings_job`,

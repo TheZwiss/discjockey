@@ -30,8 +30,8 @@ describe('the guards on source fixtures', () => {
     expect(usesGhost(`<Button variant="secondary">Cancel</Button> <!-- not a ghost -->`)).toBe(false);
   });
   it('handWrittenMarkers fails a marker written in markup, passes one read in a selector', () => {
-    expect(handWrittenMarkers(`<p class="err" data-note="problem">x</p><div data-surface={k} data-panel-foot>`))
-      .toEqual(['data-note', 'data-surface', 'data-panel-foot']);
+    expect(handWrittenMarkers(`<p class="err" data-note="problem">x</p><div data-banner data-surface={k} data-panel-foot>`))
+      .toEqual(['data-note', 'data-banner', 'data-surface', 'data-panel-foot']);
     expect(handWrittenMarkers(`el.closest('[data-panel-foot]'); <div data-test="x" data-notes="y" data-scrolls-itself>`)).toEqual([]);
   });
 });
