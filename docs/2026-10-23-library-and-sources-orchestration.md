@@ -1255,14 +1255,28 @@ Results:
         scope applied to a run's selection V4.1, "command" in PlanExpired.next V4.1. No DECIDE. last_sync cost fine
         (4 ms/100 jobs, not polled). Saved review/findings-w2-A.md. Half B (Opus, exp. ~200k) dispatched at e195b33d
         (told half A's F3/F4 so it doesn't repeat them).
-      - RESUME HERE (LATEST, 2026-11-21 ~04:xx): review half B RUNNING (read-only, main checkout e195b33d). On its
-        notice: ps, agent-cost, extract its final `# Findings` text from the task output jsonl with python into
-        review/findings-w2-B.md, log. Then ONE Sonnet fix round from findings-w2-A.md + -B.md (split by kind if the
-        count is large: engine/docs vs window; decide DECIDE items by the rules or keep for the user) → `npm run
-        verify` (mine, run_in_background) → CI green → STOP for the user: the end-of-phase-2 cost checkpoint, the
-        real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox closed), the merge go into main.
-        WAVE 2 SPENT (logged): 3,791k + half A 253 = 4,044k; left ≈ half B 200 + fix 150-300 → wave 2 ≈ 4.4-4.5M
-        (B2 plan 3,860k).
+      - Review half B (Opus): logged **247k** (exp. 200k), agent-cost 69 calls, cache 11.0M, fresh_in 222k, out 77k,
+        advisor 0k. 0 Critical, 2 Important (B1 the window decides a followed job's end from the file: a lost
+        Terminal sync stays "Sync running" until reload, a busy retry flips to "didn't finish" → engine sends
+        `JobEvents.finished` from result.json; B2 last_sync never re-read when a Terminal sync starts with the window
+        open → no covers / Up next), 12 Minor (B3 another window's sync says "In the Terminal" → `where`; B4
+        console_seq; B5 end tie-break one refresh late; B6 two Progress per slot halve the rate; B7 "...." ; B8
+        followed stores never released; B9 answer after unsubscribe dropped; B10 compaction drops ActionFinished;
+        B11 Setup's own unnamed banner; B12 status Literal; B13 J-control words; B14 words.py doc). PLANNED:
+        WriteButton tooltip V6.7/V6.8; BrowserColumn isOff phase 6. DECIDE sidebar/foot follow a Terminal sync →
+        decided by me: A (open-scope Decided 2026-11-21). (a), (c) confirmed fixed. Saved review/findings-w2-B.md.
+        Fix split by kind: FR-W2a (engine + contract: A F1 F2 F4 F5 F8 F9, B1 B3 B10 B12 B13 B14; exp. ~200k) then
+        FR-W2b (window: A F3 F6 F7, B2 B4-B9 B11 + the DECIDE A; exp. ~180k). Briefs review/fix-common-w2.md,
+        FR-W2a.md, FR-W2b.md. FR-W2a dispatched on cli2-fw2a (feat/cli-2-fix-w2a from e195b33d).
+      - RESUME HERE (LATEST, 2026-11-21 ~05:xx): FR-W2a RUNNING on cli2-fw2a. Phase branch = e195b33d (pushed). On its
+        notice: ps, agent-cost, commits, green full pytest (else run it myself), merge --no-ff, push, remove worktree,
+        log. Then FR-W2b (fix-round Sonnet, brief review/FR-W2b.md, worktree cli2-fw2b from the merge, node_modules
+        symlink) → merge → `npm run verify` (mine, run_in_background, on the main checkout; look at the new
+        dashboard-terminal-sync shot and the sync-terminal-* shots myself) → CI green → STOP for the user: the
+        end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox
+        closed), the merge go into main. No release.
+        WAVE 2 SPENT (logged): 4,044k + half B 247 = 4,291k; left ≈ FR-W2a 200 + FR-W2b 180 → wave 2 ≈ 4.67M
+        (B2 plan 3,860k, 1.21x).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
