@@ -1274,13 +1274,24 @@ Results:
         static). Its full pytest after the last change, staged: 6441 passed, 4 skipped; vitest 1789; npm check 0;
         shapes --check clean. Merged 99d4c025, pushed, worktree removed. FR-W2b dispatched on cli2-fw2b
         (feat/cli-2-fix-w2b from 99d4c025), exp. ~190k.
-      - RESUME HERE (LATEST, 2026-11-21 ~05:xx): FR-W2b RUNNING on cli2-fw2b. Phase branch = 99d4c025 (pushed). On its
-        notice: ps, agent-cost, commits, green full pytest (else run it myself), merge --no-ff, push, remove worktree,
-        log. Then `npm run verify` (mine, run_in_background, on the main checkout; look at the new
-        dashboard-terminal-sync shot and the sync-terminal-* shots myself) → CI green → STOP for the user: the
-        end-of-phase-2 cost checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox
-        closed), the merge go into main. No release.
-        WAVE 2 SPENT (logged): 4,291k + FR-W2a 215 = 4,506k; left ≈ FR-W2b 190 → wave 2 ≈ 4.7M (B2 plan 3,860k).
+      - FR-W2b done (Sonnet fix-round): logged **191k** (exp. 190k), agent-cost 82 calls, cache 10.4M, fresh_in 176k,
+        out 50k, advisor 0k. One commit 324c5af1 (F3 F6 F7 B2 B4-B9 B11 + DECIDE A: `shownSync` in follow.ts feeds
+        Sidebar's Sync row and the foot; shot entry dashboard-terminal-sync). Its full pytest after the last change:
+        6441 passed, 4 skipped; vitest 1803; npm check 0; rules: sync 10 shots 0, setup 0. Merged f4f78d68, pushed.
+        LEFT (its issue 44): the console banner "Sync running in the Terminal · 4 of 60. You can look around; …" is
+        93-94 chars > rule 5's 90 (loose text) since E9 bb4b60e9: fails library-console, todo-console,
+        dashboard-terminal-sync → verify would fail. DECIDED by me (technical, by the rule's intent): amend the rule,
+        keep the words: the Banner block sets `data-banner`, rule 5 shelters it (its text is engine data of varying
+        length, so shortening would not hold). Side effect of A (intended): plain console scenarios now follow the
+        Terminal job on every page ("1 of 5"). FR-banner (Sonnet, brief review/FR-banner.md, cli2-fbn from
+        f4f78d68, exp. ~70k) dispatched.
+      - RESUME HERE (LATEST, 2026-11-21 ~06:xx): FR-banner RUNNING on cli2-fbn. Phase branch = f4f78d68 (pushed). On
+        its notice: ps, agent-cost, commit, green pytest, merge --no-ff, push, remove worktree, log. Then `npm run
+        verify` (mine, run_in_background, on the main checkout; look at dashboard-terminal-sync, library-console,
+        todo-console and the sync-terminal-* shots myself) → CI green → STOP for the user: the end-of-phase-2 cost
+        checkpoint, the real-copy rehearsals V2.2 + V2.5 (user present, Discjockey + rekordbox closed), the merge go
+        into main. No release.
+        WAVE 2 SPENT (logged): 4,506k + FR-W2b 191 = 4,697k; left ≈ FR-banner 70 → wave 2 ≈ 4.77M (B2 plan 3,860k).
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
