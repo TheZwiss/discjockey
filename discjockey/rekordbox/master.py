@@ -211,6 +211,11 @@ class Master:
             "SELECT ID, FolderPath FROM djmdContent WHERE IFNULL(rb_local_deleted, 0) = 0 "
             "AND IFNULL(FileType, 0) <> ? AND FolderPath IS NOT NULL", (STREAMING,)).fetchall()
 
+    def tracks(self) -> list[Entry]:
+        """Every track of the library that holds a file: the rows `index()` reads (not deleted, not streaming, with a
+        `FolderPath`), each as an `Entry`, in the database's order. For `match.classify`: one pass over the whole table."""
+        return self._entries([row_id for row_id, _ in self._candidates()])
+
     def entries_for(self, path: Path, index: PathIndex | None = None) -> list[Entry]:
         """The rekordbox tracks that hold the file at `path`, in the database's order (none, one, or several). With
         `index` (this library's, from `index()`) the same answer comes without a scan of the table."""
