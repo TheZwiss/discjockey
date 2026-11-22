@@ -76,15 +76,25 @@ def _resolved(api, command: str, arg: catalog.Arg, value: object) -> tuple[objec
 def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool,
                chosen: tuple[str, ...] = ()) -> tuple[dict, dict | None]:
     """The method's arguments from what the person typed (resolved through `HubApi.resolve`, the entry's `fixed` values
-    added), or the envelope of why not. `chosen` names the arguments the engine already answered (the songs a selection
+    added), or the envelope of why not. A resolved value that is a mapping spreads: each other argument of the entry
+    that is derived (no word of its own) with the same `resolve` kind takes the key of its name, the argument itself
+    the key of its own name. `chosen` names the arguments the engine already answered (the songs a selection
     picked): they are ids and are not resolved again."""
     kwargs = dict(args)
     if not exact:
-        for name, arg in catalog.effective_params(entry, signature_of(entry.method)).items():
-            if arg.resolve and name in kwargs and name not in chosen:
+        params = catalog.effective_params(entry, signature_of(entry.method))
+        spread_done: set[str] = set()  # made from another argument's value: not resolved again
+        for name, arg in params.items():
+            if arg.resolve and name in kwargs and name not in chosen and name not in spread_done:
                 value, failed = _resolved(api, command, arg, kwargs[name])
                 if failed is not None:
                     return {}, failed
+                spread = [other for other, o in params.items() if other != name and o.resolve == arg.resolve
+                          and o.flag is None and not o.positional]
+                if isinstance(value, Mapping) and spread:  # one typed word several arguments are made of (`--in`: `view`, `key`)
+                    kwargs.update({other: value[other] for other in spread})
+                    spread_done.update(spread)
+                    value = value[name]
                 kwargs[name] = value
     kwargs.update(entry.fixed)
     return kwargs, None

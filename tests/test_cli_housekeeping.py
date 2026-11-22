@@ -328,7 +328,7 @@ def test_the_short_list_says_what_each_noun_is_for_and_a_new_noun_cannot_ship_wi
     assert {c[0] for c in parser.commands()} <= set(NOUN_WORDS)
     assert cli.main(["help"]) == 0
     out = capsys.readouterr().out
-    assert "The folders Discjockey watches for your own files. (add, remove)" in out
+    assert "The folders Discjockey watches for your own files. (add, check, list, remove)" in out
 
 
 def test_help_of_one_word_prints_its_sentence(capsys):

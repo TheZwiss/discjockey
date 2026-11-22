@@ -1,0 +1,40 @@
+Title         All tracks
+Folder        none
+View          all
+Key           none
+Folder kind   none
+Subtitle      2 tracks, every folder
+Also          none
+Songs         none
+Read at       none
+Enabled       none
+Service       none
+Empty         none
+Aiff stopped  none
+
+Summary
+Tracks          2
+Lossless share  0.5
+Upgrades ready  0
+Not lossless    1
+To do           1
+
+Summary › By quality
+Lossless    1
+Good lossy  0
+Weak        1
+Fake        0
+Missing     0
+
+Chips
+All            1
+Lossless       1
+Good lossy     0
+Weak           0
+Fake           0
+Upgrade ready  0
+
+Rows
+Track id  Artist       Title        Folder       Duration s  Status    Quality   Quality label  Cutoff hz  Source  Source name  In playlists  Own  Hidden  Upgrade ready  Path                                                Added                Cover url  Sound checked  File state  In missing files  Wait  Next try  Position  Place        Subfolder  Playlists  Track link
+t1        Vatoz Locoz  Gimme Gimme  Hard_Bounce  156.0       lossless  lossless  LOSSLESS       none       qobuz   Qobuz        yes           no   no      no             Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff  2026-10-13T22:15:00  none       yes            here        no                none  none      none      Hard_Bounce  none       none       url: https://open.spotify.com/track/t1, label: Open in Spotify, service: spotify
+1 of 1 shown

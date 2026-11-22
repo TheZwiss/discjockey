@@ -40,8 +40,9 @@ CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real 
 
 
 def skip_without_tools(entry):
-    """`rekordbox preview` decodes a real file: without ffmpeg and ffprobe it skips, like the other audio tests."""
-    if entry.method == "rekordbox_preview" and (shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None):
+    """`rekordbox preview` and `track spectrum` decode a real file: without ffmpeg and ffprobe they skip, like the other
+    audio tests."""
+    if entry.method in ("rekordbox_preview", "spectrum") and (shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None):
         pytest.skip("ffmpeg not installed")
 
 

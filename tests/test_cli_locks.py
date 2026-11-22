@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 import sys
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -20,6 +21,8 @@ from discjockey.hub import catalog, registry
 from discjockey.hub.api import CliApi
 from discjockey.rekordbox import lock as rb_lock
 
+
+CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file
 
 
 class Recorder:
@@ -107,6 +110,12 @@ def _preview(api, rec):
     with mock.patch.dict("os.environ", {"DISCJOCKEY_REKORDBOX": str(folder)}):
         answer = api.rekordbox_preview(path=str(Path(__file__).parent / "fixtures" / "clicks-lame.mp3"))
     assert answer["ok"], answer
+
+
+def _spectrum(api, rec):
+    """`track spectrum` on `t2`, whose file is made a real recording: it decodes the file and opens no library."""
+    shutil.copyfile(CLICKS, api._paths.root / hub_helpers.LOSSY)
+    assert api.spectrum("t2")["ok"]
 
 
 def _parked(api, rec, *, all_of_them: bool = False, phase: str | None = None):
@@ -299,6 +308,11 @@ DRIVERS = {
     "move_batches": lambda api, rec: api.move_batches(),
     "run": lambda api, rec: api.run("last"),
     "runs": lambda api, rec: api.runs(),  # the stored reports: no lock
+    "library": lambda api, rec: api.library("all", None, "naughty"),
+    "sidebar": lambda api, rec: api.sidebar(),
+    "watched_folders": lambda api, rec: api.watched_folders(),
+    "check_import_folder": lambda api, rec: api.check_import_folder(str(api._paths.root / "Crate")),
+    "spectrum": _spectrum,  # a file's own samples: not master.db
     "rekordbox_status": lambda api, rec: api.rekordbox_status(),
     "job_status": lambda api, rec: api.job_status(),
     "job_events": lambda api, rec: api.job_events(_a_job(api)),
@@ -347,7 +361,7 @@ DRIVERS = {
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 
 
-AUDIO_METHODS = {"rekordbox_preview", "convert", "rename", "make_aiff", "aiff_plan"}  # their drivers decode or write real audio
+AUDIO_METHODS = {"rekordbox_preview", "convert", "rename", "make_aiff", "aiff_plan", "spectrum"}  # their drivers decode or write real audio
 
 
 def skip_without_tools(entry):

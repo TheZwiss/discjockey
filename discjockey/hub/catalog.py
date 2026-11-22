@@ -233,9 +233,9 @@ def _favourite_entries() -> list[Entry]:
 
 ENTRIES: tuple[Entry, ...] = (
     # --- reads of the library and the screens
-    _e("library", "library list", "R", "library list --in all --search love --quality lossless", params={
+    _e("library", "library list", "R", "library list --in all --search vatoz --quality lossless", params={
         "view": Arg("--in", type="str", resolve="collection"), "key": _derived("collection"),
-        "query": Arg("--search"), "filter": Arg("--quality"), "sort": Arg("--sort")}, planned="phase 3: V3.1a"),
+        "query": Arg("--search"), "filter": Arg("--quality"), "sort": Arg("--sort")}, pages="rows", built=True),
     _e("track", "track show", "R", 'track show "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff"', params={"track_id": TRACK}, built=True, locks={"rekordbox_r"}),
     _e("todo", "todo list", "R", "todo list --hidden", params={
         "filter": Arg("--group"), "show_hidden": Arg("--hidden", type="bool")}, built=True, locks={"rekordbox_r"}),
@@ -245,10 +245,10 @@ ENTRIES: tuple[Entry, ...] = (
        fixed={"filter": "missing_file"}, built=True, locks={"rekordbox_r"}),
     _e("todo", "check list", "R", "check list", params={"show_hidden": Arg("--hidden", type="bool")},
        fixed={"filter": "rekordbox_check"}, built=True, locks={"rekordbox_r"}),
-    _e("sidebar", "library collections", "R", "library collections", planned="phase 3: V3.1a"),
-    _e("watched_folders", "folder list", "R", "folder list", planned="phase 3: V3.1a"),
+    _e("sidebar", "library collections", "R", "library collections", built=True),
+    _e("watched_folders", "folder list", "R", "folder list", built=True),
     _e("removal_preview", "", "R", params={"folder_id": _positional("folder", type="int")}, built=True),  # `folder remove --dry-run`
-    _e("check_import_folder", "folder check", "R", "folder check /Music/Crate", planned="phase 3: V3.1a"),
+    _e("check_import_folder", "folder check", "R", "folder check /Music/Crate", built=True),
     _e("tidy_preview", "tidy run", "R", "tidy run --dry-run", planned="phase 3: V3.1b"),
     _e("move_batches", "", "R", built=True),  # the window's own list; `batch list` is `batches`
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
@@ -256,7 +256,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True, locks={"rekordbox_r"}),
     _e("job_status", "", "R", built=True),  # the window's own job; `job list` / `job show` read the registry
     _e("job_events", "", "R", built=True),  # the window's follow; `job follow --jsonl` reads the same files
-    _e("spectrum", "track spectrum", "R", "track spectrum local:1 --which current", params={"track_id": TRACK}, planned="phase 3: V3.1a"),
+    _e("spectrum", "track spectrum", "R", 'track spectrum "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff" --which current', params={"track_id": TRACK}, built=True),
     _e("media_url", "", "dropped"),
     _e("dashboard", "status", "R", "status", planned="phase 3: V3.2b"),
     _e("runs", "report list", "R", "report list --since 2026-11-01", params={"since": Arg("--since", resolve="since")},

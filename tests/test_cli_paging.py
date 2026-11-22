@@ -74,3 +74,72 @@ def test_since_keeps_the_runs_from_that_time_on(reports, capsys):
 def test_since_paged_counts_only_the_runs_it_kept(reports, capsys):
     _, env = run_json(["report", "list", "--since", "2026-11-09", "--limit", "1"], capsys)
     assert ids(env) == [STAMPS[2]] and env["page"]["total"] == 2 and env["page"]["next_offset"] == 1
+
+
+# --- library list: the paged read the fixture's two songs make; `--in` is `view` and `key` (the spread of `call._arguments`)
+
+@pytest.fixture
+def songs(tmp_path, monkeypatch):
+    """The three-song hub fixture: two songs have a file (the Library lists those), the third's is missing."""
+    paths = make_root(tmp_path)
+    choose_music(tmp_path, monkeypatch)
+    return paths
+
+
+def keys(env):
+    return [r["track_id"] for r in env["data"]["rows"]]
+
+
+def test_library_list_pages_its_rows(songs, capsys):
+    _, env = run_json(["library", "list"], capsys)
+    whole = keys(env)
+    assert len(whole) == 2 and env["page"] == {"list": "rows", "offset": 0, "limit": 200, "total": 2, "next_offset": None}
+    _, env = run_json(["library", "list", "--limit", "1"], capsys)
+    assert keys(env) == whole[:1]
+    assert env["page"] == {"list": "rows", "offset": 0, "limit": 1, "total": 2, "next_offset": 1}
+    assert env["data"]["summary"]["tracks"] == 2  # every other field is the whole answer's
+    _, env = run_json(["library", "list", "--offset", "1", "--limit", "1"], capsys)
+    assert keys(env) == whole[1:] and env["page"]["next_offset"] is None
+    _, env = run_json(["library", "list", "--offset", "9"], capsys)
+    assert keys(env) == [] and env["page"]["total"] == 2 and env["page"]["next_offset"] is None
+    _, env = run_json(["library", "list", "--limit", "0"], capsys)
+    assert keys(env) == whole and env["page"]["limit"] == 0
+
+
+def test_library_list_text_keeps_its_count_line(songs, capsys):
+    assert cli.main(["library", "list", "--limit", "1"]) == 0
+    assert "1 of 2 shown" in capsys.readouterr().out
+
+
+def test_in_is_the_views_and_the_key_it_names(songs, capsys):
+    from discjockey.cli import bind
+    for typed, view, key in (("all", "all", None), ("unlisted", "unlisted", None), ("playlist:hard_bounce", "playlist", "Hard_Bounce"),
+                             ("Hard_Bounce", "playlist", "Hard_Bounce")):
+        code, env = run_json(["library", "list", "--in", typed], capsys)
+        answer = bind.default().library(view, key)
+        assert code == 0 and env["data"] == {k: v for k, v in answer.items() if k != "ok"}, typed
+        assert (env["data"]["view"], env["data"]["key"]) == (view, key), typed
+    code, env = run_json(["library", "list", "--in", "nope"], capsys)
+    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "unknown_id") and env["page"] is None
+
+
+def test_search_and_quality_narrow_the_rows(songs, capsys):
+    _, env = run_json(["library", "list", "--search", "vatoz", "--quality", "lossless"], capsys)
+    assert keys(env) == ["t1"] and env["page"]["total"] == 1
+    _, env = run_json(["library", "list", "--search", "vatoz", "--quality", "weak"], capsys)
+    assert keys(env) == []
+
+
+def test_the_spread_sets_the_derived_argument_and_resolves_it_once(songs):
+    from discjockey.cli import bind, call, parser
+    from discjockey.hub import catalog
+    entry = catalog.entry_of("library", "library list")
+    parsed = parser.parse(["library", "list", "--in", "playlist:Hard_Bounce", "--search", "x"])
+    kwargs, failed = call._arguments(entry, parsed.args, "library list", bind.default(), exact=False)
+    assert failed is None and kwargs == {"view": "playlist", "key": "Hard_Bounce", "query": "x"}
+    kwargs, _ = call._arguments(entry, {"view": "all"}, "library list", bind.default(), exact=False)
+    assert kwargs == {"view": "all", "key": None}
+    kwargs, _ = call._arguments(entry, {"query": "x"}, "library list", bind.default(), exact=False)
+    assert kwargs == {"query": "x"}  # no --in: the method's own defaults
+    kwargs, _ = call._arguments(entry, {"view": "playlist", "key": "k"}, "call", bind.default(), exact=True)
+    assert kwargs == {"view": "playlist", "key": "k"}  # `call` sends the bridge's own arguments, nothing resolved
