@@ -574,6 +574,10 @@ The keys work while you type in a field, but not while a dialog is open.
 [--quality <quality>] [--sort <sort>]` lists the songs of a collection and `library collections` lists the collections;
 with `--json`, `--limit <n>` (default 200, `0` is all) and `--offset <n>` cut the list to a page, and the answer's `page`
 says where the next one starts. `track spectrum <track> [--which current|upgrade]` reads a file's spectrum.
+`library superseded` lists what sits in `Superseded/` with its size and which of those files rekordbox still points at (Discjockey
+never deletes them: you can, in the Finder), and `rekordbox match [--in <collection>]` lists the rekordbox tracks whose file is
+missing, in `Superseded/`, on a drive that is not connected or in your music folder but no song's file, and your files
+rekordbox lacks.
 
 ## Folders
 

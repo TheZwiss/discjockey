@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from hub_helpers import LOSSY, choose_music, make_root, stub_headless
+from hub_helpers import LOSSLESS, LOSSY, choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
@@ -119,6 +119,24 @@ def with_backups(tmp_path, monkeypatch):
         rb_backup.Backup.ensure(paths, place, dbid=None, batch_id=batch, tracks=[], now=lambda stamp=stamp: stamp)
 
 
+MATCHES = {("rekordbox", "match"), ("library", "superseded")}  # reads that need rekordbox tracks and files in Superseded/
+
+
+def with_match(paths) -> list[dict]:
+    """Two files in Superseded/ (rekordbox points at one) and a rekordbox track of each kind of `rekordbox match`
+    besides the song's: the rows for `make_master`. The hub fixture's lossless song is held, the lossy one is not."""
+    held = {"Superseded/Hard_Bounce/Old.mp3": 1_200_000, "Superseded/Hard_Bounce/Spare.mp3": 35_000_000,
+            "Library/Hard_Bounce/Stray.aiff": 10}
+    for rel, size in held.items():
+        file = paths.root / rel
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_bytes(b"x" * size)
+    return [{"path": str(paths.root / rel), "artist": artist, "Title": title} for rel, artist, title in (
+        (LOSSLESS, "Vatoz Locoz", "Gimme Gimme"), ("Library/Hard_Bounce/Gone.aiff", "Some Artist", "Gone Track"),
+        ("Superseded/Hard_Bounce/Old.mp3", "Armin Hermann", "Get Naughty (old)"),
+        ("Library/Hard_Bounce/Stray.aiff", "Stray Artist", "Stray Title"))]
+
+
 @pytest.fixture
 def fixture(tmp_path, monkeypatch, request, utc):
     """The hub fixtures every read runs on: a library of three songs, a rekordbox library with no tracks, rekordbox
@@ -146,7 +164,7 @@ def fixture(tmp_path, monkeypatch, request, utc):
     if entry is not None and entry.command == ("open", "licences"):
         (tmp_path / "licenses").mkdir()  # the checkout's own folder is no place for a golden
         monkeypatch.setattr(tools, "licenses_dir", lambda: tmp_path / "licenses")
-    make_master(tmp_path / "rekordbox", [])
+    make_master(tmp_path / "rekordbox", with_match(paths) if entry is not None and entry.command in MATCHES else [])
     os.utime(tmp_path / "rekordbox" / "master.db", (MASTER_TIME, MASTER_TIME))
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(tmp_path / "rekordbox"))
     if entry is not None and entry.command == ("rekordbox", "backups"):
@@ -179,7 +197,7 @@ def words(entry) -> list[str]:
 def test_golden_text(entry, fixture, capsys):
     skip_without_tools(entry)
     code, out, err = run(words(entry), capsys)
-    assert code == 0 and err == ""
+    assert code == 0 and all(line.startswith("Next: ") for line in err.splitlines())  # what to run next is a notice, not a page
     # a plan's id is a hash of the music folder's path, which is a different one on every run
     check_golden(golden_name(entry), re.sub(r"plan:[0-9a-f]{12}", "plan:<id>", out.replace(str(fixture), "<tmp>")))
 

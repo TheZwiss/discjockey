@@ -1,5 +1,5 @@
 """The generic printer (issue 39, plan v2 §3.1): turns any payload into a page, so a command needs no renderer of its
-own. A headline (`message`, else the payload's `headline`, else its first `*_text`), scalars as label/value rows (a
+own. A headline (`message`, else the payload's `headline`, else its own `text`, else its first `*_text`), scalars as label/value rows (a
 `<fact>` with a `<fact>_text` prints the words; the raw fact only with `--verbose`), lists of objects as tables in
 payload order (`--limit` rows, default 200, `--offset`, a count line), nested objects as sections. A hand page names
 the top-level fields it places; `rest(payload, placed)` prints the others under "More". Labels are field names in
@@ -63,8 +63,9 @@ def _headline(payload: Mapping, message: str | None) -> tuple[str | None, str | 
     """The headline and the payload key it came from (None when it is the message)."""
     if message:
         return message, None
-    if isinstance(payload.get("headline"), str) and payload["headline"]:
-        return payload["headline"], "headline"
+    for key in ("headline", "text"):  # the answer's own sentence beats the first `<fact>_text` that happens to come first
+        if isinstance(payload.get(key), str) and payload[key]:
+            return payload[key], key
     for key, value in payload.items():
         if key.endswith(TEXT) and isinstance(value, str) and value:
             return value, key
