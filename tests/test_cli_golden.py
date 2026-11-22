@@ -44,9 +44,9 @@ def golden_name(entry) -> str:
     return GOLDEN_NAMES.get(entry.method, "_".join(entry.command))
 
 
-TIMED = {("limits", "show"), ("limits", "set")}  # pages that word today's date: on the fixed clock of `services()`
+TIMED = {("limits", "show"), ("limits", "set"), ("status",)}  # pages that word today's date: on the fixed clock of `services()`
 STUBBED = {("setup", "status"), ("tools", "status"), ("login", "list"), ("login", "find"), ("app", "info"),
-           ("doctor",)}  # reads of this Mac
+           ("doctor",), ("status",)}  # reads of this Mac
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
                                                                                         # parked and checks open
 CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file: a preview decodes it
@@ -121,7 +121,7 @@ def with_backups(tmp_path, monkeypatch):
         rb_backup.Backup.ensure(paths, place, dbid=None, batch_id=batch, tracks=[], now=lambda stamp=stamp: stamp)
 
 
-DOCTORS = {("doctor",)}  # a read that needs something wrong to say: a watched drive that is away, a pause waiting
+DOCTORS = {("doctor",), ("status",)}  # a read that needs something wrong to say: a watched drive that is away, a pause waiting
 
 
 def with_doctor(paths) -> None:

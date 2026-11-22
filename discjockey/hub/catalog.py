@@ -281,7 +281,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("job_events", "", "R", built=True),  # the window's follow; `job follow --jsonl` reads the same files
     _e("spectrum", "track spectrum", "R", 'track spectrum "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff" --which current', params={"track_id": TRACK}, built=True),
     _e("media_url", "", "dropped"),
-    _e("dashboard", "status", "R", "status", planned="phase 3: V3.2b"),
+    _e("dashboard", "", "R", built=True),  # the window's Dashboard; `status` carries it whole (design §5.2)
     _e("runs", "report list", "R", "report list --since 2026-11-01", params={"since": Arg("--since", resolve="since")},
        pages="runs", built=True),
     _e("run", "report show", "R", "report show last", params={"run_id": _positional("report")}, built=True),
@@ -447,6 +447,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("library_superseded", "library superseded", "R", "library superseded", cli_first=True, pages="files", built=True,
        locks={"rekordbox_r"}),
     _e("doctor", "doctor", "R", "doctor", cli_first=True, built=True, locks={"rekordbox_r"}),
+    _e("status_view", "status", "R", "status --ready", params={"ready": Arg("--ready", type="bool")}, cli_first=True,
+       built=True, locks={"rekordbox_r"}),
     _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional("batch")}, cli_first=True,
        built=True),
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),

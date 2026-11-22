@@ -134,7 +134,7 @@ LIBRARY_METHODS = frozenset((
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history", "rekordbox_match",
-                                 "library_superseded"))  # `settings_view` needs none
+                                 "library_superseded", "status_view"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
 RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
                  "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
@@ -4486,6 +4486,29 @@ class CliApi(HubApi):
                 "check_tracks": todo["check_tracks"], "cdj_files": todo["chips"]["cdj"],
                 "missing_files": todo["chips"]["missing_file"], "upgrades_ready": todo["chips"]["upgrade_ready"],
                 "to_load": dashboard["tiles"]["still_to_load"]["count"] or 0}
+
+    @cli_first
+    def status_view(self, ready: bool = False) -> dict:
+        """What the window's Dashboard and navigation show, the jobs that run now and what needs a person (design §5.3):
+        `{dashboard, nav, jobs, ready}` and, while a running job waits for something only a person can do,
+        `person_steps` (its live steps, as `job show` says them). `dashboard` is `dashboard()`'s answer; `nav` the
+        sidebar's four numbers (`todo`, `all_tracks`, `not_in_playlist`, `limits_warning`); `jobs` every job of this music
+        folder that has not ended (`queued`, `running`, `stopping`), newest first, with `line`, its progress in one line.
+        `ready` (the command line's `--ready`, "is my library ready for a gig?") is the problems of `doctor` that a gig
+        depends on, taken from the same `doctor` call (never a count of its own), none when it is ready; null without it.
+        Read only: with `ready` it takes `rekordbox.lock` shared as `doctor` does."""
+        dashboard = self._dashboard_view()
+        sidebar = self._sidebar_view()
+        registry_ = self._jobs.registry
+        states = [s for s in registry_.list(self._paths.root) if s.get("status") in registry.ACTIVE] if registry_ else []
+        answer = {"dashboard": dashboard,
+                  "nav": {k: sidebar[k] for k in ("todo", "all_tracks", "not_in_playlist", "limits_warning")},
+                  "jobs": [{"id": s["id"], "command": s["command"], "via": s["via"], "status": s["status"],
+                            "line": (s.get("progress") or {}).get("line"), "started": s["started"]} for s in states],
+                  "ready": [p for p in self._doctor(dashboard)["problems"] if p["gig"]] if ready else None}
+        if steps := [step for s in states for step in s.get("person_steps") or ()]:
+            answer["person_steps"] = steps
+        return answer
 
     @cli_first
     def select_listing(self, listing: dict) -> dict:

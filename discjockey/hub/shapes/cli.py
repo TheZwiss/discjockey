@@ -15,7 +15,7 @@ from typing import Annotated, Literal, NotRequired, TypedDict
 
 from .common import FailNext, FailPersonStep
 from .kernel import F, alias, shape
-from .library import Browser
+from .library import Browser, Dashboard
 from .setup import AiffPlanAnswer, LastCheck
 from .todo import (AiffBatchResult, AutoUpgradeBlock, AutoUpgradePreviewAnswer, CheckedResult, ItemResult,
                    RekordboxPreviewAnswer, UndoUpgradePreviewAnswer, UpgradePreviewAnswer)
@@ -308,6 +308,47 @@ class Doctor(TypedDict):
     checks: Annotated[list[DoctorCheck], F("Every check, in order, with its state.")]
 
 
+# --- status ---
+
+@shape
+class StatusNav(TypedDict):
+    """The numbers the window's navigation shows."""
+    todo: Annotated[int, F("The to-do badge: what needs you.")]
+    all_tracks: Annotated[int, F("All tracks.")]
+    not_in_playlist: Annotated[int, F("Songs in no playlist.")]
+    limits_warning: Annotated[bool, F("A set-up service has a warning sign you have not marked as seen, or is paused "
+                                      "today: the dot on Download limits.")]
+
+
+@shape
+class StatusJob(TypedDict):
+    """A job of this music folder that has not ended."""
+    id: Annotated[str, F("The job's id (`job:…`), what `job show` and `job wait` take.")]
+    command: Annotated[str, F("The command that started it.")]
+    via: Annotated[Literal["window", "terminal"], F("Where it was started.")]
+    status: Annotated[Literal["queued", "running", "stopping"], F("Where it is.")]
+    line: Annotated[str | None, F("Its progress in one line; null before it has any.")]
+    started: Annotated[str, F("When it started, an ISO time.")]
+
+
+@shape
+class StatusData(TypedDict):
+    """What `status` prints as `data`: what the window's Dashboard and navigation show, the jobs that run now and,
+    with `--ready`, the problems a gig depends on."""
+    dashboard: Annotated[Dashboard, F("What the window's Dashboard shows.")]
+    nav: Annotated[StatusNav, F("The numbers of the window's navigation.")]
+    jobs: Annotated[list[StatusJob], F("The jobs of this music folder that have not ended, newest first.")]
+    ready: Annotated[list[DoctorProblem] | None, F("With `--ready`: the problems of `doctor` that a gig depends on, "
+                                                   "none when the library is ready; null without it.")]
+
+
+@shape
+class StatusView(StatusData):
+    """`status`: the answer of the engine. The command line moves `person_steps` out of `data` into the envelope."""
+    person_steps: NotRequired[Annotated[list[FailPersonStep], F("The steps only a person can do for the running jobs "
+                                                               "(\"Your turn\" lines); left out when none.")]]
+
+
 @shape
 class BatchItem(ItemResult):
     """One track of an AIFF batch, with its name."""
@@ -459,7 +500,8 @@ class Opened(TypedDict):
 ANSWERS: dict[str, str] = {
     "settings_view": "SettingsView", "rekordbox_backups": "RekordboxBackups",
     "rekordbox_restore_preview": "RestorePreview", "batches": "Batches", "batch_detail": "BatchDetail",
-    "history": "History", "doctor": "Doctor", "rekordbox_match": "RekordboxMatch", "library_superseded": "Superseded",
+    "history": "History", "doctor": "Doctor", "status_view": "StatusView", "rekordbox_match": "RekordboxMatch",
+    "library_superseded": "Superseded",
     "batch_undo_preview": "BatchUndoPreview", "facts_preview": "FactsPreview",
     "show_in_finder": "Opened", "reveal": "Opened", "open_report": "Opened", "open_licenses": "Opened",
     "open_external": "Opened", "open_privacy_settings": "Opened",
@@ -475,5 +517,5 @@ CLI_DATA: dict[str, str] = {
     "upgrade": "UpgradeRunData", "upgrade_all": "UpgradeRunData", "batch_resume": "UpgradeRunData",
     "convert": "UpgradeRunData", "rename": "UpgradeRunData", "make_aiff": "UpgradeRunData",
     "rekordbox_checked": "CheckDoneData", "auto_upgrade_run": "AutoUpgradeRunData",
-    "rekordbox_preview": "RekordboxPreviewData",
+    "rekordbox_preview": "RekordboxPreviewData", "status_view": "StatusData",
 }

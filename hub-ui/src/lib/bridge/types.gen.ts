@@ -4279,6 +4279,59 @@ export type Doctor = {
   /** Every check, in order, with its state. */
   checks: DoctorCheck[];
 };
+/** The numbers the window's navigation shows. */
+export type StatusNav = {
+  /** The to-do badge: what needs you. */
+  todo: number;
+  /** All tracks. */
+  all_tracks: number;
+  /** Songs in no playlist. */
+  not_in_playlist: number;
+  /**
+   * A set-up service has a warning sign you have not marked as seen, or is paused today: the dot on Download
+   * limits.
+   */
+  limits_warning: boolean;
+};
+/** A job of this music folder that has not ended. */
+export type StatusJob = {
+  /** The job's id (`job:…`), what `job show` and `job wait` take. */
+  id: string;
+  /** The command that started it. */
+  command: string;
+  /** Where it was started. */
+  via: 'window' | 'terminal';
+  /** Where it is. */
+  status: 'queued' | 'running' | 'stopping';
+  /** Its progress in one line; null before it has any. */
+  line: string | null;
+  /** When it started, an ISO time. */
+  started: string;
+};
+/**
+ * What `status` prints as `data`: what the window's Dashboard and navigation show, the jobs that run now and,
+ * with `--ready`, the problems a gig depends on.
+ */
+export type StatusData = {
+  /** What the window's Dashboard shows. */
+  dashboard: Dashboard;
+  /** The numbers of the window's navigation. */
+  nav: StatusNav;
+  /** The jobs of this music folder that have not ended, newest first. */
+  jobs: StatusJob[];
+  /**
+   * With `--ready`: the problems of `doctor` that a gig depends on, none when the library is ready; null
+   * without it.
+   */
+  ready: DoctorProblem[] | null;
+};
+/**
+ * `status`: the answer of the engine. The command line moves `person_steps` out of `data` into the envelope.
+ */
+export type StatusView = StatusData & {
+  /** The steps only a person can do for the running jobs ("Your turn" lines); left out when none. */
+  person_steps?: FailPersonStep[];
+};
 /** One track of an AIFF batch, with its name. */
 export type BatchItem = ItemResult & {
   /** The song as `Artist - Title`; its key when it is not in the library any more. */

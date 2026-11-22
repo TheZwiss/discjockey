@@ -489,6 +489,11 @@ place, what sits in `Superseded/`, rekordbox tracks on missing or superseded fil
 CDJs won't play well, songs without a file and better versions waiting). It lists each problem with what to do
 next (a command, or a step only you can do, such as allowing the Terminal to open a folder).
 
+`discjockey status` prints what the Dashboard and the sidebar show, the jobs that run now (and, as "Your turn" lines, what
+one of them waits for you to do). `status --ready` is the check for a gig: the problems of `doctor` that matter for playing a
+set (open rekordbox checks, files CDJs won't play well, rekordbox tracks on missing or superseded files, songs without a file,
+stopped batches, drives that are away, better versions waiting), each with what to do next.
+
 The To-do page is `discjockey todo list [--group <group>[,<group>…]] [--hidden]`: `--group fake,weak` lists only those groups (the
 keys are the ones `todo list` prints), `upgrade list`, `missing list` and `check list` list one group each.
 

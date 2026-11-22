@@ -46,6 +46,7 @@ NOUN_WORDS = {
     "rekordbox": "rekordbox's library: its state, whether it matches your files, what a change would do, its backups.",
     "report": "The reports of past syncs: list them, show one.",
     "settings": "What Settings holds, and changing it.",
+    "status": "What the Dashboard shows, the running jobs, and whether you're ready for a gig.",
     "sync": "The sync: what it would do, its last phase.",
     "todo": "Your to-do list.",
     "track": "One song: find it, show it, its spectrum, undo its last step.",
