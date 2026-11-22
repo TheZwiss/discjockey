@@ -26,6 +26,11 @@ def ppth_of(path) -> str:
     return anlz.ppth(anlz.read(path))
 
 
+def test_size_text_says_nothing_is_0_mb_and_a_small_file_is_1_mb():
+    assert convert.size_text(0) == "0 MB" and convert.size_text(1) == "1 MB" and convert.size_text(499_999) == "1 MB"
+    assert convert.size_text(35_000_000) == "35 MB" and convert.size_text(1_200_000_000) == "1.2 GB"
+
+
 def row_of(env, row_id="1") -> dict:
     with master.open_read(env.place, False) as m:
         cur = m.con.execute("SELECT * FROM djmdContent WHERE ID = ?", (row_id,))

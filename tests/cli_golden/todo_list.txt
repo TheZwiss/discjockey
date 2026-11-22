@@ -3,13 +3,6 @@ Summary      2 tracks are not lossless yet · 2 tracks to check in rekordbox
 Checks open  2
 Hidden       0
 
-Check in rekordbox
-the file changed; rekordbox needs a hand
-Id  Artist       Title        Quality   Detail                     Hidden  What to do
-t4  Pegassi      AEIOU        LOSSLESS  Reload Tag, analyse again  no      The lossless audio is in your file, so rekordbox keeps its cues. In rekordbox: Reload Tag, and analyse it again so the waveform shows the full sound.
-t1  Vatoz Locoz  Gimme Gimme  LOSSLESS  relocate, analyse again    no      This is the same edit, lined up with your old file to the sample. In rekordbox: relocate your old track to the new file (right-click › Relocate); its cues fit exactly.
-2 of 2 shown
-
 Upgrade ready
 a better version is waiting for you
 Id  Artist         Title        Quality   Detail                            Hidden

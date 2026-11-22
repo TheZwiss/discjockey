@@ -525,6 +525,8 @@ class SyncPreview(TypedDict):
                                            "Sync scope.")]
     default_how_many: Annotated[str | None, F("The choice to start from (a preset's `key`): `fits` when it is offered, "
                                               "else `all`; null when there are no choices.")]
+    search: Annotated[str | None, F("The words the actions of `groups` were narrowed to (the command line's "
+                                    "`--search`); null for the whole plan. Everything else is the whole plan's.")]
 
 
 @shape

@@ -46,7 +46,8 @@ absolute path of the program.
   `discjockey app open` opens the window.
 - **The answer:** with `--json`, stdout holds exactly one object, for a usage error and a crash too; without it the
   answer is a text page, and notices and problems go to stderr. The keys, in this order: `v` (1), `command`, `outcome`,
-  `reason`, `message`, `data`, `next` (commands to run next), `person_steps` (what only the person can do: `{id, say,
+  `reason`, `message`, `data`, `page` (`null`, or for a long list `{list, offset, limit, total, next_offset}`: `--limit N`, default
+  200, `0` = all, and `--offset N` cut the one list `help --json` names as the command's `pages`), `next` (commands to run next), `person_steps` (what only the person can do: `{id, say,
   then}`; `then` is the command to run afterwards, or `null` for the same command again; every `next[].run` and every
   `then` starts with this program's path), `recovered` (always a list), `job`, `as_of` (`{scanned_at, read_at}`: when
   the index was last scanned and the playlists last read, from the stored records; both `null` without a music folder),

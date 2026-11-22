@@ -132,13 +132,16 @@ The page reads `sidebar()` again after `JobFinished` of kind `refresh`, `sync` o
 and lists), after `DrivesChanged` (a folder's `state`), and after its own `set_favourites` / `set_crate_shown`; no
 event was added for it. The hub store reads it after every `JobFinished`, which includes those.
 
-`sync_preview()` — the check before Start. Each action's `id` (`act:<kind>:<track>:<n>`, `n` the place of its target
+`sync_preview(search?)` — the check before Start. Each action's `id` (`act:<kind>:<track>:<n>`, `n` the place of its target
 folder in playlists.txt, opaque to the page) is sent back ticked to `start_sync`, with the preview's `plan_id`: the plan
 (its actions by id, the read and the records' generation) is stored in `<support>/plans/` for 24 hours, saved when its actions or their targets
 change, or an hour after its last save, so every process finds it. `presets` are the "how many" choices (`key`, `label`,
 `downloads`, the ids it ticks `selected`) for the actions in the Sync scope (settings.json's `sync_scope`) and
 `default_how_many` the key to start from (`fits` when offered, else `all`); null `plan_id`, no presets before the first
-read.
+read. `search` (the command line's `--search`; the window sends none) narrows the actions of `groups` to the songs the
+Library's search finds by artist and title (the same rule: case and accents ignored), a group left with none is left out,
+and the answer's `search` says the words (null for the whole plan); every other field, `plan_id` included, stays the
+whole plan's.
 Shape: `SyncPreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 Before the first read the counts are 0, `counts` and `estimate` are null and `collections` is empty. `waiting_answers`
 are held back until the user answers "Is this the same song?" (the plan's `questions`) and are not downloaded meanwhile.
@@ -292,7 +295,7 @@ checks). A track without a file is `here`. For every state but
 Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by the folder rule only (and carry no
 `audio_url` when false). The `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge already says the kHz.
 
-`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|missing_file|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`).
+`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|missing_file|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`), or a list of those: every comma-separated word of every text is a group key, `all` among them (or none) means every group, and the groups come in the order below whatever order they were named in (the command line's `todo list --group fake,weak`; the window sends one key). `chips` count every group whichever are listed.
 Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". The import adds two
 groups after the first (see "Watched folders and the import" below): `same_song` and `duplicate`, whose items also carry
 a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, `missing_file`
@@ -355,7 +358,7 @@ must be set up (else refused "Set up YouTube Premium first."); `limit` 1–500, 
 Qobuz `days_to_load` is null.
 Shape: `WhatIf` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
-`runs()` → `Runs` (`{"runs": [RunSummary, newest first]}`). `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → `RunAnswer` (`{"run": RunDetail}`), the end screen.
+`runs(since?)` → `Runs` (`{"runs": [RunSummary, newest first]}`); `since` (an ISO time, the command line's `--since` after it resolved the word) keeps the runs that started at or after it, a run with no readable time is kept; the window sends none. `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → `RunAnswer` (`{"run": RunDetail}`), the end screen.
 Shape: `RunAnswer` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 Every row with a `track_id` except `queued` carries `cover_url` (the file's own cover, else Spotify's, else null).
 `section_labels` are the report's own title of every section (`report.SECTIONS`; the end screen's part of the placements
@@ -538,13 +541,22 @@ that still has a `rekordbox_check` when the run's report is written, `note` = th
 
 `show_in_finder(track_id, which="current")`, `reveal(rel_path)` (inside the music folder only, e.g.
 `"Library/Hard_Bounce"`, `".discjockey/reports"`; `"."` is the music folder itself), `open_report(run_id)`, `open_licenses()` (the licences folder, `Contents/Resources/licenses` in the app, in Finder; refused
-when it is missing: "The licences folder is missing from this copy of Discjockey."), `open_external(url)` (https only,
-system browser) → `{}`.
+when it is missing: "The licences folder is missing from this copy of Discjockey."), `open_external(url)` (web links, `http://` or `https://`,
+system browser) → `Opened` `{target, opened, text}` (`target`: the absolute path or the web address; `text`: "Opened <target>.", with `print_only` "Would open <target>; nothing was opened."; generated). Each takes a last
+parameter `print_only=false`, which the window never sends: the command line's `--print` runs every check, opens nothing and
+answers `opened: false`. `show_in_finder(…, "upgrade")` is refused with "That file is not there." when the song has no parked file. `open_report("not-lossless")` opens `.discjockey/not_lossless.md` (the buy list), refused with "There is
+no buy list yet: …" when the file is not there. `open_external`, `open_licenses` and `open_privacy_settings` work without a music folder.
 
-`app_update()` (immediate, also without a music folder: not a library method) — the last answer of the update check (spec
-public-release §8); it never touches the network itself. `unknown` means no answer yet (offline, rate limit, or a version
-that isn't plain), and then the page shows nothing. `latest` and `url` are set only for `available`, and the page opens
-`url` with `open_external`. Read it at boot; the `AppUpdate` event brings later changes.
+`app_update(check?)` (immediate, also without a music folder: not a library method) — the last answer of the update check
+(spec public-release §8). Without `check` it never touches the network: the window's own check keeps the answer in
+memory, and a process with no window (the command line's `app info`) reads the cache while it is at most a day old. With
+`check` (`app info --check`) the update check runs: GitHub is asked only when the cache is a day old or missing, and never
+for a developer's version (it is never compared). `ran_check` says this call ran the check; `checked_at` is when the last
+answer was fetched (null: never). `unknown` means no answer (offline, rate limit, or a version that isn't plain), and
+then the page shows nothing; a call with `check` that ends `unknown` says why in `message` ("No answer: this is a
+developer's version." / "No answer: GitHub could not be reached."), else `message` is null. `latest` and `url` are set
+only for `available`, and the page opens `url` with `open_external`. Read it at boot; the `AppUpdate` event brings later
+changes and carries only `state`, `current`, `latest` and `url`.
 Shape: `AppUpdate` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 `quit()` (immediate) — closes the hub window (after `update_tools` or `rollback_tools` with `restart`: the page says
@@ -594,7 +606,7 @@ A sync may start while it waits; the check then doesn't run. Every settings writ
 | `find_logins(service)` — `youtube\|soundcloud` | immediate | The installed browsers, the default one first, and which profiles hold a login. `problem` `no_access` (Safari without Full Disk Access) \| `locked` \| null; `profiles[].id` null = Safari's only profile. Shape: `FindLogins` |
 | `account_sign_in(service, browser, profile?)` — refused with `sync_running` during any sync, `busy` while another sign-in waits, `refused` for a browser that isn't installed | job `account_sign_in` (sign-in slot) | Opens the sign-in page in that browser (that Chrome/Brave/Edge profile in its own window; Firefox and Safari open their default profile), then looks every 3 s: for Chrome/Brave/Edge with a profile only that profile's login counts, otherwise a login in any profile of the browser (the chosen one first). `SignInPhase` `waiting` → `checking`; then like `setup_account` (Shape: `AccountSaved`), `profile` the one whose login was found. Ends `failed` after 10 minutes ("Didn't see a login in 10 minutes. Sign in again.") or at once when macOS refuses the browser's files (the Full Disk Access message); `stopped` by `stop_sign_in()`; `sync_running` ("… Check again after the sync.") when a sync started while it waited (no check runs); `busy` / `console` when the login was checked but a write job or a terminal run held the lock at the save (nothing saved) |
 | `stop_sign_in()` | immediate | `{stopped}` — Cancel on a waiting sign-in; `stop()` never ends it, and it never ends a sync |
-| `open_privacy_settings()` | immediate | `{}` — System Settings at Full Disk Access |
+| `open_privacy_settings(print_only=false)` | immediate | `Opened` — System Settings at Full Disk Access (`target`: its `x-apple.systempreferences:` address) |
 | `qobuz_check_login()` — refused with `sync_running` during any sync | job `qobuz_check_login` | `{}`: logs in with the saved login and searches once; stores `qobuz_last_check`: `login_failed` only when Qobuz refuses the login, `search_failed` when logged in but the search finds nothing (then `failed` + message). Offline, a Qobuz error or a failed search store nothing (the last check stays) and end `failed` with a plain message |
 | `spotify_sign_out()` | job `spotify_sign_out` | `{}`: forgets the Spotify login; the Client ID stays |
 

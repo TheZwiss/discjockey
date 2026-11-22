@@ -168,6 +168,8 @@ Discjockey opens and starts Setup.
 
 Discjockey looks for a newer version once a day: it asks GitHub for the latest release (nothing about you or your
 library is sent). When one is out, a line under its name in the sidebar says so; click it to open the download page.
+In the Terminal, `discjockey app info` says what the last check found (and when it ran); `app info --check` runs the check
+now, still at most once a day.
 
 To update, download the new `.dmg` and drag Discjockey onto Applications again, replacing the old one. Your music,
 logins and settings stay where they are. Then confirm it once with "Open Anyway", as above.
@@ -430,6 +432,11 @@ when you ask for it on the **Playlists** page. Nothing is deleted, and every mov
 Discjockey never renames a file when it moves it. rekordbox may show moved tracks as missing; its Relocate finds
 them again by file name (see [rekordbox](#rekordbox)).
 
+**In the Terminal:** `discjockey tidy run --dry-run` lists the files the playlist order would put elsewhere, as the
+**Tidy up files** button's preview does, and `batch undo moves:<n> --dry-run` shows what undoing a batch of moves would
+do (`batch list` names the batches). Moving the files and undoing them from the Terminal is not there yet: for now they
+can only be tried.
+
 ## Daily use
 
 Open Discjockey and click **Sync** in the sidebar. Before anything changes, it shows the plan:
@@ -461,11 +468,34 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
   continues where this one stopped.
 - **A sync started in the Terminal** (by you or an agent) shows on the Sync page as one started here does, track by
   track, marked "In the Terminal", and ends on its results. **Stop safely** stops it from the window too.
+- `discjockey sync plan [--search <words>]` prints the plan the Sync page shows, narrowed to the songs that match.
 
 **Qobuz limit.** Discjockey downloads at most 60 tracks a day from Qobuz. Up to a third of
 yesterday's unused amount is added on top. The **Download limits** page changes the daily limit and can allow some
 extra downloads for today only. After 3 failed Qobuz requests in a row, Qobuz pauses for the rest of the run, and
 those tracks are tried again next time.
+
+**In the Terminal:** `discjockey limits show [<service>]` prints what the **Download limits** page shows (what is used,
+the days, the signals, the zones, the suggestion), and `limits set <service> <n> [--extra-today <n>] --dry-run` says what
+another limit would do. Saving a limit from the Terminal is not there yet. `playlist list` lists your playlists;
+`playlist check <link>` reads a link the way **Add to the list** does, and shows the playlist it found, without adding it
+to `playlists.txt`. `login list` shows each download source's state, `login find <service>` the browsers that hold a login for it,
+`tools status` whether the programs Discjockey needs are there, `setup status` what Setup still needs, and
+`setup music <folder> --dry-run` whether a folder can be your music folder.
+`doctor` is the one command for "something broke": it checks the setup (music folder, programs, logins), whether Discjockey can
+open each folder it needs, rekordbox, a library lock nobody explains, jobs that stopped without finishing this week, cut-off
+file steps, watched folders on a drive that is not connected and downloads paused today, and the library itself (whether its records
+can be read, files out of place, what sits in `Superseded/`, rekordbox tracks on missing or superseded files, stopped batches, open rekordbox checks, files
+CDJs won't play well, songs without a file and better versions waiting). It lists each problem with what to do
+next (a command, or a step only you can do, such as allowing the Terminal to open a folder).
+
+`discjockey status` prints what the Dashboard and the sidebar show, the jobs that run now (and, as "Your turn" lines, what
+one of them waits for you to do). `status --ready` is the check for a gig: it says in one sentence whether the library is ready, and lists the problems of
+`doctor` that matter for playing a set (the checks marked for a gig in `doctor --json`: `gig: true`), each with what to do
+next.
+
+The To-do page is `discjockey todo list [--group <group>[,<group>…]] [--hidden]`: `--group fake,weak` lists only those groups (the
+keys are the ones `todo list` prints), `upgrade list`, `missing list` and `check list` list one group each.
 
 ### Listening through a list
 
@@ -551,6 +581,15 @@ your own and bought files, show no second line.
 
 The keys work while you type in a field, but not while a dialog is open.
 
+**In the Terminal:** `discjockey library list [--in all | unlisted | playlist:<name> | folder:<path>] [--search <words>]
+[--quality <quality>] [--sort <sort>]` lists the songs of a collection and `library collections` lists the collections;
+with `--json`, `--limit <n>` (default 200, `0` is all) and `--offset <n>` cut the list to a page, and the answer's `page`
+says where the next one starts. `track spectrum <track> [--which current|upgrade]` reads a file's spectrum.
+`library superseded` lists what sits in `Superseded/` with its size and which of those files rekordbox still points at (Discjockey
+never deletes them: you can, in the Finder), and `rekordbox match [--in <collection>]` lists the rekordbox tracks whose file is
+missing, in `Superseded/`, on a drive that is not connected or in your music folder but no song's file, and your files
+rekordbox lacks.
+
 ## Folders
 
 - `Library/<Folder>/` holds lossless tracks (verified) and files you bought.
@@ -565,6 +604,9 @@ The keys work while you type in a field, but not while a dialog is open.
   waiting for you to decide (see [Upgrades](#upgrades)). It sits next to `Library/`, so rekordbox doesn't
   see these files, but you can listen to them in Finder.
 
+**In the Terminal:** `discjockey folder list` lists the folders Discjockey watches and `folder check <path>` says what
+watching a folder would find, before you add it.
+
 ## Reports and not_lossless.md
 
 After every run, Discjockey writes a report to `.discjockey/reports/` in your music folder and shows a short
@@ -577,6 +619,16 @@ reached), and errors (tried again next run).
 If you buy one, save it under the exact name shown (as `.wav` or `.aiff`) in its folder. The
 next run picks it up and takes the place of the lossy copy. When a lossless version is
 waiting for a track, the list says so.
+
+**In the Terminal:** `discjockey report list [--since today|yesterday|3d|12h|2026-11-20]` lists the reports of past
+syncs, newest first, and `report show <id>|last` shows one. `batch list [--since ...]` lists the batches Discjockey made
+(upgrades, AIFF, tidy-ups), newest first, with the same `--since` words. `history [--since ...]` is the one list of what
+changed (syncs, batches and single steps such as hiding a song), newest first, and for each entry the command that undoes
+it or the words that say why nothing does (a sync's downloads, for one, stay).
+`open report <id>|last|not-lossless` opens a report, or the buy list, in the Finder's usual app; `open file <track>
+[--which current|upgrade]`, `open folder all|playlist:<name>|folder:<path>|<path>`, `open url <link>`, `open licences` and
+`open privacy-settings` show what the window's **Show in Finder** and its links do. Each says what it opened; `--print`
+says it without opening anything.
 
 ## Upgrades
 

@@ -7,8 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from hub_helpers import choose_music, make_root
+from hub_helpers import choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
+from test_cli_upgrade import inline_workers  # noqa: F401 - the fixture
 
 import discjockey.cli as cli
 from discjockey import __version__, db, library
@@ -36,7 +37,7 @@ def test_help_json_lists_every_built_entry_with_what_an_agent_needs(capsys):
     planned = {" ".join(e.command) for e in catalog.ENTRIES if e.planned and e.command} - built  # `batch undo` is built for AIFF batches
     assert not planned & set(listed)  # nothing that is not built
     for command, found in listed.items():
-        assert set(found) >= {"command", "kind", "writes", "job", "args", "flags", "needs_yes", "dry_run", "locks",
+        assert set(found) >= {"command", "kind", "writes", "job", "pages", "args", "flags", "needs_yes", "dry_run", "locks",
                               "reasons", "example", "usage", "methods", "dry_run_method", "songs", "flag_values",
                               "required_flags"}, command
         assert all("id" in a for a in found["args"]), command
@@ -99,7 +100,7 @@ def test_the_short_help_starts_with_the_agents_line_and_lists_the_words(capsys):
 def test_help_of_one_noun_or_command(capsys):
     code, env = run_json(["help", "rekordbox"], capsys)
     assert code == 0 and [c["command"] for c in env["data"]["commands"]] == [
-        "rekordbox backups", "rekordbox preview", "rekordbox restore", "rekordbox status"]
+        "rekordbox backups", "rekordbox match", "rekordbox preview", "rekordbox restore", "rekordbox status"]
     code, env = run_json(["help", "rekordbox", "status"], capsys)
     assert code == 0 and env["data"]["commands"][0]["example"] == "rekordbox status"
     code, env = run_json(["help", "app", "open"], capsys)
@@ -114,7 +115,7 @@ def test_help_of_a_word_that_is_not_there_is_bad_args(capsys):
 
 
 def test_a_command_not_built_is_in_no_help(capsys):
-    code, env = run_json(["help", "playlist"], capsys)
+    code, env = run_json(["help", "question"], capsys)
     assert code == 2 and env["outcome"] == "bad_args"
 
 
@@ -244,7 +245,7 @@ def _row(capsys, *words):
 
 def test_an_id_argument_is_listed_as_the_form_a_person_types(capsys):
     undo = _row(capsys, "batch", "undo")
-    assert undo["args"][0]["id"] == "aiff" and undo["args"][0]["type"] == "str" and undo["args"][0]["word"] == "aiff:N"
+    assert (undo["args"][0]["id"], undo["args"][0]["type"], undo["args"][0]["word"]) == ("batch", "str", "aiff:N|moves:N")  # by id kind
     show = _row(capsys, "batch", "show")
     assert (show["args"][0]["id"], show["args"][0]["word"]) == ("batch", "aiff:N|moves:N")
     assert _row(capsys, "folder", "remove")["args"][0]["word"] == "FOLDER"
@@ -290,9 +291,13 @@ def test_a_command_lists_the_reasons_its_entries_and_locks_answer_with(capsys):
     assert {"needs_yes", "refused"} <= set(_row(capsys, "call")["reasons"])
 
 
-def test_a_read_answers_no_library_exactly_when_the_catalogue_says_it_needs_one(tmp_path, monkeypatch, capsys):
-    """`NEEDS_NO_LIBRARY` is the fact behind the `no_library` reason: run every built read with no music folder chosen."""
+def test_a_read_answers_no_library_exactly_when_the_catalogue_says_it_needs_one(tmp_path, monkeypatch, capsys,
+                                                                                 inline_workers):  # noqa: F811
+    """`NEEDS_NO_LIBRARY` is the fact behind the `no_library` reason: run every built read with no music folder chosen
+    (on the services of the hub fixtures: no browser or tool of this Mac is read; a read that runs as a job
+    (`playlist check`) runs in this process, so no worker starts)."""
     monkeypatch.setenv(library.SUPPORT_ENV, str(tmp_path / "support"))
+    stub_headless(monkeypatch)
     seen = 0
     for command, entries in parser.commands().items():
         for e in entries:
@@ -315,7 +320,7 @@ def test_the_index_names_the_methods_a_row_runs_and_call_lists_what_it_takes(cap
     assert rows["help"]["methods"] == [] and rows["help"]["dry_run_method"] is None
     methods = env["data"]["call_methods"]
     assert "select_listing" in methods and "upgrade_preview" in methods
-    assert not {"select", "quit", "stop", "pick_folder"} & set(methods)
+    assert not {"select", "quit", "stop", "pick_folder", "retry_music_folder"} & set(methods)
     for name in methods:  # a catalogue assertion: calling them would start workers
         built = [e for e in catalog.by_method(name) if not e.planned]
         assert built and name not in catalog.WINDOW_ONLY and name not in catalog.DROPPED, name
@@ -328,7 +333,7 @@ def test_the_short_list_says_what_each_noun_is_for_and_a_new_noun_cannot_ship_wi
     assert {c[0] for c in parser.commands()} <= set(NOUN_WORDS)
     assert cli.main(["help"]) == 0
     out = capsys.readouterr().out
-    assert "The folders Discjockey watches for your own files. (add, remove)" in out
+    assert "The folders Discjockey watches for your own files. (add, check, list, remove)" in out
 
 
 def test_help_of_one_word_prints_its_sentence(capsys):

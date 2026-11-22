@@ -81,12 +81,18 @@ class MusicFolderSet(TypedDict):
 
 @shape
 class AppUpdate(TypedDict):
-    """The update check's last answer (event `AppUpdate`); it never touches the network."""
+    """`app_update(check)`: the update check's last answer (the event `AppUpdate` carries its first four fields); without
+    `check` it never touches the network."""
     state: Annotated[Literal["available", "up_to_date", "unknown"], F(
         "`unknown`: no answer yet (offline, rate limit, or a version that is not plain); the page shows nothing.")]
     current: Annotated[str, F("This app's version.")]
     latest: Annotated[str | None, F("The newest version; only for `available`.")]
     url: Annotated[str | None, F("The release page; only for `available`.", shown=False)]
+    ran_check: Annotated[bool, F("This call ran the update check (`--check`); the network is asked only when the last "
+                                 "answer is a day old.")]
+    checked_at: Annotated[str | None, F("When the last answer was fetched; null when it never was.")]
+    message: Annotated[str | None, F("Why a check that ran has no answer (a developer's version asks nobody; GitHub could "
+                                     "not be reached); null otherwise.")]
 
 
 @shape
@@ -494,7 +500,7 @@ class TidyPreview(TypedDict):
     rows: Annotated[list[TidyRow], F("The files a tidy-up could move.")]
     ticked: Annotated[int, F("How many rows are ticked by default.")]
     rekordbox: Annotated[list[str], F("Two lines for the confirmation.")]
-    undo_note: Annotated[str, F("\"You can undo this on this page.\"")]
+    undo_note: Annotated[str, F("\"You can undo this afterwards.\"")]
     empty: Annotated[str | None, F("Null, or the text shown instead of the list (nothing out of place, or only `yours` "
                                    "rows left: the button then stays usable).")]
     yours: Annotated[TidyYours | None, F("The \"You put these here\" group; null when no row is `yours`.")]

@@ -10,6 +10,7 @@ from __future__ import annotations
 import shutil
 import sys
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -20,6 +21,8 @@ from discjockey.hub import catalog, registry
 from discjockey.hub.api import CliApi
 from discjockey.rekordbox import lock as rb_lock
 
+
+CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file
 
 
 class Recorder:
@@ -107,6 +110,38 @@ def _preview(api, rec):
     with mock.patch.dict("os.environ", {"DISCJOCKEY_REKORDBOX": str(folder)}):
         answer = api.rekordbox_preview(path=str(Path(__file__).parent / "fixtures" / "clicks-lame.mp3"))
     assert answer["ok"], answer
+
+
+def _with_rekordbox(api, call):
+    """`call()` against a fixture rekordbox library whose master.db is opened once (the match reads and `library
+    superseded` look at its tracks)."""
+    from unittest import mock
+
+    from rekordbox_helpers import make_master
+    folder = api._paths.root / "rekordbox"
+    make_master(folder, [{"path": str(api._paths.root / "Superseded" / "old.mp3")}])
+    (api._paths.superseded).mkdir(exist_ok=True)
+    (api._paths.superseded / "old.mp3").write_bytes(b"old")
+    with mock.patch.dict("os.environ", {"DISCJOCKEY_REKORDBOX": str(folder)}):
+        answer = call()
+    assert answer["ok"] and answer["rekordbox"]["state"] == "ready", answer
+
+
+def _plan(api, rec):
+    """`sync plan` with a stored read, so there is a plan to derive (an unread library answers before it looks at anything)."""
+    from hub_helpers import ID1, ID2, TRACKS, store_sync_read
+
+    from discjockey.models import FetchedPlaylist, PlaylistLine
+    store_sync_read(api._paths, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
+                                 FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])])
+    api.lock_recorder.words.clear()
+    assert api.sync_preview("pegassi")["groups"]
+
+
+def _spectrum(api, rec):
+    """`track spectrum` on `t2`, whose file is made a real recording: it decodes the file and opens no library."""
+    shutil.copyfile(CLICKS, api._paths.root / hub_helpers.LOSSY)
+    assert api.spectrum("t2")["ok"]
 
 
 def _parked(api, rec, *, all_of_them: bool = False, phase: str | None = None):
@@ -292,12 +327,47 @@ def _a_job(api) -> str:
     return registry.Registry(api._support.support).create("sync", "sync run", {}, "terminal", roots).id
 
 
+def _check_a_link(api):
+    """`playlist check <link>` against the hub's SoundCloud stub (in place for this one call only): it reads the link's
+    playlist and stores the read, and takes no lock."""
+    import pytest
+    from test_hub_api_playlists import SC_SET, fake_soundcloud
+    with pytest.MonkeyPatch.context() as patch:
+        fake_soundcloud(patch)
+        assert api.add_playlist(SC_SET)["ok"]
+
+
+def _open_buy_list(api) -> dict:
+    """`open report not-lossless --print` on a library that has a buy list."""
+    api._paths.not_lossless_md.write_text("Songs to buy\n")
+    return _opened(api.open_report("not-lossless", print_only=True))
+
+
+def _opened(answer: dict) -> dict:
+    """An opener's answer, which must be `Opened` (a refusal would measure none of the success path's locks)."""
+    assert answer["ok"] and answer["opened"] is False, answer
+    return answer
+
+
 DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
     "batch_detail": lambda api, rec: api.batch_detail("moves:1"),
+    "rekordbox_match": lambda api, rec: _with_rekordbox(api, api.rekordbox_match),
+    "library_superseded": lambda api, rec: _with_rekordbox(api, api.library_superseded),  # the shared hold while master.db is open
+    "status_view": lambda api, rec: api.status_view(ready=True),  # the most it takes: doctor's reads and the dashboard's
+    "dashboard": lambda api, rec: api.dashboard(),  # the window's Dashboard (`status` carries it): no lock
+    "doctor": lambda api, rec: api.doctor(),  # every check on the fixture: master.db's state is read once, shared
+    "history": lambda api, rec: api.history(),  # the records, the reports and the operations log: no lock
     "move_batches": lambda api, rec: api.move_batches(),
     "run": lambda api, rec: api.run("last"),
+    "runs": lambda api, rec: api.runs(),  # the stored reports: no lock
+    "library": lambda api, rec: api.library("all", None, "naughty"),
+    "sidebar": lambda api, rec: api.sidebar(),
+    "sync_preview": _plan,
+    "watched_folders": lambda api, rec: api.watched_folders(),
+    "check_import_folder": lambda api, rec: api.check_import_folder(str(api._paths.root / "Crate")),
+    "spectrum": _spectrum,  # a file's own samples: not master.db
     "rekordbox_status": lambda api, rec: api.rekordbox_status(),
     "job_status": lambda api, rec: api.job_status(),
     "job_events": lambda api, rec: api.job_events(_a_job(api)),
@@ -341,12 +411,30 @@ DRIVERS = {
     "missing_files": lambda api, rec: wait_job(api, rec, api.missing_files(["t3"], "download_again")),  # a skipped song: the job still takes its lock
     "missing_files_preview": lambda api, rec: api.missing_files_preview(["t2"], "download_again"),
     "remove_watched_folder": lambda api, rec: wait_job(api, rec, api.remove_watched_folder(_watched_id(api, rec))),
+    "tidy_preview": lambda api, rec: api.tidy_preview(),  # `tidy run --dry-run`: the records, no lock
+    "undo_preview": lambda api, rec: api.undo_preview(1),  # `batch undo moves:1 --dry-run`: the move log, no lock
+    "limits_what_if": lambda api, rec: api.limits_what_if("qobuz", 40),
+    "check_music_folder": lambda api, rec: api.check_music_folder(str(api._paths.root.parent / "Elsewhere")),
+    "add_playlist": lambda api, rec: _check_a_link(api),  # `playlist check`: a read job, the service read over the network: no lock
+    "limits": lambda api, rec: api.limits("qobuz"),
+    "playlists": lambda api, rec: api.playlists(),  # the playlists file and the stored read: no lock
+    "downloads_view": lambda api, rec: api.downloads_view(),
+    "find_logins": lambda api, rec: api.find_logins("soundcloud"),  # the browsers of `services()`: none
+    "setup_check_tools": lambda api, rec: api.setup_check_tools(),
+    "setup_status": lambda api, rec: api.setup_status(),
+    "app_update": lambda api, rec: api.app_update(check=True),  # the cache file in the support folder's cache/ (T9's allowed write), no lock
+    "show_in_finder": lambda api, rec: _opened(api.show_in_finder("t2", print_only=True)),  # the openers look at paths and open nothing with print_only: no lock
+    "reveal": lambda api, rec: _opened(api.reveal("Library", print_only=True)),
+    "open_report": lambda api, rec: _open_buy_list(api),
+    "open_external": lambda api, rec: _opened(api.open_external("https://example.com", print_only=True)),
+    "open_licenses": lambda api, rec: _opened(api.open_licenses(print_only=True)),
+    "open_privacy_settings": lambda api, rec: _opened(api.open_privacy_settings(print_only=True)),
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 
 
-AUDIO_METHODS = {"rekordbox_preview", "convert", "rename", "make_aiff", "aiff_plan"}  # their drivers decode or write real audio
+AUDIO_METHODS = {"rekordbox_preview", "convert", "rename", "make_aiff", "aiff_plan", "spectrum"}  # their drivers decode or write real audio
 
 
 def skip_without_tools(entry):

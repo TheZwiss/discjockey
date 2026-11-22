@@ -10,7 +10,8 @@ import pytest
 from hub_helpers import (ID1, LOSSLESS, LOSSY, PLAYLISTS, QOBUZ_LINK, fake_qobuz, fake_spotify, make_api, make_root,
                          refreshed, wait_job, write, window)
 
-from discjockey.hub import jobs
+from discjockey import words
+from discjockey.hub import api as api_module, jobs
 from discjockey.hub.api import HubApi
 from discjockey.library import load_state, save_state
 from discjockey.settings import Settings, save_settings
@@ -126,6 +127,24 @@ def test_sync_preview_lists_the_actions_with_ids(root):
     assert [p["collections"][i[0]] for i in ins] == ["Hard_Bounce", "Powertrance"]
 
 
+def test_sync_preview_search_narrows_the_actions_like_the_librarys_search_and_nothing_else(root):
+    api, rec = make_api(root)
+    assert api.sync_preview("pegassi")["groups"] == [] and api.sync_preview("pegassi")["empty"] == "no_preview"  # no read yet
+    refreshed(api, rec)
+    whole = api.sync_preview()
+    assert whole["search"] is None and api.sync_preview("") == whole and api.sync_preview("  ") == whole
+    found = api.sync_preview(" Pégassi ")  # case, accents and the spaces around are not the words
+    assert [(g["key"], [a["title"] for a in g["actions"]]) for g in found["groups"]] == [("acquire:new", ["AEIOU"])]
+    assert found["search"] == "Pégassi"
+    assert {k: v for k, v in found.items() if k not in ("groups", "search")} == {
+        k: v for k, v in whole.items() if k not in ("groups", "search")}  # counts, estimate, presets, plan_id: the whole plan's
+    assert found["groups"][0]["actions"][0] == whole["groups"][0]["actions"][0]  # the row is the whole plan's own row
+    assert api.sync_preview("non stop")["groups"][0]["actions"][0]["id"] == whole["groups"][0]["actions"][1]["id"]
+    assert api.sync_preview("torben")["groups"][0]["actions"][0]["artist"] == "torbentorben"  # the artist counts too
+    assert api.sync_preview("no such song")["groups"] == [] and api.sync_preview("no such song")["counts"] == whole["counts"]
+    assert len(list((root.support / "plans").iterdir())) == 1  # a search stores no plan of its own
+
+
 def plan_file(root, plan_id):
     return root.support / "plans" / f"{plan_id.removeprefix('plan:')}.json"
 
@@ -192,6 +211,10 @@ def test_never_download_and_back(root):
     assert wait_job(api, rec, api.never_download("t4", False)).ok
     assert load_state(root)["never"] == {}
     assert api.sync_preview()["never"] == []
+    # the log tells the two switches from issue 43's Download again of a missing file ("download again")
+    lines = [json.loads(line) for line in root.operations_log.read_text().splitlines()]
+    assert [(line["track_id"], line["operation"], line["result"]) for line in lines] == [
+        ("t4", "never download", "done"), ("t4", "download allowed", "done")]
 
 
 def test_a_changed_playlists_txt_is_read_again_by_itself(root):
@@ -418,6 +441,42 @@ def test_show_in_finder_reveal_and_links(root):
     assert api._svc.calls["open_url"] == ["https://www.beatport.com/search?q=x"]
     write(root, ".discjockey/reports/2026-10-19_214700.md", b"# report")
     assert api.open_report("2026-10-19_214700")["ok"] and api.open_report("x")["kind"] == "refused"
+
+
+def test_the_openers_answer_what_they_opened_and_print_only_opens_nothing(root):
+    api, _ = make_api(root)
+    calls = api._svc.calls
+    write(root, ".discjockey/reports/2026-10-19_214700.md", b"# report")
+    url = "https://www.beatport.com/search?q=x"
+    cases = [  # the call, the opener it uses, what it names
+        (lambda **k: api.show_in_finder("t1", **k), "reveal", str(root.root / LOSSLESS)),
+        (lambda **k: api.reveal("Library/Hard_Bounce", **k), "reveal", str(root.root / "Library/Hard_Bounce")),
+        (lambda **k: api.open_report("2026-10-19_214700", **k), "open_path", str(root.root / ".discjockey/reports/2026-10-19_214700.md")),
+        (lambda **k: api.open_external(url, **k), "open_url", url),
+        (lambda **k: api.open_privacy_settings(**k), "open_url", api_module._PRIVACY_SETTINGS),
+    ]
+    for call, opener, target in cases:
+        assert call(print_only=True) == {"ok": True, "target": target, "opened": False,
+                                          "text": words.NOT_OPENED.format(target=target)}
+        assert not any(calls.values()), target
+        assert call() == {"ok": True, "target": target, "opened": True,
+                          "text": words.OPENED.format(target=target)}
+        assert len(calls[opener]) == 1, target
+        calls[opener].clear()
+    # every check still runs with print_only: nothing is told about a place the page may not open
+    assert api.reveal("../outside", print_only=True)["kind"] == "refused"
+    assert api.open_external("file:///etc/passwd", print_only=True)["kind"] == "refused"
+    assert api.open_report("x", print_only=True)["kind"] == "refused"
+    assert not any(calls.values())
+
+
+def test_the_buy_list_is_a_report_file_open_report_names(root):
+    api, _ = make_api(root)
+    assert api.open_report("not-lossless", print_only=True)["message"] == words.NO_BUY_LIST
+    write(root, ".discjockey/not_lossless.md", b"# buy")
+    assert api.open_report("not-lossless") == {
+        "ok": True, "target": str(root.not_lossless_md), "opened": True, "text": words.OPENED.format(target=root.not_lossless_md)}
+    assert api._svc.calls["open_path"] == [root.not_lossless_md]
 
 
 def test_setup_status_never_shows_secrets(root):

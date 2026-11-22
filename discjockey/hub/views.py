@@ -29,7 +29,7 @@ from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PART_LABELS, PLAN_LABELS, SECTIONS, auto_upgrade_line, check_text, result_folder
 from ..settings import Settings
-from ..words import TODO_EMPTY, person_steps, short_day
+from ..words import AUTO_BATCH_DETAIL, BATCH_CLEAN_NAME, BATCH_MADE_AIFF, BATCH_PLACED, TODO_EMPTY, person_steps, plural, short_day
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
@@ -873,7 +873,6 @@ AUTO_REFUSED_DETAIL = "{short} · not upgraded at your sync"  # the reason first
 AUTO_REFUSED_SHORT = {"timing": "couldn't line it up", "not_analysed": "not analysed in rekordbox",
                       "cloud": "in Cloud Library Sync", "space": "not enough free space",
                       "needs_choice": "couldn't compare it"}  # the five reasons the phase records (auto_upgrade.REFUSALS)
-AUTO_BATCH_DETAIL = "Upgraded during your sync"  # the sub of the To-do item of an Auto-upgrade batch's checks
 
 
 def auto_refused_view(up: dict | None) -> dict | None:
@@ -1235,7 +1234,7 @@ def _folder_rows(key: str, with_file: Mapping[str, dict], found: Sites, away: Ma
     subtitle: Callable[[str], list[str]] = lambda n: [n, "every folder"]
     if folder_kind == "watched":
         count = found.crate_counts[nkey]
-        subtitle = lambda n: [n, *away_part, *([_plural(count, "1 folder with music", "{n} folders with music")]
+        subtitle = lambda n: [n, *away_part, *([plural(count, "1 folder with music", "{n} folders with music")]
                                               if count else []), place(nkey)]
     elif folder_kind == "crate":
         tip = " › ".join([found.roots[root], *nkey[len(root) + 1:].split("/")])
@@ -1386,10 +1385,10 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                "not_lossless": by["good_lossy"] + by["weak"] + by["fake"],
                "to_do": sum(1 for e in entries if (e.get("in_playlists") or file_missing(e)) and not e.get("hidden")
                             and _group(e) is not None)}
-    q = search_fold(query or "").strip()  # case and accents ignored, as the command line's `track find`
+    q = search_query(query)
     if q:
-        rows = [r for r in rows if q in search_fold(f"{r['artist']} {r['title']}")]
-        also = [r for r in also if q in search_fold(f"{r['artist']} {r['title']}")] if also is not None else None
+        rows = [r for r in rows if matches_search(q, r["artist"], r["title"])]
+        also = [r for r in also if matches_search(q, r["artist"], r["title"])] if also is not None else None
     # All counts every row the table lists under it (a read playlist's songs without a file too, never `also`); the
     # quality chips count files, the rows they list
     chips = {f: sum(1 for r in rows if (f == "all" or r["file_state"] != "no_file") and _matches(r, f))
@@ -1402,7 +1401,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
         sort_rows(lst, order, (sort or "").startswith("-"))
     empty = ("gone" if gone else None if rows or also else "empty_library" if not with_file else "no_match")
     return {"title": title, "folder": folder, "view": view, "key": shown_key, "folder_kind": folder_kind,
-            "subtitle": [] if gone else subtitle(_plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
+            "subtitle": [] if gone else subtitle(plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
             "rows": rows, "also": also, "songs": songs, "read_at": read_at, "enabled": enabled, "service": service,
             "empty": empty,
             "aiff_stopped": {"batch_id": aiff_stopped[0], "left": aiff_stopped[1]} if aiff_stopped else None}
@@ -1625,7 +1624,7 @@ def todo_sub(chips: Mapping[str, int], check_tracks: int) -> list[str]:
     Nothing in any of them: ["Nothing to do"]."""
     tracks = sum(chips[g] for g in ("upgrade_ready", "not_found", "weak", "good_lossy", "fake", "other"))
     questions = chips["same_song"] + chips["duplicate"]
-    parts = [_plural(n, *words) for n, words in ((tracks, TODO_SUB_TRACKS), (questions, TODO_SUB_QUESTIONS),
+    parts = [plural(n, *words) for n, words in ((tracks, TODO_SUB_TRACKS), (questions, TODO_SUB_QUESTIONS),
                                                  (check_tracks, TODO_SUB_CHECKS), (chips["cdj"], TODO_SUB_CDJ),
                                                  (chips["missing_file"], TODO_SUB_MISSING)) if n]
     return parts or [TODO_SUB_NOTHING]
@@ -1811,10 +1810,7 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
     return None, None
 
 
-BATCH_MADE_AIFF = "Made AIFF"  # the sub of the To-do item of a Convert batch's checks (plan stage D §3)
 SYNC_STARTERS = (batches.AUTO, batches.DOWNLOAD_AGAIN)  # `started_by` of a batch the sync's last phase made
-BATCH_CLEAN_NAME = "Clean name"  # a batch that only gave clean names
-BATCH_PLACED = "Better versions put in during your sync"  # the sub of a batch of placements only (issue 43)
 PLACED_CARD_SUMMARY = "better versions in"  # the summary of the "In rekordbox" card of a batch of placements only
 CARD_SUMMARY_ONE = "same track, cues kept"  # the summary of the card's steps for upgrades: one track in rekordbox ...
 CARD_SUMMARY_MANY = "same tracks, cues kept"  # ... or several
@@ -1842,17 +1838,36 @@ def _card_summary(tracks: list[dict]) -> str | None:
     return PLACED_CARD_SUMMARY if _placed(tracks) else None
 
 
-def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> str:
-    """The words after the day on a batch item: "Better versions put in during your sync" (a batch of placements
-    only), "Upgraded during your sync" (Auto-upgrade), "Made AIFF" (a batch of Convert or Rename items:
-    `aiff_batches.kind` `convert` or `mixed`; "Clean name" when every check is a clean name), else "Same track"."""
-    if tracks and _placed(tracks) == len(tracks):
+def batch_how(started_by: str | None, kind: str | None, actions: Collection[str]) -> str | None:
+    """The words after the day on a batch, when it is one of three kinds: "Better versions put in during your sync" (it
+    only placed: `actions` is `{"place"}`), "Upgraded during your sync" (the sync's last phase made it), "Clean name"
+    (a Convert or mixed batch that only renamed); None for any other, which each page words itself (the To-do list: "Same
+    track" or "Made AIFF"; `history`: what the batch did). ONE rule for both; `actions` are the batch's item actions
+    (`batches.RUNNABLE`), for an open batch the actions of its checks (`_check_actions`)."""
+    kinds = set(actions)
+    if kinds == {"place"}:
         return BATCH_PLACED
     if started_by in SYNC_STARTERS:  # the sync's last phase, the switch on or off
         return AUTO_BATCH_DETAIL
-    if kind in ("convert", "mixed"):
-        return BATCH_CLEAN_NAME if all(t["check"]["reason"] == "renamed" for t in tracks) else BATCH_MADE_AIFF
-    return "Same track"
+    if kind in ("convert", "mixed") and kinds == {"rename"}:
+        return BATCH_CLEAN_NAME
+    return None
+
+
+def _check_actions(tracks: list[dict]) -> set[str]:
+    """The item actions of a batch's open checks that `batch_how` tells apart: `place` (a placement), `rename` (a clean
+    name); any other check is `other`."""
+    named = {"placed_missing": "place", "renamed": "rename"}
+    return {named.get(t["check"]["reason"], "other") for t in tracks}
+
+
+def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> str:
+    """The words after the day on a batch item in the To-do list: `batch_how`, else "Made AIFF" (a batch of Convert or
+    Rename items: `aiff_batches.kind` `convert` or `mixed`), else "Same track"."""
+    how = batch_how(started_by, kind, _check_actions(tracks))
+    if how is not None:
+        return how
+    return BATCH_MADE_AIFF if kind in ("convert", "mixed") else "Same track"
 
 
 def _batch_row_name(n: int, kind: str | None, placed: int) -> str:
@@ -1980,7 +1995,13 @@ def _absolute(root: Path | None, path: str | None) -> str | None:
     return str(root / path) if root is not None else None
 
 
-def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
+def not_a_string(filt: Collection[str] | None) -> None:
+    """The guard of `todo`'s `filt`: a bare string would pass as a collection (`"all" in "all"`, a key as part of a word)."""
+    if isinstance(filt, str):
+        raise TypeError("filt is a collection of group keys or None, not a string")
+
+
+def todo(state: dict, filt: Collection[str] | None, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
          counted: Collection[str] = (), away: Mapping[str, str] | None = None,
@@ -1990,7 +2011,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
          cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None,
          cdj_waits: Mapping[str, str] | None = None, decided: Collection[str] = (), root: Path | None = None,
          place: Callable[[str], str] | None = None) -> dict:
-    """Groups in this order: Check in rekordbox, Missing files, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
+    """`filt`: the groups to list (a collection of keys), None for every one (never a bare string: `"all" in "all"`
+    reads a group key as part of a word). Groups in this order: Check in rekordbox, Missing files, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
     CDJs, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
     with a `rekordbox_check`, hidden or not, so a track can be in two groups; chips["all"] counts each track once.
@@ -2048,6 +2070,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
     `detail` ("Missing since 12 Nov · was in Techno 2019") and `missing` (`missing.view`: action, why not, words, what
     it will do). `place` (Sites.place) words where the file was. The group carries `all: {download_again, remove}`:
     the items not hidden whose action can run now, by action (what the head link and `--all` act on)."""
+    not_a_string(filt)
     members = cdj_rule.group_members(state, include_hidden=True, held=decided)
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}
@@ -2137,7 +2160,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
              "cdj": {"all": {"n": cdj_all[0], "k": cdj_all[1]},
                      "stopped": {"batch_id": cdj_stopped[0], "left": cdj_stopped[1]} if cdj_stopped else None}}
     groups = [{"key": g, "label": label, "hint": hint, "items": items[g], **extra.get(g, {})}
-              for g, label, hint in TODO_GROUPS if items[g] and (filt in (None, "all") or filt == g)]
+              for g, label, hint in TODO_GROUPS if items[g] and (filt is None or g in filt)]
     empty = None
     if not chips["all"]:
         empty = "all_lossless" if not hidden else "all_hidden"
@@ -2321,6 +2344,17 @@ def how_many(rows: Sequence[Mapping], left: int | None, off: Collection[str], we
              for key, label, n in sorted(offered, key=lambda o: o[2])], "fits" if fits else "all")
 
 
+def search_query(text: str | None) -> str:
+    """What a search box's words are looked for as: case and accents ignored, as the command line's `track find`."""
+    return search_fold(text or "").strip()
+
+
+def matches_search(query: str, artist: str, title: str) -> bool:
+    """Whether a song is found by `query` (`search_query`): the words are in its artist and title. The one rule of the
+    Library's search, `sync_preview`'s `search` and the command line's."""
+    return query in search_fold(f"{artist} {title}")
+
+
 def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
                  where: Callable[[str], str] | None = None, places: Places | None = None,
@@ -2339,7 +2373,7 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
         return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
                 "waiting_answers": 0, "deferred_checks": 0, "collections": {}, "auto_upgrade": None,
-                "read_id": read.read_id, "plan_id": None, "presets": [], "default_how_many": None}
+                "read_id": read.read_id, "plan_id": None, "presets": [], "default_how_many": None, "search": None}
     from .. import run  # at call time: run imports this module
     plan_state = prep.state
     members, names = _members(prep, plan_state, places)
@@ -2376,7 +2410,7 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
             # every collection a row is in, by its target (the browser column's key) -> its name (issue 37)
             "collections": names, "auto_upgrade": auto_upgrade, "read_id": read.read_id,
             # the id the plan is stored under is the api's to give (`HubApi.sync_preview` saves it): a view stores nothing
-            "plan_id": None, "presets": presets, "default_how_many": default}
+            "plan_id": None, "presets": presets, "default_how_many": default, "search": None}
 
 
 # --- watched folders (Settings, Setup; plan library stage 4 I11) ---
@@ -2484,7 +2518,7 @@ TIDY_YOURS_HEADER = "You put these here"
 TIDY_YOURS_CONTROL = "Put these in playlist order too"
 REKORDBOX_NOTES = ["rekordbox may show the moved tracks as missing.",
                    "Its Relocate finds them again by file name: Discjockey never renames them."]
-UNDO_NOTE = "You can undo this on this page."
+UNDO_NOTE = "You can undo this afterwards."
 UNDO_WARN = ("{n} files go back to where they were. rekordbox may show them as missing again; Relocate finds them "
              "by file name.")
 UNDO_WARN_ONE = ("1 file goes back to where it was. rekordbox may show it as missing again; Relocate finds it "
@@ -2570,10 +2604,6 @@ def tidy_row(row: TidyRow, e: dict, cover: Url | None = None, by_rename: str | N
             "by_rename": by_rename}
 
 
-def _plural(n: int, one: str, many: str) -> str:
-    return one if n == 1 else many.format(n=n)
-
-
 def tidy_preview(rows: list[TidyRow], state: dict, cover: Url | None = None) -> dict:
     """The "Tidy up files" preview. Rows ticked by default are those a tidy-up moves for sure; `yours` rows
     (the user's own placement) are listed apart, with one control that ticks them all (plan P1)."""
@@ -2583,7 +2613,7 @@ def tidy_preview(rows: list[TidyRow], state: dict, cover: Url | None = None) -> 
     if not out:
         empty = TIDY_EMPTY
     elif not ticked and movable_yours:
-        empty = _plural(movable_yours, TIDY_ONLY_YOURS_ONE, TIDY_ONLY_YOURS)
+        empty = plural(movable_yours, TIDY_ONLY_YOURS_ONE, TIDY_ONLY_YOURS)
     else:
         empty = None
     yours = sum(1 for r in out if r["yours"])
@@ -2603,8 +2633,8 @@ def batch_title(b: BatchRow, undone_title: str | None = None) -> str:
     return BATCH_TITLES.get(b.started_by, "Moves")
 
 
-def _summary(moved: int, skipped: int) -> str:
-    text = _plural(moved, "1 file moved", "{n} files moved")
+def moves_summary(moved: int, skipped: int) -> str:
+    text = plural(moved, "1 file moved", "{n} files moved")
     return f"{text} · {skipped} not moved" if skipped else text
 
 
@@ -2620,7 +2650,7 @@ def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | N
 
     return {"batches": [{"id": b.id, "at": b.started, "title": title(b),
                          "moved": b.moved, "skipped": b.skipped, "undoable": b.undoable,
-                         "undone_by": b.undone_by, "summary": _summary(b.moved, b.skipped)} for b in rows],
+                         "undone_by": b.undone_by, "summary": moves_summary(b.moved, b.skipped)} for b in rows],
             "total": total}
 
 
@@ -2663,7 +2693,7 @@ def _skipped_item(m: MoveRow) -> dict:
 def batch_result(r: BatchResult, title: str) -> dict:
     """What a finished batch tells the page: "Moved 3 files." (undo: "... back."), then "2 not moved:" and the list."""
     back = " back" if r.started_by == "undo" else ""
-    headline = _plural(r.moved, f"Moved 1 file{back}.", "Moved {n} files" + back + ".")
+    headline = plural(r.moved, f"Moved 1 file{back}.", "Moved {n} files" + back + ".")
     if r.skipped:
         headline += f" {len(r.skipped)} not moved:"
     return {"batch_id": r.batch_id, "title": title, "moved": r.moved, "headline": headline,
@@ -2689,7 +2719,7 @@ def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str]
     running = [m for m, r in zip(moves, rows) if r["skip"] is None]
     # a folder's files sit under its current name, `src`
     moving = sum(1 if m.kind == "file" else r["files"] or 0 for m, r in zip(moves, rows) if r["skip"] is None)
-    warning = [_plural(moving, UNDO_WARN_ONE, UNDO_WARN)] if moving else []
+    warning = [plural(moving, UNDO_WARN_ONE, UNDO_WARN)] if moving else []
     folder = next((m for m in running if m.kind == "folder"), None)
     if folder is not None:
         warning.append(UNDO_RENAME.format(old=_rel(folder.dst)))
@@ -2796,7 +2826,7 @@ def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files
     days = (1 if c.new else 0) if money is None else days_to_load(len(c.new), money["remaining"], money["limit"])
     n_tracks = len(reroutes)
     tracks_will = f"{n_tracks} tracks will" if n_tracks != 1 else "1 track will"
-    save_headline = _plural(len(tidy_list), SAVE_HEADLINE_ONE, SAVE_HEADLINE)
+    save_headline = plural(len(tidy_list), SAVE_HEADLINE_ONE, SAVE_HEADLINE)
     if pairs and renamed and pairs <= renamed:
         kind = "rename"
         headline = save_headline if tidy_list else f"{tracks_will} go to the new folder name"

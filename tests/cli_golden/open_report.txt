@@ -1,0 +1,4 @@
+Would open <tmp>/.discjockey/reports/2026-11-10_110000.md; nothing was opened.
+
+Target  <tmp>/.discjockey/reports/2026-11-10_110000.md
+Opened  no

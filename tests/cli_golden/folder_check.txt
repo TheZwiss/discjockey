@@ -1,0 +1,8 @@
+Path         /Music/Crate
+Exists       no
+Usable       no
+Problem      not_found
+Kind         none
+Message      That folder isn't there. If it is on a drive, connect the drive first.
+Merges       none
+Merge hints  none

@@ -1034,8 +1034,20 @@
     },
     "AppUpdate": {
       "additionalProperties": false,
-      "description": "The update check's last answer (event `AppUpdate`); it never touches the network.",
+      "description": "`app_update(check)`: the update check's last answer (the event `AppUpdate` carries its first four fields); without `check` it never touches the network.",
       "properties": {
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the last answer was fetched; null when it never was.",
+          "x-shown": true
+        },
         "current": {
           "description": "This app's version.",
           "type": "string",
@@ -1051,6 +1063,23 @@
             }
           ],
           "description": "The newest version; only for `available`.",
+          "x-shown": true
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why a check that ran has no answer (a developer's version asks nobody; GitHub could not be reached); null otherwise.",
+          "x-shown": true
+        },
+        "ran_check": {
+          "description": "This call ran the update check (`--check`); the network is asked only when the last answer is a day old.",
+          "type": "boolean",
           "x-shown": true
         },
         "state": {
@@ -1079,7 +1108,10 @@
         "state",
         "current",
         "latest",
-        "url"
+        "url",
+        "ran_check",
+        "checked_at",
+        "message"
       ],
       "type": "object"
     },
@@ -2590,7 +2622,7 @@
       "description": "The batches Discjockey made, newest first.",
       "properties": {
         "batches": {
-          "description": "The newest batches (`--limit`).",
+          "description": "The batches, newest first.",
           "items": {
             "$ref": "#/$defs/BatchRow"
           },
@@ -2598,7 +2630,7 @@
           "x-shown": true
         },
         "total": {
-          "description": "How many batches there are of the kinds asked for.",
+          "description": "How many batches there are of the kind and from the time asked for: as many as the list holds, and the `page`'s total.",
           "type": "integer",
           "x-shown": true
         }
@@ -4223,6 +4255,162 @@
       ],
       "type": "object"
     },
+    "Doctor": {
+      "additionalProperties": false,
+      "description": "`doctor`: everything that is wrong, each problem with what to do next, and every check that ran.",
+      "properties": {
+        "checks": {
+          "description": "Every check, in order, with its state.",
+          "items": {
+            "$ref": "#/$defs/DoctorCheck"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "problems": {
+          "description": "What was found: problems first, then notes, each in check order.",
+          "items": {
+            "$ref": "#/$defs/DoctorProblem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "text": {
+          "description": "The answer in one sentence: how many problems and notes, or that nothing is wrong.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "text",
+        "problems",
+        "checks"
+      ],
+      "type": "object"
+    },
+    "DoctorCheck": {
+      "additionalProperties": false,
+      "description": "One line of `doctor`'s checks.",
+      "properties": {
+        "check": {
+          "$ref": "#/$defs/DoctorCheckKey",
+          "description": "The check.",
+          "x-shown": false
+        },
+        "label": {
+          "description": "What the check looks at, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "state": {
+          "description": "`ok`: nothing found. `problem` / `note`: it found something of that level (a problem wins). `skipped`: it was not run: it needs a music folder and none is chosen, or it reads the library's records and those cannot be read (the `records` check says so).",
+          "enum": [
+            "ok",
+            "problem",
+            "note",
+            "skipped"
+          ],
+          "x-shown": true
+        }
+      },
+      "required": [
+        "check",
+        "label",
+        "state"
+      ],
+      "type": "object"
+    },
+    "DoctorCheckKey": {
+      "description": "One check of `doctor` (`discjockey/hub/doctor.py`, `CHECKS`).",
+      "enum": [
+        "music_folder",
+        "tools",
+        "logins",
+        "folder_access",
+        "rekordbox",
+        "stale_lock",
+        "lost_jobs",
+        "records",
+        "pending_steps",
+        "drives_away",
+        "downloads_paused",
+        "out_of_place",
+        "superseded",
+        "rekordbox_files",
+        "stopped_batches",
+        "open_checks",
+        "cdj",
+        "songs_without_file",
+        "upgrades_waiting"
+      ]
+    },
+    "DoctorProblem": {
+      "additionalProperties": false,
+      "description": "One thing `doctor` found, with what to do about it.",
+      "properties": {
+        "check": {
+          "$ref": "#/$defs/DoctorCheckKey",
+          "description": "The check that found it.",
+          "x-shown": false
+        },
+        "count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The number the text counts (jobs, folders, files, tracks); null when it counts nothing.",
+          "x-shown": true
+        },
+        "gig": {
+          "description": "Whether the next gig depends on it (`status --ready` lists these).",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "level": {
+          "description": "`problem`: something to fix. `note`: worth knowing, nothing to fix.",
+          "enum": [
+            "problem",
+            "note"
+          ],
+          "x-shown": true
+        },
+        "next": {
+          "description": "Commands that look further or move on.",
+          "items": {
+            "$ref": "#/$defs/FailNext"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "person_steps": {
+          "description": "The steps only a person can do.",
+          "items": {
+            "$ref": "#/$defs/FailPersonStep"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "text": {
+          "description": "What is wrong, in words.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "check",
+        "level",
+        "gig",
+        "text",
+        "count",
+        "next",
+        "person_steps"
+      ],
+      "type": "object"
+    },
     "DownloadTool": {
       "additionalProperties": false,
       "description": "One download tool in Settings → This Mac.",
@@ -5714,6 +5902,146 @@
       ],
       "type": "object"
     },
+    "History": {
+      "additionalProperties": false,
+      "description": "What changed and what can be undone: runs, batches and single steps, newest first.",
+      "properties": {
+        "entries": {
+          "description": "The entries, newest first.",
+          "items": {
+            "$ref": "#/$defs/HistoryEntry"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The time the list starts at, an ISO time; null when it was not limited.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "entries",
+        "since"
+      ],
+      "type": "object"
+    },
+    "HistoryEntry": {
+      "additionalProperties": false,
+      "description": "One thing that changed: a run of the sync, a batch (AIFF or moves) or a single step Discjockey logged. Exactly one of `undo` and `cant_text` is set.",
+      "properties": {
+        "artist": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's artist, for a single step.",
+          "x-shown": true
+        },
+        "at": {
+          "description": "When it happened, an ISO time: a run's or batch's start, a step's time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "cant_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why `undo` is null, in words; null when there is an `undo`.",
+          "x-shown": true
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The id the commands take: `report:<stamp>`, `aiff:12` or `moves:12`; null for a single step.",
+          "x-shown": true
+        },
+        "kind": {
+          "description": "A run, a batch or a single logged step.",
+          "enum": [
+            "run",
+            "batch",
+            "operation"
+          ],
+          "x-shown": false
+        },
+        "text": {
+          "description": "What happened, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's title, for a single step.",
+          "x-shown": true
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song a single step was done to; null for a run or a batch.",
+          "x-shown": false
+        },
+        "undo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The command that undoes it (run its `--dry-run` first); null when nothing does or the command is not there yet.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "text",
+        "undo",
+        "cant_text",
+        "track_id",
+        "artist",
+        "title"
+      ],
+      "type": "object"
+    },
     "ImportFolderCheck": {
       "additionalProperties": false,
       "description": "What `check_import_folder(path)` found; it changes nothing.",
@@ -7165,6 +7493,186 @@
       ],
       "type": "object"
     },
+    "MatchCounts": {
+      "additionalProperties": false,
+      "description": "How many of each kind there are in the narrowed view.",
+      "properties": {
+        "away": {
+          "description": "Rekordbox tracks on a watched drive that is not connected now.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "matched": {
+          "description": "Rekordbox tracks whose file is a song's current file.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "missing": {
+          "description": "Rekordbox tracks whose file is not there.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "not_in_library": {
+          "description": "Rekordbox tracks whose file is in your music folder or a watched folder but is no song's file.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "not_in_rekordbox": {
+          "description": "Files of your library that no rekordbox track holds.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "outside": {
+          "description": "Rekordbox tracks whose file is there but elsewhere: your own files, never a problem.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "superseded": {
+          "description": "Rekordbox tracks that point at a file in Superseded/.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "matched",
+        "missing",
+        "superseded",
+        "away",
+        "not_in_library",
+        "not_in_rekordbox",
+        "outside"
+      ],
+      "type": "object"
+    },
+    "MatchRekordbox": {
+      "additionalProperties": false,
+      "description": "What state rekordbox's library was in for the read, in words. `unreadable` answers \"was it read just now\"; it is not the library's health: `rekordbox status` says that (`ready` with `problem: busy` is a healthy library that was busy).",
+      "properties": {
+        "state": {
+          "description": "`ready`: it was read; `none`: no rekordbox library on this Mac; `unreadable`: it could not be read now (a writer holds it, or its problem).",
+          "enum": [
+            "ready",
+            "none",
+            "unreadable"
+          ],
+          "x-shown": true
+        },
+        "state_text": {
+          "description": "The state in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "writing": {
+          "description": "Discjockey is changing rekordbox's library in another window or the Terminal, so it was not opened.",
+          "type": "boolean",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "state",
+        "state_text",
+        "writing"
+      ],
+      "type": "object"
+    },
+    "MatchRow": {
+      "additionalProperties": false,
+      "description": "One thing that does not match: a rekordbox track, or a file of your library rekordbox lacks.",
+      "properties": {
+        "artist": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The artist: rekordbox's for its track, the library's for a file it lacks.",
+          "x-shown": true
+        },
+        "kind": {
+          "description": "What does not match.",
+          "enum": [
+            "missing",
+            "superseded",
+            "away",
+            "not_in_library",
+            "not_in_rekordbox"
+          ],
+          "x-shown": false
+        },
+        "kind_text": {
+          "description": "What does not match, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "path": {
+          "description": "The file's absolute path, as rekordbox holds it (for a file rekordbox lacks: where it is).",
+          "type": "string",
+          "x-shown": true
+        },
+        "rekordbox_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The rekordbox track's id; null for a file rekordbox lacks.",
+          "x-shown": false
+        },
+        "rel_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The path relative to the music folder; null for a file outside it.",
+          "x-shown": true
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The title: rekordbox's for its track, the library's for a file it lacks.",
+          "x-shown": true
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The library song whose current file it is; null when none.",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "kind",
+        "kind_text",
+        "path",
+        "rel_path",
+        "track_id",
+        "rekordbox_id",
+        "artist",
+        "title"
+      ],
+      "type": "object"
+    },
     "MissingAction": {
       "description": "What the user can do for a song whose file waits as missing: Download again for a song in a playlist, Remove from library for any other (the song decides, `missing.action_for`).",
       "enum": [
@@ -8015,6 +8523,33 @@
         "track_id",
         "result",
         "recovered"
+      ],
+      "type": "object"
+    },
+    "Opened": {
+      "additionalProperties": false,
+      "description": "What `open file|folder|url|report|licences|privacy-settings` answer: the place or web address, and whether it was opened (`--print` only says it).",
+      "properties": {
+        "opened": {
+          "description": "It was opened (false with `--print`).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "target": {
+          "description": "The absolute path or the web address.",
+          "type": "string",
+          "x-shown": true
+        },
+        "text": {
+          "description": "What was done, in words: \"Opened <target>.\", or with `--print` that it would open it and opened nothing.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "target",
+        "opened",
+        "text"
       ],
       "type": "object"
     },
@@ -9691,6 +10226,42 @@
         "hash",
         "size",
         "updated_at"
+      ],
+      "type": "object"
+    },
+    "RekordboxMatch": {
+      "additionalProperties": false,
+      "description": "`rekordbox match`: what in rekordbox does not match your files, and which of your files rekordbox lacks.",
+      "properties": {
+        "counts": {
+          "$ref": "#/$defs/MatchCounts",
+          "description": "How many of each kind (all 0 when rekordbox was not read).",
+          "x-shown": true
+        },
+        "entries": {
+          "description": "The findings, missing first, then Superseded/, away, not in the library and not in rekordbox; each kind by path. Empty when rekordbox was not read.",
+          "items": {
+            "$ref": "#/$defs/MatchRow"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/MatchRekordbox",
+          "description": "rekordbox's state for this read.",
+          "x-shown": true
+        },
+        "text": {
+          "description": "The answer in one sentence.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "entries",
+        "counts",
+        "rekordbox",
+        "text"
       ],
       "type": "object"
     },
@@ -12533,6 +13104,208 @@
         "missing"
       ]
     },
+    "StatusData": {
+      "additionalProperties": false,
+      "description": "What `status` prints as `data`: what the window's Dashboard and navigation show, the jobs that run now and, with `--ready`, the problems a gig depends on.",
+      "properties": {
+        "dashboard": {
+          "$ref": "#/$defs/Dashboard",
+          "description": "What the window's Dashboard shows.",
+          "x-shown": true
+        },
+        "jobs": {
+          "description": "The jobs of this music folder that have not ended, newest first.",
+          "items": {
+            "$ref": "#/$defs/StatusJob"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "nav": {
+          "$ref": "#/$defs/StatusNav",
+          "description": "The numbers of the window's navigation.",
+          "x-shown": true
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DoctorProblem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With `--ready`: the problems of `doctor` that a gig depends on, none when the library is ready; null without it.",
+          "x-shown": true
+        },
+        "ready_text": {
+          "description": "With `--ready`: whether the library is ready for a gig, or how many things to look at first, in one sentence; left out without it.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "dashboard",
+        "nav",
+        "jobs",
+        "ready"
+      ],
+      "type": "object"
+    },
+    "StatusJob": {
+      "additionalProperties": false,
+      "description": "A job of this music folder that has not ended.",
+      "properties": {
+        "command": {
+          "description": "The command that started it.",
+          "type": "string",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The job's id (`job:…`), what `job show` and `job wait` take.",
+          "type": "string",
+          "x-shown": true
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its progress in one line; null before it has any.",
+          "x-shown": true
+        },
+        "started": {
+          "description": "When it started, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "status": {
+          "description": "Where it is.",
+          "enum": [
+            "queued",
+            "running",
+            "stopping"
+          ],
+          "x-shown": true
+        },
+        "via": {
+          "description": "Where it was started.",
+          "enum": [
+            "window",
+            "terminal"
+          ],
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "command",
+        "via",
+        "status",
+        "line",
+        "started"
+      ],
+      "type": "object"
+    },
+    "StatusNav": {
+      "additionalProperties": false,
+      "description": "The numbers the window's navigation shows.",
+      "properties": {
+        "all_tracks": {
+          "description": "All tracks.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "limits_warning": {
+          "description": "A set-up service has a warning sign you have not marked as seen, or is paused today: the dot on Download limits.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "not_in_playlist": {
+          "description": "Songs in no playlist.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "todo": {
+          "description": "The to-do badge: what needs you.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "todo",
+        "all_tracks",
+        "not_in_playlist",
+        "limits_warning"
+      ],
+      "type": "object"
+    },
+    "StatusView": {
+      "additionalProperties": false,
+      "description": "`status`: the answer of the engine. The command line moves `person_steps` out of `data` into the envelope.",
+      "properties": {
+        "dashboard": {
+          "$ref": "#/$defs/Dashboard",
+          "description": "What the window's Dashboard shows.",
+          "x-shown": true
+        },
+        "jobs": {
+          "description": "The jobs of this music folder that have not ended, newest first.",
+          "items": {
+            "$ref": "#/$defs/StatusJob"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "nav": {
+          "$ref": "#/$defs/StatusNav",
+          "description": "The numbers of the window's navigation.",
+          "x-shown": true
+        },
+        "person_steps": {
+          "description": "The steps only a person can do for the running jobs (\"Your turn\" lines); left out when none.",
+          "items": {
+            "$ref": "#/$defs/FailPersonStep"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DoctorProblem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With `--ready`: the problems of `doctor` that a gig depends on, none when the library is ready; null without it.",
+          "x-shown": true
+        },
+        "ready_text": {
+          "description": "With `--ready`: whether the library is ready for a gig, or how many things to look at first, in one sentence; left out without it.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "dashboard",
+        "nav",
+        "jobs",
+        "ready"
+      ],
+      "type": "object"
+    },
     "StillToLoad": {
       "additionalProperties": false,
       "description": "How long the rest of the downloads takes at the daily limit. All three are null before the playlists were read, and for an account behind Qobuz (Qobuz decides).",
@@ -12593,6 +13366,113 @@
       },
       "required": [
         "stopped"
+      ],
+      "type": "object"
+    },
+    "Superseded": {
+      "additionalProperties": false,
+      "description": "`library superseded`: the files of `Superseded/`, their size and which of them rekordbox still points at.",
+      "properties": {
+        "files": {
+          "description": "The files, by path.",
+          "items": {
+            "$ref": "#/$defs/SupersededFile"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "held": {
+          "description": "How many files rekordbox still points at.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "next": {
+          "description": "When there are files: how to show them in the Finder, and, when rekordbox still uses some, which tracks.",
+          "items": {
+            "$ref": "#/$defs/FailNext"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "note": {
+          "description": "Discjockey never deletes music: the files can be deleted in the Finder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "$ref": "#/$defs/MatchRekordbox",
+          "description": "rekordbox's state for this read.",
+          "x-shown": true
+        },
+        "size": {
+          "description": "Their size together, in bytes.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "size_text": {
+          "description": "Their size together, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "text": {
+          "description": "The answer in one sentence.",
+          "type": "string",
+          "x-shown": true
+        },
+        "total": {
+          "description": "How many files.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "files",
+        "total",
+        "size",
+        "size_text",
+        "held",
+        "rekordbox",
+        "text",
+        "note"
+      ],
+      "type": "object"
+    },
+    "SupersededFile": {
+      "additionalProperties": false,
+      "description": "One file in `Superseded/`.",
+      "properties": {
+        "path": {
+          "description": "The file's absolute path.",
+          "type": "string",
+          "x-shown": true
+        },
+        "rekordbox": {
+          "description": "How many rekordbox tracks hold this file; 0 when rekordbox could not be read.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "rel_path": {
+          "description": "The path relative to the music folder.",
+          "type": "string",
+          "x-shown": true
+        },
+        "size": {
+          "description": "The size in bytes.",
+          "type": "integer",
+          "x-shown": false
+        },
+        "size_text": {
+          "description": "The size in words.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "path",
+        "rel_path",
+        "size",
+        "size_text",
+        "rekordbox"
       ],
       "type": "object"
     },
@@ -12988,6 +13868,18 @@
           "description": "How the last playlists read went.",
           "x-shown": true
         },
+        "search": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words the actions of `groups` were narrowed to (the command line's `--search`); null for the whole plan. Everything else is the whole plan's.",
+          "x-shown": true
+        },
         "waiting_answers": {
           "description": "Songs held back until the user answers \"Is this the same song?\" (not downloaded meanwhile).",
           "type": "integer",
@@ -13013,7 +13905,8 @@
         "read_id",
         "plan_id",
         "presets",
-        "default_how_many"
+        "default_how_many",
+        "search"
       ],
       "type": "object"
     },
@@ -13233,7 +14126,7 @@
           "x-shown": true
         },
         "undo_note": {
-          "description": "\"You can undo this on this page.\"",
+          "description": "\"You can undo this afterwards.\"",
           "type": "string",
           "x-shown": true
         },
@@ -16920,6 +17813,7 @@
     "check_music_folder": "FolderCheck",
     "convert": "AiffBatchResult",
     "dashboard": "Dashboard",
+    "doctor": "Doctor",
     "downloads_view": "DownloadsViewAnswer",
     "facts_preview": "FactsPreview",
     "fill_facts": "FactsResult",
@@ -16927,11 +17821,13 @@
     "find_tracks": "FindTracksAnswer",
     "freshness": "Freshness",
     "hide": "OpResult",
+    "history": "History",
     "job_events": "JobEvents",
     "job_status": "JobStatus",
     "keep_duplicates": "Empty",
     "keep_file": "KeepFileResult",
     "library": "Library",
+    "library_superseded": "Superseded",
     "limits": "Limits",
     "limits_what_if": "WhatIf",
     "make_aiff": "AiffBatchResult",
@@ -16940,10 +17836,10 @@
     "missing_files_preview": "MissingPreview",
     "move_batches": "MoveBatches",
     "never_download": "NeverDownloadResult",
-    "open_external": "Empty",
-    "open_licenses": "Empty",
-    "open_privacy_settings": "Empty",
-    "open_report": "Empty",
+    "open_external": "Opened",
+    "open_licenses": "Opened",
+    "open_privacy_settings": "Opened",
+    "open_report": "Opened",
     "playlists": "Playlists",
     "preview": "PreviewAnswer",
     "preview_playlist_change": "ChangePreview",
@@ -16952,6 +17848,7 @@
     "reject_current": "OpResult",
     "rekordbox_backups": "RekordboxBackups",
     "rekordbox_checked": "CheckedResult",
+    "rekordbox_match": "RekordboxMatch",
     "rekordbox_preview": "RekordboxPreviewAnswer",
     "rekordbox_restore": "RestoreResult",
     "rekordbox_restore_preview": "RestorePreview",
@@ -16961,7 +17858,7 @@
     "rename": "AiffBatchResult",
     "rescan_library": "ScanResult",
     "retry_music_folder": "MusicFolderAnswer",
-    "reveal": "Empty",
+    "reveal": "Opened",
     "rollback_tools": "ToolsChange",
     "run": "RunAnswer",
     "runs": "Runs",
@@ -16987,12 +17884,13 @@
     "setup_skip_spotify": "Empty",
     "setup_spotify_login": "SpotifyLogin",
     "setup_status": "SetupStatus",
-    "show_in_finder": "Empty",
+    "show_in_finder": "Opened",
     "sidebar": "Sidebar",
     "spectrum": "SpectrumAnswer",
     "spotify_sign_out": "Empty",
     "start_import": "ImportResult",
     "start_sync": "SyncResult",
+    "status_view": "StatusView",
     "stop": "Stopped",
     "stop_refresh": "Stopped",
     "stop_sign_in": "Stopped",
@@ -17024,6 +17922,7 @@
     "rekordbox_checked": "CheckDoneData",
     "rekordbox_preview": "RekordboxPreviewData",
     "rename": "UpgradeRunData",
+    "status_view": "StatusData",
     "upgrade": "UpgradeRunData",
     "upgrade_all": "UpgradeRunData",
     "upgrade_preview:dry_run": "UpgradePreviewDryRun"

@@ -1,0 +1,6 @@
+Path     <tmp>/Elsewhere/Discjockey
+Exists   no
+Usable   yes
+Problem  none
+Kind     new
+Message  none

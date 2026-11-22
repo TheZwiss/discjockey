@@ -1,7 +1,7 @@
 """The shapes of the command line's own reads and jobs (issue 39, phase 2, E7e): `settings show`, the rekordbox
-backups and their restore, the batch list and one batch, an AIFF batch's undo preview, the stored audio facts and the
-sync's Auto-upgrade phase alone, and the six bridge methods that answer `{}` and belong to no area. They are methods of
-`CliApi` the window does not call (`@cli_first`), so no window file uses these shapes. The meanings are those of
+backups and their restore, the batch list and one batch, the history, an AIFF batch's undo preview, the stored audio facts and the
+sync's Auto-upgrade phase alone. Most are methods of `CliApi` the window does not call (`@cli_first`), so no window file
+uses them; the exception is `Opened`, the answer of the six openers the window calls too. The meanings are those of
 `docs/hub-bridge-contract.md` and of the commands' own help.
 
 `resolve` and `result_words` have no shape: they are the command line's lookups, no command prints them as `data`.
@@ -13,9 +13,9 @@ answer plus what the command line adds (a dry run's `plan_id`, a batch's `batch_
 method not in it prints its `ANSWERS` shape. `help --json` gives `data_schema` and `dry_run_schema` from it."""
 from typing import Annotated, Literal, NotRequired, TypedDict
 
-from .common import FailPersonStep
-from .kernel import F, shape
-from .library import Browser
+from .common import FailNext, FailPersonStep
+from .kernel import F, alias, shape
+from .library import Browser, Dashboard
 from .setup import AiffPlanAnswer, LastCheck
 from .todo import (AiffBatchResult, AutoUpgradeBlock, AutoUpgradePreviewAnswer, CheckedResult, ItemResult,
                    RekordboxPreviewAnswer, UndoUpgradePreviewAnswer, UpgradePreviewAnswer)
@@ -162,8 +162,196 @@ class BatchRow(TypedDict):
 @shape
 class Batches(TypedDict):
     """The batches Discjockey made, newest first."""
-    batches: Annotated[list[BatchRow], F("The newest batches (`--limit`).")]
-    total: Annotated[int, F("How many batches there are of the kinds asked for.")]
+    batches: Annotated[list[BatchRow], F("The batches, newest first.")]
+    total: Annotated[int, F("How many batches there are of the kind and from the time asked for: as many as the list "
+                            "holds, and the `page`'s total.")]
+
+
+# --- history ---
+
+@shape
+class HistoryEntry(TypedDict):
+    """One thing that changed: a run of the sync, a batch (AIFF or moves) or a single step Discjockey logged. Exactly
+    one of `undo` and `cant_text` is set."""
+    kind: Annotated[Literal["run", "batch", "operation"], F("A run, a batch or a single logged step.", shown=False)]
+    id: Annotated[str | None, F("The id the commands take: `report:<stamp>`, `aiff:12` or `moves:12`; null for a single "
+                                "step.")]
+    at: Annotated[str, F("When it happened, an ISO time: a run's or batch's start, a step's time.")]
+    text: Annotated[str, F("What happened, in words.")]
+    undo: Annotated[str | None, F("The command that undoes it (run its `--dry-run` first); null when nothing does or the "
+                                  "command is not there yet.")]
+    cant_text: Annotated[str | None, F("Why `undo` is null, in words; null when there is an `undo`.")]
+    track_id: Annotated[str | None, F("The song a single step was done to; null for a run or a batch.", shown=False)]
+    artist: Annotated[str | None, F("The song's artist, for a single step.")]
+    title: Annotated[str | None, F("The song's title, for a single step.")]
+
+
+@shape
+class History(TypedDict):
+    """What changed and what can be undone: runs, batches and single steps, newest first."""
+    entries: Annotated[list[HistoryEntry], F("The entries, newest first.")]
+    since: Annotated[str | None, F("The time the list starts at, an ISO time; null when it was not limited.")]
+
+
+# --- rekordbox match, library superseded ---
+
+@shape
+class MatchRekordbox(TypedDict):
+    """What state rekordbox's library was in for the read, in words. `unreadable` answers "was it read just now"; it is
+    not the library's health: `rekordbox status` says that (`ready` with `problem: busy` is a healthy library that was
+    busy)."""
+    state: Annotated[Literal["ready", "none", "unreadable"], F("`ready`: it was read; `none`: no rekordbox library on "
+                                                               "this Mac; `unreadable`: it could not be read now (a "
+                                                               "writer holds it, or its problem).")]
+    state_text: Annotated[str, F("The state in words.")]
+    writing: Annotated[bool, F("Discjockey is changing rekordbox's library in another window or the Terminal, so it "
+                               "was not opened.")]
+
+
+@shape
+class MatchRow(TypedDict):
+    """One thing that does not match: a rekordbox track, or a file of your library rekordbox lacks."""
+    kind: Annotated[Literal["missing", "superseded", "away", "not_in_library", "not_in_rekordbox"],
+                    F("What does not match.", shown=False)]
+    kind_text: Annotated[str, F("What does not match, in words.")]
+    path: Annotated[str, F("The file's absolute path, as rekordbox holds it (for a file rekordbox lacks: where it is).")]
+    rel_path: Annotated[str | None, F("The path relative to the music folder; null for a file outside it.")]
+    track_id: Annotated[str | None, F("The library song whose current file it is; null when none.", shown=False)]
+    rekordbox_id: Annotated[str | None, F("The rekordbox track's id; null for a file rekordbox lacks.", shown=False)]
+    artist: Annotated[str | None, F("The artist: rekordbox's for its track, the library's for a file it lacks.")]
+    title: Annotated[str | None, F("The title: rekordbox's for its track, the library's for a file it lacks.")]
+
+
+@shape
+class MatchCounts(TypedDict):
+    """How many of each kind there are in the narrowed view."""
+    matched: Annotated[int, F("Rekordbox tracks whose file is a song's current file.")]
+    missing: Annotated[int, F("Rekordbox tracks whose file is not there.")]
+    superseded: Annotated[int, F("Rekordbox tracks that point at a file in Superseded/.")]
+    away: Annotated[int, F("Rekordbox tracks on a watched drive that is not connected now.")]
+    not_in_library: Annotated[int, F("Rekordbox tracks whose file is in your music folder or a watched folder but is "
+                                     "no song's file.")]
+    not_in_rekordbox: Annotated[int, F("Files of your library that no rekordbox track holds.")]
+    outside: Annotated[int, F("Rekordbox tracks whose file is there but elsewhere: your own files, never a problem.")]
+
+
+@shape
+class RekordboxMatch(TypedDict):
+    """`rekordbox match`: what in rekordbox does not match your files, and which of your files rekordbox lacks."""
+    entries: Annotated[list[MatchRow], F("The findings, missing first, then Superseded/, away, not in the library and "
+                                         "not in rekordbox; each kind by path. Empty when rekordbox was not read.")]
+    counts: Annotated[MatchCounts, F("How many of each kind (all 0 when rekordbox was not read).")]
+    rekordbox: Annotated[MatchRekordbox, F("rekordbox's state for this read.")]
+    text: Annotated[str, F("The answer in one sentence.")]
+
+
+@shape
+class SupersededFile(TypedDict):
+    """One file in `Superseded/`."""
+    path: Annotated[str, F("The file's absolute path.")]
+    rel_path: Annotated[str, F("The path relative to the music folder.")]
+    size: Annotated[int, F("The size in bytes.", shown=False)]
+    size_text: Annotated[str, F("The size in words.")]
+    rekordbox: Annotated[int, F("How many rekordbox tracks hold this file; 0 when rekordbox could not be read.")]
+
+
+@shape
+class Superseded(TypedDict):
+    """`library superseded`: the files of `Superseded/`, their size and which of them rekordbox still points at."""
+    files: Annotated[list[SupersededFile], F("The files, by path.")]
+    total: Annotated[int, F("How many files.")]
+    size: Annotated[int, F("Their size together, in bytes.", shown=False)]
+    size_text: Annotated[str, F("Their size together, in words.")]
+    held: Annotated[int, F("How many files rekordbox still points at.")]
+    rekordbox: Annotated[MatchRekordbox, F("rekordbox's state for this read.")]
+    text: Annotated[str, F("The answer in one sentence.")]
+    note: Annotated[str, F("Discjockey never deletes music: the files can be deleted in the Finder.")]
+    next: NotRequired[Annotated[list[FailNext], F("When there are files: how to show them in the Finder, and, when "
+                                                  "rekordbox still uses some, which tracks.")]]
+
+
+# --- doctor ---
+
+DoctorCheckKey = alias(
+    "DoctorCheckKey",
+    Literal["music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs", "records",
+            "pending_steps", "drives_away", "downloads_paused", "out_of_place", "superseded", "rekordbox_files", "stopped_batches",
+            "open_checks", "cdj", "songs_without_file", "upgrades_waiting"],
+    doc="One check of `doctor` (`discjockey/hub/doctor.py`, `CHECKS`).")
+
+
+@shape
+class DoctorProblem(TypedDict):
+    """One thing `doctor` found, with what to do about it."""
+    check: Annotated[DoctorCheckKey, F("The check that found it.", shown=False)]
+    level: Annotated[Literal["problem", "note"], F("`problem`: something to fix. `note`: worth knowing, nothing to fix.")]
+    gig: Annotated[bool, F("Whether the next gig depends on it (`status --ready` lists these).", shown=False)]
+    text: Annotated[str, F("What is wrong, in words.")]
+    count: Annotated[int | None, F("The number the text counts (jobs, folders, files, tracks); null when it counts nothing.")]
+    next: Annotated[list[FailNext], F("Commands that look further or move on.")]
+    person_steps: Annotated[list[FailPersonStep], F("The steps only a person can do.")]
+
+
+@shape
+class DoctorCheck(TypedDict):
+    """One line of `doctor`'s checks."""
+    check: Annotated[DoctorCheckKey, F("The check.", shown=False)]
+    label: Annotated[str, F("What the check looks at, in words.")]
+    state: Annotated[Literal["ok", "problem", "note", "skipped"],
+                     F("`ok`: nothing found. `problem` / `note`: it found something of that level (a problem wins). "
+                       "`skipped`: it was not run: it needs a music folder and none is chosen, or it reads the library's "
+                       "records and those cannot be read (the `records` check says so).")]
+
+
+@shape
+class Doctor(TypedDict):
+    """`doctor`: everything that is wrong, each problem with what to do next, and every check that ran."""
+    text: Annotated[str, F("The answer in one sentence: how many problems and notes, or that nothing is wrong.")]
+    problems: Annotated[list[DoctorProblem], F("What was found: problems first, then notes, each in check order.")]
+    checks: Annotated[list[DoctorCheck], F("Every check, in order, with its state.")]
+
+
+# --- status ---
+
+@shape
+class StatusNav(TypedDict):
+    """The numbers the window's navigation shows."""
+    todo: Annotated[int, F("The to-do badge: what needs you.")]
+    all_tracks: Annotated[int, F("All tracks.")]
+    not_in_playlist: Annotated[int, F("Songs in no playlist.")]
+    limits_warning: Annotated[bool, F("A set-up service has a warning sign you have not marked as seen, or is paused "
+                                      "today: the dot on Download limits.")]
+
+
+@shape
+class StatusJob(TypedDict):
+    """A job of this music folder that has not ended."""
+    id: Annotated[str, F("The job's id (`job:…`), what `job show` and `job wait` take.")]
+    command: Annotated[str, F("The command that started it.")]
+    via: Annotated[Literal["window", "terminal"], F("Where it was started.")]
+    status: Annotated[Literal["queued", "running", "stopping"], F("Where it is.")]
+    line: Annotated[str | None, F("Its progress in one line; null before it has any.")]
+    started: Annotated[str, F("When it started, an ISO time.")]
+
+
+@shape
+class StatusData(TypedDict):
+    """What `status` prints as `data`: what the window's Dashboard and navigation show, the jobs that run now and,
+    with `--ready`, the problems a gig depends on."""
+    dashboard: Annotated[Dashboard, F("What the window's Dashboard shows.")]
+    nav: Annotated[StatusNav, F("The numbers of the window's navigation.")]
+    jobs: Annotated[list[StatusJob], F("The jobs of this music folder that have not ended, newest first.")]
+    ready: Annotated[list[DoctorProblem] | None, F("With `--ready`: the problems of `doctor` that a gig depends on, "
+                                                   "none when the library is ready; null without it.")]
+    ready_text: NotRequired[Annotated[str, F("With `--ready`: whether the library is ready for a gig, or how many "
+                                             "things to look at first, in one sentence; left out without it.")]]
+
+
+@shape
+class StatusView(StatusData):
+    """`status`: the answer of the engine. The command line moves `person_steps` out of `data` into the envelope."""
+    person_steps: NotRequired[Annotated[list[FailPersonStep], F("The steps only a person can do for the running jobs "
+                                                               "(\"Your turn\" lines); left out when none.")]]
 
 
 @shape
@@ -304,13 +492,26 @@ class RekordboxPreviewData(RekordboxPreviewAnswer):
     ok: NotRequired[Annotated[Literal[True], F("Not in the command line's `data`.", shown=False)]]
 
 
+# --- open ... ---
+
+@shape
+class Opened(TypedDict):
+    """What `open file|folder|url|report|licences|privacy-settings` answer: the place or web address, and whether it was
+    opened (`--print` only says it)."""
+    target: Annotated[str, F("The absolute path or the web address.")]
+    opened: Annotated[bool, F("It was opened (false with `--print`).")]
+    text: Annotated[str, F("What was done, in words: \"Opened <target>.\", or with `--print` that it would open it and "
+                           "opened nothing.")]
+
+
 ANSWERS: dict[str, str] = {
     "settings_view": "SettingsView", "rekordbox_backups": "RekordboxBackups",
     "rekordbox_restore_preview": "RestorePreview", "batches": "Batches", "batch_detail": "BatchDetail",
+    "history": "History", "doctor": "Doctor", "status_view": "StatusView", "rekordbox_match": "RekordboxMatch",
+    "library_superseded": "Superseded",
     "batch_undo_preview": "BatchUndoPreview", "facts_preview": "FactsPreview",
-    # the bridge reads that answer `{}` and belong to no area
-    "show_in_finder": "Empty", "reveal": "Empty", "open_report": "Empty", "open_licenses": "Empty",
-    "open_external": "Empty", "open_privacy_settings": "Empty",
+    "show_in_finder": "Opened", "reveal": "Opened", "open_report": "Opened", "open_licenses": "Opened",
+    "open_external": "Opened", "open_privacy_settings": "Opened",
     # J methods: the shape of the job's result
     "rekordbox_restore": "RestoreResult", "fill_facts": "FactsResult", "auto_upgrade_run": "AutoUpgradeRunResult",
 }
@@ -323,5 +524,5 @@ CLI_DATA: dict[str, str] = {
     "upgrade": "UpgradeRunData", "upgrade_all": "UpgradeRunData", "batch_resume": "UpgradeRunData",
     "convert": "UpgradeRunData", "rename": "UpgradeRunData", "make_aiff": "UpgradeRunData",
     "rekordbox_checked": "CheckDoneData", "auto_upgrade_run": "AutoUpgradeRunData",
-    "rekordbox_preview": "RekordboxPreviewData",
+    "rekordbox_preview": "RekordboxPreviewData", "status_view": "StatusData",
 }

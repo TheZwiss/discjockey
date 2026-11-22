@@ -1,0 +1,16 @@
+2 files in Superseded/, 36 MB; rekordbox still uses 1 of them.
+
+Total  2
+Size   36 MB
+Held   1
+Note   Discjockey never deletes music. You can delete these files in the Finder.
+
+Files
+Path                                    Rel path                          Size   Rekordbox
+<tmp>/Superseded/Hard_Bounce/Old.mp3    Superseded/Hard_Bounce/Old.mp3    1 MB   1
+<tmp>/Superseded/Hard_Bounce/Spare.mp3  Superseded/Hard_Bounce/Spare.mp3  35 MB  0
+2 of 2 shown
+
+Rekordbox
+State    rekordbox's library can be read
+Writing  no

@@ -32,7 +32,8 @@ from .parser import APP_OPEN, CALL, HELP, JOB_WORDS, WHERE, Flags, Parsed
 
 FIRST_LINE = "AI agents: run `{path} help --json` first."
 GLOBAL_FLAGS = [
-    {"flag": "--json", "says": "print exactly one JSON object (the envelope) on stdout"},
+    {"flag": "--json", "says": "print exactly one JSON object (the envelope) on stdout; a long list comes as one page: `page` says "
+                                          "which list, the offset, the limit, the total and the next offset (--limit N, --offset N)"},
     {"flag": "--jsonl", "says": "print one JSON object per line (job commands)"},
     {"flag": "--wait", "says": "seconds to wait for a job to finish before answering (job commands)"},
     {"flag": "--detach", "says": "start a job and answer at once (job commands)"},
@@ -145,7 +146,10 @@ def _args_of(entries: list[Entry]) -> list[dict]:
             continue  # built by `resolve` from another argument: the person never types it
         required = arg.positional and signature.parameters[name].default is signature.parameters[name].empty
         kind = arg.resolve.split(":")[0] if arg.resolve else None
-        out.append({"name": name, "word": parser.form_of(name, arg) if arg.positional else arg.flag,
+        by_kind = catalog.BY_ID_KIND.get(" ".join(primary.command))  # `batch undo`: every id kind the command takes
+        if by_kind and by_kind[0] == name:
+            kind = by_kind[1]
+        out.append({"name": name, "word": parser.form_of(name, arg, primary.command) if arg.positional else arg.flag,
                     "positional": arg.positional, "many": arg.many,
                     "required": required and not (selecting and name == "track_ids"),  # `-`, `--all`, `--rows` stand in
                     "type": "str" if arg.resolve else arg.type, "id": kind if kind in ids.FORMS else None})
@@ -205,8 +209,14 @@ def cli_data_shape(entry: Entry, dry: bool) -> str | None:
     the command line adds (`shapes.CLI_DATA`). `dry`: for its `--dry-run`, the entry's `dry_run` method (`with_schemas`
     takes the row's `dry_run_method`, which is the same). None while none is mapped."""
     if dry:
-        return shapes.cli_data_name(entry.dry_run, True)
+        return shapes.cli_data_name(entry.dry_run or (entry.method if catalog.stands_in(entry) else None), True)
     return shapes.CLI_DATA.get(entry.method) or entry.schema
+
+
+def dry_run_method(entries: list[Entry]) -> str | None:
+    """The method a command's `--dry-run` runs: its entry's `dry_run`, or, for a command that can only be tried
+    (`catalog.dry_run_only`), the read that stands in for the write."""
+    return next((e.dry_run for e in entries if e.dry_run), next((e.method for e in entries if catalog.stands_in(e)), None))
 
 
 def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
@@ -214,7 +224,7 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
     J write job, J-control stops a job, B brief save, `words` the command line's own word); `writes` is whether it
     changes anything, `job` whether it runs as a job; `dry_run` whether `--dry-run` shows what it would do. `methods`
     are the bridge methods it runs (`call` takes their names), `dry_run_method` the one `--dry-run` runs; `songs` the
-    ways to say which songs; `flag_values` the word of each flag's value; `required_flags` the flags it cannot run
+    ways to say which songs; `pages` the key of the list `--json` pages (null: the command's answer is never cut); `flag_values` the word of each flag's value; `required_flags` the flags it cannot run
     without; `schema` the name of the shape of its data (null while none is mapped; `help <command> --json` adds it)."""
     primary = choose(entries)
     args = _args_of(entries)
@@ -222,12 +232,14 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
     flags = parser.extra_flags(entries, taken)
     values = _flag_values(entries, args, flags)
     songs = _songs(entries, args, flags)
-    required = [f for f in flags if f in catalog.PHASE_ONLY.values()]
+    dry_only = catalog.dry_run_only(command)
+    required = [f for f in flags if f in catalog.PHASE_ONLY.values() or (dry_only and f == "--dry-run")]
     return {"command": " ".join(command), "kind": primary.kind, "writes": primary.kind in WRITES,
-            "job": primary.kind in JOBS, "args": args, "flags": flags, "needs_yes": any(e.needs_yes for e in entries),
-            "dry_run": any(e.dry_run for e in entries), "locks": sorted({lock for e in entries for lock in e.locks}),
+            "job": primary.kind in JOBS, "pages": primary.pages, "args": args, "flags": flags,
+            "needs_yes": any(e.needs_yes for e in entries),
+            "dry_run": dry_only or any(e.dry_run for e in entries), "locks": sorted({lock for e in entries for lock in e.locks}),
             "methods": list(dict.fromkeys(e.method for e in entries)),
-            "dry_run_method": next((e.dry_run for e in entries if e.dry_run), None), "songs": songs,
+            "dry_run_method": dry_run_method(entries), "songs": songs,
             "flag_values": values, "required_flags": required, "schema": cli_data_shape(primary, False),
             "reasons": reasons_of(entries), "example": next((e.example for e in entries if e.example), ""),
             "usage": usage_of(command, args, flags, values, songs, required)}
@@ -237,7 +249,7 @@ def own_entry(command: tuple[str, ...]) -> dict:
     says, example, args = OWN_WORDS[command]
     flags = [] if command != CALL else ["--dry-run", "--yes"]
     values = {"--args": "JSON|-"} if command == CALL else {}
-    return {"command": " ".join(command), "kind": "words", "writes": command in (CALL, parser.JOB_STOP), "job": False, "args": args,
+    return {"command": " ".join(command), "kind": "words", "writes": command in (CALL, parser.JOB_STOP), "job": False, "pages": None, "args": args,
             "flags": flags, "needs_yes": False, "dry_run": False, "locks": [], "methods": [], "dry_run_method": None,
             "songs": [], "flag_values": values, "required_flags": [], "schema": None,
             "reasons": sorted(OWN_REASONS.get(command, LINE_REASONS)), "example": example,

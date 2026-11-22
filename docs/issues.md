@@ -3,6 +3,14 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 46. The Playlists change panel words the rekordbox and undo notes itself (issue 39 phase 3 fix round, 2026-11-22)
+
+`ChangePanel.svelte` (the save question's warning card) joins the window's own constants `R1`, `R2`, `U1` from
+`tidyModel.ts`; the Moves panel shows the engine's `TidyPreview.rekordbox` and `undo_note`. Same sentences, two sources
+(a window-computed sentence: design §9.1). Fix: `ChangePreviewTidy` (`preview_playlist_change`) carries the two notes from
+`views.REKORDBOX_NOTES` / `views.UNDO_NOTE`, the panel shows them, `R1`/`R2`/`U1` go; shape, fake, contract and the
+vitest data of `ChangePreviewTidy` change in one commit. Until then `U1` holds the engine's current word.
+
 ## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
 
 Lock order is support, library, `rekordbox.lock` (CLAUDE.md). Every settings write follows it now (`_settings_job`,

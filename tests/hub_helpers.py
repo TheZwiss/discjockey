@@ -215,13 +215,39 @@ def services(**kw):
                  open_url=calls["open_url"].append, open_path=calls["open_path"].append,
                  reveal=calls["reveal"].append, which=lambda tool: f"/opt/homebrew/bin/{tool}",
                  now=lambda: __import__("datetime").datetime(2026, 10, 20, 21, 47),
-                 home=Path("/nonexistent-home"),  # never the real browsers
+                 home=Path("/nonexistent-home"),  # never the real browsers' profiles
+                 applications=(),  # nor the browsers installed on this Mac
                  pacer=fast_pacer,  # the pacing logic on a clock that only moves when it waits
                  open_in=lambda browser, url, profile=None: calls["open_in"].append((browser, url, profile)))
     for k, v in kw.items():
         setattr(s, k, v)
     s.calls = calls
     return s
+
+
+def stub_headless(monkeypatch, version: str | None = None):
+    """The command line's api (`cli.bind.headless`) with this Mac taken out: its `home`, `applications`, `which` and openers are those of
+    `services()` (no browsers, every tool at /opt/homebrew/bin, nothing opens), so `login find`, `login list`,
+    `tools status`, `setup status` and the golden pages never show what this Mac holds. `version` pins the app's version
+    (what `setup status` and `app info` say), so a page does not move with each release."""
+    from discjockey import app_update
+    from discjockey.cli import bind
+    from discjockey.hub import api as api_module
+    real = bind.headless
+    if version is not None:
+        monkeypatch.setattr(api_module, "__version__", version)
+
+    def headless(resolved, **kw):
+        api = real(resolved, **kw)
+        stub = services()
+        for name in ("home", "applications", "which", "open_url", "open_path", "reveal", "open_in"):
+            setattr(api._svc, name, getattr(stub, name))
+        if version is not None:  # a checker that starts as this version, with the api's own cache and fetch
+            api._update = app_update.Checker(api._support.cache / app_update.CACHE_NAME, current=version,
+                                             fetch=lambda url: api._svc.fetch_release(url))
+        return api
+
+    monkeypatch.setattr(bind, "headless", headless)
 
 
 _MADE: list = []

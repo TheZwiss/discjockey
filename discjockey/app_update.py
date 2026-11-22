@@ -116,6 +116,17 @@ def load_cached(path: Path, now: datetime) -> tuple[bool, Release | None]:
     return True, Release(version, url)
 
 
+def cached_at(path: Path) -> str | None:
+    """When the cached answer was fetched, at any age (`load_cached` answers only for a young one): the file's
+    `checked_at` as it was written, or None when there is no readable cache."""
+    try:
+        stamp = json.loads(path.read_text(encoding="utf-8"))["checked_at"]
+        datetime.fromisoformat(stamp)
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
+        return None
+    return stamp
+
+
 def save_cached(path: Path, release: Release | None, now: datetime) -> None:
     """Never fails: a cache that can't be written only means asking again at the next check."""
     data = {"checked_at": now.isoformat(), "version": release.version if release else None,
@@ -152,7 +163,8 @@ def status_of(current: str, release: Release | None) -> dict:
 class Checker:
     """What the window shows, kept in memory: status() never touches the network; check() brings it up to date
     (the cache, or GitHub once the cache is a day old) and says whether it changed. No answer keeps the last
-    status. Thread-safe."""
+    status. `load_cache()` is the command line's: a process that runs no check (no window) takes the cache's answer
+    when it is a day old at most, and never asks the network. Thread-safe."""
 
     def __init__(self, cache_file: Path, *, current: str = __version__,
                  fetch: Callable[[str], bytes] | None = None, now: Callable[[], datetime] | None = None):
@@ -166,8 +178,27 @@ class Checker:
         with self._lock:
             return dict(self._status)
 
+    def load_cache(self) -> None:
+        """Without the network: when no check ran in this process yet (the status is still `unknown`), the status of a
+        cache younger than a day. An older or missing cache leaves it `unknown`; a developer's version stays so."""
+        fresh, release = load_cached(self.cache_file, self._now())
+        if not fresh:
+            return
+        with self._lock:
+            if self._status["state"] == "unknown":
+                self._status = status_of(self.current, release)
+
+    def cached_at(self) -> str | None:
+        """When the cache was fetched (`cached_at`), at any age; None while there is none."""
+        return cached_at(self.cache_file)
+
+    @property
+    def developer_version(self) -> bool:
+        """Whether this is a version that is no plain release number (a checkout's): it is never compared, so never asked about."""
+        return parse_version(self.current) is None
+
     def check(self) -> bool:
-        if parse_version(self.current) is None:  # a developer's version is never compared: don't ask, stay unknown
+        if self.developer_version:  # a developer's version is never compared: don't ask, stay unknown
             return False
         try:
             release = latest(self.cache_file, fetch=self._fetch, now=self._now())

@@ -24,7 +24,7 @@ import traceback
 import unicodedata
 import webbrowser
 from collections import OrderedDict, deque
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -39,8 +39,8 @@ from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
-from .. import auto_upgrade, batches, rekordbox, report as rep, run, upgrades
-from ..rekordbox import backup as rb_backup, lock as rb_lock, preview as rb_preview, process as rb_process
+from .. import auto_upgrade, batches, convert, rekordbox, report as rep, run, upgrades
+from ..rekordbox import backup as rb_backup, lock as rb_lock, match as rb_match, preview as rb_preview, process as rb_process
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
@@ -59,8 +59,9 @@ from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, 
 from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, SettingsError, extra_json, is_scope_target,
                         load_settings, update_settings_held)
 from ..setup_cmd import TOOL_HINTS
+from ..words import MISSING, NOT_CHOSEN  # the gate's words (`doctor` says them too)
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, media as media_mod, plan_store, registry, select, shapes, spectrum as spec, views
+from . import catalog, doctor as doctor_mod, history as history_mod, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
@@ -116,8 +117,6 @@ NO_RECORDS = "Discjockey has no records of your library yet, so it can't save th
 # short transactions, short enough that a click never seems to hang (the binding 5 s would)
 BRIEF_WRITE_WAIT_MS = 1500
 NOT_ANSWERABLE = "Each answer needs the song or group it is about."
-NOT_CHOSEN = "Choose your music folder first: it is the first step of Setup."
-MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or choose another folder."
 # Bridge methods that need a bound music folder: unbound, they answer no_library before anything runs. Every other
 # method works with the support folder alone (Setup and Settings before a folder is chosen). Pinned by
 # tests/test_hub_api_music.py and, against contract.ts, by hub-ui's contract test (keep the one-name-per-string form).
@@ -134,9 +133,11 @@ LIBRARY_METHODS = frozenset((
     "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
-CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
+CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history", "rekordbox_match",
+                                 "library_superseded", "status_view"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
-RESOLVE_WORDS = {"upgrade_way": "same-track|new-track"}
+RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
+                 "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
 
 
 @dataclass
@@ -166,6 +167,7 @@ class Services:
     now: Callable[[], datetime] = datetime.now
     mounted: Callable[[Path], bool] = os.path.ismount  # whether a /Volumes drive is connected (the scanner's rule)
     home: Path = Path.home()  # where the browsers keep their files (tests: a folder that doesn't exist)
+    applications: tuple[Path, ...] = (Path("/Applications"),)  # the folders the browsers' apps are looked for in (tests: none)
     open_in: Callable[[str, str, str | None], object] = lambda browser, url, profile=None: _open_in(browser, url, profile)
     # the window's folder dialog (app.main sets it: (start folder) -> the chosen path or None); None: no window
     pick_folder: Callable[[str], str | None] | None = None
@@ -807,9 +809,10 @@ class HubApi:
     def _record_waiting_signs(self) -> None:
         self._record_signs([])
 
-    def _paused_accounts(self) -> frozenset[str]:
-        """The account services paused today, counting the signs still waiting for the library lock."""
-        return run.paused_now(self._paths, self._state(), self._today())
+    def _paused_accounts(self, state: dict | None = None) -> frozenset[str]:
+        """The account services paused today, counting the signs still waiting for the library lock. `state`: the
+        snapshot the caller has read already."""
+        return run.paused_now(self._paths, self._state() if state is None else state, self._today())
 
     def _images(self, prep: run.Prepared | None) -> dict[str, str]:
         """Each song's cover address from the plan's read (`prep`: the plan the caller asked once)."""
@@ -888,13 +891,14 @@ class HubApi:
         reports = self._reports()
         return views.todo_others(prep, reports[-1][1] if reports else None)
 
-    def _todo(self, state: dict, filt: str, show_hidden: bool, count_only: bool = False) -> dict:
-        """views.todo with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
+    def _todo(self, state: dict, filt: Collection[str] | None, show_hidden: bool, count_only: bool = False) -> dict:
+        """views.todo (`filt`: the groups to list, None for every one) with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
         records' same-audio ones, each with its files). `count_only` (the sidebar's number): the records' groups are
         counted without loading their files (they are online and not held by how they are found), so only the plan's
         few same-song groups read theirs; the groups of the answer are then not listed. While an import folder is
         away right now every group's files are read, so a group with a file in it is left out of the count too. The plan is
         asked once, for the questions, the groups, the others and the covers."""
+        views.not_a_string(filt)
         prep = self._plan()
         questions = list(prep.plan.questions) if prep else []
         groups = list(prep.plan.duplicates) if prep else []
@@ -922,7 +926,7 @@ class HubApi:
         rows = [] if count_only else self._aiff_batches()
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
-        cdj_plan = self._cdj_plan(state, away, decided, running) if members and filt in (None, "all", "cdj") else None
+        cdj_plan = self._cdj_plan(state, away, decided, running) if members and (filt is None or "cdj" in filt) else None
         # where a missing file was (the Missing files group's words); the sidebar's count needs none
         where = None
         if not count_only and any(file_missing(e) for e in state["tracks"].values()):
@@ -1111,6 +1115,10 @@ class HubApi:
 
     @bridge
     def dashboard(self) -> dict:
+        return self._dashboard_view()
+
+    def _dashboard_view(self) -> dict:
+        """The Dashboard's answer: the window's `dashboard` and the command line's `status` both carry it."""
         return views.dashboard(self._shown_state(), self._settings(), self._read_view(), self._reports(), self._folders(),
                                setup_status(self._support, self._paths, self._music_status(), self._svc.which),
                                self._today(), self._svc.now(),
@@ -1144,7 +1152,7 @@ class HubApi:
         """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
         which of the keys it is given exist right now)."""
         state = self._shown_state()
-        count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
+        count = self._todo(state, None, False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
         with self._move_log() as conn:  # no library.db yet: no records, no Favourites, no watched folders
@@ -1156,7 +1164,11 @@ class HubApi:
                              away=self._away_folders(folders))
 
     @bridge
-    def sync_preview(self) -> dict:
+    def sync_preview(self, search: str = "") -> dict:
+        """The plan as the Sync page shows it. `search` (the command line's `--search`; the window sends none) narrows
+        the actions of `groups` to the songs the Library's search finds by that artist and title (`views.matches_search`),
+        a group left with none is left out, and `search` says the words. Everything else, the counts, the estimate, the
+        presets, `never`, `ambiguous`, `dropped` and `plan_id`, stays the whole plan's: a search only picks what to look at."""
         state = self._state()
         with self._move_log() as conn:
             folders, overrides = (db.watched_folders(conn), db.crate_overrides(conn)) if conn is not None else ([], {})
@@ -1170,6 +1182,11 @@ class HubApi:
                                     self._auto_upgrade_ready(state, read.prep, running))
         if read.prep is not None:
             answer["plan_id"] = self._store_sync_plan(answer, state.get("generation"))
+        if words := views.search_query(search):
+            groups = [{**g, "actions": [a for a in g["actions"] if views.matches_search(words, a["artist"], a["title"])]}
+                      for g in answer["groups"]]
+            answer["groups"] = [g for g in groups if g["actions"]]
+            answer["search"] = search.strip()
         return answer
 
     def _store_sync_plan(self, preview: dict, generation: int | None) -> str:
@@ -1417,12 +1434,17 @@ class HubApi:
         return {"plan": answer}
 
     @bridge
-    def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
-        if filter not in ("all", None, *views.TODO_GROUP_KEYS):
-            raise BadId("usage", f"There is no to-do group called {filter}. The groups are "
-                                      f"{', '.join(views.TODO_GROUP_KEYS)}.")
+    def todo(self, filter: str | list[str] = "all", show_hidden: bool = False) -> dict:
+        """The To-do page's groups. `filter`: one group key, `all`, or a list of keys (each text may hold several,
+        comma-separated); the groups come in the window's order whatever order they were named in."""
+        texts = [filter] if isinstance(filter, str) or filter is None else filter
+        keys = [word.strip() for text in texts for word in (text or "").split(",") if word.strip()]
+        for key in keys:
+            if key != "all" and key not in views.TODO_GROUP_KEYS:
+                raise BadId("usage", f"There is no to-do group called {key}. The groups are "
+                                          f"{', '.join(views.TODO_GROUP_KEYS)}.")
         state = self._state()
-        return self._todo(state, filter, bool(show_hidden))
+        return self._todo(state, None if not keys or "all" in keys else keys, bool(show_hidden))
 
     def _away_folders(self, rows: Sequence[WatchedFolder]) -> dict[int, str]:
         """Folder id -> why it is not there right now ("unmounted" or "missing", scanner.away_reason) for the import
@@ -1600,8 +1622,10 @@ class HubApi:
                                     self._today())
 
     @bridge
-    def runs(self) -> dict:
-        return {"runs": views.runs(self._reports())}
+    def runs(self, since: str | None = None) -> dict:
+        """The runs, newest first. `since` (an ISO time; the command line's `--since` resolves to one) keeps the runs
+        that started at or after it; the window sends none."""
+        return {"runs": [r for r in views.runs(self._reports()) if since_mod.after(r["started"], since)]}
 
     @bridge
     def run(self, run_id: str) -> dict:
@@ -1638,25 +1662,38 @@ class HubApi:
     def downloads_view(self) -> dict:
         """The source ladder and the account panels (Settings, Setup): each source's state and the library by rung.
         Without a music folder the library counts are zero."""
+        return {"downloads": self._downloads()}
+
+    def _downloads(self, records: bool = True) -> dict:
+        """`views.downloads` for the settings as they are now (`downloads_view`'s answer and `doctor`'s read).
+        `records` False: counted on an empty library, for `doctor` while library.db cannot be read."""
         settings = self._settings()
         names = {s: profile_name(a.browser, a.profile, self._svc.home) for s, a in settings.accounts.items()}
         qobuz_ok = setup_status(self._support, self._bound, self._music_status(), self._svc.which)["qobuz"]
-        state = self._shown_state() if self._bound is not None else library.empty_state()
-        return {"downloads": views.downloads(state, settings, qobuz_ok, names, self._today())}
+        state = self._shown_state() if self._bound is not None and records else library.empty_state()
+        return views.downloads(state, settings, qobuz_ok, names, self._today())
 
     # --- other ---
 
     @bridge
-    def show_in_finder(self, track_id: str, which: str = "current") -> dict:
-        self._svc.reveal(self._paths.root / self._file_of(track_id, which))
-        return {}
+    def show_in_finder(self, track_id: str, which: str = "current", print_only: bool = False) -> dict:
+        return self._opened(self._svc.reveal, self._paths.root / self._file_of(track_id, which), print_only)
 
     @bridge
-    def reveal(self, rel_path: str) -> dict:
+    def reveal(self, rel_path: str, print_only: bool = False) -> dict:
         """Shows a place in Finder: a path inside the music folder (relative), or an absolute path inside a watched
         import folder (the folder itself, a crate): only places the library knows, never any path the page names."""
-        self._svc.reveal(self._watched_place(rel_path) if str(rel_path).startswith("/") else self._inside_root(rel_path))
-        return {}
+        place = self._watched_place(rel_path) if str(rel_path).startswith("/") else self._inside_root(rel_path)
+        return self._opened(self._svc.reveal, place, print_only)
+
+    @staticmethod
+    def _opened(opener: Callable[..., object], target: Path | str, print_only: bool) -> dict:
+        """What the openers answer (`Opened`): the place or web address, whether it was opened, and `text` that says so.
+        Every check ran before this; `print_only` (the command line's `--print`) opens nothing."""
+        if not print_only:
+            opener(target)
+        say = engine_words.NOT_OPENED if print_only else engine_words.OPENED
+        return {"target": str(target), "opened": not print_only, "text": say.format(target=target)}
 
     def _watched_place(self, path: str) -> Path:
         """The absolute `path` when it is a watched import folder or inside one (its symlinks followed: a link leading
@@ -1675,34 +1712,49 @@ class HubApi:
         return wanted
 
     @bridge
-    def open_report(self, run_id: str) -> dict:
+    def open_report(self, run_id: str, print_only: bool = False) -> dict:
+        """A run's report (`run_id`, the stamp) in its app, or the buy list (`not-lossless`, `.discjockey/not_lossless.md`)."""
+        if run_id == "not-lossless":
+            if not self._paths.not_lossless_md.is_file():
+                raise OpProblem(engine_words.NO_BUY_LIST, "refused")
+            return self._opened(self._svc.open_path, self._paths.not_lossless_md, print_only)
         if not RUN_ID.fullmatch(run_id or ""):
             raise ValueError("That is not a run report.")
-        self._svc.open_path(self._inside_root(f"{library.DATA_DIR}/reports/{run_id}.md"))
-        return {}
+        return self._opened(self._svc.open_path, self._inside_root(f"{library.DATA_DIR}/reports/{run_id}.md"), print_only)
 
     @bridge
-    def open_licenses(self) -> dict:
+    def open_licenses(self, print_only: bool = False) -> dict:
         """Settings -> About: the licences of everything Discjockey bundles, in Finder (spec public-release §6.5)."""
         folder = tools.licenses_dir()
         if not folder.is_dir():
             raise OpProblem("The licences folder is missing from this copy of Discjockey.", "refused")
-        self._svc.open_path(folder)
-        return {}
+        return self._opened(self._svc.open_path, folder, print_only)
 
     @bridge
-    def open_external(self, url: str) -> dict:
+    def open_external(self, url: str, print_only: bool = False) -> dict:
         """Websites open in the system browser, never inside the hub window."""
         if not re.fullmatch(r"https?://[^\s]+", url or ""):
-            raise ValueError("Only web links (https://...) can be opened.")
-        self._svc.open_url(url)
-        return {}
+            raise ValueError("Only web links (http:// or https://) can be opened.")
+        return self._opened(self._svc.open_url, url, print_only)
 
     @bridge
-    def app_update(self) -> dict:
-        """Is a newer Discjockey out (spec public-release §8)? The last answer of the update check, never the
-        network: {state: available | up_to_date | unknown, current, latest, url}. Works without a music folder."""
-        return self._update.status()
+    def app_update(self, check: bool = False) -> dict:
+        """Is a newer Discjockey out (spec public-release §8)? {state: available | up_to_date | unknown, current, latest,
+        url, ran_check, checked_at, message}. Without `check` never the network: the window's check keeps the answer in
+        memory, and a process that runs none (the command line) reads the cache while it is a day old at most. With `check`
+        this call ran the update check (`Checker.check`: GitHub only when the cache is a day old or missing, never for a
+        developer's version): `ran_check` says so, `checked_at` is when the last answer was fetched (null: never), and a
+        check that ends `unknown` says why in `message` (a developer's version asked nobody; else GitHub gave no answer).
+        Works without a music folder."""
+        if check:
+            self._update.check()
+        else:
+            self._update.load_cache()
+        status = self._update.status()
+        message = None
+        if check and status["state"] == "unknown":
+            message = engine_words.UPDATE_NO_ANSWER_DEV if self._update.developer_version else engine_words.UPDATE_NO_ANSWER_OFFLINE
+        return {**status, "ran_check": bool(check), "checked_at": self._update.cached_at(), "message": message}
 
     def _watch_app_update(self, interval: float = _UPDATE_TICK) -> threading.Thread:
         """The update check at start, then every `interval` while the window is open: the cached answer, or GitHub's
@@ -2265,7 +2317,7 @@ class HubApi:
                 state["never"].pop(track_id, None)
             library.save_state(self._paths, state)
             rep.write_not_lossless(self._paths, state)  # a "not found" track leaves (or rejoins) that list
-            what = "never download" if never else "download again"
+            what = "never download" if never else "download allowed"  # not "download again": that is a missing file's (missing.py)
             ops.log_operation(self._paths, self._svc.now(), track_id, info, what, "done", what)
             return {"track_id": track_id, "never": bool(never)}
 
@@ -2808,7 +2860,7 @@ class HubApi:
     def _upgrade_all_ids(self, state: dict) -> list[str]:
         """What Upgrade all runs: the songs of To-do's Upgrade ready group whose Same track can run (`select`, the one
         answer the window's button, `upgrade_preview` and `select_listing` share)."""
-        return select.upgrade_all_ids(self._todo(state, "upgrade_ready", False))
+        return select.upgrade_all_ids(self._todo(state, ("upgrade_ready",), False))
 
     @bridge
     def upgrade_all(self, plan_id: str | None = None) -> dict:
@@ -2917,11 +2969,15 @@ class HubApi:
 
     # --- setup wizard (spec 5.7); the steps that write files are write jobs ---
 
+    def _tool_presence(self) -> dict[str, bool]:
+        """Each program Discjockey needs from this Mac -> whether it is there."""
+        return {tool: self._svc.which(tool) is not None for tool in TOOL_HINTS}
+
     @bridge
     def setup_check_tools(self) -> dict:
         """ffmpeg/ffprobe/deno and the download tools' versions. An unexpected error reading the versions only
         empties `download_tools` (with `download_tools_problem`); the rest of the check still answers."""
-        tools_ = {tool: self._svc.which(tool) is not None for tool in TOOL_HINTS}
+        tools_ = self._tool_presence()
         download_tools, problem = None, None
         try:
             download_tools = tool_updates.current_status(self._support.support)
@@ -3207,7 +3263,7 @@ class HubApi:
         self._account(service)
         home, default = self._svc.home, browsers.default_browser(self._svc.home)
         out = []
-        for b in browsers.installed(home):
+        for b in browsers.installed(home, self._svc.applications):
             scan = browsers.logins(service, b, home)
             out.append({"id": b, "name": BROWSERS[b], "default": b == default, "readable": scan["readable"],
                         "problem": scan["problem"],
@@ -3225,7 +3281,7 @@ class HubApi:
         start meanwhile; then no check runs and the job ends sync_running (spec settings-setup §13)."""
         self._account(service, browser)
         self._no_sync_running()
-        if browser not in browsers.installed(self._svc.home):
+        if browser not in browsers.installed(self._svc.home, self._svc.applications):
             raise OpProblem(f"{BROWSERS[browser]} isn't installed on this Mac.", "refused")
         name = BROWSERS[browser]
 
@@ -3276,10 +3332,9 @@ class HubApi:
         return {"stopped": self._jobs.stop_sign_in()}
 
     @bridge
-    def open_privacy_settings(self) -> dict:
+    def open_privacy_settings(self, print_only: bool = False) -> dict:
         """System Settings at Full Disk Access (Safari's logins need it)."""
-        self._svc.open_url(_PRIVACY_SETTINGS)
-        return {}
+        return self._opened(self._svc.open_url, _PRIVACY_SETTINGS, print_only)
 
     @bridge
     def qobuz_check_login(self) -> dict:
@@ -3780,7 +3835,8 @@ class CliApi(HubApi):
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
                  "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch",
-                 "report": "_resolve_report"}  # kind -> the method that makes it (grows per group)
+                 "report": "_resolve_report", "since": "_resolve_since", "moves": "_resolve_moves",
+                 "place": "_resolve_place", "report_file": "_resolve_report_file"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -3911,7 +3967,8 @@ class CliApi(HubApi):
         every kind in this one shape. A text no id can be made of is `bad_args` (`unknown_id` / `bad_id_kind`); a kind
         nobody resolves yet is a failure. Kinds so far: `track` (a song key as it is, or the path of a file of the
         library, absolute or relative to the music folder, to its song key) and `collection` (`all`, `unlisted`,
-        `playlist:<name>`, `folder:<path>`, to `{view, key}`; an unknown one is `unknown_id`)."""
+        `playlist:<name>`, `folder:<path>`, to `{view, key}`; an unknown one is `unknown_id`), `place` (`open folder`'s
+        word, to the path `reveal` takes) and `report_file` (`report:<stamp>`, `last` or `not-lossless`)."""
         resolver = self.RESOLVERS.get(kind)
         if resolver is None:
             raise OpProblem(f"Discjockey cannot turn {kind} words into an id yet.", "failed")
@@ -4061,6 +4118,30 @@ class CliApi(HubApi):
             return key
         raise BadId("unknown_id", engine_words.NO_FOLDER.format(path=name))
 
+    def _resolve_place(self, text: str) -> str:
+        """`open folder <place>`: the path `reveal` takes. `all` is the Library, `playlist:<name>` (only with the prefix)
+        its folder, `folder:<path>` a folder of the collections; `unlisted` is no folder. Any other text is a path, never
+        a playlist: relative to the music folder as typed, an absolute one inside the music folder made relative, any
+        other absolute one as typed (`reveal` refuses what is no place of the library). A bare word is not
+        `_resolve_collection`'s playlist here: `Superseded` is the folder."""
+        word = text.strip()
+        if word == "all":
+            return "Library"
+        if word == "unlisted":
+            raise BadId("usage", engine_words.NO_PLACE)
+        if word.startswith("playlist:"):
+            return f"Library/{self._resolve_collection(word)['key']}"
+        if word.startswith("folder:"):
+            return self._collection_folder(word[len("folder:"):].strip())
+        typed = Path(os.path.expanduser(word))
+        if typed.is_absolute() and typed.is_relative_to(self._paths.root):
+            return typed.relative_to(self._paths.root).as_posix() or "."
+        return word
+
+    def _resolve_report_file(self, text: str) -> str:
+        """`open report`: `not-lossless` (the buy list) as it is, else a report as `_resolve_report` makes it."""
+        return "not-lossless" if text.strip() == "not-lossless" else self._resolve_report(text)
+
     def _resolve_aiff(self, text: str) -> int:
         """`--batch`: the AIFF batch `aiff:<n>` as its number. A bare number or a move batch is `bad_id_kind`, a batch
         that was never made `unknown_id`."""
@@ -4069,6 +4150,16 @@ class CliApi(HubApi):
             row = db.aiff_batch(conn, found.value) if conn is not None else None
         if row is None:
             raise BadId("unknown_id", f"There is no AIFF batch {found.value}.")
+        return int(found.value)
+
+    def _resolve_moves(self, text: str) -> int:
+        """`batch undo moves:<n>`: the move batch as its number. A bare number or an AIFF batch is `bad_id_kind`, a batch
+        that was never made `unknown_id`."""
+        found = parse_id(text, ("moves",))
+        with self._move_log() as conn:
+            row = db.batch(conn, found.value) if conn is not None else None
+        if row is None:
+            raise BadId("unknown_id", f"There is no move batch {found.value}.")
         return int(found.value)
 
     def _resolve_batch(self, text: str) -> str:
@@ -4089,6 +4180,11 @@ class CliApi(HubApi):
         if found.value not in stamps:
             raise BadId("unknown_id", engine_words.NO_REPORT.format(stamp=found.value))
         return str(found.value)
+
+    def _resolve_since(self, text: str) -> str:
+        """`--since`: today, yesterday, `<n>d`, `<n>h`, a date or a time (`since.parse`) as an ISO time with its zone,
+        to the second. Anything else is `bad_args`, `usage`, in the words `BAD_SINCE`."""
+        return since_mod.parse(text, self._svc.now()).isoformat(timespec="seconds")
 
     def _resolve_upgrade_way(self, text: str) -> str:
         """`--way`: `same-track` or `new-track` (the snake_case spellings too) as the bridge's mode."""
@@ -4176,6 +4272,273 @@ class CliApi(HubApi):
             answer["rekordbox"]["writing"] = True
         return preview_words(answer)
 
+    # --- does rekordbox match the library? (`rekordbox match`, `library superseded`; `doctor` calls the helpers) ---
+
+    def _read_rekordbox(self, reading: Callable) -> tuple[dict, str | None, object]:
+        """`reading(master)` on rekordbox's library, opened as `rekordbox_preview` does (read-only, `rekordbox.lock`
+        shared and without waiting: while a writer holds it master.db is never opened). Returns (the `MatchRekordbox`
+        part, the words that say why nothing was read or None, what `reading` returned or None). No library on this Mac,
+        a library that cannot be read and a writer are all answered here, never raised."""
+        def part(state: str, problem: str | None = None, writing: bool = False) -> dict:
+            return {"state": state, "state_text": rekordbox_words(state, problem)[0], "writing": writing}
+
+        place = self._svc.rekordbox_place()
+        if place is None or not place.db.is_file():
+            return part("none"), engine_words.MATCH_NO_REKORDBOX, None
+        running = bool(self._svc.rekordbox_running())
+        with rb_lock.reader_lock(self._support.support) as free:
+            if not free:
+                return part("unreadable", writing=True), engine_words.WRITING_WORDS, None
+            try:
+                return part("ready"), None, rb_match.read(place, running, reading)
+            except rekordbox.Unreadable as e:
+                state_text, problem_text = rekordbox_words("unreadable", e.problem)
+                return part("unreadable", e.problem), problem_text or state_text, None
+
+    def _library_files(self, state: dict) -> dict[str, tuple[str, Path]]:
+        """The folded absolute path of every song's current file -> (the song's key, the file's path)
+        (`rekordbox.match.classify`'s `library_files`)."""
+        root = self._paths.root
+        return {fold(str(root / e["path"])): (key, root / e["path"]) for key, e in state["tracks"].items() if e.get("path")}
+
+    def _match_view(self, state: dict, view: str, key: str | None) -> tuple[frozenset[str], frozenset[str]]:
+        """What `rekordbox match --in C` narrows to: the folded folders that hold the files of the songs the view shows
+        and where each of them goes when it is superseded, and those songs' keys."""
+        shown = self._library_view(state, view, key, "", "all", None)
+        rows = [r for r in (*shown["rows"], *(shown.get("also") or ())) if r.get("path")]
+        root = self._paths.root
+        folders: set[str] = set()
+        with self._move_log() as conn:
+            for r in rows:
+                watched = db.watched_root(conn, r["path"]) if conn is not None else None
+                folders.add(fold(str((root / r["path"]).parent)))
+                folders.add(fold(str(root / planner.superseded_dir(r["path"], watched))))
+        return frozenset(folders), frozenset(r["track_id"] for r in rows)
+
+    def _match(self, state: dict, view: str = "all", key: str | None = None) -> dict:
+        """`rekordbox_match`'s answer: reads rekordbox's tracks, classifies them against the library's files and puts
+        the findings in the words. The one computation `rekordbox_match` and `_match_counts` share."""
+        root = self._paths.root
+        rb, why, tracks = self._read_rekordbox(lambda library: library.tracks())
+        counts = dict.fromkeys(("matched", "missing", "superseded", "away", "not_in_library", "not_in_rekordbox",
+                                "outside"), 0)
+        entries: list[dict] = []
+        if tracks is not None:
+            with self._move_log() as conn:
+                folders = [f for f in (db.watched_folders(conn) if conn is not None else []) if f.kind == "import"]
+            found = rb_match.classify(
+                tracks, root=root, roots=[root, *(f.path for f in folders)], library_files=self._library_files(state),
+                away_roots=[Path(p) for p in self._away_by_root(folders)], exists=rb_match.present)
+            if view != "all" or key is not None:
+                near, keys = self._match_view(state, view, key)
+                found = [r for r in found if (r.key in keys if r.entry is None
+                                               else fold(os.path.dirname(r.entry.folder_path)) in near)]
+            for r in found:
+                counts[r.kind] += 1
+                if r.kind in rb_match.LISTED:
+                    entries.append(self._match_row(state, r))
+        problems = counts["missing"] + counts["superseded"] + counts["not_in_library"]
+        return {"entries": entries, "counts": counts, "rekordbox": rb,
+                "text": why or engine_words.match_text(problems, counts["not_in_rekordbox"])}
+
+    def _match_row(self, state: dict, row: rb_match.Row) -> dict:
+        """One finding as `MatchRow`: a rekordbox track by its own path, title and artist, a file rekordbox lacks by the
+        library's."""
+        root = self._paths.root
+        if row.entry is not None:
+            path, artist, title, rekordbox_id = row.entry.folder_path, row.entry.artist, row.entry.title, row.entry.id
+        else:
+            song = state["tracks"][row.key]
+            path, artist, title, rekordbox_id = str(root / song["path"]), song["artist"], song["title"], None
+        try:
+            rel = Path(path).relative_to(root).as_posix()
+        except ValueError:
+            rel = None
+        return {"kind": row.kind, "kind_text": engine_words.MATCH_KINDS[row.kind], "path": path, "rel_path": rel,
+                "track_id": row.key, "rekordbox_id": rekordbox_id, "artist": artist or None, "title": title or None}
+
+    def _match_counts(self, state: dict) -> tuple[dict | None, str | None]:
+        """`rekordbox match`'s counts for the whole library (`MatchCounts`), for `doctor` and `status --ready`, and why
+        there are none: (None, the words) when rekordbox has a library here that cannot be read now or is being written,
+        (None, None) when it has no library here (nothing to compare)."""
+        answer = self._match(state)
+        rb = answer["rekordbox"]["state"]
+        return (answer["counts"], None) if rb == "ready" else (None, answer["text"] if rb == "unreadable" else None)
+
+    @cli_first
+    def rekordbox_match(self, view: str = "all", key: str | None = None) -> dict:
+        """Does rekordbox match your files? (design §5.3; `rekordbox.match`): the rekordbox tracks whose file is missing,
+        is in `Superseded/`, is on a drive that is not connected or is in your music folder but no song's file, and
+        the files of your library that no rekordbox track holds. A track whose file is there but elsewhere (your own
+        files) is counted (`counts.outside`) and never listed. `view` and `key` narrow it to a collection (`--in`): the
+        tracks in the folders of its songs' files and of their Superseded/ places, and its songs' files that rekordbox
+        lacks. Read only: master.db is opened read-only under the shared `rekordbox.lock`; with a writer holding it
+        nothing is read and `rekordbox.writing` is true. No rekordbox library, one that cannot be read or a writer:
+        `entries` empty, `counts` 0 and `text` says why."""
+        return self._match(self._state(), view, key)
+
+    def _superseded_files(self) -> list[tuple[Path, int]]:
+        """The files under `<music folder>/Superseded/` (dot files and folders skipped) with their sizes, by path."""
+        found: list[tuple[Path, int]] = []
+        for folder, names, files in os.walk(self._paths.superseded):
+            names[:] = [n for n in names if not n.startswith(".")]
+            for name in files:
+                path = Path(folder) / name
+                try:
+                    stat = path.lstat()
+                except OSError:
+                    continue
+                if not name.startswith(".") and S_ISREG(stat.st_mode):
+                    found.append((path, stat.st_size))
+        return sorted(found, key=lambda f: f[0].relative_to(self._paths.superseded).as_posix())
+
+    def _superseded_size(self) -> tuple[int, int]:
+        """(how many files, how many bytes) `Superseded/` holds: the numbers `library superseded` prints, for `doctor`."""
+        files = self._superseded_files()
+        return len(files), sum(size for _, size in files)
+
+    @cli_first
+    def library_superseded(self) -> dict:
+        """What sits in `Superseded/`: the files (never deleted by Discjockey: `note` says so), their sizes and, for
+        each, how many rekordbox tracks still point at it (`rekordbox`; 0 for all when rekordbox cannot be read, which
+        `rekordbox.state` says). `next` says how to show them in the Finder and, when rekordbox still uses some, which
+        tracks (`rekordbox match`). No folder or an empty one: no files and `text` says it is empty."""
+        files = self._superseded_files()
+        rb, _, index = self._read_rekordbox(lambda library: library.index())
+        root = self._paths.root
+        rows = [{"path": str(path), "rel_path": path.relative_to(root).as_posix(), "size": size,
+                 "size_text": convert.size_text(size),
+                 "rekordbox": len(index.by_path.get(fold(str(path)), ())) if index is not None else 0}
+                for path, size in files]
+        size, held = sum(r["size"] for r in rows), sum(1 for r in rows if r["rekordbox"])
+        readable = rb["state"] != "unreadable"  # no library at all still answers "none of them"
+        answer = {"files": rows, "total": len(rows), "size": size, "size_text": convert.size_text(size), "held": held,
+                  "rekordbox": rb, "note": engine_words.DELETE_SUPERSEDED,
+                  "text": engine_words.superseded_text(len(rows), size, held if readable else None)
+                  if rows else engine_words.NO_SUPERSEDED}
+        if rows:
+            answer["next"] = [{"run": "open folder Superseded", "why": engine_words.SUPERSEDED_WHY_OPEN},
+                              *([{"run": "rekordbox match", "why": engine_words.SUPERSEDED_WHY_MATCH}]
+                                if held else [])]
+        return answer
+
+    def _unreadable_roots(self, folders: Iterable[Path]) -> tuple[str, ...]:
+        """The folders among `folders` that macOS does not let this process list (a `PermissionError`: the app the command
+        runs in was not allowed into them). A folder that is not there or fails otherwise is another check's finding."""
+        found = []
+        for folder in folders:
+            try:
+                with os.scandir(folder) as entries:
+                    next(entries, None)
+            except PermissionError:
+                found.append(str(folder))
+            except OSError:
+                continue
+        return tuple(found)
+
+    @cli_first
+    def doctor(self) -> dict:
+        """Everything that is wrong, and what to do about it (design §5.3; `hub/doctor.py` holds the checks): the setup
+        (music folder, programs, logins), the machine (whether each root can be read, rekordbox, a lock held by something
+        the job list does not know, jobs that stopped without finishing this week) and, with a music folder, the library
+        itself: cut-off file steps, watched folders on a drive that is not connected, a source paused today, files out
+        of place, Superseded/, rekordbox tracks on missing or superseded files, stopped batches, open rekordbox checks,
+        files that won't play well on CDJs, songs without a file and better versions waiting. Works without a music
+        folder: the checks that need one are `skipped` and `music_folder` says why. Read only: it takes `rekordbox.lock`
+        shared to read rekordbox's state, finishes no cut-off step and takes no other lock; the library checks come from
+        `library.db` opened read-only."""
+        return self._doctor(None)
+
+    def _doctor(self, dashboard: dict | None) -> dict:
+        """`doctor`'s answer. `dashboard`: the Dashboard's answer when the caller has built it already (`status`), so
+        the library checks read the number of songs still to load from it and the plan is not derived twice."""
+        music = self._music_status()
+        bound = music["state"] == "ok"
+        present = self._tool_presence()
+        rows: list[WatchedFolder] = []
+        pending = False
+        facts = self._NO_LIBRARY_FACTS
+        paused: frozenset[str] = frozenset()
+        records_problem = None
+        if bound:
+            try:
+                state = self._state()  # the one read of the records: everything below reads from the same file
+                with self._move_log() as conn:
+                    if conn is not None:
+                        rows, pending = db.watched_folders(conn), db.has_pending(conn)
+                paused = self._paused_accounts(state)
+                facts = self._library_facts(state, dashboard)
+            except StateError as e:  # library.db cannot be read: `doctor` says so and skips what reads it
+                rows, pending, facts, records_problem = [], False, self._NO_LIBRARY_FACTS, str(e)
+            facts = {**facts, **self._superseded_facts()}  # a folder walk: it needs no records
+        away = self._away_folders(rows)
+        place = self._svc.rekordbox_place()
+        roots = [*([self._paths.root] if bound else []), *(f.path for f in rows if f.id not in away),
+                 *([place.db.parent] if place is not None else [])]
+        status = self._rekordbox_status()
+        registry_ = self._jobs.registry
+        listed = registry_.list(self._paths.root if bound else None) if registry_ is not None else []
+        return doctor_mod.answer(doctor_mod.Inputs(
+            music_state=music["state"], music_path=music["path"] or "",
+            missing_tools=tuple((tool, TOOL_HINTS[tool]) for tool, there in present.items() if not there),
+            downloads=self._downloads(records_problem is None),
+            paused_accounts=paused,
+            unreadable_folders=self._unreadable_roots(roots), app=engine_words.running_app(os.environ),
+            rekordbox_state=status.state, rekordbox_problem=status.problem, lock_holder=self._jobs.console_holder(),
+            jobs=tuple(doctor_mod.JobRow(str(s.get("id")), str(s.get("status")), str(s.get("started")))
+                       for s in listed),
+            now=self._svc.now(), pending=pending, away_folders=tuple(str(f.path) for f in rows if f.id in away),
+            records_problem=records_problem, **facts), bound)
+
+    # what `Inputs` holds while no music folder is bound (the checks that read it are skipped then)
+    _NO_LIBRARY_FACTS = {"tidy_rows": 0, "superseded_files": 0, "superseded_bytes": 0, "rekordbox_match": None,
+                         "rekordbox_match_why": None, "stopped_batches": (), "check_tracks": 0, "cdj_files": 0,
+                         "missing_files": 0, "upgrades_ready": 0, "to_load": 0}
+
+    def _superseded_facts(self) -> dict:
+        files, size = self._superseded_size()
+        return {"superseded_files": files, "superseded_bytes": size}
+
+    def _library_facts(self, state: dict, dashboard: dict | None) -> dict:
+        """The facts of `doctor`'s checks (`Inputs`) that come from the library's records, each read once: the To-do
+        answer's counts, the tidy-up's rows, rekordbox's match counts (and why there are none), the stopped AIFF batches
+        and the Dashboard's songs still to load. `state`: the snapshot already read."""
+        todo = self._todo(state, None, False)
+        if dashboard is None:
+            dashboard = self._dashboard_view()
+        match, match_why = self._match_counts(state)
+        return {"tidy_rows": len(planner.tidy_rows(state)), "rekordbox_match": match, "rekordbox_match_why": match_why,
+                "stopped_batches": tuple(r["id"] for r in self._batch_rows("aiff") if r["state"] == "stopped"),
+                "check_tracks": todo["check_tracks"], "cdj_files": todo["chips"]["cdj"],
+                "missing_files": todo["chips"]["missing_file"], "upgrades_ready": todo["chips"]["upgrade_ready"],
+                "to_load": dashboard["tiles"]["still_to_load"]["count"] or 0}
+
+    @cli_first
+    def status_view(self, ready: bool = False) -> dict:
+        """What the window's Dashboard and navigation show, the jobs that run now and what needs a person (design §5.3):
+        `{dashboard, nav, jobs, ready}` and, while a running job waits for something only a person can do,
+        `person_steps` (its live steps, as `job show` says them). `dashboard` is `dashboard()`'s answer; `nav` the
+        sidebar's four numbers (`todo`, `all_tracks`, `not_in_playlist`, `limits_warning`); `jobs` every job of this music
+        folder that has not ended (`queued`, `running`, `stopping`), newest first, with `line`, its progress in one line.
+        `ready` (the command line's `--ready`, "is my library ready for a gig?") is the problems of `doctor` that a gig
+        depends on, taken from the same `doctor` call (never a count of its own), none when it is ready; null without it;
+        `ready_text` says the verdict in one sentence (with `--ready` only).
+        Read only: with `ready` it takes `rekordbox.lock` shared as `doctor` does."""
+        dashboard = self._dashboard_view()
+        sidebar = self._sidebar_view()
+        registry_ = self._jobs.registry
+        states = [s for s in registry_.list(self._paths.root) if s.get("status") in registry.ACTIVE] if registry_ else []
+        answer = {"dashboard": dashboard,
+                  "nav": {k: sidebar[k] for k in ("todo", "all_tracks", "not_in_playlist", "limits_warning")},
+                  "jobs": [{"id": s["id"], "command": s["command"], "via": s["via"], "status": s["status"],
+                            "line": (s.get("progress") or {}).get("line"), "started": s["started"]} for s in states],
+                  "ready": [p for p in self._doctor(dashboard)["problems"] if p["gig"]] if ready else None}
+        if answer["ready"] is not None:
+            answer["ready_text"] = engine_words.ready_text(len(answer["ready"]))
+        if steps := [step for s in states for step in s.get("person_steps") or ()]:
+            answer["person_steps"] = steps
+        return answer
+
     @cli_first
     def select_listing(self, listing: dict) -> dict:
         """Which songs a listing selects (design §7.3: `--rows` and `--all` of a bulk write): `{ids}`, every song the
@@ -4190,11 +4553,11 @@ class CliApi(HubApi):
         if want.verb_all == select.UPGRADE_ALL:
             return self._nothing_left({"ids": self._upgrade_all_ids(state)}, NO_UPGRADES)
         if want.verb_all == select.CHECK_DONE:
-            return self._nothing_left({"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))},
+            return self._nothing_left({"ids": select.check_done_ids(self._todo(state, ("rekordbox_check",), False))},
                                       NOTHING_TO_CHECK)
         if want.verb_all in (select.DOWNLOAD_AGAIN, select.REMOVE_MISSING):
             ids = (select.download_again_ids if want.verb_all == select.DOWNLOAD_AGAIN else select.remove_missing_ids)(
-                self._todo(state, "missing_file", False))
+                self._todo(state, ("missing_file",), False))
             return self._nothing_left({"ids": ids}, NO_MISSING_LEFT[want.verb_all])
         if want.verb_all == select.RENAME_ALL:
             ids = self._rename_all_ids(state, want.view, want.key)
@@ -4203,7 +4566,7 @@ class CliApi(HubApi):
                 ids = [*ids, *(k for k in plan.items if k not in ids)]
             return self._nothing_left({"ids": ids}, plans.NOTHING_TO_CHANGE)
         if want.source == "todo":
-            return {"ids": select.todo_ids(self._todo(state, want.group, want.hidden))}
+            return {"ids": select.todo_ids(self._todo(state, None if want.group == "all" else (want.group,), want.hidden))}
         view, key = want.view, want.key
         if view == "folder":
             key = self._folder_key(key or "")
@@ -4351,36 +4714,34 @@ class CliApi(HubApi):
         return OpProblem(words, "refused", reason="unclean" if e.reason == "unclean" else None, data={"why": e.reason})
 
     @cli_first
-    def batches(self, kind: str | None = None, limit: int = 20) -> dict:
+    def batches(self, kind: str | None = None, since: str | None = None) -> dict:
         """The batches Discjockey made, AIFF batches (Same track, Convert, Rename) and move batches (tidy-ups, saves,
-        folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them). `{batches, total}`;
-        `total` counts every batch of the kinds asked for, the list holds the newest `limit`. A row: `id` (`aiff:12` or
-        `moves:12`, the id every other command takes), `kind`, `what` (an AIFF batch's `upgrade` | `convert` | `mixed`; a
-        move batch's title), `started_by`, `state` (`running` | `stopped` | `done`), `stop_reason`, `started`, `ended`,
-        `total`, `done`, `skipped`, `failed`, `planned`, `undone` (items; for a move batch `done` is the files moved),
-        `backup` (the rekordbox backup an AIFF batch made), `via` (`window` | `terminal`: where it started), `scope` (what
-        was picked for an AIFF batch: `selection`, `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the batch that
-        undid it). `limit` 0 is every batch."""
+        folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them; `since`: an ISO time,
+        the command line's `--since` resolves to one, keeps the batches that started at or after it). `{batches, total}`;
+        `total` counts every batch of the kind and since asked for (the list is as long: `--json` pages it, the envelope's
+        `page` says where). A row: `id` (`aiff:12` or `moves:12`, the id every other command takes), `kind`, `what` (an
+        AIFF batch's `upgrade` | `convert` | `mixed`; a move batch's title), `started_by`, `state` (`running` |
+        `stopped` | `done`), `stop_reason`, `started`, `ended`, `total`, `done`, `skipped`, `failed`, `planned`, `undone`
+        (items; for a move batch `done` is the files moved), `backup` (the rekordbox backup an AIFF batch made), `via`
+        (`window` | `terminal`: where it started), `scope` (what was picked for an AIFF batch: `selection`,
+        `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the
+        batch that undid it)."""
         if kind not in (None, *BATCH_KINDS):
             raise BadId("usage", f"A batch kind is aiff or moves, not {kind}.")
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
-            raise BadId("usage", "--limit takes a number: 0 for every batch.")
-        fetch = limit or -1  # SQLite's LIMIT -1 is no limit
-        paths = self._paths
+        rows = [r for r in self._batch_rows(kind) if since_mod.after(r["started"], since)]
+        return {"batches": rows, "total": len(rows)}
+
+    def _batch_rows(self, kind: str | None = None) -> list[dict]:
+        """Every batch of `kind` (None: both) as a `BatchRow`, newest first."""
         rows: list[dict] = []
-        total = 0
         with self._move_log() as conn:
             if conn is not None:
                 if kind in (None, "aiff"):
-                    found, count = db.aiff_batches(conn, fetch)
-                    rows += [views.aiff_batch_row(b) for b in found]
-                    total += count
+                    rows += [views.aiff_batch_row(b) for b in db.aiff_batches(conn, -1)[0]]  # SQLite's LIMIT -1: no limit
                 if kind in (None, "moves"):
-                    found, count = db.batches(conn, fetch)
-                    rows += [self._moves_batch_row(conn, b) for b in found]
-                    total += count
+                    rows += [self._moves_batch_row(conn, b) for b in db.batches(conn, -1)[0]]
         rows.sort(key=lambda r: (r["started"], r["batch"], r["kind"]), reverse=True)
-        return {"batches": rows[:limit] if limit else rows, "total": total}
+        return rows
 
     def _moves_batch_row(self, conn, b: BatchRow) -> dict:
         return views.moves_batch_row(b, self._batch_title(conn, b), db.planned_moves(conn, b.id))
@@ -4407,6 +4768,47 @@ class CliApi(HubApi):
             if row is None:
                 raise BadId("unknown_id", f"There is no move batch {found.value}.")
             return {**self._moves_batch_row(conn, row), "moves": views.batch_moves(db.batch_moves(conn, found.value))}
+
+    @cli_first
+    def history(self, since: str | None = None) -> dict:
+        """What changed, newest first, and how to undo it: the sync runs, the batches (AIFF and moves) and the single
+        steps of the operations log that no AIFF batch made (`history.entries` holds the rule). `since` is an ISO time
+        (the command line's `--since` resolves to one). An entry: `kind` (`run` | `batch` | `operation`), `id` (what the
+        commands take; null for a step), `at`, `text`, `undo` (the command that undoes it) or `cant_text` (why nothing
+        does: exactly one is set), and for a step `track_id`, `artist`, `title`."""
+        def built(method: str, command: str) -> bool:
+            entry = catalog.entry_of(method, command)
+            return entry is not None and entry.planned is None
+
+        paths = self._paths
+        rows = self._batch_rows()
+        results = {r["batch"]: batches.result_of(paths, r["batch"]).results for r in rows if r["kind"] == "aiff"}
+        batch_tracks = {n: frozenset(i.track for i in items) for n, items in results.items()}
+        batch_actions = {n: frozenset(i.action for i in items) for n, items in results.items()}
+        with self._move_log() as conn:  # a move batch whose files moved again has done moves and nothing to undo
+            move_undoable = {} if conn is None else {b.id: b.undoable for b in db.batches(conn, -1)[0]}
+        found = history_mod.entries(
+            views.runs(self._reports()), rows, self._operations(), tracks=self._state()["tracks"],
+            batch_tracks=batch_tracks, batch_actions=batch_actions, move_undoable=move_undoable,
+            finished_order=batches.finished_order(paths), built=built, now=self._svc.now(), since=since)
+        return {"entries": found, "since": since}
+
+    def _operations(self) -> list[tuple[int, dict]]:
+        """The lines of the operations log with their 0-based line numbers (the numbering `batches.finished_order`
+        uses); a line that cannot be read is skipped and its number kept."""
+        try:
+            lines = self._paths.operations_log.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        out = []
+        for n, line in enumerate(lines):
+            try:
+                op = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(op, dict):
+                out.append((n, op))
+        return out
 
     @staticmethod
     def _track_name(tracks: dict, key: str) -> str:

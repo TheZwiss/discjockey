@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from discjockey.models import KnownFile, SeenFile, WatchedFolder
-from discjockey.scanner import away_reason, is_offline, scan
+from discjockey.scanner import away_reason, is_offline, scan, volume_of
 
 
 class Keys:
@@ -585,3 +585,8 @@ def test_an_ambiguous_row_whose_candidates_are_all_gone_waits_as_plain_missing(l
     assert r.missing == [1] and r.unambiguous == [1] and r.ambiguous == []
     plain = KnownFile(2, lib.id, "B - Two.aiff", 3, 4, "k:two", True, False, True)
     assert run([lib], [plain]).unambiguous == []  # only a row that was ambiguous is listed
+
+
+def test_volume_of_names_the_drive_a_path_is_on():
+    assert volume_of(Path("/Volumes/Gig Stick/Music/Crates")) == "Gig Stick" and volume_of(Path("/Volumes/Gig Stick")) == "Gig Stick"
+    assert volume_of(Path("/Volumes")) is None and volume_of(Path("/Users/dj")) is None

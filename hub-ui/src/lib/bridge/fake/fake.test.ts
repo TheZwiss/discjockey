@@ -185,9 +185,56 @@ describe('fake backend', () => {
     if (!runs.ok) throw new Error();
     expect(runs.runs.map((r) => r.exit_code)).toEqual([1, 130, 0]);
     expect(runs.runs[1].stopped_after).toBe(61);
+    // `since` keeps the runs that started at or after it (the hub's `runs(since)`), `null` and a time nobody can read keep all
+    const middle = runs.runs[1].started;
+    const from = await f.runs(middle);
+    if (!from.ok) throw new Error();
+    expect(from.runs.map((r) => r.exit_code)).toEqual([1, 130]);
+    for (const none of [null, 'not a time']) {
+      const all = await f.runs(none);
+      if (!all.ok) throw new Error();
+      expect(all.runs).toHaveLength(3);
+    }
     const usage = await f.limits('qobuz');
     if (!usage.ok) throw new Error();
     expect(usage.usage!.days).toHaveLength(14);
+  });
+  it('the openers answer what they opened', async () => {
+    const f = createFakeBridge('normal', { speed: 100 });
+    expect(await f.open_external('https://example.com')).toEqual({ ok: true, target: 'https://example.com', opened: true, text: 'Opened https://example.com.' });
+    expect(await f.open_external('http://example.com/a')).toMatchObject({ ok: true, opened: true });   // the engine takes http too
+    expect(await f.open_external('ftp://example.com')).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.reveal('Library/Hard_Bounce')).toEqual({ ok: true, target: '/Users/you/Music/Discjockey/Library/Hard_Bounce', opened: true,
+      text: 'Opened /Users/you/Music/Discjockey/Library/Hard_Bounce.' });
+    expect(await f.reveal('../outside')).toMatchObject({ ok: false, kind: 'refused' });
+    const finder = await f.show_in_finder('t1', 'current');
+    expect(finder).toMatchObject({ ok: true, opened: true });
+    if (!finder.ok) throw new Error();
+    expect(finder.target.startsWith('/Users/you/Music/Discjockey/')).toBe(true);
+    expect(finder.text).toBe(`Opened ${finder.target}.`);
+    expect(await f.show_in_finder('t1', 'upgrade')).toMatchObject({ ok: false, kind: 'refused', message: 'That file is not there.' });   // t1 has no parked file
+    let parked = '';
+    const g = createFakeBridge('normal', { speed: 100, prepare: (st) => { parked = st.tracks.find((t) => t.upgrade)?.track_id ?? ''; } });
+    expect(parked).not.toBe('');   // the scene has a song with a parked version
+    expect(await g.show_in_finder(parked, 'upgrade')).toMatchObject({ ok: true, opened: true });
+    expect(await f.open_report('not-lossless')).toMatchObject({ ok: true, target: '/Users/you/Music/Discjockey/.discjockey/not_lossless.md', opened: true });
+    expect(await createFakeBridge('normal', { speed: 100, prepare: (st) => { st.tracks = []; } }).open_report('not-lossless')).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.open_licenses()).toMatchObject({ ok: true, opened: true });
+    expect(await f.open_privacy_settings()).toMatchObject({ ok: true, opened: true, text: expect.stringMatching(/^Opened /) });
+  });
+  it('todo takes a list of groups: only those, in the page\'s order', async () => {
+    const f = createFakeBridge('normal', { speed: 100 });
+    const all = await f.todo('all', false);
+    if (!all.ok) throw new Error();
+    const some = await f.todo(['fake', 'weak'], false);
+    if (!some.ok) throw new Error();
+    const want = all.groups.map((g) => g.key).filter((k) => k === 'weak' || k === 'fake');
+    expect(want.length).toBeGreaterThan(0);
+    expect(some.groups.map((g) => g.key)).toEqual(want);
+    expect(some.chips).toEqual(all.chips);
+    const withAll = await f.todo(['fake', 'all'], false);
+    if (!withAll.ok) throw new Error();
+    expect(withAll.groups).toHaveLength(all.groups.length);
   });
   it('a write changes what the reads return (hide leaves the to-do list)', async () => {
     const evs: HubEvent[] = [];
@@ -413,11 +460,13 @@ describe('fake backend', () => {
 describe('update notice', () => {
   it('app_update: up to date in normal, a newer version in update_available', async () => {
     expect(await createFakeBridge('normal').app_update())
-      .toEqual({ ok: true, state: 'up_to_date', current: '1.0.0', latest: null, url: null });
+      .toEqual({ ok: true, state: 'up_to_date', current: '1.0.0', latest: null, url: null, ran_check: false, checked_at: expect.any(String), message: null });
     const r = await createFakeBridge('update_available').app_update();
     expect(r).toMatchObject({ ok: true, state: 'available', latest: '1.1.0' });
     expect(await createFakeBridge('offline').app_update())
-      .toEqual({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null });
+      .toEqual({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null, ran_check: false, checked_at: null, message: null });
+    expect(await createFakeBridge('normal').app_update(true)).toMatchObject({ ok: true, ran_check: true, message: null });
+    expect(await createFakeBridge('offline').app_update(true)).toMatchObject({ ok: true, ran_check: true, message: 'No answer: GitHub could not be reached.' });
     expect((r as { url: string }).url).toMatch(/^https:\/\/github\.com\/TheZwiss\/discjockey\/releases\/tag\//);
   });
 });

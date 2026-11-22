@@ -56,6 +56,7 @@ const FOLDER_PROBLEMS: Record<FolderProblem, string> = {
 };
 /** the fake Mac's home folder, for `~` */
 const FAKE_HOME = '/Users/you';
+const PRIVACY_SETTINGS = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';  // api._PRIVACY_SETTINGS
 
 /** Like FallbackSource.check_account + accounts.check_message: Safari needs Full Disk Access, the rest works. */
 function accountCheck(service: 'youtube' | 'soundcloud', browser: Browser): AccountCheck {
@@ -364,6 +365,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       cutoff_hz: t.cutoff_hz, path: pathOf(t), ...more }), recovered: [] as [string, boolean][] });
   const versionHash = () => (Math.abs(hash(`v${s.version}`)).toString(16).padStart(8, '0')).repeat(8);
   const reportPath = (id: string) => `${FAKE_MUSIC}/.discjockey/reports/${id}.md`;
+  /** The answer of every opener (`api._opened`; the window opens nothing in the fake): `text` is `words.OPENED`. */
+  const opened = (target: string) => ok({ target, opened: true, text: `Opened ${target}.` });
+  /** words.NO_BUY_LIST */
+  const NO_BUY_LIST = 'There is no buy list yet: Discjockey writes it when a sync finds songs it can only get lossy.';
   /** The upgrade block's rekordbox answer for a track: the fake library's state decides Same track for other formats. */
   const rbOf = (t: FakeTrack) => {
     const state = s.rekordbox_state ?? 'ready';
@@ -828,7 +833,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!s.previewRead) return ok({ read_status: readStatus(s), counts: null, groups: [], estimate: null, never: [],
         folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [], waiting_answers: 0, deferred_checks: 0,
         empty: 'no_preview' as const, collections: {}, auto_upgrade: null, read_id: null, plan_id: null, presets: [],
-        default_how_many: null });  // like views.sync_preview: never not_set_up
+        default_how_many: null, search: null });  // like views.sync_preview: never not_set_up
       // each row's collections, as views._members gives them (issue 37)
       const m = membersOf(s, sidebarOf(s, 0, false));
       for (const a of [...p.groups.flatMap((g) => g.actions), ...p.never]) a.in = m.of(a);
@@ -839,7 +844,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
         auto_upgrade: autoPreview(s, autoReady(), placeTracks(s)),
-        empty: p.actions ? null : 'up_to_date' as const, read_id: readId() });
+        empty: p.actions ? null : 'up_to_date' as const, read_id: readId(), search: null });
     },
     async refresh(auto = false) {
       if (auto && s.read_status.auto_read) {
@@ -942,7 +947,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       } });
     },
     // the engine answers bad_args for a filter that is no group; the window sends only TodoFilter keys
-    async todo(filter: TodoFilter, show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
+    async todo(filter: TodoFilter | TodoFilter[], show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
     async playlists() {
       const overlaps = s.tracks.filter((t) => t.playlists.length > 1).map((t) => {
         const r = trackRow(t);
@@ -962,7 +967,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!(limit >= 1 && limit <= 500)) return fail('refused', 'The daily limit is between 1 and 500.');
       return ok(whatIfOf(s, service, limit, extra_today ?? 0, stillToLoad().count));
     },
-    async runs() { return ok({ runs: s.runs.map(summary) }); },
+    async runs(since?: string | null) {
+      // like the hub: only the runs that started at or after `since`; a run whose time cannot be read is kept
+      const from = since ? new Date(since).getTime() : NaN;
+      const kept = s.runs.filter((r) => Number.isNaN(from) || !(new Date(r.started).getTime() < from));
+      return ok({ runs: kept.map(summary) });
+    },
     async run(run_id: string) {
       // like the hub: `report:<stamp>` is the stamp, `last` the newest report
       const stamp = run_id.startsWith('report:') ? run_id.slice('report:'.length) : run_id;
@@ -1059,7 +1069,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       signInStop();
       return ok({ stopped: true });
     },
-    async open_privacy_settings() { return ok({}); },
+    async open_privacy_settings() { return opened(PRIVACY_SETTINGS); },
     async qobuz_check_login() {
       if (syncRunning()) return fail('sync_running', MSG.sync_running);
       return startJob('qobuz_check_login', null, (finish) => setTimeout(() => {
@@ -1473,25 +1483,41 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return runUndo('undo_upgrade', ids, null);
     },
 
-    async show_in_finder() { return ok({}); },
+    // api.show_in_finder: the track's current file, or its parked upgrade (`which`); a file that is not there is refused
+    async show_in_finder(track_id: string, which: 'current' | 'upgrade' = 'current') {
+      const t = s.tracks.find((x) => x.track_id === track_id);
+      if (which === 'upgrade' && !t?.upgrade?.file) return fail('refused', 'That file is not there.');
+      const rel = which === 'upgrade' ? t!.upgrade!.file : ((t && pathOf(t)) ?? `Library/${track_id}.aiff`);
+      return opened(`${FAKE_MUSIC}/${rel}`);
+    },
     // api.reveal: a place inside the music folder, or an absolute path at or inside a watched import folder
     async reveal(rel_path: string) {
       const inWatched = (p: string) => s.imp.folders.some((f) => p === f.path || p.startsWith(`${f.path}/`));
       if (typeof rel_path !== 'string' || rel_path.split('/').includes('..') || (rel_path.startsWith('/') && !inWatched(rel_path))) {
         return fail('refused', 'Discjockey only opens places inside your music folder or a folder it watches.');
       }
-      return ok({});
+      return opened(rel_path.startsWith('/') ? rel_path : rel_path === '.' ? FAKE_MUSIC : `${FAKE_MUSIC}/${rel_path}`);
     },
+    // api.open_report: a run's report, or the buy list (`not-lossless`), which only exists once a song was not found
     async open_report(run_id: string) {
-      return s.runs.some((r) => r.run_id === run_id) ? ok({}) : fail('refused', 'This report is not there any more.');
+      if (run_id === 'not-lossless') {
+        return s.tracks.some((t) => t.in_playlists && qualityOf(t) === 'missing') ? opened(`${FAKE_MUSIC}/.discjockey/not_lossless.md`)
+          : fail('refused', NO_BUY_LIST);
+      }
+      return s.runs.some((r) => r.run_id === run_id) ? opened(reportPath(run_id)) : fail('refused', 'This report is not there any more.');
     },
     async open_licenses() {
-      return s.licensesMissing ? fail('refused', 'The licences folder is missing from this copy of Discjockey.') : ok({});
+      return s.licensesMissing ? fail('refused', 'The licences folder is missing from this copy of Discjockey.')
+        : opened('/Applications/Discjockey.app/Contents/Resources/licenses');
     },
     async open_external(url: string) {
-      return /^https:\/\//.test(url ?? '') ? ok({}) : fail('refused', 'Only https links open in the browser.');
+      return /^https?:\/\/\S+$/.test(url ?? '') ? opened(url) : fail('refused', 'Only web links (http:// or https://) can be opened.');
     },
-    async app_update() { return ok({ ...s.appUpdate }); },
+    async app_update(check?: boolean) {
+      const unknown = s.appUpdate.state === 'unknown';
+      return ok({ ...s.appUpdate, ran_check: !!check, checked_at: unknown ? null : '2026-10-20T21:47:00+00:00',
+        message: check && unknown ? 'No answer: GitHub could not be reached.' : null });
+    },
     // the music folder (api.py pick_folder / check_music_folder / set_music_folder / retry_music_folder)
     async pick_folder(_start?: string | null) { return later(300, () => ok({ path: s.pick })); },
     async check_music_folder(path: string) { return ok(checkFolder(path)); },
@@ -1678,7 +1704,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
    *  minus the ones a recorded refusal still holds. */
   function autoReady(): number { return readyTracks(s).length; }
 
-  function todoView(filter: TodoFilter, show_hidden: boolean) {
+  function todoView(filter: TodoFilter | TodoFilter[], show_hidden: boolean) {
+    const wanted = ([] as TodoFilter[]).concat(filter);  // the engine takes a list too (`todo list --group fake,weak`)
+    const everything = !wanted.length || wanted.includes('all');
     const order: TodoGroupKey[] = ['rekordbox_check', 'missing_file', 'same_song', 'duplicate', 'upgrade_ready', 'cdj', 'not_found', 'weak',
       'good_lossy', 'fake', 'other'];
     const LABELS: Record<TodoGroupKey, [string, string]> = {
@@ -1752,13 +1780,13 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     for (const q of questionItems(s)) { items.same_song.push(q); chips.same_song++; counted.add(q.track_id); }
     for (const d of duplicateItems(s)) { items.duplicate.push(d); chips.duplicate++; counted.add(d.track_id); }
     chips.all = counted.size;
-    const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
+    const groups = order.filter((k) => items[k].length && (everything || wanted.includes(k)))
       .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k],
         ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}),
         ...(k === 'missing_file' ? missingAll(items[k]) : {}) })) as Todo['groups'];
     const TODO_EMPTY: Record<string, string | undefined> = { all_lossless: 'Everything is lossless.',
       all_hidden: 'Only hidden tracks are left.', nothing_here: 'Nothing here.' };  // words.TODO_EMPTY
-    const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'
+    const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : !everything
       ? 'nothing_here' as const : hidden_count ? 'all_hidden' as const : 'all_lossless' as const;
     const check_tracks = s.tracks.filter((t) => t.rekordbox_check).length;
     return { chips, check_tracks, sub: todoSub(chips, check_tracks), hidden_count, show_hidden, groups, empty,

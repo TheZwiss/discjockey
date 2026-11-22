@@ -100,12 +100,19 @@ def _tops(folders: list[WatchedFolder], excluded: set[str]) -> dict[int, tuple[W
     return out
 
 
+def volume_of(path: Path) -> str | None:
+    """The name of the `/Volumes` drive `path` is on ("Gig Stick" for `/Volumes/Gig Stick/Crates`), or None for a path
+    on no external drive. The one rule `away_reason` and `doctor` share."""
+    parts = path.parts
+    return parts[2] if len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes" else None
+
+
 def away_reason(path: Path, mounted: Callable[[Path], bool]) -> str | None:
     """Why a watched folder is not there to read, or None when it is: "unmounted" (its /Volumes drive is not
     mounted: an unplugged drive) or "missing" (anything else that is not a folder: moved, renamed, deleted). The one
     definition the scanner, the move checks and the hub's folder rows and file panels share."""
-    parts = path.parts
-    if len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes" and not mounted(Path("/Volumes", parts[2])):
+    volume = volume_of(path)
+    if volume is not None and not mounted(Path("/Volumes", volume)):
         return "unmounted"
     return None if path.is_dir() else "missing"
 

@@ -1,6 +1,7 @@
 """T1, catalogue <-> bridge (issue 39, design §13): every @bridge method of HubApi has an entry, every entry names a
 method, every parameter has a word, window-only and dropped rows are what the design says."""
 import inspect
+import re
 import typing
 from dataclasses import replace
 
@@ -10,22 +11,14 @@ from discjockey.hub import catalog, shapes
 from discjockey.hub.api import CliApi, HubApi
 from discjockey.hub.catalog import Arg, Entry
 
-# The phase 1 ceiling: how many entries may still be `planned` (their command not built). Every group that builds a
-# command lowers the number; nothing may raise it. 1.1 plans them all; 1.2 builds `rekordbox status` and `resolve`; 1.3 builds `freshness`; 1.8 builds `track show`, `todo list`, `upgrade list`,
-# `check list` and `track find`; 1.9 builds `rekordbox preview`, `batch list`, `batch show`, `report show`
-# and takes `move_batches` out of the plan (it has no command: `batches` is `batch list`); 1.10 builds the two methods
-# its dry runs and selections need (`select_listing`, `upgrade_preview`: no command of their own); 1.11 builds `upgrade apply`
-# and `upgrade_all` (part a), `upgrade discard`, `track undo` and `check done` (part b) and `undo_upgrade_preview`;
-# 1.12 builds `batch resume`, `batch undo aiff:<n>` and `batch_undo_preview` (the moves forms are phase 4's), then (part b)
-# `rekordbox backups`, `rekordbox restore` and `rekordbox_restore_preview`; 1.13 part a builds `library facts` (and its
-# read, `facts_preview`), part b `aiff convert` and `aiff rename` (`convert`, `rename`, `make_aiff` and the two `aiff_plan`
-# reads that are their dry runs); 1.14 part a builds `sync run --auto-upgrade-only` (`auto_upgrade_run` and its dry run
-# `auto_upgrade_preview`; `start_sync`'s own `sync run` row stays planned for phase 4), part b `folder add`, `folder remove`
-# (`add_watched_folder`, `remove_watched_folder`, and `removal_preview`, which is its dry run: no command of its own),
-# `settings show` (`settings_view`) and `settings set auto-upgrade` (`set_auto_upgrade`).
-PHASE_1_CEILING = 81  # 80 + the planned `login check <service>` row (`setup_account` with the saved browser: U2)
+# The ceiling of entries that may still be `planned` (their command not built). Every group that builds a command lowers
+# the number; nothing may raise it. Phase 3 is finished: every row left is phase 4's (`planned` names the group), and
+# phase 4 lowers the ceiling as it builds them.
+PLANNED_CEILING = 54
+# The phases that are finished: no row may be planned for one of them.
+FINISHED_PHASES = 3
 
-CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
+CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "history", "doctor", "status_view", "rekordbox_match", "library_superseded", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
              "rekordbox_backups", "rekordbox_restore", "rekordbox_restore_preview"}
 
@@ -71,8 +64,8 @@ def test_a_cli_first_method_exists_exactly_when_its_entry_is_built():
 
 
 def test_window_only_and_dropped():
-    assert catalog.WINDOW_ONLY == {"pick_folder": "native_dialog", "quit": "closes_window"}
-    assert set(catalog.WINDOW_ONLY.values()) <= {"native_dialog", "closes_window"}
+    assert catalog.WINDOW_ONLY == {"pick_folder": "native_dialog", "quit": "closes_window", "retry_music_folder": "binds_folder"}
+    assert set(catalog.WINDOW_ONLY.values()) <= catalog.WINDOW_ONLY_REASONS
     assert catalog.DROPPED == {"media_url", "select", "setup_check_account"}
     assert {e.method for e in EXISTING if e.kind == "W"} == set(catalog.WINDOW_ONLY)
     assert {e.method for e in EXISTING if e.kind == "dropped"} == catalog.DROPPED
@@ -176,13 +169,37 @@ def test_the_entries_are_well_formed():
         key = (e.method, e.command, e.cli_first, repr(sorted(e.fixed.items(), key=str)))  # a fixed value may be a list
         assert key not in seen, e
         seen.add(key)
-        assert e.planned is None or e.planned.startswith("phase "), e
+        assert e.planned is None or re.fullmatch(r"phase (\d): V\1\.\d+[a-z]?", e.planned), e
     assert {("help",), ("where",), ("app", "open"), ("call",)} <= set(catalog.HOUSEKEEPING)
 
 
 def test_the_planned_count_only_shrinks():
     planned = [e for e in catalog.ENTRIES if e.planned]
-    assert len(planned) <= PHASE_1_CEILING, f"{len(planned)} planned entries"
+    assert len(planned) <= PLANNED_CEILING, f"{len(planned)} planned entries"
+
+
+def test_no_entry_is_planned_for_a_finished_phase():
+    late = [e for e in catalog.ENTRIES if e.planned and int(e.planned[len("phase "):][0]) <= FINISHED_PHASES]
+    assert not late, late
+
+
+def test_pages_names_a_top_level_list_of_the_answer_of_a_read():
+    paged = [e for e in catalog.ENTRIES if e.pages]
+    assert {(e.method, e.pages) for e in paged} == {("library", "rows"), ("runs", "runs"), ("batches", "batches"), ("history", "entries"),
+                                                      ("rekordbox_match", "entries"), ("library_superseded", "files")}
+    for e in paged:
+        assert e.kind == "R" and e.planned is None, e  # a page is cut where the answer is whole: a read that answers at once
+        assert e.schema, f"{e.method} has no shape: its list cannot be checked"
+        field = shapes.DEFAULT.definition(e.schema)["properties"].get(e.pages)
+        assert field is not None and field.get("type") == "array", (e.method, e.pages)
+
+
+def test_a_row_that_is_not_built_needs_its_label():
+    with pytest.raises(ValueError):
+        catalog._e("hide", "track hide", "J")
+    assert catalog._e("hide", "track hide", "J", planned="phase 4: V4.6").planned == "phase 4: V4.6"
+    assert catalog._e("hide", "track hide", "J", built=True).planned is None
+    assert catalog._e("quit", "", "W").planned is None
 
 
 def _all_built(monkeypatch):
@@ -248,3 +265,24 @@ def test_duplicate_keep_with_a_file_id_runs_keep_file_and_all_runs_keep_duplicat
     assert list(by_method["keep_file"].params) == ["group_id", "file_id", "paths"]
     assert by_method["keep_file"].params["file_id"].positional and by_method["keep_file"].params["paths"].resolve == "duplicate_paths"
     assert catalog.DISPATCH["duplicate keep"] == ("a file id as the second word runs keep_file, `--all` runs keep_duplicates")
+
+
+def test_a_read_stands_in_for_a_write_that_is_planned_and_only_until_the_write_is_built(monkeypatch):
+    stand = {e.method for e in catalog.ENTRIES if catalog.stands_in(e)}
+    assert stand == {"tidy_preview", "limits_what_if", "check_music_folder", "undo_preview"}
+    assert [c for c in (("tidy", "run"), ("limits", "set"), ("setup", "music"), ("batch", "undo"), ("sync", "run"),
+                        ("limits", "show"), ("nothing", "here")) if catalog.dry_run_only(c)] == [
+        ("tidy", "run"), ("limits", "set"), ("setup", "music")]  # `batch undo` has a built write (`batch_undo`)
+    monkeypatch.setattr(catalog, "ENTRIES", tuple(replace(e, planned=None) if e.method == "tidy_up" else e
+                                                  for e in catalog.ENTRIES))
+    assert not catalog.dry_run_only(("tidy", "run")) and not catalog.stands_in(catalog.by_method("tidy_preview")[0])
+    assert catalog.dry_run_only(("limits", "set"))  # the others keep standing in
+
+
+def test_a_command_that_dispatches_by_id_kind_names_a_positional_and_a_rule():
+    from discjockey.hub import ids
+    assert set(catalog.BY_ID_KIND) <= set(catalog.DISPATCH)
+    for command, (name, forms) in catalog.BY_ID_KIND.items():
+        rows = [e for e in catalog.ENTRIES if " ".join(e.command) == command and name in e.params]
+        assert len(rows) >= 2 and forms in ids.FORMS
+        assert {e.params[name].resolve for e in rows if e.kind in ("J", "B")} == set(ids.FORMS[forms].replace(":N", "").split("|"))

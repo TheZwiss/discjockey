@@ -27,9 +27,9 @@ export const AUTO_REFUSED_SHORT: Record<AutoRefused['reason'], string> = {
   space: 'not enough free space', needs_choice: "couldn't compare it",
 };
 export const AUTO_WAITING_DETAIL = 'Waits for rekordbox to be closed';
-/** views.AUTO_BATCH_DETAIL */
+/** words.AUTO_BATCH_DETAIL */
 export const AUTO_BATCH_DETAIL = 'Upgraded during your sync';
-/** views.BATCH_PLACED */
+/** words.BATCH_PLACED */
 export const BATCH_PLACED = 'Better versions put in during your sync';
 
 /** views._card_summary: the summary of a batch's "In rekordbox" card, from its checks (reason, rekordbox's entries; null
@@ -41,7 +41,7 @@ export function cardSummary(checks: { reason: string; rekordbox: { entries: numb
   if (steps.length) return steps.length > 1 ? CARD_MANY : CARD_ONE;
   return checks.some((c) => c.reason === 'placed_missing') ? PLACED_SUMMARY : null;
 }
-/** views._batch_how, _batch_row_name, _batch_list_title, _day_words and the card's summaries: the words of a To-do batch
+/** views.batch_how and `_batch_how`, _batch_row_name, _batch_list_title, _day_words and the card's summaries: the words of a To-do batch
  *  item, from its checks, its kind, who started it and the day of its first check. */
 export function batchWords(checks: { reason: string; rekordbox: { entries: number } | null }[], kind: 'upgrade' | 'convert' | 'mixed',
   fromSync: boolean, started: string | null, now: Date): { how: string; row_name: string; row_sub: string; list_title: string;

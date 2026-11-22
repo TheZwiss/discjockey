@@ -20,10 +20,6 @@ from . import render
 from .render import layout
 
 
-PAGING_IS_TEXT = ("--limit and --offset page the text page; with --json the whole list comes (JSON paging comes with "
-                  "phase 3).")
-
-
 def render_text(env: dict, flags: Flags, *, color: bool = False) -> str:
     """The text of an answer: its `data` as the command's page (a hand page, else the generic one), under the message
     when it worked (a problem's message goes to stderr)."""
@@ -81,8 +77,6 @@ def _run(argv: list[str]) -> int:
     try:
         parsed = parser.parse(argv)
         flags, command = parsed.flags, " ".join(parsed.command)
-        if (flags.json or flags.jsonl) and (flags.limit != parser.DEFAULT_LIMIT or flags.offset):
-            raise UsageError(PAGING_IS_TEXT)  # only a flag the command line added (a method's own `limit` is its own)
         if parsed.command == APP_OPEN:
             if (env := call.refuse_job_flags(flags, command)) is not None:
                 return emit(env, flags)
@@ -90,7 +84,7 @@ def _run(argv: list[str]) -> int:
         if parsed.command in HOUSEKEEPING:
             env = housekeeping.run(parsed)
         else:
-            env = call.run(call.choose(parsed.entries, flags), parsed.args, flags)
+            env = call.run(call.choose(parsed.entries, flags, parsed.args), parsed.args, flags)
     except UsageError as e:
         env = envelope.usage(command, e.message, e.reason)
     except Exception:  # noqa: BLE001 - `--json` always ends with one object; a bug is a failed answer

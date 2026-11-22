@@ -11,7 +11,7 @@ export type Ticks = ReadonlySet<number>;
 // ---- I6 words ----
 export const R1 = 'rekordbox may show the moved tracks as missing.';
 export const R2 = 'Its Relocate finds them again by file name: Discjockey never renames them.';
-export const U1 = 'You can undo this on this page.';
+export const U1 = 'You can undo this afterwards.';  // the engine's `TidyPreview.undo_note` word (views.UNDO_NOTE)
 export const YOURS_HEADER = 'You put these here';
 export const YOURS_CONTROL = 'Put these in playlist order too';
 export const CANT_MOVE = "Can't move";

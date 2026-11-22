@@ -1,0 +1,4 @@
+Would open <tmp>/Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff; nothing was opened.
+
+Target  <tmp>/Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff
+Opened  no

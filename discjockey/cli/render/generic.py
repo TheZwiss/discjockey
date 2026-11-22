@@ -1,5 +1,5 @@
 """The generic printer (issue 39, plan v2 §3.1): turns any payload into a page, so a command needs no renderer of its
-own. A headline (`message`, else the payload's `headline`, else its first `*_text`), scalars as label/value rows (a
+own. A headline (`message`, else the payload's `headline`, else its own `text`, else its first `*_text`), scalars as label/value rows (a
 `<fact>` with a `<fact>_text` prints the words; the raw fact only with `--verbose`), lists of objects as tables in
 payload order (`--limit` rows, default 200, `--offset`, a count line), nested objects as sections. A hand page names
 the top-level fields it places; `rest(payload, placed)` prints the others under "More". Labels are field names in
@@ -34,11 +34,13 @@ def scalar(value: object) -> str:
 
 
 def cell(value: object) -> str:
-    """Any value on one line: a list joined by commas, an object as `key: value` pairs."""
+    """Any value on one line: a list joined by commas (a list of sentences, each ending in `.`, `!` or `?`, by a space:
+    a comma after a full stop reads as a typo), an object as `key: value` pairs."""
     if isinstance(value, Mapping):
         return ", ".join(f"{k}: {cell(v)}" for k, v in value.items()) or "none"
     if isinstance(value, Sequence) and not isinstance(value, str):
-        return ", ".join(cell(v) for v in value) or "none"
+        sentences = bool(value) and all(isinstance(v, str) and v.endswith((".", "!", "?")) for v in value)
+        return (" " if sentences else ", ").join(cell(v) for v in value) or "none"
     return scalar(value)
 
 
@@ -63,8 +65,9 @@ def _headline(payload: Mapping, message: str | None) -> tuple[str | None, str | 
     """The headline and the payload key it came from (None when it is the message)."""
     if message:
         return message, None
-    if isinstance(payload.get("headline"), str) and payload["headline"]:
-        return payload["headline"], "headline"
+    for key in ("headline", "text"):  # the answer's own sentence beats the first `<fact>_text` that happens to come first
+        if isinstance(payload.get(key), str) and payload[key]:
+            return payload[key], key
     for key, value in payload.items():
         if key.endswith(TEXT) and isinstance(value, str) and value:
             return value, key

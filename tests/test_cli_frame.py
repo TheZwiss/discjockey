@@ -19,8 +19,8 @@ from discjockey.hub import catalog
 from discjockey.hub.outcomes import EXIT
 
 CLI_DIR = Path(cli.__file__).parent
-ENVELOPE_KEYS = ["v", "command", "outcome", "reason", "message", "data", "next", "person_steps", "recovered", "job",
-                 "as_of", "sandbox"]
+ENVELOPE_KEYS = ["v", "command", "outcome", "reason", "message", "data", "page", "next", "person_steps", "recovered",
+                 "job", "as_of", "sandbox"]
 
 
 def run(argv, capsys):
@@ -332,6 +332,7 @@ def test_call_reads_its_arguments_from_stdin(monkeypatch, capsys):
 @pytest.mark.parametrize("argv,message", [
     (["call", "quit"], "closes the window"),
     (["call", "pick_folder"], "dialog"),
+    (["call", "retry_music_folder"], "starts watching it"),
     (["call", "media_url"], "not offered"),
     (["call", "tidy_up"], "not built yet"),
     (["call", "no_such_method"], "no method"),
@@ -461,6 +462,14 @@ def test_the_generic_page_headline_is_the_first_text_field_and_lists_page_by_lim
     assert generic.page({"state_text": "Ready.", "state": "ready"}).headline == "Ready."
 
 
+def test_the_generic_page_headline_is_the_top_level_text_before_any_other_text_field_and_is_not_repeated():
+    from discjockey.cli.render import generic, layout
+    page = generic.page({"state_text": "A", "text": "B"})
+    assert page.headline == "B"
+    lines = layout.render(page).splitlines()
+    assert lines[0] == "B" and lines.count("B") == 1 and not [line for line in lines[1:] if line.startswith("Text")]
+
+
 def test_rest_prints_what_a_hand_page_did_not_place_under_more():
     from discjockey.cli.render import generic, layout
     sections = generic.rest({"a": 1, "b": 2, "c": [{"x": 1}]}, {"a"})
@@ -545,6 +554,17 @@ def test_the_envelope_rejects_a_word_it_does_not_know():
               "next": [], "person_steps": [], "data": {"holder": "sync"}}
     env = envelope.from_answer("sync run", answer)
     assert (env["outcome"], env["reason"], env["data"]) == ("busy", "library_lock", {"holder": "sync"})
+
+
+def test_an_ok_answers_next_and_person_steps_are_the_envelopes_not_data():
+    from discjockey.cli import envelope
+    step = {"id": "step:connect_drive", "say": "Connect the drive Gig Stick.", "then": None}
+    answer = {"ok": True, "rows": [1], "next": [{"run": "doctor", "why": "look further"}], "person_steps": [step]}
+    env = envelope.from_answer("status", answer)
+    assert (env["outcome"], env["data"]) == ("ok", {"rows": [1]})
+    assert env["next"] == [{"run": "doctor", "why": "look further"}] and env["person_steps"] == [step]
+    plain = envelope.from_answer("status", {"ok": True, "rows": []})
+    assert plain["next"] == [] and plain["person_steps"] == []
 
 
 # --- `rev` replaces the window's memory of what it showed ---

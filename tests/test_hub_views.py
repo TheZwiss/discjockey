@@ -472,7 +472,7 @@ def test_the_card_and_the_todo_row_say_what_the_file_can_do(path, result, swap_s
     entry = e("not_lossless", path=path, upgrade={**UPGRADE, "alignment": {"result": result, "offset_ms": 0.0}})
     up = views.track_detail("t1", entry, [], TODAY)["upgrade"]
     assert (up["swap_safe"], up["swap_possible"], up["cue_text"]) == (swap_safe, swap_possible, text)
-    row = {i["track_id"]: i for g in views.todo(state(t1=entry), "all", False, {}, TODAY)["groups"]
+    row = {i["track_id"]: i for g in views.todo(state(t1=entry), None, False, {}, TODAY)["groups"]
            for i in g["items"]}["t1"]
     assert row["group"] == "upgrade_ready" and row["detail"] == ROW_STATUS[(result, swap_possible)]
 
@@ -602,7 +602,7 @@ def test_source_url_is_dropped_when_it_is_the_songs_own_page():
 def test_todo_rows_say_when_a_free_download_exists():
     s = state(t1=e("not_lossless", cutoff=17900, source="soundcloud", free_downloads=[GATE], source_kbps=160),
               t2=e("missing", title="Gone", free_downloads=[GATE]), t3=e("not_lossless", title="Other", cutoff=20000))
-    rows = {i["track_id"]: i for g in views.todo(s, "all", False, {}, TODAY)["groups"] for i in g["items"]}
+    rows = {i["track_id"]: i for g in views.todo(s, None, False, {}, TODAY)["groups"] for i in g["items"]}
     assert rows["t1"]["free"] and rows["t2"]["free"] and not rows["t3"]["free"]
     assert rows["t1"]["detail"] == "SoundCloud · 160 kbps"  # the kHz is the badge
 
@@ -756,7 +756,7 @@ def test_todo_groups_in_order_with_details():
                  "m": e(artist="DJ", title="THE WEEKEND 2"),
                  "n": e("missing", artist="Z", title="Due", last_attempt="2026-10-01")})
     s["tracks"]["g"]["last_attempt"] = "2026-10-16"
-    out = views.todo(s, "all", False, {"m": "MOVE BLOCKED · a file is in the way"}, TODAY, cover)
+    out = views.todo(s, None, False, {"m": "MOVE BLOCKED · a file is in the way"}, TODAY, cover)
     assert [g["key"] for g in out["groups"]] == ["upgrade_ready", "not_found", "good_lossy", "fake", "other"]
     by = {i["track_id"]: i for g in out["groups"] for i in g["items"]}
     assert by["b"]["detail"] == "Lossless ready · cues can stay" and by["b"]["group"] == "upgrade_ready"
@@ -766,20 +766,37 @@ def test_todo_groups_in_order_with_details():
     assert "h" not in by and "f" not in by and out["hidden_count"] == 1
     assert out["chips"] == {"all": 6, "rekordbox_check": 0, "missing_file": 0, "same_song": 0, "duplicate": 0, "upgrade_ready": 1,
                             "cdj": 0, "not_found": 2, "weak": 0, "good_lossy": 1, "fake": 1, "other": 1}
-    shown = views.todo(s, "weak", True, {}, TODAY)
+    shown = views.todo(s, ("weak",), True, {}, TODAY)
     assert [g["key"] for g in shown["groups"]] == ["weak"] and shown["groups"][0]["items"][0]["track_id"] == "h"
     assert shown["groups"][0]["items"][0]["hidden"] is True
 
 
+def test_todo_takes_a_collection_of_group_keys_never_a_bare_string():
+    """`"all" in "all"` is true for a key that is only part of a word: a string must fail loudly."""
+    with pytest.raises(TypeError, match="not a string"):
+        views.todo(state(), "all", False, {}, TODAY)
+    assert views.todo(state(), None, False, {}, TODAY)["groups"] is not None
+
+
+def test_todo_a_collection_of_groups_keeps_only_those_groups_in_the_pages_order():
+    s = state(m=e("missing"), w=e("not_lossless", cutoff=16000), f=e("fake_lossless", cutoff=16000, title="F"))
+    every = [g["key"] for g in views.todo(s, None, False, {}, TODAY)["groups"]]
+    assert len(every) > 2
+    two = views.todo(s, ("weak", "fake"), False, {}, TODAY)
+    assert [g["key"] for g in two["groups"]] == [k for k in every if k in ("weak", "fake")]  # the window's order, not the typed one
+    assert two["chips"]["all"] == views.todo(s, None, False, {}, TODAY)["chips"]["all"]      # the chips count every group
+    assert views.todo(s, (), False, {}, TODAY)["groups"] == []
+
+
 def test_todo_empty_states():
-    assert views.todo(state(a=e()), "all", False, {}, TODAY)["empty"] == "all_lossless"
-    assert views.todo(state(a=e("missing", hidden=True)), "all", False, {}, TODAY)["empty"] == "all_hidden"
-    assert views.todo(state(a=e("missing")), "fake", False, {}, TODAY)["empty"] == "nothing_here"
-    for filt, tracks in (("all", state(a=e())), ("all", state(a=e("missing", hidden=True))), ("fake", state(a=e("missing")))):
+    assert views.todo(state(a=e()), None, False, {}, TODAY)["empty"] == "all_lossless"
+    assert views.todo(state(a=e("missing", hidden=True)), None, False, {}, TODAY)["empty"] == "all_hidden"
+    assert views.todo(state(a=e("missing")), ("fake",), False, {}, TODAY)["empty"] == "nothing_here"
+    for filt, tracks in ((None, state(a=e())), (None, state(a=e("missing", hidden=True))), (("fake",), state(a=e("missing")))):
         out = views.todo(tracks, filt, False, {}, TODAY)
         assert out["empty_text"] == {"all_lossless": "Everything is lossless.", "all_hidden": "Only hidden tracks are left.",
                                      "nothing_here": "Nothing here."}[out["empty"]]
-    assert views.todo(state(a=e("missing")), "all", False, {}, TODAY)["empty_text"] is None
+    assert views.todo(state(a=e("missing")), None, False, {}, TODAY)["empty_text"] is None
 
 
 def test_todo_others_from_the_last_run_and_the_preview():
@@ -829,7 +846,7 @@ def test_sync_preview_never_download_moves_at_once():
 def test_never_download_is_not_a_to_do():
     st = state(m=e("missing"), k=e("missing"))
     st["never"] = {"m": {}}
-    assert [i["track_id"] for g in views.todo(st, "all", False, {}, TODAY)["groups"] for i in g["items"]] == ["k"]
+    assert [i["track_id"] for g in views.todo(st, None, False, {}, TODAY)["groups"] for i in g["items"]] == ["k"]
     assert views.needs_you(st)["not_found"] == 1
 
 
@@ -1013,7 +1030,7 @@ def test_change_switch_off_of_a_playlist_that_was_never_read_still_says_so():
 def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
     s = state(a=e(rekordbox_check={"reason": "wrong_song", "since": "2026-10-16"}),
               h=e("missing", hidden=True, rekordbox_check={"reason": "added_as_new", "since": "2026-10-16"}))
-    out = views.todo(s, "all", False, {}, TODAY)
+    out = views.todo(s, None, False, {}, TODAY)
     assert [g["key"] for g in out["groups"]] == ["rekordbox_check"]
     group = out["groups"][0]
     assert group["label"] == "Check in rekordbox"
@@ -1027,7 +1044,7 @@ def test_todo_check_in_rekordbox_group_also_for_lossless_and_hidden_tracks():
                                 "reload_tag": True, "batch": None, "rekordbox": None, "old_path": None, "old_name": None, "text": "This is a different edit. In rekordbox: analyse it again and set the cues again.",
                                 "person_steps": [{"id": "step:relocate_new", "say": "This is a different edit. In rekordbox: analyse it again and set the cues again.", "then": "check done h"}]}
     assert out["chips"]["rekordbox_check"] == 2 and out["chips"]["all"] == 2 and out["hidden_count"] == 1
-    both = views.todo(s, "all", True, {}, TODAY)
+    both = views.todo(s, None, True, {}, TODAY)
     assert [g["key"] for g in both["groups"]] == ["rekordbox_check", "not_found"] and both["chips"]["all"] == 2
 
 
@@ -1036,18 +1053,18 @@ def test_todo_check_tracks_counts_tracks_where_chips_count_items():
     s = state(a=e(rekordbox_check={**chk, "batch": 7}), b=e(title="B", rekordbox_check={**chk, "batch": 7}),
               c=e(title="C", rekordbox_check={**chk, "batch": 7}), d=e(title="D", rekordbox_check=chk),
               h=e("missing", hidden=True, rekordbox_check=chk), w=e("not_lossless", cutoff=16000))
-    for filt in ("all", "rekordbox_check", "weak"):
+    for filt in (None, ("rekordbox_check",), ("weak",)):
         out = views.todo(s, filt, False, {}, TODAY)
         assert out["check_tracks"] == 5, filt          # a batch of 3, one single check, one hidden track
-    out = views.todo(s, "all", False, {}, TODAY)
+    out = views.todo(s, None, False, {}, TODAY)
     assert out["chips"]["rekordbox_check"] == 3        # the batch is one item
-    assert views.todo(state(w=e("not_lossless", cutoff=16000)), "all", False, {}, TODAY)["check_tracks"] == 0
+    assert views.todo(state(w=e("not_lossless", cutoff=16000)), None, False, {}, TODAY)["check_tracks"] == 0
 
 
 def test_todo_check_in_rekordbox_words_an_added_file_by_what_was_measured():
     s = state(a=e(rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "exact", "relocate": True}),
               b=e(title="B", rekordbox_check={"reason": "added_as_new", "since": "2026-10-16", "match": "different"}))
-    by = {i["track_id"]: i for i in views.todo(s, "all", False, {}, TODAY)["groups"][0]["items"]}
+    by = {i["track_id"]: i for i in views.todo(s, None, False, {}, TODAY)["groups"][0]["items"]}
     assert by["a"]["detail"] == "relocate, analyse again" and by["a"]["check"]["match"] == "exact"
     assert by["a"]["check"]["text"] == "This is the same edit. In rekordbox: relocate the old entry to the new file, its cues fit."
     assert by["b"]["detail"] == "analyse, set the cues again"
@@ -1399,7 +1416,7 @@ def test_tidy_preview_ticks_follow_placed_by_and_yours_is_marked():
     assert p["ticked"] == 1 and p["empty"] is None
     assert p["rekordbox"] == ["rekordbox may show the moved tracks as missing.",
                               "Its Relocate finds them again by file name: Discjockey never renames them."]
-    assert p["undo_note"] == "You can undo this on this page."
+    assert p["undo_note"] == "You can undo this afterwards."
     assert p["yours"] == {"count": 2, "movable": 2, "mark": "You put this here", "header": "You put these here",
                           "control": "Put these in playlist order too"}
 
@@ -1691,7 +1708,7 @@ def dup_file(file_id, song_key=None, status="lossless", cutoff=None, online=True
 ])
 def test_a_question_is_a_todo_item_with_its_pair_and_its_why_in_words(why, delta, words):
     st = state(t1=e("missing", folder="A"), **{"local:1": own()})
-    out = views.todo(st, "all", False, {}, TODAY, None, [question(why, delta)])
+    out = views.todo(st, None, False, {}, TODAY, None, [question(why, delta)])
     assert [g["key"] for g in out["groups"]] == ["same_song"]
     assert (out["groups"][0]["label"], out["groups"][0]["hint"]) == (
         "Is this the same song?", "a file of yours might be a playlist song")
@@ -1710,15 +1727,15 @@ def test_a_question_is_a_todo_item_with_its_pair_and_its_why_in_words(why, delta
 
 def test_a_question_holds_its_song_back_from_not_found_and_a_song_without_an_entry_still_shows():
     st = state(t1=e("missing", folder="A"), **{"local:1": own()})
-    out = views.todo(st, "all", False, {}, TODAY, None, [question()])
+    out = views.todo(st, None, False, {}, TODAY, None, [question()])
     assert [g["key"] for g in out["groups"]] == ["same_song"]  # not also "Not found"
-    fresh = views.todo(state(**{"local:1": own()}), "all", False, {}, TODAY, None, [question()])  # not stored yet
+    fresh = views.todo(state(**{"local:1": own()}), None, False, {}, TODAY, None, [question()])  # not stored yet
     item = fresh["groups"][0]["items"][0]
     assert (item["track_id"], item["folder"], item["quality"]) == ("t1", "A", "missing")
 
 
 def test_a_question_whose_own_song_is_gone_is_left_out():
-    out = views.todo(state(), "all", False, {}, TODAY, None, [question()])
+    out = views.todo(state(), None, False, {}, TODAY, None, [question()])
     assert out["groups"] == [] and out["chips"]["same_song"] == 0 and out["empty"] == "all_lossless"
 
 
@@ -1727,7 +1744,7 @@ def test_own_songs_are_on_the_todo_only_as_upgrade_ready():
     st = state(**{"local:1": own("not_lossless", cutoff=15000), "local:2": own("fake_lossless", cutoff=16000),
                   "local:3": own("not_lossless", cutoff=20000), "local:4": own("missing"),
                   "local:5": own("not_lossless", cutoff=16000, upgrade=up)})
-    out = views.todo(st, "all", False, {"local:3": "SEVERAL FILES"}, TODAY)
+    out = views.todo(st, None, False, {"local:3": "SEVERAL FILES"}, TODAY)
     assert [(g["key"], [i["track_id"] for i in g["items"]]) for g in out["groups"]] == [
         ("upgrade_ready", ["local:5"])]
     assert out["chips"]["all"] == 1 and out["chips"]["weak"] == 0 and out["chips"]["fake"] == 0
@@ -1741,7 +1758,7 @@ def test_a_duplicate_group_of_three_files_and_its_words():
     g = DuplicateGroup("dup:3-4-5", "same_song", (3, 4, 5))
     files = {g.id: [dup_file(4, "local:1"), dup_file(3, "t1", in_playlists=True),
                     dup_file(5, "local:2", "not_lossless", 16000)]}
-    out = views.todo(st, "all", False, {}, TODAY, None, [], [g], files)
+    out = views.todo(st, None, False, {}, TODAY, None, [], [g], files)
     item = out["groups"][0]["items"][0]
     assert (out["groups"][0]["key"], item["group"], item["detail"]) == ("duplicate", "duplicate",
                                                                        "3 files of the same song")
@@ -1759,7 +1776,7 @@ def test_the_same_audio_pair_in_both_sources_shows_once_as_the_same_audio():
     from_records = DuplicateGroup("dup:4-5", "same_audio", (4, 5))
     files = {"dup:4-5": [dup_file(4, "local:1"), dup_file(5, "local:2")]}
     for order in ([from_plan, from_records], [from_records, from_plan]):
-        out = views.todo(st, "all", False, {}, TODAY, None, [], order, files)
+        out = views.todo(st, None, False, {}, TODAY, None, [], order, files)
         items = [i for g in out["groups"] for i in g["items"]]
         assert [(i["pair"]["group_id"], i["pair"]["why"], i["detail"]) for i in items] == [
             ("dup:4-5", "same_audio", "The same audio in 2 files")]
@@ -1772,7 +1789,7 @@ def test_a_duplicate_group_with_a_file_offline_held_or_gone_is_not_shown():
     for files in ([dup_file(4, "local:1"), dup_file(5, "local:2", online=False)],
                   [dup_file(4, "local:1"), dup_file(5, "local:2", usable=False)],
                   [dup_file(4, "local:1")], []):
-        out = views.todo(st, "all", False, {}, TODAY, None, [], [g], {g.id: files})
+        out = views.todo(st, None, False, {}, TODAY, None, [], [g], {g.id: files})
         assert out["groups"] == [] and out["chips"]["duplicate"] == 0 and out["empty"] == "all_lossless"
 
 
@@ -1780,22 +1797,22 @@ def test_a_duplicate_group_with_a_file_in_a_folder_away_now_is_neither_listed_no
     st = state(**{"local:1": own(file_id=4), "local:2": own(file_id=5)})
     g = DuplicateGroup("dup:4-5", "same_audio", (4, 5))
     files = {g.id: [dup_file(4, "local:1"), dup_file(5, "local:2", path="/Volumes/Example/Other/b.aiff")]}
-    here = views.todo(st, "duplicate", False, {}, TODAY, None, [], [g], files, away={})
+    here = views.todo(st, ("duplicate",), False, {}, TODAY, None, [], [g], files, away={})
     assert here["chips"]["duplicate"] == 1 and here["chips"]["all"] == 1 and len(here["groups"]) == 1
-    for filt in ("all", "duplicate"):
+    for filt in (None, ("duplicate",)):
         for why in ("unmounted", "missing"):  # the rows still say online: no scan has seen the folder go
             out = views.todo(st, filt, False, {}, TODAY, None, [], [g], files, away={"/Volumes/Example/Other": why})
             assert out["groups"] == [] and out["chips"]["duplicate"] == 0 and out["chips"]["all"] == 0
     # the sidebar's known-there groups: the api only passes them as counted when nothing is away
-    out = views.todo(st, "all", False, {}, TODAY, None, [], [g], {}, counted={g.id})
+    out = views.todo(st, None, False, {}, TODAY, None, [], [g], {}, counted={g.id})
     assert out["chips"]["all"] == 1 and out["groups"] == []
 
 
 def test_a_filter_keeps_only_its_group():
     st = state(t1=e("missing"), **{"local:1": own()})
     q = [question()]
-    assert [g["key"] for g in views.todo(st, "same_song", False, {}, TODAY, None, q)["groups"]] == ["same_song"]
-    out = views.todo(st, "duplicate", False, {}, TODAY, None, q)
+    assert [g["key"] for g in views.todo(st, ("same_song",), False, {}, TODAY, None, q)["groups"]] == ["same_song"]
+    out = views.todo(st, ("duplicate",), False, {}, TODAY, None, q)
     assert out["groups"] == [] and out["empty"] == "nothing_here"
 
 
@@ -1857,7 +1874,7 @@ def test_the_watched_folders_with_their_states_counts_and_unreadable_files():
 def test_a_file_side_hands_its_file_id_to_the_player():
     seen = []
     st = state(t1=e("missing", folder="A"), **{"local:1": own()})
-    out = views.todo(st, "all", False, {}, TODAY, None, [question()], audio=lambda key, e: seen.append((key, e)) or "u")
+    out = views.todo(st, None, False, {}, TODAY, None, [question()], audio=lambda key, e: seen.append((key, e)) or "u")
     assert seen == [("local:1", {"path": "/Volumes/Example/Music/Example Artist - Song.aiff", "file_id": 7})]
     assert out["groups"][0]["items"][0]["pair"]["file"]["audio_url"] == "u"
 
@@ -1865,10 +1882,10 @@ def test_a_file_side_hands_its_file_id_to_the_player():
 
 def test_a_stale_question_does_not_hide_its_playlist_song_from_not_found():
     st = state(t1=e("missing", folder="A"))  # the question's own song is gone from the records
-    out = views.todo(st, "all", False, {}, TODAY, None, [question()])
+    out = views.todo(st, None, False, {}, TODAY, None, [question()])
     assert [g["key"] for g in out["groups"]] == ["not_found"] and out["chips"]["all"] == 1
     st = state(t1=e("missing", folder="A"), **{"local:1": own()})  # a live one still holds it
-    out = views.todo(st, "all", False, {}, TODAY, None, [question()])
+    out = views.todo(st, None, False, {}, TODAY, None, [question()])
     assert [g["key"] for g in out["groups"]] == ["same_song"] and out["chips"]["all"] == 1
 
 
@@ -1876,9 +1893,9 @@ def test_counted_duplicate_groups_count_without_files_and_are_not_listed():
     from discjockey.models import DuplicateGroup
     g = DuplicateGroup("dup:3-4", "same_audio", (3, 4))
     st = state(t1=e("lossless", folder="A"))
-    plain = views.todo(st, "all", False, {}, TODAY, None, [], [g])
+    plain = views.todo(st, None, False, {}, TODAY, None, [], [g])
     assert plain["chips"]["duplicate"] == 0 and plain["chips"]["all"] == 0  # no files loaded: nothing to act on
-    counted = views.todo(st, "all", False, {}, TODAY, None, [], [g], counted={"dup:3-4"})
+    counted = views.todo(st, None, False, {}, TODAY, None, [], [g], counted={"dup:3-4"})
     assert counted["chips"]["all"] == 1 and counted["chips"]["duplicate"] == 0 and counted["groups"] == []
 
 
@@ -2461,7 +2478,7 @@ def test_a_hidden_song_that_was_not_found_still_says_it_is_hidden_so_the_page_se
     rows = {r["track_id"]: r for r in playlist_view(st)["rows"]}
     assert (rows["g"]["wait"], rows["g"]["hidden"]) == ("not_found", True)
     assert {r["track_id"]: r["hidden"] for r in playlist_view()["rows"]}["g"] is False
-    assert "not_found" not in [g["key"] for g in views.todo(st, "all", False, {}, TODAY)["groups"]]  # nothing to open
+    assert "not_found" not in [g["key"] for g in views.todo(st, None, False, {}, TODAY)["groups"]]  # nothing to open
 
 
 def test_the_also_rows_come_by_artist_then_title_and_the_playlists_own_rows_keep_their_order():
@@ -2503,7 +2520,7 @@ def test_a_duplicate_item_carries_the_recommendation():
     st = state(**{"local:1": own(file_id=4), "local:2": own("not_lossless", cutoff=16000, file_id=5)})
     g = DuplicateGroup("dup:4-5", "same_audio", (4, 5))
     files = {g.id: [dup_file(4, "local:1"), dup_file(5, "local:2", "not_lossless", 16000)]}
-    pair = views.todo(st, "all", False, {}, TODAY, None, [], [g], files)["groups"][0]["items"][0]["pair"]
+    pair = views.todo(st, None, False, {}, TODAY, None, [], [g], files)["groups"][0]["items"][0]["pair"]
     assert (pair["recommended"], pair["recommended_why"]) == (4, "Recommended: best quality")
 
 
@@ -2533,7 +2550,7 @@ def test_todo_items_carry_the_file_state_of_their_file_like_library_rows():
                   "t1": e("missing", folder="A"), "t2": e("not_lossless", cutoff=16000, folder="A")})
 
     def states(away=None, **kw):
-        out = views.todo(st, "all", False, {}, TODAY, None, away=away, **kw)
+        out = views.todo(st, None, False, {}, TODAY, None, away=away, **kw)
         return {i["track_id"]: i["file_state"] for g in out["groups"] for i in g["items"]}
 
     away = {"/Volumes/Example Stick/Music": "unmounted", "/Users/you/Old Music": "missing"}
@@ -2554,7 +2571,7 @@ def test_the_upgrade_ready_keys_are_the_todo_lists_upgrade_ready_group():
                t5=e("not_lossless", upgrade=up),                          # waits for a "same song?" answer
                t6=e("not_lossless"),                                      # no better version
                **{"local:1": own("not_lossless", cutoff=16000, upgrade=up)})
-    listed = [i["track_id"] for g in views.todo(st, "all", False, {}, TODAY, None, [question(song_key="t5")])["groups"]
+    listed = [i["track_id"] for g in views.todo(st, None, False, {}, TODAY, None, [question(song_key="t5")])["groups"]
               if g["key"] == "upgrade_ready" for i in g["items"]]
     assert sorted(views.upgrade_ready_keys(st, {"t5"})) == sorted(listed) == ["local:1", "t1"]
     assert "t5" in views.upgrade_ready_keys(st)          # without a plan (the console) nothing is held
@@ -2563,9 +2580,9 @@ def test_the_upgrade_ready_keys_are_the_todo_lists_upgrade_ready_group():
 def test_todo_takes_the_files_presence_as_a_map_and_does_no_file_check():
     up = {"file": "Upgrades ready/x.aiff", "alignment": {"result": "exact"}}
     st = state(t1=e("not_lossless", path="Library/A/x.aiff", upgrade=up))
-    here = views.todo(st, "all", False, {}, TODAY, present={"t1": "here"})["groups"][0]["items"][0]
-    away = views.todo(st, "all", False, {}, TODAY, present={"t1": "away"})["groups"][0]["items"][0]
-    unknown = views.todo(st, "all", False, {}, TODAY)["groups"][0]["items"][0]
+    here = views.todo(st, None, False, {}, TODAY, present={"t1": "here"})["groups"][0]["items"][0]
+    away = views.todo(st, None, False, {}, TODAY, present={"t1": "away"})["groups"][0]["items"][0]
+    unknown = views.todo(st, None, False, {}, TODAY)["groups"][0]["items"][0]
     assert (here["same_track"], away["same_track"]) == (None, "away") and unknown["same_track"] is None
 
 
@@ -2605,7 +2622,7 @@ def cdj_group(out):
 def test_the_cdj_group_lists_the_members_of_cdj_group_members_after_upgrade_ready():
     st = cdj_state()
     members = cdj_rule.group_members(st)
-    out = views.todo(st, "all", False, {}, TODAY)
+    out = views.todo(st, None, False, {}, TODAY)
     assert [g["key"] for g in out["groups"]] == ["upgrade_ready", "cdj"]
     group = cdj_group(out)
     assert (group["label"], group["hint"]) == ("Won't play well on CDJs", "CDJs refuse or stutter on these files")
@@ -2618,31 +2635,31 @@ def test_the_cdj_group_lists_the_members_of_cdj_group_members_after_upgrade_read
         assert item["file_state"] == "here" and item["aiff"] is None
     assert (group["items"][0]["cdj"]["reason"], group["items"][1]["cdj"]["reason"]) == ("format", "rate_high")
     assert out["chips"]["cdj"] == 2 and out["chips"]["all"] == 3 and out["hidden_count"] == 1
-    assert cdj_group(views.todo(st, "cdj", False, {}, TODAY))["key"] == "cdj"
+    assert cdj_group(views.todo(st, ("cdj",), False, {}, TODAY))["key"] == "cdj"
 
 
 def test_a_hidden_cdj_item_is_left_out_unless_shown_and_a_filter_keeps_only_its_group():
     st = cdj_state()
-    shown = cdj_group(views.todo(st, "all", True, {}, TODAY))
+    shown = cdj_group(views.todo(st, None, True, {}, TODAY))
     assert [i["track_id"] for i in shown["items"]] == ["local:2", "local:1", "local:5"]
     assert [i["hidden"] for i in shown["items"]] == [False, False, True]
     assert {k for k in cdj_rule.group_members(st, include_hidden=True)} == {"local:1", "local:2", "local:5"}
     assert "local:5" not in cdj_rule.group_members(st)
-    only = views.todo(st, "cdj", False, {}, TODAY)
+    only = views.todo(st, ("cdj",), False, {}, TODAY)
     assert [g["key"] for g in only["groups"]] == ["cdj"]
-    other = views.todo(st, "weak", False, {}, TODAY)
+    other = views.todo(st, ("weak",), False, {}, TODAY)
     assert other["groups"] == [] and other["empty"] == "nothing_here" and other["chips"]["cdj"] == 2
     solo = state(a=cdj_own("opus", 48000, None, 128, ".opus", hidden=True))
-    assert views.todo(solo, "all", False, {}, TODAY)["empty"] == "all_hidden"
+    assert views.todo(solo, None, False, {}, TODAY)["empty"] == "all_hidden"
 
 
 def test_the_cdj_group_carries_the_plans_counts_and_the_stopped_todo_batch():
     st = cdj_state()
-    bare = cdj_group(views.todo(st, "all", False, {}, TODAY))
+    bare = cdj_group(views.todo(st, None, False, {}, TODAY))
     assert bare["all"] == {"n": 0, "k": 0} and bare["stopped"] is None
-    out = cdj_group(views.todo(st, "all", False, {}, TODAY, cdj_all=(2, 3), cdj_stopped=(9, 4)))
+    out = cdj_group(views.todo(st, None, False, {}, TODAY, cdj_all=(2, 3), cdj_stopped=(9, 4)))
     assert out["all"] == {"n": 2, "k": 3} and out["stopped"] == {"batch_id": 9, "left": 4}
-    up = next(g for g in views.todo(st, "all", False, {}, TODAY, stopped=(5, 2), cdj_stopped=(9, 4))["groups"]
+    up = next(g for g in views.todo(st, None, False, {}, TODAY, stopped=(5, 2), cdj_stopped=(9, 4))["groups"]
               if g["key"] == "upgrade_ready")
     assert up["stopped"] == {"batch_id": 5, "left": 2}  # Upgrade ready keeps its own
 
@@ -2653,7 +2670,7 @@ def test_a_cdj_items_quick_answer_is_aiff_actions_with_the_stored_facts():
     st["tracks"]["local:1"]["path"] = "/Volumes/Example/Music/b.flac"
 
     def answers(**kw):
-        return {i["track_id"]: i["aiff"] for i in cdj_group(views.todo(st, "all", False, {}, TODAY, **kw))["items"]}
+        return {i["track_id"]: i["aiff"] for i in cdj_group(views.todo(st, None, False, {}, TODAY, **kw))["items"]}
 
     assert answers() == {"local:2": "no_name", "local:1": None}
     assert answers(rb=Status("unreadable", False, None, None, None, None, None))["local:1"] == "rekordbox_unreadable"
@@ -2664,12 +2681,12 @@ def test_a_cdj_items_quick_answer_is_aiff_actions_with_the_stored_facts():
 
 def test_a_song_in_the_cdj_group_is_listed_nowhere_else():
     st = state(a=cdj_own("opus", 48000, None, 128, ".opus", in_playlists=True, status="not_lossless", cutoff=16000))
-    out = views.todo(st, "all", False, {}, TODAY)
+    out = views.todo(st, None, False, {}, TODAY)
     assert [g["key"] for g in out["groups"]] == ["cdj"] and out["chips"]["all"] == 1 and out["chips"]["weak"] == 0
 
 
 def test_todo_with_no_cdj_file_has_no_group():
-    out = views.todo(state(a=e()), "all", False, {}, TODAY)
+    out = views.todo(state(a=e()), None, False, {}, TODAY)
     assert cdj_group(out) is None and out["chips"]["cdj"] == 0
 
 
@@ -2737,7 +2754,7 @@ def batch_state(reason, n=2, **extra):
 
 
 def batch_item(st, **kw):
-    return views.todo(st, "all", False, {}, TODAY, **kw)["groups"][0]["items"][0]
+    return views.todo(st, None, False, {}, TODAY, **kw)["groups"][0]["items"][0]
 
 
 def test_a_batch_item_says_what_the_batch_did_by_its_kind():
@@ -2892,10 +2909,10 @@ def test_the_songs_an_open_question_or_a_listed_duplicate_group_asks_about_are_d
     assert counted == {"local:2", "local:3"}                       # a counted group's files are not read: db.file_songs
     gone = views.decided_songs(st, [question(own_key="local:99")], [], {}, set(), None, {})
     assert gone == set()                                           # a stale question holds nothing back
-    out = views.todo(st, "all", False, {}, TODAY, None, [question(own_key="local:1")], [group, away], files, decided=held)
+    out = views.todo(st, None, False, {}, TODAY, None, [question(own_key="local:1")], [group, away], files, decided=held)
     assert [i["track_id"] for i in cdj_group(out)["items"]] == ["local:4", "local:5"]
     assert cdj_rule.group_members(st, held=held).keys() == {"local:4", "local:5"}
-    assert len(cdj_group(views.todo(st, "all", False, {}, TODAY))["items"]) == 5                       # none held: all five
+    assert len(cdj_group(views.todo(st, None, False, {}, TODAY))["items"]) == 5                       # none held: all five
 
 
 # --- the Sync's scope and "how many" (issue 39 phase 2: the window's planModel words as engine answers) ---

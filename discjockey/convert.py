@@ -162,7 +162,9 @@ def free_space(path: Path) -> int:
 
 
 def size_text(n: int) -> str:
-    """A size for the user's eyes: "1.2 GB", "35 MB"."""
+    """A size for the user's eyes: "1.2 GB", "35 MB". Nothing is "0 MB"; any other size under a megabyte reads "1 MB"."""
+    if n == 0:
+        return "0 MB"
     return f"{n / 1e9:.1f} GB" if n >= 1e9 else f"{max(1, round(n / 1e6))} MB"
 
 

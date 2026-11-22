@@ -1,0 +1,7 @@
+State       unknown
+Current     1.0.0
+Latest      none
+Url         none
+Ran check   no
+Checked at  none
+Message     none

@@ -1,0 +1,4 @@
+Would open <tmp>/licenses; nothing was opened.
+
+Target  <tmp>/licenses
+Opened  no

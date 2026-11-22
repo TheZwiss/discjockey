@@ -249,6 +249,15 @@ def test_the_index_holds_every_live_file_row_by_path_and_by_name(tmp_path):
                              "b.mp3": [("3", "/m/b.mp3")]}
 
 
+def test_tracks_are_every_live_file_row_and_skip_deleted_and_streaming_ones(tmp_path):
+    rows = [{"ID": "1", "path": "/m/A.mp3", "artist": "Ann", "Title": "One"}, {"ID": "2", "path": "/m/b.mp3"},
+            {"ID": "3", "path": "/m/c.mp3", "rb_local_deleted": 1}, {"ID": "4", "path": "/m/d.mp3", "FileType": 25}]
+    with open_read(library(tmp_path, rows), False) as master:
+        found = master.tracks()
+    assert [(e.id, e.folder_path) for e in found] == [("1", "/m/A.mp3"), ("2", "/m/b.mp3")]
+    assert (found[0].artist, found[0].title) == ("Ann", "One")
+
+
 def test_an_answer_through_the_index_does_not_scan_the_table(tmp_path):
     rows = [{"ID": str(i), "path": f"/m/{i}.mp3"} for i in range(1, 50)]
     with open_read(library(tmp_path, rows), False) as master:

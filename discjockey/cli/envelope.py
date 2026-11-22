@@ -36,11 +36,12 @@ def crashed(command: str) -> dict:
 
 def from_answer(command: str, answer: Mapping, **fields) -> dict:
     """The envelope of one `HubApi` answer: the answer minus `ok` is `data` when it worked (an answer that says what to
-    run next, a search with no hit, carries it as `next`: that is the envelope's, not `data`'s); a problem keeps its
+    run next, a search with no hit, carries it as `next`, one with steps only the person can do (the running jobs'
+    live steps in `status`) as `person_steps`: those are the envelope's, not `data`'s); a problem keeps its
     `outcome`, `reason`, `message`, `next`, `person_steps` and `data`."""
     if answer.get("ok"):
-        return envelope(command, "ok", data={k: v for k, v in answer.items() if k not in ("ok", "next")},
-                        next=answer.get("next") or (), **fields)
+        return envelope(command, "ok", data={k: v for k, v in answer.items() if k not in ("ok", "next", "person_steps")},
+                        next=answer.get("next") or (), person_steps=answer.get("person_steps") or (), **fields)
     outcome = answer.get("outcome") or "failed"
     reason = answer.get("reason")
     return envelope(command, outcome, reason=reason if reason in REASONS else None, message=answer.get("message"),

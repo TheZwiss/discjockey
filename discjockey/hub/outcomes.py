@@ -146,6 +146,8 @@ STEPS: dict[str, Step] = {
     "folder_access": Step("Allow {app} to open {folder}: answer the macOS question, or turn it on in System Settings "
                           "› Privacy & Security › Files and Folders.", None),
     "connect_drive": Step("Connect the drive {drive}.", None),
+    "folder_gone": Step("Put the folder {folder} back, or choose another folder.", None),
+    "install_tools": Step("Paste `{hint}` into the Terminal.", "tools status"),
 }
 
 
@@ -217,16 +219,19 @@ def finished_problem(envelope: Mapping) -> str | None:
 
 
 def envelope(command: str, outcome: str, *, reason: str | None = None, message: str | None = None,
-             data: Mapping | None = None, next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (),
+             data: Mapping | None = None, page: Mapping | None = None, next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (),
              recovered: Iterable[Mapping] = (), job: str | None = None, as_of: Mapping | None = None,
              sandbox: str | None = None) -> dict:
     """The envelope (design §4.1), its keys in design order: what `--json` prints for a command and what a job's
-    `result.json` holds, the window's jobs too. `recovered` is always a list, `as_of` always has both keys."""
+    `result.json` holds, the window's jobs too. `recovered` is always a list, `as_of` always has both keys. `page` is
+    null, or says which list of `data` was cut to a page (`cli/call.py` `paged`: `list`, `offset`, `limit`, `total`,
+    `next_offset`)."""
     if outcome not in EXIT:
         raise ValueError(f"no such outcome {outcome!r}")
     if reason is not None and reason not in REASONS:
         raise ValueError(f"no such reason {reason!r}")
     return {"v": VERSION, "command": command, "outcome": outcome, "reason": reason, "message": message,
-            "data": dict(data) if data is not None else None, "next": [dict(n) for n in next],
+            "data": dict(data) if data is not None else None, "page": dict(page) if page is not None else None,
+            "next": [dict(n) for n in next],
             "person_steps": [dict(s) for s in person_steps], "recovered": [dict(r) for r in recovered], "job": job,
             "as_of": {**NO_AS_OF, **(as_of or {})}, "sandbox": sandbox}

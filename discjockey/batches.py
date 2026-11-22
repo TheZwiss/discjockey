@@ -68,18 +68,18 @@ from .rekordbox.write import RekordboxOpened
 from .upgrades import NeedsChoice, UndoRefused, UpgradeProblem
 
 __all__ = ["BUSY", "Busy", "BatchResult", "ItemResult", "RekordboxOpen", "Refused", "Stopped", "UndoItem",
-           "UndoResult", "UndoStopped", "checked", "close_unrun", "end_auto", "present", "recover", "result_of",
-           "resume", "run", "start", "tracks_of", "undo"]
+           "UndoResult", "UndoStopped", "checked", "close_unrun", "end_auto", "finished_order", "present", "recover",
+           "result_of", "resume", "run", "start", "tracks_of", "undo"]
 
 RUNNABLE = ("same_track", "convert", "rename", "place")  # the actions a batch can run
 AUTO = "auto_upgrade"  # `started_by` of the sync's Auto-upgrade batch (the switch on)
 DOWNLOAD_AGAIN = "download_again"  # ... with the switch off: only placements, the user's go (issue 43, D9)
 SYNC_STARTED_BY = (AUTO, DOWNLOAD_AGAIN)  # the sync's last phase either way: `end_auto`, `recover` and the no-Resume rule treat alike
 OPERATION = "upgrade_same_track"  # operations.log's name for a Same track item
-# ... for each action (the placement's name starts with `upgrade_` like Same track's: `_finished_order` sorts an undo by it)
+# ... for each action (the placement's name starts with `upgrade_` like Same track's: `finished_order` sorts an undo by it)
 OPERATIONS = {"same_track": OPERATION, "convert": "aiff_convert", "rename": "aiff_rename", "place": "upgrade_place"}
 UNDO_OPERATIONS = {"upgrade": "undo_upgrade", "convert": "undo_convert", "rename": "undo_rename"}
-LOG_PREFIXES = ("upgrade_", "aiff_")  # the log's names of a finished step (`_finished_order`)
+LOG_PREFIXES = ("upgrade_", "aiff_")  # the log's names of a finished step (`finished_order`)
 NOTHING_ELIGIBLE = "None of these can be upgraded right now."
 NOTHING_FILE_ELIGIBLE = "None of these can be changed right now."  # the same for a batch with no Same track item
 NOTHING_UNDONE = "None of these could be undone."
@@ -755,7 +755,7 @@ def recover(paths, *, now: Callable[[], datetime] = datetime.now) -> list[int]:
         return [i for i in crashed if db.aiff_batch(conn, i).state == "stopped"]
 
 
-def _finished_order(paths) -> dict[str, int]:
+def finished_order(paths) -> dict[str, int]:
     """Track -> the line of operations.log where its latest finished upgrade step stands. The log is appended in the
     order steps finish, so the line number tells which came later even when two steps share a timestamp (they are
     written to the second)."""
@@ -779,7 +779,7 @@ def _newest_first(paths, tracks: Sequence[str]) -> list[str]:
     """`tracks`, the one whose step finished last first: by the log line of its latest finished upgrade (ties of the
     timestamps can't confuse it), then by its newest batch item (batch, seq: row ids). A track with neither (a record
     from before the log) comes last, in the order it was given."""
-    finished = _finished_order(paths)
+    finished = finished_order(paths)
     with db.connect(paths.db_file) as conn:
         item = {t: db.aiff_item_of(conn, t) or (-1, -1) for t in tracks}
     return sorted(tracks, key=lambda t: (finished.get(t, -1), item[t]), reverse=True)

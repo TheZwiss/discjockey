@@ -305,12 +305,14 @@ def test_stop_during_a_batch_undo_is_exit_5_with_the_rest_waiting_and_a_second_u
     assert [i.state for i in found.batch(1).items] == ["undone"] * 3
 
 
-def test_undo_takes_a_typed_aiff_id_only_and_the_move_batch_form_is_not_built_yet(lib, capsys):
+def test_undo_takes_a_typed_batch_id_and_a_move_batch_is_only_tried_for_now(lib, capsys):
     lib(["mp3"])
-    for text, reason in (("1", "bad_id_kind"), ("moves:1", "bad_id_kind"), ("aiff:99", "unknown_id")):
-        for flag in ("--yes", "--dry-run"):
-            code, env = run_json(["batch", "undo", text, flag], capsys)
-            assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", reason), (text, flag)
+    for text, reason in (("1", "bad_id_kind"), ("aiff:99", "unknown_id"), ("moves:99", "unknown_id")):
+        code, env = run_json(["batch", "undo", text, "--dry-run"], capsys)
+        assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", reason), text
+    for text, reason in (("1", "bad_id_kind"), ("aiff:99", "unknown_id"), ("moves:1", "usage")):  # `moves:` has no write yet
+        code, env = run_json(["batch", "undo", text, "--yes"], capsys)
+        assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", reason), text
 
 
 def test_undo_while_the_library_lock_is_held_is_busy_and_a_dry_run_still_answers(lib, capsys):
@@ -408,9 +410,12 @@ def test_the_windows_resume_link_shows_a_stopped_terminal_batch_of_a_library_vie
 
 # --- the text pages ---
 
+BACKUP_STAMP = r"\d{8}T\d{6}Z(?:-\d+)?"  # a backup's name is its time
+
+
 def unstamped(text: str, tmp_path) -> str:
     """A page as the golden keeps it: no temp folder, no backup's time stamp."""
-    return re.sub(r"\d{8}T\d{6}Z(?:-\d+)?", "<backup>", text.replace(str(tmp_path), "<tmp>"))
+    return re.sub(BACKUP_STAMP, "<backup>", text.replace(str(tmp_path), "<tmp>"))
 
 
 def test_golden_the_pages_of_a_resume_and_an_undo(lib, capsys, tmp_path, monkeypatch):
@@ -748,13 +753,12 @@ def test_backups_and_restore_with_no_music_folder_are_refused(tmp_path, monkeypa
 
 
 def test_golden_the_page_of_a_restore(lib, capsys, tmp_path):
-    from test_cli_golden import WRITES, check_golden
+    from test_cli_golden import WRITES, check_golden, golden_page
     found = lib(["mp3", "mp3"])
     backup, _ = with_backup(found, capsys)
-    code, out, err = run(["rekordbox", "restore", backup, "--yes"], capsys)
+    code, page, err, _ = golden_page(["rekordbox", "restore", backup, "--yes"], tmp_path, capsys, also=((BACKUP_STAMP, "<backup>"),))
     assert code == OK and "rekordbox_restore" in WRITES
-    # the Path column is as wide as the temp folder: runs of spaces are squeezed, so the page is the same in any folder
-    check_golden("rekordbox_restore", re.sub(r" {2,}", "  ", unstamped(out, tmp_path)))
+    check_golden("rekordbox_restore", page)
 
 
 # --- batches and the rekordbox lock (the old console tests that pinned engine behaviour, ported) ---

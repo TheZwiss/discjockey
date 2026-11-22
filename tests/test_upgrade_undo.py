@@ -146,7 +146,7 @@ def test_swap_asks_for_a_rekordbox_check_with_an_undo_and_keeps_the_parked_downl
 def test_the_to_do_says_whether_undo_is_there(env):
     paths, state = env
     step(paths, state, "add_new")
-    [group] = [g for g in todo(state, "all", False, {}, date(2026, 10, 31))["groups"] if g["key"] == "rekordbox_check"]
+    [group] = [g for g in todo(state, None, False, {}, date(2026, 10, 31))["groups"] if g["key"] == "rekordbox_check"]
     assert group["items"][0]["can_undo"] is True
 
 
