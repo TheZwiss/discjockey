@@ -1453,7 +1453,15 @@ Results:
         User asked why the gate error (my prompt format, twice: told + memory) and the approval prompt (above).
         Now: `npm run verify` (background, cli3-reads-pass worktree at c3ebc31e) + CI watch; both green → merge into
         main, push. No release.
-      - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
+      - **RESUME HERE (LATEST, 2026-11-22, phase 3 merge):** all builds (1 573k), review parts (603k), FR1-4 (577k), read pass
+        (90k) done; phase 3 ≈ 3.6M incl. detailing + check 739k. Waiting on two background tasks: `npm run verify` in
+        `.claude/worktrees/cli3-reads-pass` (detached c3ebc31e; log in the session scratchpad `verify-p3.log`) and the CI
+        run of `feat/cli-3-reads` c3ebc31e. Both green → in the main-log worktree: `git merge --no-ff origin/feat/cli-3-reads`
+        ("Merge feat/cli-3-reads: issue 39 phase 3, every read a command + doctor/status/history/match/superseded"),
+        public check, push, watch CI on main; remove cli3-reads-pass; update memory + open-scope (phase 3 done, main hash);
+        close issue 46? no: issue 46 (ChangePanel notes) stays open. A verify or CI FAIL → one Sonnet fix round first.
+        Lessons: check CI after every merge; tell the user every gate refusal; clones in the scratchpad. No release.
+      - RESUME HERE (superseded below, 2026-11-22, phase 3 builds): run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
         -b <branch> .claude/worktrees/cli3-<n> feat/cli-3-reads` + hub-ui/node_modules symlink) and dispatch. Then the two
