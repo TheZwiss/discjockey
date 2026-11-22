@@ -21,7 +21,7 @@ PLANNED_CEILING = 61
 # The phases that are finished: no row may be planned for one of them (V3.2b sets 3 when phase 3 ends).
 FINISHED_PHASES = 2
 
-CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "history", "rekordbox_match", "library_superseded", "select_listing",
+CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "history", "doctor", "rekordbox_match", "library_superseded", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
              "rekordbox_backups", "rekordbox_restore", "rekordbox_restore_preview"}
 

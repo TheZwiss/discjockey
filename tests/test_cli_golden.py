@@ -14,6 +14,7 @@ import shlex
 import shutil
 import time
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,7 @@ from hub_helpers import LOSSLESS, LOSSY, choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
-from discjockey import library, tools
+from discjockey import db, library, pending_signs, tools
 from test_cli_batches import with_batches, with_report
 from test_cli_missing import missing_library
 from test_cli_reads import rich_library
@@ -44,7 +45,8 @@ def golden_name(entry) -> str:
 
 
 TIMED = {("limits", "show"), ("limits", "set")}  # pages that word today's date: on the fixed clock of `services()`
-STUBBED = {("setup", "status"), ("tools", "status"), ("login", "list"), ("login", "find"), ("app", "info")}  # reads of this Mac
+STUBBED = {("setup", "status"), ("tools", "status"), ("login", "list"), ("login", "find"), ("app", "info"),
+           ("doctor",)}  # reads of this Mac
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
                                                                                         # parked and checks open
 CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file: a preview decodes it
@@ -119,6 +121,17 @@ def with_backups(tmp_path, monkeypatch):
         rb_backup.Backup.ensure(paths, place, dbid=None, batch_id=batch, tracks=[], now=lambda stamp=stamp: stamp)
 
 
+DOCTORS = {("doctor",)}  # a read that needs something wrong to say: a watched drive that is away, a pause waiting
+
+
+def with_doctor(paths) -> None:
+    """A watched folder on a drive that is not connected (a problem with a step) and a YouTube pause waiting for the
+    lock (a note), so the page shows both with their next steps."""
+    with db.connect(paths.db_file) as conn:
+        db.add_watched_folder(conn, Path("/Volumes/Example Stick/Crates"), datetime(2026, 11, 20, 9, 0))
+    pending_signs.add(paths, [("youtube", "auto_stop", "YouTube asked for a pause")], datetime.now())
+
+
 MATCHES = {("rekordbox", "match"), ("library", "superseded")}  # reads that need rekordbox tracks and files in Superseded/
 
 
@@ -155,6 +168,8 @@ def fixture(tmp_path, monkeypatch, request, utc):
     choose_music(tmp_path, monkeypatch)
     if entry is not None and (entry.command[0] == "batch" or entry.command == ("history",)):
         with_batches(paths)  # two AIFF batches and a move batch: the typed ids `aiff:1`, `aiff:2`, `moves:1`
+    if entry is not None and entry.command in DOCTORS:
+        with_doctor(paths)
     if entry is not None and entry.command == ("sync", "plan"):
         with_read(paths, monkeypatch)
     if entry is not None and entry.command in (("report", "show"), ("report", "list"), ("history",)):

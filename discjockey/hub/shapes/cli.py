@@ -14,7 +14,7 @@ method not in it prints its `ANSWERS` shape. `help --json` gives `data_schema` a
 from typing import Annotated, Literal, NotRequired, TypedDict
 
 from .common import FailNext, FailPersonStep
-from .kernel import F, shape
+from .kernel import F, alias, shape
 from .library import Browser
 from .setup import AiffPlanAnswer, LastCheck
 from .todo import (AiffBatchResult, AutoUpgradeBlock, AutoUpgradePreviewAnswer, CheckedResult, ItemResult,
@@ -268,6 +268,45 @@ class Superseded(TypedDict):
                                                   "rekordbox still uses some, which tracks.")]]
 
 
+# --- doctor ---
+
+DoctorCheckKey = alias(
+    "DoctorCheckKey",
+    Literal["music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs", "pending_steps",
+            "drives_away", "downloads_paused"],
+    doc="One check of `doctor` (`discjockey/hub/doctor.py`, `CHECKS`).")
+
+
+@shape
+class DoctorProblem(TypedDict):
+    """One thing `doctor` found, with what to do about it."""
+    check: Annotated[DoctorCheckKey, F("The check that found it.", shown=False)]
+    level: Annotated[Literal["problem", "note"], F("`problem`: something to fix. `note`: worth knowing, nothing to fix.")]
+    gig: Annotated[bool, F("Whether the next gig depends on it (`status --ready` lists these).", shown=False)]
+    text: Annotated[str, F("What is wrong, in words.")]
+    count: Annotated[int | None, F("The number the text counts (jobs, folders); null when it counts nothing.")]
+    next: Annotated[list[FailNext], F("Commands that look further or move on.")]
+    person_steps: Annotated[list[FailPersonStep], F("The steps only a person can do.")]
+
+
+@shape
+class DoctorCheck(TypedDict):
+    """One line of `doctor`'s checks."""
+    check: Annotated[DoctorCheckKey, F("The check.", shown=False)]
+    label: Annotated[str, F("What the check looks at, in words.")]
+    state: Annotated[Literal["ok", "problem", "note", "skipped"],
+                     F("`ok`: nothing found. `problem` / `note`: it found something of that level (a problem wins). "
+                       "`skipped`: it needs a music folder and none is chosen.")]
+
+
+@shape
+class Doctor(TypedDict):
+    """`doctor`: everything that is wrong, each problem with what to do next, and every check that ran."""
+    text: Annotated[str, F("The answer in one sentence: how many problems and notes, or that nothing is wrong.")]
+    problems: Annotated[list[DoctorProblem], F("What was found: problems first, then notes, each in check order.")]
+    checks: Annotated[list[DoctorCheck], F("Every check, in order, with its state.")]
+
+
 @shape
 class BatchItem(ItemResult):
     """One track of an AIFF batch, with its name."""
@@ -419,7 +458,7 @@ class Opened(TypedDict):
 ANSWERS: dict[str, str] = {
     "settings_view": "SettingsView", "rekordbox_backups": "RekordboxBackups",
     "rekordbox_restore_preview": "RestorePreview", "batches": "Batches", "batch_detail": "BatchDetail",
-    "history": "History", "rekordbox_match": "RekordboxMatch", "library_superseded": "Superseded",
+    "history": "History", "doctor": "Doctor", "rekordbox_match": "RekordboxMatch", "library_superseded": "Superseded",
     "batch_undo_preview": "BatchUndoPreview", "facts_preview": "FactsPreview",
     "show_in_finder": "Opened", "reveal": "Opened", "open_report": "Opened", "open_licenses": "Opened",
     "open_external": "Opened", "open_privacy_settings": "Opened",

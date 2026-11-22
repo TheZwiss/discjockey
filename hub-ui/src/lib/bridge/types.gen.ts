@@ -4221,6 +4221,56 @@ export type Superseded = {
    */
   next?: FailNext[];
 };
+/** One check of `doctor` (`discjockey/hub/doctor.py`, `CHECKS`). */
+export type DoctorCheckKey =
+  | 'music_folder'
+  | 'tools'
+  | 'logins'
+  | 'folder_access'
+  | 'rekordbox'
+  | 'stale_lock'
+  | 'lost_jobs'
+  | 'pending_steps'
+  | 'drives_away'
+  | 'downloads_paused';
+/** One thing `doctor` found, with what to do about it. */
+export type DoctorProblem = {
+  /** The check that found it. */
+  check: DoctorCheckKey;
+  /** `problem`: something to fix. `note`: worth knowing, nothing to fix. */
+  level: 'problem' | 'note';
+  /** Whether the next gig depends on it (`status --ready` lists these). */
+  gig: boolean;
+  /** What is wrong, in words. */
+  text: string;
+  /** The number the text counts (jobs, folders); null when it counts nothing. */
+  count: number | null;
+  /** Commands that look further or move on. */
+  next: FailNext[];
+  /** The steps only a person can do. */
+  person_steps: FailPersonStep[];
+};
+/** One line of `doctor`'s checks. */
+export type DoctorCheck = {
+  /** The check. */
+  check: DoctorCheckKey;
+  /** What the check looks at, in words. */
+  label: string;
+  /**
+   * `ok`: nothing found. `problem` / `note`: it found something of that level (a problem wins). `skipped`: it
+   * needs a music folder and none is chosen.
+   */
+  state: 'ok' | 'problem' | 'note' | 'skipped';
+};
+/** `doctor`: everything that is wrong, each problem with what to do next, and every check that ran. */
+export type Doctor = {
+  /** The answer in one sentence: how many problems and notes, or that nothing is wrong. */
+  text: string;
+  /** What was found: problems first, then notes, each in check order. */
+  problems: DoctorProblem[];
+  /** Every check, in order, with its state. */
+  checks: DoctorCheck[];
+};
 /** One track of an AIFF batch, with its name. */
 export type BatchItem = ItemResult & {
   /** The song as `Artist - Title`; its key when it is not in the library any more. */

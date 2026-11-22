@@ -24,7 +24,7 @@ import traceback
 import unicodedata
 import webbrowser
 from collections import OrderedDict, deque
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -61,7 +61,7 @@ from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, Setti
 from ..setup_cmd import TOOL_HINTS
 from ..words import MISSING, NOT_CHOSEN  # the gate's words (`doctor` says them too)
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, history as history_mod, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
+from . import catalog, doctor as doctor_mod, history as history_mod, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
@@ -1655,11 +1655,15 @@ class HubApi:
     def downloads_view(self) -> dict:
         """The source ladder and the account panels (Settings, Setup): each source's state and the library by rung.
         Without a music folder the library counts are zero."""
+        return {"downloads": self._downloads()}
+
+    def _downloads(self) -> dict:
+        """`views.downloads` for the settings as they are now (`downloads_view`'s answer and `doctor`'s read)."""
         settings = self._settings()
         names = {s: profile_name(a.browser, a.profile, self._svc.home) for s, a in settings.accounts.items()}
         qobuz_ok = setup_status(self._support, self._bound, self._music_status(), self._svc.which)["qobuz"]
         state = self._shown_state() if self._bound is not None else library.empty_state()
-        return {"downloads": views.downloads(state, settings, qobuz_ok, names, self._today())}
+        return views.downloads(state, settings, qobuz_ok, names, self._today())
 
     # --- other ---
 
@@ -2951,11 +2955,15 @@ class HubApi:
 
     # --- setup wizard (spec 5.7); the steps that write files are write jobs ---
 
+    def _tool_presence(self) -> dict[str, bool]:
+        """Each program Discjockey needs from this Mac -> whether it is there."""
+        return {tool: self._svc.which(tool) is not None for tool in TOOL_HINTS}
+
     @bridge
     def setup_check_tools(self) -> dict:
         """ffmpeg/ffprobe/deno and the download tools' versions. An unexpected error reading the versions only
         empties `download_tools` (with `download_tools_problem`); the rest of the check still answers."""
-        tools_ = {tool: self._svc.which(tool) is not None for tool in TOOL_HINTS}
+        tools_ = self._tool_presence()
         download_tools, problem = None, None
         try:
             download_tools = tool_updates.current_status(self._support.support)
@@ -4397,6 +4405,55 @@ class CliApi(HubApi):
                               *([{"run": "rekordbox match", "why": "which rekordbox tracks still use them"}]
                                 if held else [])]
         return answer
+
+    def _unreadable_roots(self, folders: Iterable[Path]) -> tuple[str, ...]:
+        """The folders among `folders` that macOS does not let this process list (a `PermissionError`: the app the command
+        runs in was not allowed into them). A folder that is not there or fails otherwise is another check's finding."""
+        found = []
+        for folder in folders:
+            try:
+                with os.scandir(folder) as entries:
+                    next(entries, None)
+            except PermissionError:
+                found.append(str(folder))
+            except OSError:
+                continue
+        return tuple(found)
+
+    @cli_first
+    def doctor(self) -> dict:
+        """Everything that is wrong, and what to do about it (design §5.3; `hub/doctor.py` holds the checks): the setup
+        (music folder, programs, logins), the machine (whether each root can be read, rekordbox, a lock held by something
+        the job list does not know, jobs that stopped without finishing this week) and, with a music folder, cut-off file
+        steps, watched folders on a drive that is not connected and a source paused today. Works without a music folder:
+        the checks that need one are `skipped` and `music_folder` says why. Read only: it takes `rekordbox.lock` shared
+        to read rekordbox's state, finishes no cut-off step and takes no other lock; the library checks come from
+        `library.db` opened read-only."""
+        music = self._music_status()
+        bound = music["state"] == "ok"
+        present = self._tool_presence()
+        rows: list[WatchedFolder] = []
+        pending = False
+        if bound:
+            with self._move_log() as conn:
+                if conn is not None:
+                    rows, pending = db.watched_folders(conn), db.has_pending(conn)
+        away = self._away_folders(rows)
+        place = self._svc.rekordbox_place()
+        roots = [*([self._paths.root] if bound else []), *(f.path for f in rows if f.id not in away),
+                 *([place.db.parent] if place is not None else [])]
+        status = self._rekordbox_status()
+        registry_ = self._jobs.registry
+        listed = registry_.list(self._paths.root if bound else None) if registry_ is not None else []
+        return doctor_mod.answer(doctor_mod.Inputs(
+            music_state=music["state"], music_path=music["path"] or "",
+            missing_tools=tuple((tool, TOOL_HINTS[tool]) for tool, there in present.items() if not there),
+            downloads=self._downloads(), paused_accounts=self._paused_accounts() if bound else frozenset(),
+            unreadable_folders=self._unreadable_roots(roots), app=engine_words.running_app(os.environ),
+            rekordbox_state=status.state, rekordbox_problem=status.problem, lock_holder=self._jobs.console_holder(),
+            jobs=tuple(doctor_mod.JobRow(str(s.get("id")), str(s.get("status")), str(s.get("started")))
+                       for s in listed),
+            now=self._svc.now(), pending=pending, away_folders=tuple(str(f.path) for f in rows if f.id in away)), bound)
 
     @cli_first
     def select_listing(self, listing: dict) -> dict:

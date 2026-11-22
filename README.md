@@ -482,6 +482,10 @@ another limit would do. Saving a limit from the Terminal is not there yet. `play
 to `playlists.txt`. `login list` shows each download source's state, `login find <service>` the browsers that hold a login for it,
 `tools status` whether the programs Discjockey needs are there, `setup status` what Setup still needs, and
 `setup music <folder> --dry-run` whether a folder can be your music folder.
+`doctor` is the one command for "something broke": it checks the setup (music folder, programs, logins), whether Discjockey can
+open each folder it needs, rekordbox, a library lock nobody explains, jobs that stopped without finishing this week, cut-off
+file steps, watched folders on a drive that is not connected and downloads paused today, and lists each problem with what to do
+next (a command, or a step only you can do, such as allowing the Terminal to open a folder).
 
 The To-do page is `discjockey todo list [--group <group>[,<group>…]] [--hidden]`: `--group fake,weak` lists only those groups (the
 keys are the ones `todo list` prints), `upgrade list`, `missing list` and `check list` list one group each.

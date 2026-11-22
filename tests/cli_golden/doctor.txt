@@ -1,0 +1,21 @@
+1 problem, 1 note.
+
+Problems
+Check             Level    Gig  Text                                                    Count  Next                                                                  Person steps
+drives_away       problem  yes  1 watched folder is on a drive that isn't connected.    1      none                                                                  id: step:connect_drive, say: Connect the drive Example Stick., then: none
+downloads_paused  note     no   Paused today to protect your account: YouTube Premium.  none   run: limits show youtube, why: today's downloads and why they paused  none
+2 of 2 shown
+
+Checks
+Check             Label            State
+music_folder      Music folder     ok
+tools             Programs         ok
+logins            Logins           ok
+folder_access     Folder access    ok
+rekordbox         rekordbox        ok
+stale_lock        Library lock     ok
+lost_jobs         Jobs             ok
+pending_steps     Cut-off steps    ok
+drives_away       Drives           problem
+downloads_paused  Download limits  note
+10 of 10 shown

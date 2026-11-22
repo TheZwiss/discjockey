@@ -37,6 +37,14 @@ def test_every_check_is_ok_on_good_facts():
         "drives_away", "downloads_paused"]
 
 
+def test_the_shape_names_exactly_the_checks_there_are():
+    from typing import get_args
+
+    from discjockey.hub.shapes.cli import DoctorCheckKey
+    literal = get_args(DoctorCheckKey)[0]
+    assert get_args(literal) == tuple(c.key for c in doctor.CHECKS)
+
+
 def test_the_checks_say_which_a_gig_depends_on_and_which_need_the_library():
     assert {c.key for c in doctor.CHECKS if c.gig} == {"music_folder", "folder_access", "rekordbox", "pending_steps",
                                                        "drives_away"}
