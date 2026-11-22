@@ -1520,12 +1520,29 @@ Results:
         run, so those files come from checked briefs). Records: check ≈ 70k + material + ~43k per brief (phase 3: 370k,
         7 briefs, 70k) → each group check ~215k. Phase 4 re-estimated: wave A ≈ 5.27M (1 314k done), wave B ≈ 5.9M →
         **≈ 11.2M** (plan said 7.1M: its Opus rows were below the records). `brief-check.md` (one group per run) written.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 brief checks):** run `.claude/issue39/phase4/phase4-dispatch.md` rows
+      - RESUME HERE (superseded, 2026-11-23, phase 4 brief checks): run `.claude/issue39/phase4/phase4-dispatch.md` rows
         in order, one at a time. Row 1 (brief check V4.1, Opus, `brief-check.md`) running. On its notice: ps, agent-cost
         (advisor 0k), log, a hand-back → one warm-cache question at once; recalibrate rows 2-3 by its real size
         (measured < ~250k else split); row 2 also decides the `place` numbering. Then row 4 (Sonnet, review + rehearsal
         files), then `feat/cli-4-writes` from main and the builds. Every prompt carries checklist rules 12 + 14. Phase 4
         so far 1 314k. No release.
+      - Brief check V4.1 done (Opus, `a841d297`): **337k** (exp. 215k, 1.57x; 133 calls, cache 26.9M, fresh 321k, out
+        124k, advisor 0k). check-V4.1.md: 28 findings (3 Critical: `sync run --dry-run` crashed whenever Auto-upgrade is
+        on (plan saving read its summary as rows); inline `start_refresh` stopped a worker's `sync read` scanning;
+        `--plan` with `--auto-upgrade-only` refused against built phase 1 tests), 15 Important, 10 Minor; 12 caught only
+        here. Applied to V4.1a/b, V4.3/V4.4 (shared `_load_plan(plan_id, command)`, `BadId` gains `next`), plan, dispatch.
+        V4.1a → ~245k, V4.1b ~200k. Nothing handed back; one no-owner bug (the window's registered refresh looks like a
+        sync to other processes) → V4.1 fix round, the check's recommendation. Decisions (mine, by the user's "< ~250k,
+        else split" rule): remaining checks one brief per run (2a V4.2a, 2b V4.2b, 3a V4.3, 3b V4.4, ~230k each);
+        V4.1a built in two parts at its named cut (5a: §6 commits 1-2 engine + contract; 5b: commit 3 commands), since
+        the plan holds builds ≤ ~220k. Re-estimate: wave A ≈ 5.96M, wave B ≈ 6.7M, **phase 4 ≈ 12.6M**. Phase 4 so far
+        1 651k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 brief checks):** run `.claude/issue39/phase4/phase4-dispatch.md` rows
+        in order, one at a time: 2a (brief check V4.2a, also decides the `place` numbering) running → 2b → 3a → 3b, each
+        Opus fresh by `brief-check.md`, measured < ~250k. On each notice: ps, agent-cost (advisor 0k), log, a hand-back
+        → one warm-cache question at once. Then row 4 (Sonnet, review + rehearsal files), then `feat/cli-4-writes` from
+        main and the builds (5a/5b = V4.1a in two parts). Every prompt carries checklist rules 12 + 14. Phase 4 so far
+        1 651k. No release.
       - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
