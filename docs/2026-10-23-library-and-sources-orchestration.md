@@ -1407,6 +1407,13 @@ Results:
         202k, out 56k, advisor 0k; 6821 passed. `hub/doctor.py` (pure, `Inputs`), ten checks, Doctor shapes, words in
         words.py. Carry for half B: an unopenable library.db fails `doctor` itself instead of being listed. Merged.
         V3.2b dispatched (cli3-7 on `feat/cli-3-status`, exp. 202k).
+      - V3.2b done 6fc93fdb (4 commits): logged **197k** (exp. 202k, 0.97x), agent-cost 78 calls, cache 11.1M, fresh in
+        182k, out 50k, advisor 0k; 6854 passed. 18 doctor checks, `status [--ready]` (StatusView), person_steps to the
+        envelope, phase 3 close (FINISHED_PHASES 3, PLANNED_CEILING 54). Merged f60d586f. Builds total **1 573k**
+        (plan 1 473k, 1.07x). Measured review diff (no goldens/generated): 121k (code 72k + tests 64k) > the plan's
+        80k line → three parts as planned (+~290k): part 1 V3.1a+b (45k), part 2 V3.1c+V3.3a (44k), part 3
+        V3.3b+V3.2a+b (46k). Briefs `phase3/review/common.md` + part1-3.md; carries `phase3/carry-review.md`.
+        Read-only worktree `.claude/worktrees/cli3-review` detached at f60d586f. Part 1 dispatched (Sonnet, exp. 150k).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
