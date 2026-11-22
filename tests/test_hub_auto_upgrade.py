@@ -466,3 +466,29 @@ def test_the_checks_of_a_download_again_batch_are_the_syncs_too(hub):
     item = next(i for i in group(api, "rekordbox_check")["items"] if i.get("batch"))
     assert (item["batch"]["started_by"], item["batch"]["from_sync"]) == ("download_again", True)
     assert item["detail"].endswith(" · Upgraded during your sync")
+
+
+# --- one check of rekordbox's process per read ---
+
+@pytest.fixture
+def asked(hub):
+    """A hub of two songs whose `rekordbox_running` counts its calls: (lib, api, calls)."""
+    lib, rb, api, rec = hub(["mp3", "aiff"])
+    calls = []
+    api._svc.rekordbox_running = lambda: calls.append(1) or rb.running
+    return lib, api, calls
+
+
+@needs_ffmpeg
+def test_a_sync_preview_asks_whether_rekordbox_runs_once(asked):
+    """`ps` costs ~40 ms: a read answer asks it once and shares the value between its parts."""
+    lib, api, calls = asked
+    preview(api, lib)
+    assert len(calls) == 1
+
+
+@needs_ffmpeg
+def test_a_dashboard_asks_whether_rekordbox_runs_at_most_once(asked):
+    lib, api, calls = asked
+    api.dashboard()
+    assert len(calls) <= 1

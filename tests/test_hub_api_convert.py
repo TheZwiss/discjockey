@@ -284,6 +284,17 @@ def test_the_cdj_group_opens_rekordbox_only_when_something_it_depends_on_changed
     assert len(reads) == 3
 
 
+def test_a_todo_read_with_the_cdj_group_asks_whether_rekordbox_runs_once(hub):
+    """`ps` costs ~40 ms: To-do's rekordbox state, its Convert all plan and its reader lookup share one check."""
+    lib, box, api, rec = hub(["mp3", "mp3_free"])
+    set_kbps(lib, 0, 400)
+    set_kbps(lib, 1, 400)
+    calls = []
+    api._svc.rekordbox_running = lambda: calls.append(1) or box.running
+    assert cdj_group(api)["all"] == {"n": 2, "k": 0}          # the plan is made now: the library is looked up
+    assert len(calls) == 1
+
+
 def test_a_cdj_file_in_a_duplicate_group_is_in_the_duplicate_group_only_until_it_is_answered(hub):
     lib, box, api, rec = hub(["mp3", "mp3_free", "chain"], same_bytes=True)   # songs 0 and 1 hold the same bytes
     for i in (0, 1):
