@@ -1440,6 +1440,19 @@ Results:
         library.db (the Dashboard needs it; doctor answers): accepted. Merged e1a930f9. Fix rounds 518k. Read pass
         dispatched (Sonnet, rehearse-reads.md updated for ran_check/Opened.text/19 checks/ready_text; worktree
         `.claude/worktrees/cli3-reads-pass` detached at e1a930f9; Discjockey not running).
+      - Read pass done (Sonnet): logged **90k** (exp. 130k), agent-cost 24 calls, cache 1.2M, advisor 0k, but 4.7 h wall:
+        it stood on a Claude Code approval prompt (clones under ~/Music, outside the working folders) until the user woke
+        and approved. rehearse-reads.md now clones into the scratchpad. 22/22 PASS, G1/B1/B2 PASS (clone's library.db
+        + settings.json byte-identical; real library.db stat unchanged; clones deleted); reads 8-174 ms. Real library:
+        doctor 0 problems, 3 notes. Count gap status 450 vs library list 465 traced: Dashboard counts tracks in
+        playlists (incl. not-found songs as `missing`), library list counts files: different scopes, no bug.
+      - CI found red on `feat/cli-3-reads` since V3.1a (I never checked CI after a merge: now in memory): path-padding
+        goldens (fixed by FR1) and `login_find` golden listing the machine's browsers. FR4 (Sonnet fix-round) done
+        587b3c1c: logged **59k**, 16 calls, advisor 0k; root cause in the engine: `browsers.installed` always searched
+        the real /Applications; `Services.applications` now injected (stub: none); 6894 passed. Merged c3ebc31e.
+        User asked why the gate error (my prompt format, twice: told + memory) and the approval prompt (above).
+        Now: `npm run verify` (background, cli3-reads-pass worktree at c3ebc31e) + CI watch; both green → merge into
+        main, push. No release.
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
