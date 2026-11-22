@@ -315,7 +315,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("mark_warnings_seen", "limits seen", "J", params={"service": _positional()}, planned="phase 4: V4.8"),
     # --- playlists
     _e("playlists", "playlist list", "R", "playlist list", built=True),
-    _e("add_playlist", "playlist check", "RJ", params={"url": _positional()}, planned="phase 3: V3.1b"),
+    _e("add_playlist", "playlist check", "RJ", "playlist check https://soundcloud.com/someone/sets/a-set",
+       params={"url": _positional()}, built=True),
     _e("preview_playlist_change", "", "R", params={"lines": _derived("playlist_lines", "list")}, planned="phase 4: V4.2"),
     *_playlist_edits(),
     _e("set_read_liked_music", "settings set read-liked-music", "J", params={"on": _positional(type="bool")}, planned="phase 4: V4.8"),

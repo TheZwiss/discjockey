@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from hub_helpers import choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
+from test_cli_upgrade import inline_workers  # noqa: F401 - the fixture
 
 import discjockey.cli as cli
 from discjockey import __version__, db, library
@@ -290,9 +291,11 @@ def test_a_command_lists_the_reasons_its_entries_and_locks_answer_with(capsys):
     assert {"needs_yes", "refused"} <= set(_row(capsys, "call")["reasons"])
 
 
-def test_a_read_answers_no_library_exactly_when_the_catalogue_says_it_needs_one(tmp_path, monkeypatch, capsys):
+def test_a_read_answers_no_library_exactly_when_the_catalogue_says_it_needs_one(tmp_path, monkeypatch, capsys,
+                                                                                 inline_workers):  # noqa: F811
     """`NEEDS_NO_LIBRARY` is the fact behind the `no_library` reason: run every built read with no music folder chosen
-    (on the services of the hub fixtures: no browser or tool of this Mac is read)."""
+    (on the services of the hub fixtures: no browser or tool of this Mac is read; a read that runs as a job
+    (`playlist check`) runs in this process, so no worker starts)."""
     monkeypatch.setenv(library.SUPPORT_ENV, str(tmp_path / "support"))
     stub_headless(monkeypatch)
     seen = 0

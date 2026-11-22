@@ -312,6 +312,16 @@ def _a_job(api) -> str:
     return registry.Registry(api._support.support).create("sync", "sync run", {}, "terminal", roots).id
 
 
+def _check_a_link(api):
+    """`playlist check <link>` against the hub's SoundCloud stub (in place for this one call only): it reads the link's
+    playlist and stores the read, and takes no lock."""
+    import pytest
+    from test_hub_api_playlists import SC_SET, fake_soundcloud
+    with pytest.MonkeyPatch.context() as patch:
+        fake_soundcloud(patch)
+        assert api.add_playlist(SC_SET)["ok"]
+
+
 DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
@@ -372,6 +382,7 @@ DRIVERS = {
     "undo_preview": lambda api, rec: api.undo_preview(1),  # `batch undo moves:1 --dry-run`: the move log, no lock
     "limits_what_if": lambda api, rec: api.limits_what_if("qobuz", 40),
     "check_music_folder": lambda api, rec: api.check_music_folder(str(api._paths.root.parent / "Elsewhere")),
+    "add_playlist": lambda api, rec: _check_a_link(api),  # `playlist check`: a read job, the service read over the network: no lock
     "limits": lambda api, rec: api.limits("qobuz"),
     "playlists": lambda api, rec: api.playlists(),  # the playlists file and the stored read: no lock
     "downloads_view": lambda api, rec: api.downloads_view(),
