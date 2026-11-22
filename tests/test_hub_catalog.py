@@ -15,9 +15,9 @@ from discjockey.hub.catalog import Arg, Entry
 # the number; nothing may raise it. Phase 1 built the AIFF, upgrade, folder, rekordbox and settings commands; phase 3
 # group V3.1a (this number: 74) builds `library list`, `library collections`, `folder list`, `folder check`,
 # `report list`, `sync plan` and `track spectrum`. V3.1b (13 rows: the setup, limits, playlist, login and tidy reads) is
-# lowering it in steps (70: its four dry-run-only rows are built). The next to lower it after it, V3.1c (6: the `open` commands), V3.2b (1: `status`); phase 4's rows stay planned until it builds
+# lowering it in steps (62: only `playlist check` is left of it). The next to lower it after it, V3.1c (6: the `open` commands), V3.2b (1: `status`); phase 4's rows stay planned until it builds
 # them (`planned` names the group).
-PLANNED_CEILING = 63
+PLANNED_CEILING = 62
 # The phases that are finished: no row may be planned for one of them (V3.2b sets 3 when phase 3 ends).
 FINISHED_PHASES = 2
 

@@ -2902,7 +2902,10 @@ export type MusicFolderSet = {
   /** True when the choice is saved but the open window keeps its library: ask to reopen, then `quit()`. */
   restart: boolean;
 };
-/** The update check's last answer (event `AppUpdate`); it never touches the network. */
+/**
+ * `app_update(check)`: the update check's last answer (the event `AppUpdate` carries its first four fields);
+ * without `check` it never touches the network.
+ */
 export type AppUpdate = {
   /** `unknown`: no answer yet (offline, rate limit, or a version that is not plain); the page shows nothing. */
   state: 'available' | 'up_to_date' | 'unknown';
@@ -2912,6 +2915,12 @@ export type AppUpdate = {
   latest: string | null;
   /** The release page; only for `available`. */
   url: string | null;
+  /**
+   * This call ran the update check (`--check`); the network is asked only when the last answer is a day old.
+   */
+  checked: boolean;
+  /** When the last answer was fetched; null when it never was. */
+  checked_at: string | null;
 };
 /** A saved login check (settings.json): when it ran and what it found. */
 export type LastCheck = {

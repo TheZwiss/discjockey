@@ -65,3 +65,35 @@ def test_a_music_folder_check_says_whether_a_folder_would_do(lib, tmp_path, caps
     assert code == 0 and env["data"]["usable"] is True and env["data"]["path"] == str(good)
     code, env = run_json(["setup", "music", "--dry-run"], capsys)
     assert code == 2 and "path" in env["message"].lower()
+
+
+# --- `app info [--check]` ---
+
+NEWER = json.dumps({"tag_name": "v999.0.0", "draft": False, "prerelease": False}).encode()
+
+
+def test_app_info_reads_the_cache_and_check_asks_the_network_once_and_says_so(tmp_path, monkeypatch, capsys):
+    from discjockey import app_update
+    asked = []
+    monkeypatch.setenv(library.SUPPORT_ENV, str(tmp_path / "support"))  # no music folder: `app info` needs none
+    stub_headless(monkeypatch, "1.0.0")
+    monkeypatch.setattr(app_update, "fetch_latest", lambda url: asked.append(url) or NEWER)
+    code, env = run_json(["app", "info"], capsys)
+    assert code == 0 and env["outcome"] == "ok" and env["data"]["state"] == "unknown" and env["data"]["checked"] is False
+    assert env["data"]["checked_at"] is None and asked == []  # a headless api asks nothing by itself
+    code, env = run_json(["app", "info", "--check"], capsys)
+    assert code == 0 and (env["data"]["state"], env["data"]["latest"], env["data"]["checked"]) == ("available", "999.0.0", True)
+    assert env["data"]["checked_at"] and len(asked) == 1
+    code, env = run_json(["app", "info"], capsys)  # the next command line reads what the check wrote
+    assert (env["data"]["state"], env["data"]["checked"]) == ("available", False) and len(asked) == 1
+    code, env = run_json(["app", "info", "--check"], capsys)
+    assert env["data"]["checked"] is True and len(asked) == 1  # the cap: a cache under a day old is the answer
+
+
+def test_app_info_check_with_no_answer_is_ok_and_says_unknown(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv(library.SUPPORT_ENV, str(tmp_path / "support"))
+    stub_headless(monkeypatch, "1.0.0")  # conftest: no network
+    code, env = run_json(["app", "info", "--check"], capsys)
+    assert code == 0 and (env["data"]["state"], env["data"]["checked"], env["data"]["checked_at"]) == ("unknown", True, None)
+    code, text = cli.main(["app", "info", "--check"]), capsys.readouterr().out
+    assert code == 0 and "unknown" in text

@@ -1034,8 +1034,25 @@
     },
     "AppUpdate": {
       "additionalProperties": false,
-      "description": "The update check's last answer (event `AppUpdate`); it never touches the network.",
+      "description": "`app_update(check)`: the update check's last answer (the event `AppUpdate` carries its first four fields); without `check` it never touches the network.",
       "properties": {
+        "checked": {
+          "description": "This call ran the update check (`--check`); the network is asked only when the last answer is a day old.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the last answer was fetched; null when it never was.",
+          "x-shown": true
+        },
         "current": {
           "description": "This app's version.",
           "type": "string",
@@ -1079,7 +1096,9 @@
         "state",
         "current",
         "latest",
-        "url"
+        "url",
+        "checked",
+        "checked_at"
       ],
       "type": "object"
     },

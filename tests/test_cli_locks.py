@@ -378,6 +378,7 @@ DRIVERS = {
     "find_logins": lambda api, rec: api.find_logins("soundcloud"),  # the browsers of `services()`: none
     "setup_check_tools": lambda api, rec: api.setup_check_tools(),
     "setup_status": lambda api, rec: api.setup_status(),
+    "app_update": lambda api, rec: api.app_update(check=True),  # the cache file in the support folder's cache/ (T9's allowed write), no lock
     "retry_music_folder": lambda api, rec: api.retry_music_folder(),  # a built read with no command of its own
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }

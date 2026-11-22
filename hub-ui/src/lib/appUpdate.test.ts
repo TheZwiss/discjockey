@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { aboutLine, shortVersion, updateLink } from './appUpdate';
-import type { AppUpdate } from './bridge/types';
+import type { UpdateNotice } from './appUpdate';
 
 const URL_ = 'https://github.com/TheZwiss/discjockey/releases/tag/v1.1.0';
-const available: AppUpdate = { state: 'available', current: '1.0.0', latest: '1.1.0', url: URL_ };
-const upToDate: AppUpdate = { state: 'up_to_date', current: '1.0.0', latest: null, url: null };
-const unknown: AppUpdate = { state: 'unknown', current: '1.0.0', latest: null, url: null };
+const available: UpdateNotice = { state: 'available', current: '1.0.0', latest: '1.1.0', url: URL_ };
+const upToDate: UpdateNotice = { state: 'up_to_date', current: '1.0.0', latest: null, url: null };
+const unknown: UpdateNotice = { state: 'unknown', current: '1.0.0', latest: null, url: null };
 
 describe('appUpdate', () => {
   it('shortens x.y.0 to x.y and keeps a patch number', () => {

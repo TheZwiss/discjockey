@@ -150,7 +150,7 @@ BY_ID_KIND: dict[str, tuple[str, str]] = {"batch undo": ("batch_id", "batch")}
 # fact `help --json` lists as the `no_library` reason. tests/test_cli_housekeeping.py runs every built read with none
 # chosen to pin it (`set_auto_upgrade` and `set_sync_scope` are writes: probed by hand, they answer `ok` with none chosen).
 NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope",
-                              "check_music_folder", "setup_status", "setup_check_tools", "downloads_view", "find_logins"))  # Settings works before a folder is chosen
+                              "check_music_folder", "setup_status", "setup_check_tools", "downloads_view", "find_logins", "app_update"))  # Settings works before a folder is chosen
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
@@ -298,7 +298,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("hide", "track hide", "J", params={"track_id": TRACKS}, fixed={"hidden": True}, planned="phase 4: V4.6"),
     _e("hide", "track unhide", "J", params={"track_id": TRACKS}, fixed={"hidden": False}, planned="phase 4: V4.6"),
     _e("setup_status", "setup status", "R", "setup status", built=True),
-    _e("app_update", "app info", "R", "app info", planned="phase 3: V3.1b"),
+    _e("app_update", "app info", "R", "app info", built=True),
     _e("rescan_library", "library scan", "J", "library scan", built=True, locks={"library"}),
     _e("quit", "", "W"),
     _e("open_external", "open url", "R", "open url https://example.com", planned="phase 3: V3.1c"),

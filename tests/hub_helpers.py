@@ -229,6 +229,7 @@ def stub_headless(monkeypatch, version: str | None = None):
     `services()` (no browsers, every tool at /opt/homebrew/bin, nothing opens), so `login find`, `login list`,
     `tools status`, `setup status` and the golden pages never show what this Mac holds. `version` pins the app's version
     (what `setup status` and `app info` say), so a page does not move with each release."""
+    from discjockey import app_update
     from discjockey.cli import bind
     from discjockey.hub import api as api_module
     real = bind.headless
@@ -240,8 +241,9 @@ def stub_headless(monkeypatch, version: str | None = None):
         stub = services()
         for name in ("home", "which", "open_url", "open_path", "reveal", "open_in"):
             setattr(api._svc, name, getattr(stub, name))
-        if version is not None:
-            api._update.current = version
+        if version is not None:  # a checker that starts as this version, with the api's own cache and fetch
+            api._update = app_update.Checker(api._support.cache / app_update.CACHE_NAME, current=version,
+                                             fetch=lambda url: api._svc.fetch_release(url))
         return api
 
     monkeypatch.setattr(bind, "headless", headless)
