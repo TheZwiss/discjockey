@@ -211,6 +211,10 @@ def test_never_download_and_back(root):
     assert wait_job(api, rec, api.never_download("t4", False)).ok
     assert load_state(root)["never"] == {}
     assert api.sync_preview()["never"] == []
+    # the log tells the two switches from issue 43's Download again of a missing file ("download again")
+    lines = [json.loads(line) for line in root.operations_log.read_text().splitlines()]
+    assert [(line["track_id"], line["operation"], line["result"]) for line in lines] == [
+        ("t4", "never download", "done"), ("t4", "download allowed", "done")]
 
 
 def test_a_changed_playlists_txt_is_read_again_by_itself(root):

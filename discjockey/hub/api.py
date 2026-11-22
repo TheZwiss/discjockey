@@ -2299,7 +2299,7 @@ class HubApi:
                 state["never"].pop(track_id, None)
             library.save_state(self._paths, state)
             rep.write_not_lossless(self._paths, state)  # a "not found" track leaves (or rejoins) that list
-            what = "never download" if never else "download again"
+            what = "never download" if never else "download allowed"  # not "download again": that is a missing file's (missing.py)
             ops.log_operation(self._paths, self._svc.now(), track_id, info, what, "done", what)
             return {"track_id": track_id, "never": bool(never)}
 
