@@ -167,6 +167,7 @@ class Services:
     now: Callable[[], datetime] = datetime.now
     mounted: Callable[[Path], bool] = os.path.ismount  # whether a /Volumes drive is connected (the scanner's rule)
     home: Path = Path.home()  # where the browsers keep their files (tests: a folder that doesn't exist)
+    applications: tuple[Path, ...] = (Path("/Applications"),)  # the folders the browsers' apps are looked for in (tests: none)
     open_in: Callable[[str, str, str | None], object] = lambda browser, url, profile=None: _open_in(browser, url, profile)
     # the window's folder dialog (app.main sets it: (start folder) -> the chosen path or None); None: no window
     pick_folder: Callable[[str], str | None] | None = None
@@ -3262,7 +3263,7 @@ class HubApi:
         self._account(service)
         home, default = self._svc.home, browsers.default_browser(self._svc.home)
         out = []
-        for b in browsers.installed(home):
+        for b in browsers.installed(home, self._svc.applications):
             scan = browsers.logins(service, b, home)
             out.append({"id": b, "name": BROWSERS[b], "default": b == default, "readable": scan["readable"],
                         "problem": scan["problem"],
@@ -3280,7 +3281,7 @@ class HubApi:
         start meanwhile; then no check runs and the job ends sync_running (spec settings-setup §13)."""
         self._account(service, browser)
         self._no_sync_running()
-        if browser not in browsers.installed(self._svc.home):
+        if browser not in browsers.installed(self._svc.home, self._svc.applications):
             raise OpProblem(f"{BROWSERS[browser]} isn't installed on this Mac.", "refused")
         name = BROWSERS[browser]
 
