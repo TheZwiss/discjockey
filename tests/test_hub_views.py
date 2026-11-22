@@ -771,6 +771,13 @@ def test_todo_groups_in_order_with_details():
     assert shown["groups"][0]["items"][0]["hidden"] is True
 
 
+def test_todo_takes_a_collection_of_group_keys_never_a_bare_string():
+    """`"all" in "all"` is true for a key that is only part of a word: a string must fail loudly."""
+    with pytest.raises(TypeError, match="not a string"):
+        views.todo(state(), "all", False, {}, TODAY)
+    assert views.todo(state(), None, False, {}, TODAY)["groups"] is not None
+
+
 def test_todo_a_collection_of_groups_keeps_only_those_groups_in_the_pages_order():
     s = state(m=e("missing"), w=e("not_lossless", cutoff=16000), f=e("fake_lossless", cutoff=16000, title="F"))
     every = [g["key"] for g in views.todo(s, None, False, {}, TODAY)["groups"]]

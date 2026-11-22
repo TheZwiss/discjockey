@@ -40,15 +40,20 @@ def op(operation, track="t1", time="2026-11-12T10:00:00", result="done", artist=
             "message": ""}
 
 
-def make(runs=(), batches=(), operations=(), *, tracks=None, batch_tracks=None, finished=None, built=BUILT, since=None):
+def make(runs=(), batches=(), operations=(), *, tracks=None, batch_tracks=None, batch_actions=None, undoable=None,
+         finished=None, built=BUILT, since=None):
     """`operations` are the lines in order: line numbers are their positions. `finished`: track -> line, by default the
-    last line of each upgrade-like step, as `batches.finished_order` reads the log."""
+    last line of each upgrade-like step, as `batches.finished_order` reads the log. `undoable`: move batch number ->
+    moves an undo could still make, by default every move it did."""
     numbered = list(enumerate(operations))
     if finished is None:
         finished = {o["track_id"]: n for n, o in numbered
                     if o["operation"].startswith(batch_rule.LOG_PREFIXES) and o["result"] == "done"}
+    if undoable is None:
+        undoable = {b["batch"]: b["done"] for b in batches if b["kind"] == "moves"}
     return history.entries(list(runs), list(batches), numbered, tracks={"t1": UNDOABLE} if tracks is None else tracks,
-                           batch_tracks=batch_tracks or {}, finished_order=finished,
+                           batch_tracks=batch_tracks or {}, batch_actions=batch_actions or {}, move_undoable=undoable,
+                           finished_order=finished,
                            built=lambda method, command: (method, command) in built, now=NOW, since=since)
 
 
@@ -108,6 +113,32 @@ def test_a_stopped_or_partly_undone_aiff_batch_can_still_be_undone():
     stopped, partly = (one(make(batches=[b])) for b in (aiff(state="stopped", done=1, total=2),
                                                          aiff(done=1, undone=1)))
     assert stopped["undo"] == partly["undo"] == "batch undo aiff:1"
+
+
+def test_a_move_batch_whose_files_moved_again_has_nothing_left_to_undo():
+    built = BUILT | {("undo_moves", "batch undo")}
+    again = one(make(batches=[moves()], undoable={1: 0}, built=built))  # done 3, but an undo could make no move
+    assert (again["undo"], again["cant_text"]) == (None, words.NOTHING_LEFT)
+    partly = one(make(batches=[moves()], undoable={1: 2}, built=built))
+    assert (partly["undo"], partly["cant_text"]) == ("batch undo moves:1", None)
+    assert one(make(batches=[moves(done=0)], undoable={1: 0}))["cant_text"] == words.NOTHING_DONE  # the older words first
+
+
+@pytest.mark.parametrize("what, actions, text", [
+    ("upgrade", {"place"}, f"{words.BATCH_PLACED} · 2 of 2 done"),
+    ("convert", {"rename"}, f"{words.BATCH_CLEAN_NAME} · 2 of 2 done"),
+    ("convert", {"convert", "rename"}, "Made AIFF · 2 of 2 done"),
+    ("mixed", {"same_track", "rename"}, "Better versions put in and made AIFF · 2 of 2 done"),
+    ("upgrade", {"same_track", "place"}, "Better versions put in · 2 of 2 done")])
+def test_an_aiff_batch_is_worded_as_the_window_words_it(what, actions, text):
+    assert one(make(batches=[aiff(what=what)], batch_actions={1: actions}))["text"] == text
+
+
+def test_a_batch_of_the_sync_says_so_even_when_it_only_renamed_but_a_placement_comes_first():
+    assert one(make(batches=[aiff(what="convert", started_by="auto_upgrade")], batch_actions={1: {"rename"}}))[
+        "text"] == "Upgraded during your sync · 2 of 2 done"
+    assert one(make(batches=[aiff(what="upgrade", started_by="download_again")], batch_actions={1: {"place"}}))[
+        "text"] == f"{words.BATCH_PLACED} · 2 of 2 done"
 
 
 def test_a_step_names_the_song_and_what_happened():
@@ -274,3 +305,44 @@ def test_history_knows_every_operation_name_the_code_writes():
     # a new call that builds its name some other way must be looked at, and its names added above
     assert dynamic == {"operation", "what", "f'upgrade_{mode}'", "SUPERSEDE", "UNDO_OPERATIONS[kind]",
                        "UNDO_OPERATIONS['rename']", "find.kind"}
+
+
+def test_an_undo_takes_back_the_latest_step_of_the_song_not_every_earlier_one():
+    listed = make(operations=[op("upgrade_same_track", time="2026-11-12T01:00:00"),
+                              op("aiff_rename", time="2026-11-12T02:00:00"),
+                              op("undo_rename", time="2026-11-12T03:00:00")])
+    by_text = {e["text"].split(": ")[1]: e for e in listed}
+    assert by_text["given its clean name"]["cant_text"] == words.UNDONE
+    assert by_text["better version put in"]["cant_text"] == words.LATER_STEP   # not undone: the rename came after it
+    assert by_text["clean name undone"]["cant_text"] == words.WAS_UNDO
+
+
+def test_an_old_download_again_line_is_a_song_allowed_to_download_again_but_a_missing_files_stays_as_it_is():
+    old = {**op("download again"), "message": "download again"}
+    built = BUILT | {("never_download", "track never")}
+    e = one(make(operations=[old], built=built))
+    assert e["text"] == "A - B: allowed to download again" and (e["undo"], e["cant_text"]) == ("track never t1", None)
+    missing = {**op("download again"), "message": "Its file is missing; it downloads at the next sync."}
+    e = one(make(operations=[missing], built=built))
+    assert e["text"] == f"A - B: {words.OPERATION_WORDS['download again']}" and e["cant_text"] == words.DOWNLOAD_CANT
+
+
+def test_a_switch_turned_the_other_way_since_is_not_undone_by_its_own_command():
+    built = BUILT | {("hide", "track unhide"), ("hide", "track hide")}
+    unhide, hide = make(operations=[op("hide", time="2026-11-12T10:00:00"), op("unhide", time="2026-11-12T11:00:00")],
+                        built=built)
+    assert (unhide["undo"], unhide["cant_text"]) == ("track hide t1", None)
+    assert (hide["undo"], hide["cant_text"]) == (None, words.LATER_STEP)
+    other_song = make(operations=[op("hide", track="t1"), op("unhide", track="t2", time="2026-11-12T11:00:00")],
+                      built=built, tracks={"t1": UNDOABLE, "t2": UNDOABLE})
+    assert all(e["undo"] for e in other_song)
+
+
+def test_a_report_of_an_unknown_kind_reads_as_a_sync():
+    e = one(make(runs=[run(kind="somebody else's")]))
+    assert e["text"].startswith("Sync: ") and e["cant_text"] == words.RUN_CANT
+
+
+def test_an_auto_upgrade_only_run_points_at_its_batch_for_the_undo():
+    e = one(make(runs=[run(kind="auto_upgrade_only", line="Upgraded 2 tracks.")]))
+    assert (e["undo"], e["cant_text"]) == (None, words.RUN_CANT_AUTO)

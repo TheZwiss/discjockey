@@ -71,7 +71,7 @@ def test_print_says_what_would_open_and_opens_nothing(which, lib, capsys):
     want = target(lib)  # (a report is written first)
     code, env = run([*line(lib), "--print", "--json"], capsys)
     assert code == 0 and env["outcome"] == "ok"
-    assert env["data"] == {"target": want, "opened": False}
+    assert env["data"] == {"target": want, "opened": False, "text": words.NOT_OPENED.format(target=want)}
     assert opened_nothing(lib)
 
 
@@ -80,15 +80,18 @@ def test_without_print_the_opener_is_called_once_with_the_target(which, lib, cap
     line, opener, target = OPENERS[which]
     want = target(lib)
     code, env = run([*line(lib), "--json"], capsys)
-    assert code == 0 and env["data"] == {"target": want, "opened": True}
+    assert code == 0 and env["data"] == {"target": want, "opened": True, "text": words.OPENED.format(target=want)}
     got = Path(want) if opener != "open_url" else want  # a place goes to the opener as a path, a web address as text
     assert {k: v for k, v in lib.svc.calls.items() if v} == {opener: [got]}
 
 
 def test_the_text_page_names_the_target(lib, capsys):
     code, text = run(["open", "folder", "all", "--print"], capsys)
-    assert code == 0 and str(lib.root / "Library") in text and "no" in text.split("Opened")[1]
+    target = str(lib.root / "Library")
+    assert code == 0 and text.startswith(words.NOT_OPENED.format(target=target))
     assert opened_nothing(lib)
+    code, text = run(["open", "folder", "all"], capsys)   # the stub opener records it
+    assert code == 0 and text.startswith(words.OPENED.format(target=target))
 
 
 # --- open folder: a place, never a playlist by a bare word ---
@@ -102,7 +105,7 @@ def test_open_folder_takes_all_a_playlist_a_folder_and_a_path(lib, capsys):
                           (str(lib.root / "Library" / "Hard_Bounce"), "Library/Hard_Bounce"), (str(lib.root), "")):
         code, env = run(["open", "folder", place, "--print", "--json"], capsys)
         want = str(lib.root / target) if target else str(lib.root)
-        assert code == 0 and env["data"] == {"target": want, "opened": False}, place
+        assert code == 0 and env["data"] == {"target": want, "opened": False, "text": words.NOT_OPENED.format(target=want)}, place
 
 
 def test_a_bare_word_is_a_path_not_a_playlist(lib, capsys):
@@ -151,7 +154,7 @@ def test_the_buy_list_opens_when_it_is_there_and_is_refused_when_it_is_not(lib, 
     assert code == 7 and env["outcome"] == "refused" and env["message"] == words.NO_BUY_LIST
     want = buy_list(lib)
     code, env = run(["open", "report", "not-lossless", "--json"], capsys)
-    assert code == 0 and env["data"] == {"target": str(want), "opened": True}
+    assert code == 0 and env["data"] == {"target": str(want), "opened": True, "text": words.OPENED.format(target=want)}
     assert lib.svc.calls["open_path"] == [want]
 
 

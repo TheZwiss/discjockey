@@ -29,7 +29,7 @@ from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PART_LABELS, PLAN_LABELS, SECTIONS, auto_upgrade_line, check_text, result_folder
 from ..settings import Settings
-from ..words import AUTO_BATCH_DETAIL, BATCH_MADE_AIFF, TODO_EMPTY, person_steps, plural, short_day
+from ..words import AUTO_BATCH_DETAIL, BATCH_CLEAN_NAME, BATCH_MADE_AIFF, BATCH_PLACED, TODO_EMPTY, person_steps, plural, short_day
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
@@ -1811,8 +1811,6 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
 
 
 SYNC_STARTERS = (batches.AUTO, batches.DOWNLOAD_AGAIN)  # `started_by` of a batch the sync's last phase made
-BATCH_CLEAN_NAME = "Clean name"  # a batch that only gave clean names
-BATCH_PLACED = "Better versions put in during your sync"  # the sub of a batch of placements only (issue 43)
 PLACED_CARD_SUMMARY = "better versions in"  # the summary of the "In rekordbox" card of a batch of placements only
 CARD_SUMMARY_ONE = "same track, cues kept"  # the summary of the card's steps for upgrades: one track in rekordbox ...
 CARD_SUMMARY_MANY = "same tracks, cues kept"  # ... or several
@@ -1840,17 +1838,36 @@ def _card_summary(tracks: list[dict]) -> str | None:
     return PLACED_CARD_SUMMARY if _placed(tracks) else None
 
 
-def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> str:
-    """The words after the day on a batch item: "Better versions put in during your sync" (a batch of placements
-    only), "Upgraded during your sync" (Auto-upgrade), "Made AIFF" (a batch of Convert or Rename items:
-    `aiff_batches.kind` `convert` or `mixed`; "Clean name" when every check is a clean name), else "Same track"."""
-    if tracks and _placed(tracks) == len(tracks):
+def batch_how(started_by: str | None, kind: str | None, actions: Collection[str]) -> str | None:
+    """The words after the day on a batch, when it is one of three kinds: "Better versions put in during your sync" (it
+    only placed: `actions` is `{"place"}`), "Upgraded during your sync" (the sync's last phase made it), "Clean name"
+    (a Convert or mixed batch that only renamed); None for any other, which each page words itself (the To-do list: "Same
+    track" or "Made AIFF"; `history`: what the batch did). ONE rule for both; `actions` are the batch's item actions
+    (`batches.RUNNABLE`), for an open batch the actions of its checks (`_check_actions`)."""
+    kinds = set(actions)
+    if kinds == {"place"}:
         return BATCH_PLACED
     if started_by in SYNC_STARTERS:  # the sync's last phase, the switch on or off
         return AUTO_BATCH_DETAIL
-    if kind in ("convert", "mixed"):
-        return BATCH_CLEAN_NAME if all(t["check"]["reason"] == "renamed" for t in tracks) else BATCH_MADE_AIFF
-    return "Same track"
+    if kind in ("convert", "mixed") and kinds == {"rename"}:
+        return BATCH_CLEAN_NAME
+    return None
+
+
+def _check_actions(tracks: list[dict]) -> set[str]:
+    """The item actions of a batch's open checks that `batch_how` tells apart: `place` (a placement), `rename` (a clean
+    name); any other check is `other`."""
+    named = {"placed_missing": "place", "renamed": "rename"}
+    return {named.get(t["check"]["reason"], "other") for t in tracks}
+
+
+def _batch_how(started_by: str | None, kind: str | None, tracks: list[dict]) -> str:
+    """The words after the day on a batch item in the To-do list: `batch_how`, else "Made AIFF" (a batch of Convert or
+    Rename items: `aiff_batches.kind` `convert` or `mixed`), else "Same track"."""
+    how = batch_how(started_by, kind, _check_actions(tracks))
+    if how is not None:
+        return how
+    return BATCH_MADE_AIFF if kind in ("convert", "mixed") else "Same track"
 
 
 def _batch_row_name(n: int, kind: str | None, placed: int) -> str:
@@ -1978,6 +1995,12 @@ def _absolute(root: Path | None, path: str | None) -> str | None:
     return str(root / path) if root is not None else None
 
 
+def not_a_string(filt: Collection[str] | None) -> None:
+    """The guard of `todo`'s `filt`: a bare string would pass as a collection (`"all" in "all"`, a key as part of a word)."""
+    if isinstance(filt, str):
+        raise TypeError("filt is a collection of group keys or None, not a string")
+
+
 def todo(state: dict, filt: Collection[str] | None, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
@@ -2047,6 +2070,7 @@ def todo(state: dict, filt: Collection[str] | None, show_hidden: bool, others: d
     `detail` ("Missing since 12 Nov · was in Techno 2019") and `missing` (`missing.view`: action, why not, words, what
     it will do). `place` (Sites.place) words where the file was. The group carries `all: {download_again, remove}`:
     the items not hidden whose action can run now, by action (what the head link and `--all` act on)."""
+    not_a_string(filt)
     members = cdj_rule.group_members(state, include_hidden=True, held=decided)
     items: dict[str, list] = {g: [] for g, _, _ in TODO_GROUPS}
     batch_checks: dict[int, list[str]] = {}

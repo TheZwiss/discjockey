@@ -1,2 +1,4 @@
+Would open https://example.com; nothing was opened.
+
 Target  https://example.com
 Opened  no

@@ -541,10 +541,10 @@ that still has a `rekordbox_check` when the run's report is written, `note` = th
 
 `show_in_finder(track_id, which="current")`, `reveal(rel_path)` (inside the music folder only, e.g.
 `"Library/Hard_Bounce"`, `".discjockey/reports"`; `"."` is the music folder itself), `open_report(run_id)`, `open_licenses()` (the licences folder, `Contents/Resources/licenses` in the app, in Finder; refused
-when it is missing: "The licences folder is missing from this copy of Discjockey."), `open_external(url)` (https only,
-system browser) → `Opened` `{target, opened}` (`target`: the absolute path or the web address; generated). Each takes a last
+when it is missing: "The licences folder is missing from this copy of Discjockey."), `open_external(url)` (web links, `http://` or `https://`,
+system browser) → `Opened` `{target, opened, text}` (`target`: the absolute path or the web address; `text`: "Opened <target>.", with `print_only` "Would open <target>; nothing was opened."; generated). Each takes a last
 parameter `print_only=false`, which the window never sends: the command line's `--print` runs every check, opens nothing and
-answers `opened: false`. `open_report("not-lossless")` opens `.discjockey/not_lossless.md` (the buy list), refused with "There is
+answers `opened: false`. `show_in_finder(…, "upgrade")` is refused with "That file is not there." when the song has no parked file. `open_report("not-lossless")` opens `.discjockey/not_lossless.md` (the buy list), refused with "There is
 no buy list yet: …" when the file is not there. `open_external`, `open_licenses` and `open_privacy_settings` work without a music folder.
 
 `app_update(check?)` (immediate, also without a music folder: not a library method) — the last answer of the update check

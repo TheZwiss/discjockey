@@ -495,6 +495,8 @@ class Opened(TypedDict):
     opened (`--print` only says it)."""
     target: Annotated[str, F("The absolute path or the web address.")]
     opened: Annotated[bool, F("It was opened (false with `--print`).")]
+    text: Annotated[str, F("What was done, in words: \"Opened <target>.\", or with `--print` that it would open it and "
+                           "opened nothing.")]
 
 
 ANSWERS: dict[str, str] = {

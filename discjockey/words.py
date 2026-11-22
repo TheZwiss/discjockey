@@ -115,13 +115,21 @@ AUTO_UPGRADE_OFF = "Auto-upgrade is off, so nothing was moved."
 AUTO_UPGRADE_NOTHING = "No upgrade was waiting, so nothing was moved."
 
 
+# What the openers say (`Opened.text`: `show_in_finder`, `reveal`, `open_report`, `open_licenses`, `open_external`,
+# `open_privacy_settings`; the command line's `open ...`).
+OPENED = "Opened {target}."
+NOT_OPENED = "Would open {target}; nothing was opened."  # with `--print`
+
+
 # `history` (design §5.3, §7.4): the text of each entry, and for each one the command that undoes it or the words that say
 # why nothing does. `HISTORY_RUN` is by the run's kind; an AIFF batch says what it did (`HISTORY_AIFF`, by the batch's
 # `what`), or "Upgraded during your sync" when the sync's last phase made it; a move batch says its title and what moved.
 BATCH_MADE_AIFF = "Made AIFF"  # the sub of the To-do item of a Convert batch's checks (plan stage D §3), and a history entry's
 AUTO_BATCH_DETAIL = "Upgraded during your sync"  # the sub of the To-do item of an Auto-upgrade batch's checks, and a history entry's
-HISTORY_RUN = {"sync": "Sync: {lossless} lossless, {lossy} lossy, {moved} moved, {problems} to look at",
-               "auto_upgrade_only": "Auto-upgrade alone: {line}"}
+BATCH_CLEAN_NAME = "Clean name"  # the sub of a batch that only gave clean names, in the To-do list and in `history`
+BATCH_PLACED = "Better versions put in during your sync"  # ... of a batch of placements only (issue 43), in both
+HISTORY_RUN = {report.SYNC: "Sync: {lossless} lossless, {lossy} lossy, {moved} moved, {problems} to look at",
+               report.AUTO_UPGRADE_ONLY: "Auto-upgrade alone: {line}"}  # by the report's kind
 HISTORY_RUN_NOTHING = "nothing to do"
 HISTORY_AIFF = {"upgrade": "Better versions put in", "convert": BATCH_MADE_AIFF,
                 "mixed": "Better versions put in and made AIFF"}
@@ -152,12 +160,14 @@ OPERATION_WORDS = {
 }
 UNDO_NOT_YET = "Undoing this comes in a later version ({command})."
 RUN_CANT = "A sync's downloads stay: Discjockey never deletes music."
+RUN_CANT_AUTO = "Its upgrades are listed as a batch: undo that one."  # an Auto-upgrade-only run
 STILL_RUNNING = "Still running."
 WAS_UNDO = "This was an undo."
 UNDONE = "Undone already."
 UNDONE_BY = "Undone by {id}."
 NOTHING_DONE = "Nothing was changed, so there is nothing to undo."
 LATER_STEP = "A later step of this song comes first: undo that one."
+NOTHING_LEFT = "Nothing left to undo: those files moved again since."
 CANT_UNDO_NOW = "This step can't be undone any more: the files changed since."
 SONG_GONE = "This song is no longer in your library."
 DISCARD_CANT = "Thrown-away versions are not offered again."

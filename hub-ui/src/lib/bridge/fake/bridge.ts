@@ -365,6 +365,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       cutoff_hz: t.cutoff_hz, path: pathOf(t), ...more }), recovered: [] as [string, boolean][] });
   const versionHash = () => (Math.abs(hash(`v${s.version}`)).toString(16).padStart(8, '0')).repeat(8);
   const reportPath = (id: string) => `${FAKE_MUSIC}/.discjockey/reports/${id}.md`;
+  /** The answer of every opener (`api._opened`; the window opens nothing in the fake): `text` is `words.OPENED`. */
+  const opened = (target: string) => ok({ target, opened: true, text: `Opened ${target}.` });
+  /** words.NO_BUY_LIST */
+  const NO_BUY_LIST = 'There is no buy list yet: Discjockey writes it when a sync finds songs it can only get lossy.';
   /** The upgrade block's rekordbox answer for a track: the fake library's state decides Same track for other formats. */
   const rbOf = (t: FakeTrack) => {
     const state = s.rekordbox_state ?? 'ready';
@@ -1065,7 +1069,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       signInStop();
       return ok({ stopped: true });
     },
-    async open_privacy_settings() { return ok({ target: PRIVACY_SETTINGS, opened: true }); },
+    async open_privacy_settings() { return opened(PRIVACY_SETTINGS); },
     async qobuz_check_login() {
       if (syncRunning()) return fail('sync_running', MSG.sync_running);
       return startJob('qobuz_check_login', null, (finish) => setTimeout(() => {
@@ -1479,9 +1483,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return runUndo('undo_upgrade', ids, null);
     },
 
-    async show_in_finder(track_id: string) {
+    // api.show_in_finder: the track's current file, or its parked upgrade (`which`); a file that is not there is refused
+    async show_in_finder(track_id: string, which: 'current' | 'upgrade' = 'current') {
       const t = s.tracks.find((x) => x.track_id === track_id);
-      return ok({ target: `${FAKE_MUSIC}/${(t && pathOf(t)) ?? `Library/${track_id}.aiff`}`, opened: true });
+      if (which === 'upgrade' && !t?.upgrade?.file) return fail('refused', 'That file is not there.');
+      const rel = which === 'upgrade' ? t!.upgrade!.file : ((t && pathOf(t)) ?? `Library/${track_id}.aiff`);
+      return opened(`${FAKE_MUSIC}/${rel}`);
     },
     // api.reveal: a place inside the music folder, or an absolute path at or inside a watched import folder
     async reveal(rel_path: string) {
@@ -1489,18 +1496,22 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (typeof rel_path !== 'string' || rel_path.split('/').includes('..') || (rel_path.startsWith('/') && !inWatched(rel_path))) {
         return fail('refused', 'Discjockey only opens places inside your music folder or a folder it watches.');
       }
-      return ok({ target: rel_path.startsWith('/') ? rel_path : rel_path === '.' ? FAKE_MUSIC : `${FAKE_MUSIC}/${rel_path}`, opened: true });
+      return opened(rel_path.startsWith('/') ? rel_path : rel_path === '.' ? FAKE_MUSIC : `${FAKE_MUSIC}/${rel_path}`);
     },
+    // api.open_report: a run's report, or the buy list (`not-lossless`), which only exists once a song was not found
     async open_report(run_id: string) {
-      return s.runs.some((r) => r.run_id === run_id) ? ok({ target: reportPath(run_id), opened: true })
-        : fail('refused', 'This report is not there any more.');
+      if (run_id === 'not-lossless') {
+        return s.tracks.some((t) => t.in_playlists && qualityOf(t) === 'missing') ? opened(`${FAKE_MUSIC}/.discjockey/not_lossless.md`)
+          : fail('refused', NO_BUY_LIST);
+      }
+      return s.runs.some((r) => r.run_id === run_id) ? opened(reportPath(run_id)) : fail('refused', 'This report is not there any more.');
     },
     async open_licenses() {
       return s.licensesMissing ? fail('refused', 'The licences folder is missing from this copy of Discjockey.')
-        : ok({ target: '/Applications/Discjockey.app/Contents/Resources/licenses', opened: true });
+        : opened('/Applications/Discjockey.app/Contents/Resources/licenses');
     },
     async open_external(url: string) {
-      return /^https:\/\//.test(url ?? '') ? ok({ target: url, opened: true }) : fail('refused', 'Only https links open in the browser.');
+      return /^https?:\/\/\S+$/.test(url ?? '') ? opened(url) : fail('refused', 'Only web links (http:// or https://) can be opened.');
     },
     async app_update(check?: boolean) {
       const unknown = s.appUpdate.state === 'unknown';

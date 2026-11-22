@@ -896,6 +896,7 @@ class HubApi:
         few same-song groups read theirs; the groups of the answer are then not listed. While an import folder is
         away right now every group's files are read, so a group with a file in it is left out of the count too. The plan is
         asked once, for the questions, the groups, the others and the covers."""
+        views.not_a_string(filt)
         prep = self._plan()
         questions = list(prep.plan.questions) if prep else []
         groups = list(prep.plan.duplicates) if prep else []
@@ -1684,11 +1685,12 @@ class HubApi:
 
     @staticmethod
     def _opened(opener: Callable[..., object], target: Path | str, print_only: bool) -> dict:
-        """What the openers answer (`Opened`): the place or web address, and whether it was opened. Every check ran
-        before this; `print_only` (the command line's `--print`) opens nothing."""
+        """What the openers answer (`Opened`): the place or web address, whether it was opened, and `text` that says so.
+        Every check ran before this; `print_only` (the command line's `--print`) opens nothing."""
         if not print_only:
             opener(target)
-        return {"target": str(target), "opened": not print_only}
+        say = engine_words.NOT_OPENED if print_only else engine_words.OPENED
+        return {"target": str(target), "opened": not print_only, "text": say.format(target=target)}
 
     def _watched_place(self, path: str) -> Path:
         """The absolute `path` when it is a watched import folder or inside one (its symlinks followed: a link leading
@@ -1729,7 +1731,7 @@ class HubApi:
     def open_external(self, url: str, print_only: bool = False) -> dict:
         """Websites open in the system browser, never inside the hub window."""
         if not re.fullmatch(r"https?://[^\s]+", url or ""):
-            raise ValueError("Only web links (https://...) can be opened.")
+            raise ValueError("Only web links (http:// or https://) can be opened.")
         return self._opened(self._svc.open_url, url, print_only)
 
     @bridge
@@ -4758,12 +4760,15 @@ class CliApi(HubApi):
 
         paths = self._paths
         rows = self._batch_rows()
-        batch_tracks = {r["batch"]: frozenset(i.track for i in batches.result_of(paths, r["batch"]).results)
-                        for r in rows if r["kind"] == "aiff"}
+        results = {r["batch"]: batches.result_of(paths, r["batch"]).results for r in rows if r["kind"] == "aiff"}
+        batch_tracks = {n: frozenset(i.track for i in items) for n, items in results.items()}
+        batch_actions = {n: frozenset(i.action for i in items) for n, items in results.items()}
+        with self._move_log() as conn:  # a move batch whose files moved again has done moves and nothing to undo
+            move_undoable = {} if conn is None else {b.id: b.undoable for b in db.batches(conn, -1)[0]}
         found = history_mod.entries(
             views.runs(self._reports()), rows, self._operations(), tracks=self._state()["tracks"],
-            batch_tracks=batch_tracks, finished_order=batches.finished_order(paths),
-            built=built, now=self._svc.now(), since=since)
+            batch_tracks=batch_tracks, batch_actions=batch_actions, move_undoable=move_undoable,
+            finished_order=batches.finished_order(paths), built=built, now=self._svc.now(), since=since)
         return {"entries": found, "since": since}
 
     def _operations(self) -> list[tuple[int, dict]]:
