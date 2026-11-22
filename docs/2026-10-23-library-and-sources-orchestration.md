@@ -1403,6 +1403,10 @@ Results:
         204k, out 60k, advisor 0k; 6764 passed. `Master.tracks`, `rekordbox/match.py`, `_match_counts`/`_superseded_size`
         for doctor. Found: path-column goldens depend on the pytest temp path length (pad before `<tmp>`): carried to
         half A as Important. Merged 604c3beb. V3.2a dispatched (cli3-6 on `feat/cli-3-doctor`, exp. 210k).
+      - V3.2a done f37cb5fa (2 commits): logged **216k** (exp. 210k, 1.03x), agent-cost 67 calls, cache 9.9M, fresh in
+        202k, out 56k, advisor 0k; 6821 passed. `hub/doctor.py` (pure, `Inputs`), ten checks, Doctor shapes, words in
+        words.py. Carry for half B: an unopenable library.db fails `doctor` itself instead of being listed. Merged.
+        V3.2b dispatched (cli3-7 on `feat/cli-3-status`, exp. 202k).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
