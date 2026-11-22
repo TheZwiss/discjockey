@@ -1486,12 +1486,17 @@ Results:
         (V4.3 removes it). Reported bug: `views.playlists` rows carry `index` from 0 while `--at`/`--to`/undo count from 1.
         DECIDED (mine): a 1-based `place` on each row beside `index` (the window's bridge position, unchanged), built in
         V4.2b; the V4.2 brief check writes it into V4.2b.md. Phase 4 so far: 382k + 218k + 238k = 838k.
+      - V4.3 brief run dispatched (Opus, material 45k, exp. 230k). User on the V4.2b hand-back: agents decide what the
+        rules answer and hand back only product decisions / later groups' work, always with a recommendation; I never
+        read code to decide for the user (checklist rule 14, every prompt carries it; brief-write.md has it; sent to the
+        running V4.3 agent by message). A hand-back gets one warm-cache question at once (< ~5 min, any size; rule 7).
+        The `place` numbering is now the V4.2 brief check's to decide on the code (open-scope).
       - **RESUME HERE (LATEST, 2026-11-22, phase 4 wave A briefs):** phase4-plan.md, V4.1a.md, V4.1b.md, V4.2a.md written;
-        V4.2b.md written (238k). Next, one at a time: V4.3 brief run, V4.4 brief run (Opus, one brief
+        V4.2b.md written (238k); V4.3 brief run running (exp. 230k). Next, one at a time: V4.4 brief run (Opus, one brief
         each, measured material + ~185k); phase4-dispatch.md by me (fix the plan's low Opus estimates: wave B detailing
         and the brief check split per group, record 370k); one Sonnet for review-V4.1..V4.4 + rehearse-V4.1..V4.4; the
         brief check split by group (V4.1; V4.2; V4.3+V4.4), fresh Opus each; then `feat/cli-4-writes` from main and the
-        builds by the dispatch table. Phase 4 so far 838k. The V4.2 brief check also writes the `place` decision into V4.2b.md. No release.
+        builds by the dispatch table. Phase 4 so far 838k. The V4.2 brief check decides the `place` numbering on the code. Every prompt carries checklist rule 14. No release.
       - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
