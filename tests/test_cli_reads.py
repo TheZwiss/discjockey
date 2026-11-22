@@ -227,15 +227,13 @@ def test_the_todo_page_says_an_empty_list_in_the_windows_words_not_an_engine_key
     assert "all_lossless" in todo_text(payload, verbose=True)  # --verbose prints the key and its words
 
 
-def test_limit_and_offset_are_refused_with_json_and_page_the_text(rich, capsys):
+def test_limit_and_offset_on_a_read_without_pages_leave_json_whole_and_page_the_text(rich, capsys):
+    """`todo` has no `pages`: `--limit` / `--offset` are no usage error with `--json`, the answer is whole and `page` null."""
     for flag in (["--limit", "1"], ["--offset", "1"]):
-        for form in ("--json", "--jsonl"):
-            code, out, _ = run(["todo", "list", form, *flag], capsys)
-            env = json.loads(out.splitlines()[-1])
-            assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "usage"), (flag, form)
-            assert "page the text page" in env["message"]
-    code, out, _ = run(["todo", "list", "--json"], capsys)
-    assert code == 0 and sum(len(g["items"]) for g in json.loads(out)["data"]["groups"]) >= 3  # the whole list, unpaged
+        code, out, _ = run(["todo", "list", "--json", *flag], capsys)
+        env = json.loads(out)
+        assert code == 0 and env["outcome"] == "ok" and env["page"] is None, flag
+        assert sum(len(g["items"]) for g in env["data"]["groups"]) >= 3  # the whole list
     code, text, _ = run(["todo", "list", "--limit", "1"], capsys)
     assert code == 0 and "1 of " in text
 
@@ -412,3 +410,30 @@ def test_upgrade_list_with_nothing_waiting(tmp_path, monkeypatch, capsys):
     assert code == 0 and env["outcome"] == "ok" and env["data"]["groups"] == []
     code, out, _ = run(["upgrade", "list"], capsys)
     assert code == 0 and "Upgrade ready" not in out
+
+
+def test_paged_cuts_the_list_the_entry_names_and_says_which_slice(capsys):
+    """`call.paged`: the slice, `total`, `next_offset` (None on the last page), `--limit 0` all, an offset past the end an
+    empty list; an entry without `pages` and a problem are returned as they are."""
+    from dataclasses import replace
+
+    from discjockey.cli import call, envelope, parser
+    from discjockey.hub import catalog
+
+    entry = replace(catalog.by_method("track")[0], pages="rows")
+    env = envelope.envelope("x", "ok", data={"rows": ["a", "b", "c"], "other": 1})
+
+    def page(limit, offset):
+        out = call.paged(entry, env, parser.Flags(json=True, limit=limit, offset=offset))
+        return out["data"]["rows"], out["page"]
+
+    assert page(1, 0) == (["a"], {"list": "rows", "offset": 0, "limit": 1, "total": 3, "next_offset": 1})
+    assert page(1, 2) == (["c"], {"list": "rows", "offset": 2, "limit": 1, "total": 3, "next_offset": None})
+    assert page(1, 9) == ([], {"list": "rows", "offset": 9, "limit": 1, "total": 3, "next_offset": None})
+    assert page(0, 1) == (["b", "c"], {"list": "rows", "offset": 1, "limit": 0, "total": 3, "next_offset": None})
+    assert page(200, 0)[0] == ["a", "b", "c"]
+    assert call.paged(entry, env, parser.Flags(json=True, limit=1))["data"]["other"] == 1
+    assert env["data"]["rows"] == ["a", "b", "c"]  # the envelope given is not changed
+    assert call.paged(replace(entry, pages=None), env, parser.Flags(limit=1)) is env
+    failed = envelope.usage("x", "no")
+    assert call.paged(entry, failed, parser.Flags(limit=1)) is failed

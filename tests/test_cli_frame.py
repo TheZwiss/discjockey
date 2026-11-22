@@ -19,8 +19,8 @@ from discjockey.hub import catalog
 from discjockey.hub.outcomes import EXIT
 
 CLI_DIR = Path(cli.__file__).parent
-ENVELOPE_KEYS = ["v", "command", "outcome", "reason", "message", "data", "next", "person_steps", "recovered", "job",
-                 "as_of", "sandbox"]
+ENVELOPE_KEYS = ["v", "command", "outcome", "reason", "message", "data", "page", "next", "person_steps", "recovered",
+                 "job", "as_of", "sandbox"]
 
 
 def run(argv, capsys):

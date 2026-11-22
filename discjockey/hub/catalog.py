@@ -17,7 +17,9 @@ the entry when a command has several (`DISPATCH`).
 `planned` is "phase N: VN.x" (the phase and the agent group that builds it, a letter allowed: "phase 3: V3.1b") while
 the command is not built: T1 counts it as covered, the parser and `help --json` leave it out, and a row planned for a
 finished phase fails a test. `_e` writes no row that is neither built nor window-only/dropped without its label: a row
-nobody builds cannot be written. The group that builds a row drops its label (`built=True`). `locks` (design §6.1) names the locks a command takes,
+nobody builds cannot be written. The group that builds a row drops its label (`built=True`). `pages` is the key of the
+one top-level list of an R entry's answer that `--json` cuts to a page (`--limit`, `--offset`; the envelope's `page`
+says where); a read without it is never paged. `locks` (design §6.1) names the locks a command takes,
 per built entry (a later group fills it with its command; T10, tests/test_cli_locks.py, pins it); `schema` names the shape that
 answers the method (`shapes.ANSWERS`, read when the entry is made), None while none is mapped."""
 from __future__ import annotations
@@ -64,6 +66,7 @@ class Entry:
     match: Mapping[str, str] = field(default_factory=dict)  # words that pick this entry among a command's (a login row's service); not passed to the method
     cli_first: bool = False             # a method the command line needs and the window does not have yet
     planned: str | None = None
+    pages: str | None = None            # the key of the one top-level list of the answer that `--json` pages (`--limit`, `--offset`)
     example: str = ""
     schema: str | None = None           # the shape of the method's answer (hub/shapes), from `_e`
 
@@ -173,7 +176,7 @@ def confirm_words(entry: "Entry") -> str | None:
 def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapping[str, Arg] | None = None,
        fixed: Mapping[str, object] | None = None, needs_yes: bool = False, dry_run: str | None = None,
        cli_first: bool = False, built: bool = False, locks: Iterable[str] = (), partial: Iterable[str] = (),
-       match: Mapping[str, str] | None = None, planned: str | None = None) -> Entry:
+       match: Mapping[str, str] | None = None, planned: str | None = None, pages: str | None = None) -> Entry:
     """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command.
     An entry that is neither built nor `W`/`dropped` must say `planned`, the group that builds it ("phase 3: V3.1b").
     `partial`: the per-item states that end a finished run `partial` (design §4.3, R24)."""
@@ -182,7 +185,7 @@ def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapp
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
                  params=params or {}, fixed=fixed or {}, cli_first=cli_first, locks=frozenset(locks),
                  partial=frozenset(partial), match=match or {},
-                 planned=None if built or kind in ("W", "dropped") else planned, example=example,
+                 planned=None if built or kind in ("W", "dropped") else planned, pages=pages, example=example,
                  schema=shapes.ANSWERS.get(method))
 
 

@@ -186,6 +186,15 @@ def test_no_entry_is_planned_for_a_finished_phase():
     assert not late, late
 
 
+def test_pages_names_a_top_level_list_of_the_answer_of_a_read():
+    paged = [e for e in catalog.ENTRIES if e.pages]
+    for e in paged:
+        assert e.kind == "R" and e.planned is None, e  # a page is cut where the answer is whole: a read that answers at once
+        assert e.schema, f"{e.method} has no shape: its list cannot be checked"
+        field = shapes.DEFAULT.definition(e.schema)["properties"].get(e.pages)
+        assert field is not None and field.get("type") == "array", (e.method, e.pages)
+
+
 def test_a_row_that_is_not_built_needs_its_label():
     with pytest.raises(ValueError):
         catalog._e("hide", "track hide", "J")

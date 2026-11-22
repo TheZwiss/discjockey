@@ -283,8 +283,23 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     if (refused := refuse_job_flags(flags, command)) is not None:  # an R or B method answers at once
         return refused
     answer = getattr(api, entry.method)(**kwargs)
-    return envelope.noted(envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None),
-                          entry.method)
+    env = envelope.noted(envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None),
+                         entry.method)
+    return paged(entry, env, flags) if flags.json and not exact else env
+
+
+def paged(entry: Entry, env: dict, flags: Flags) -> dict:
+    """`env` with the list `entry.pages` names cut to `--offset` / `--limit` (0 = all) and the envelope's `page` saying
+    which slice it is (design §4.2): `total` is the whole list's length, `next_offset` the offset of the next page or
+    None on the last. An entry without `pages`, or a problem, is returned as it is (`page` stays null)."""
+    if not entry.pages or env["outcome"] != "ok" or not isinstance(env["data"], dict):
+        return env
+    whole = env["data"][entry.pages]
+    end = len(whole) if flags.limit == 0 else flags.offset + flags.limit
+    rows = whole[flags.offset:end]
+    page = {"list": entry.pages, "offset": flags.offset, "limit": flags.limit, "total": len(whole),
+            "next_offset": flags.offset + len(rows) if flags.offset + len(rows) < len(whole) else None}
+    return {**env, "data": {**env["data"], entry.pages: rows}, "page": page}
 
 
 def worker_argv(job_id: str) -> list[str]:
