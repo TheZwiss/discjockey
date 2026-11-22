@@ -1421,6 +1421,11 @@ Results:
       - Review part 2 done (Sonnet): logged **181k** (exp. 220k); 0 Critical, 3 Important (history offers a move undo with
         nothing left; an undone step reads "files changed"; AIFF batch words differ from the window's `_batch_how`:
         fix = ONE shared rule, not a copy), 6 Minor. Saved `phase3/review/findings-part2.md`. Part 3 dispatched.
+      - Review part 3 done (Sonnet): logged **185k** (exp. 200k); 0 Critical, 3 Important (an unreadable folder crashes
+        match/doctor/status --ready; `not_in_rekordbox` lists absent files; `status --ready` has no verdict word),
+        7 Minor, 2 DECIDE decided B by me (open-scope: doctor's `records` check, rekordbox-not-compared note). Saved
+        `phase3/review/findings-part3.md`. Reviews total 603k. Fix rounds (Sonnet `fix-round`, one at a time, common
+        brief `phase3/review/fix-common.md`): FR1 = part 1 on `feat/cli-3-fix1` (worktree cli3-f1), then FR2, FR3.
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
