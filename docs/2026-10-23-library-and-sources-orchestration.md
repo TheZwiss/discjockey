@@ -1353,12 +1353,24 @@ Results:
         Sizing by me (no agent): `.claude/issue39/phase3/size_reads.py` → sizing-reads.md: 29 planned reads, every one
         already has an E7 schema; their api.py bodies total 5.1k; size.py's totals inflated by common names.
         Detailing dispatched: Opus, brief `.claude/issue39/phase3/brief-detail.md`, material 85k, exp. ~300k.
-      - **RESUME HERE (LATEST, 2026-11-22, phase 3 detailing running):** one Opus detailing agent writing
+      - RESUME HERE (superseded below, 2026-11-22, phase 3 detailing running): one Opus detailing agent writing
         phase3-plan.md, V3.x briefs, rehearse-reads.md, phase3-dispatch.md in `.claude/issue39/phase3/`. On its
         notice: ps check, agent-cost.py (advisor 0k), log its size; then a fresh Opus brief check (brief to write,
         format phase2/brief-check-wave1.md); then create `feat/cli-3-reads` from main and build by phase3-dispatch.md
         (one agent at a time, Sonnet), Sonnet phase review halves, fixes, read pass, verify + CI, merge into main. No
         release. Stop only for product decisions or what I physically can't do.
+      - Phase 3 detailing done (Opus; cut once by the weekly limit before writing anything, resumed): logged **369k**
+        (exp. 300k, 1.23x), agent-cost 88 calls, cache 19.2M, fresh in 368k, out 149k, advisor 0k. Files in
+        `.claude/issue39/phase3/`: phase3-plan.md, V3.1a/b/c, V3.2a/b, V3.3a/b (207-220k each, builds 1 473k),
+        rehearse-reads.md, phase3-dispatch.md. Phase 3 ≈ 2 173k after detailing (2 Sonnet review halves, 2 fixes, read
+        pass 120k) → ~2.8M with detailing + check (told the user 2.0-2.3M: V3.1 measured as 3 agents, doctor as 2).
+        Flagged: paging in the envelope (`page`); doctor/status/match/superseded/spectrum plain reads under the shared
+        rekordbox lock, not RJ (design §6.1); `open report not-lossless`; `open file --which`; log name "download
+        allowed"; new doctor/history/match words (show the user the tables).
+        Brief check dispatched: fresh Opus, brief `phase3/brief-check.md` (also asked for real cuts), material 70k, exp. 270k.
+      - **RESUME HERE (LATEST, 2026-11-22, phase 3 brief check running):** on its notice: ps, agent-cost (advisor 0k),
+        log it; read check.md (findings, word tables); tell the user the phase total and the word tables; then
+        create `feat/cli-3-reads` from main and build by phase3-dispatch.md, one Sonnet agent at a time.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
