@@ -1310,6 +1310,14 @@ Results:
         V2.5 (Sonnet, est. 110k) → a FAIL → fix round → rotated login files (scratchpad/rotated/) copied back to the
         real support folder with a backup if newer → merge feat/cli-2-foundations into main (suite + CI green), push.
         No release.
+      - Rehearsal V2.2 (Sonnet, real-library clone, user absent): logged 87k (exp. 110k), 32 calls, cache 1.9M, fresh 85k,
+        out 17k, advisor 0k. 6 PASS, 1 SKIPPED (6: no private SoundCloud set; no label columns, 0/539 labels), step 7
+        'FAIL' = the brief's criterion: `_plan()` 21.6 ms → 0.7 ms (cache ~30x), but `sync_preview` 129 → 117 ms because
+        `/bin/ps` runs twice per call (`_auto_upgrade_ready` api.py:610 + `_rekordbox_read` api.py:969, ~39 ms each).
+        → finding F-R1 (no owner): one rekordbox-running check per call; fix round before the merge. Schema 11 → 13,
+        integrity ok, derived == replanned (114 actions), real stat lines identical. Spotify token refreshed in the
+        clone, refresh token unchanged → real file left as is. Brief errata: refresh job = `api._jobs.refresh`; CLI in
+        process via `cli.main` (no `discjockey` script). Rehearsal V2.5 (Sonnet, est. 100k) RUNNING.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
