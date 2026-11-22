@@ -1317,7 +1317,15 @@ Results:
         → finding F-R1 (no owner): one rekordbox-running check per call; fix round before the merge. Schema 11 → 13,
         integrity ok, derived == replanned (114 actions), real stat lines identical. Spotify token refreshed in the
         clone, refresh token unchanged → real file left as is. Brief errata: refresh job = `api._jobs.refresh`; CLI in
-        process via `cli.main` (no `discjockey` script). Rehearsal V2.5 (Sonnet, est. 100k) RUNNING.
+        process via `cli.main` (no `discjockey` script). Rehearsal V2.5 (Sonnet, est. 100k).
+      - Rehearsal V2.5 (Sonnet, real-library clone, user absent): logged 93k (exp. 100k), advisor 0k. 0 FAIL: PASS 1-4,
+        6 (add_bought_file ok → AIFF in Library, old file to Superseded; old rev → changed/rev_changed; missing path →
+        refused, no job_id), 9 (stat identical; removed methods answer 'not offered', exit 2). SKIPPED 5 (only duplicate
+        group has a file in old_download_pipeline, outside the clone) and 7 (only import folder outside the clone, 0
+        waiting): covered by tests, not by a real copy. Brief errata: settings writer adds default keys (auto_upgrade);
+        bought.flac must be a real FLAC. 'Job started' before a `sync scope off nonsense` refusal = design §6.3 (every
+        Terminal write is a registry job first, V1.6), not a bug. Spotify refresh token unchanged.
+      - Fix round FR-ps (Sonnet fix-round, F-R1, est. 90k) RUNNING on feat/cli-2-fix-ps; then merge, suite, CI → main.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
