@@ -1399,6 +1399,10 @@ Results:
         206k, out 59k, advisor 0k; 6729 passed. `hub/history.py` + `History` shapes, `batches(kind, since)`, "download
         allowed" log name; undone rule fixed against the code, NOTHING_DONE word. Carries for half B. Merged 752d7437.
         V3.3b dispatched (cli3-5 on `feat/cli-3-match`, exp. 213k).
+      - V3.3b done d7dc88ae (2 commits): logged **218k** (exp. 213k, 1.02x), agent-cost 72 calls, cache 10.4M, fresh in
+        204k, out 60k, advisor 0k; 6764 passed. `Master.tracks`, `rekordbox/match.py`, `_match_counts`/`_superseded_size`
+        for doctor. Found: path-column goldens depend on the pytest temp path length (pad before `<tmp>`): carried to
+        half A as Important. Merged 604c3beb. V3.2a dispatched (cli3-6 on `feat/cli-3-doctor`, exp. 210k).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
