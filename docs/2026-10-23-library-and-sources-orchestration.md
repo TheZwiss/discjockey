@@ -1426,6 +1426,11 @@ Results:
         7 Minor, 2 DECIDE decided B by me (open-scope: doctor's `records` check, rekordbox-not-compared note). Saved
         `phase3/review/findings-part3.md`. Reviews total 603k. Fix rounds (Sonnet `fix-round`, one at a time, common
         brief `phase3/review/fix-common.md`): FR1 = part 1 on `feat/cli-3-fix1` (worktree cli3-f1), then FR2, FR3.
+      - FR1 done d229d369 (5 commits): logged **181k** (exp. 170k), agent-cost 110 calls, cache 12.7M, advisor 0k; 6864
+        passed. All 12 applied (P1-1 widened to RJ; `AppUpdate` gains `message`, `checked` → `ran_check`; harness
+        renders goldens from `--json` with the temp path masked). F-D1: the Playlists ChangePanel shows its own `U1`
+        constant (no engine notes in `ChangePreviewTidy`): set to the same word; real fix noted as issue 46 in
+        docs/issues.md (on the phase branch, reaches main with the merge). Merged 272d8846. FR2 dispatched (cli3-f2).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
