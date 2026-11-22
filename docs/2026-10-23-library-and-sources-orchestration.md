@@ -1491,12 +1491,21 @@ Results:
         read code to decide for the user (checklist rule 14, every prompt carries it; brief-write.md has it; sent to the
         running V4.3 agent by message). A hand-back gets one warm-cache question at once (< ~5 min, any size; rule 7).
         The `place` numbering is now the V4.2 brief check's to decide on the code (open-scope).
+      - V4.3 brief done (Opus, `a483accd`): **212k** final (exp. 230k; 64 calls, cache 8.4M, fresh 385k (one full reload
+        after the 5-hour usage limit cut it at 52 calls, no file written yet; resumed per rule 7), out 61k, advisor 0k).
+        `V4.3.md` 29.8 KB, size line 32k → exp. ~213k build. Deviations: items carry `ticked`/`by_rename`; the plan id
+        includes a change hash (`extra.change`); pure `save_keys` replaces V4.2a's `views.save_offers`; binding without
+        `--plan` skips `changed`, lists new; result gains `skipped`/`new_since_plan` + `partial`; stale plan → dry run as
+        next; dry-run next lines keep `--if-version`; (8, after my warm-cache question, first use of rule 14) one check
+        in `HubApi._bind_plan` refuses a plan of another command for every plan-taking write (no owner by scope-check;
+        was silent except `sync run`). Carry to V4.4: paging covers `preview_playlist_change`'s `items`.
+        Phase 4 so far: 838k + 212k = 1 050k.
       - **RESUME HERE (LATEST, 2026-11-22, phase 4 wave A briefs):** phase4-plan.md, V4.1a.md, V4.1b.md, V4.2a.md written;
-        V4.2b.md written (238k); V4.3 brief run running (exp. 230k). Next, one at a time: V4.4 brief run (Opus, one brief
+        V4.2b.md (238k), V4.3.md (212k) written. Next, one at a time: V4.4 brief run (carry: paging of `preview_playlist_change` items) (Opus, one brief
         each, measured material + ~185k); phase4-dispatch.md by me (fix the plan's low Opus estimates: wave B detailing
         and the brief check split per group, record 370k); one Sonnet for review-V4.1..V4.4 + rehearse-V4.1..V4.4; the
         brief check split by group (V4.1; V4.2; V4.3+V4.4), fresh Opus each; then `feat/cli-4-writes` from main and the
-        builds by the dispatch table. Phase 4 so far 838k. The V4.2 brief check decides the `place` numbering on the code. Every prompt carries checklist rule 14. No release.
+        builds by the dispatch table. Phase 4 so far 1 050k. The V4.2 brief check decides the `place` numbering on the code. Every prompt carries checklist rule 14. No release.
       - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
