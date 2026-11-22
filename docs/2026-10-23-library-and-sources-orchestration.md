@@ -1500,12 +1500,22 @@ Results:
         in `HubApi._bind_plan` refuses a plan of another command for every plan-taking write (no owner by scope-check;
         was silent except `sync run`). Carry to V4.4: paging covers `preview_playlist_change`'s `items`.
         Phase 4 so far: 838k + 212k = 1 050k.
-      - **RESUME HERE (LATEST, 2026-11-22, phase 4 wave A briefs):** phase4-plan.md, V4.1a.md, V4.1b.md, V4.2a.md written;
-        V4.2b.md (238k), V4.3.md (212k) written. Next, one at a time: V4.4 brief run (carry: paging of `preview_playlist_change` items) (Opus, one brief
-        each, measured material + ~185k); phase4-dispatch.md by me (fix the plan's low Opus estimates: wave B detailing
-        and the brief check split per group, record 370k); one Sonnet for review-V4.1..V4.4 + rehearse-V4.1..V4.4; the
-        brief check split by group (V4.1; V4.2; V4.3+V4.4), fresh Opus each; then `feat/cli-4-writes` from main and the
-        builds by the dispatch table. Phase 4 so far 1 050k. The V4.2 brief check decides the `place` numbering on the code. Every prompt carries checklist rule 14. No release.
+      - V4.4 brief done (Opus, `a525d3dd`): **264k** (exp. 235k, OVER the ~250k line by 14k; 61 calls, cache 9.6M, fresh
+        250k, out 84k, advisor 0k). `V4.4.md` 32 KB, size line 38k → exp. ~217k build. Deviations: tidy items record
+        `to` (target changed → skipped `changed`); chosen rows = plan items, paged together; every tidy row a `key`; paging
+        cuts the second list too (tidy `items`, a playlist change's `tidy.rows`); bug fix `in_place` skip reason (was
+        "Not where Discjockey last saw it" for a file already in place, window too); retired dry-run reads lose their
+        words, `--limit/--offset` offered when a dry run pages; tidy plan stores how it chose (may split V4.3's
+        `_bind_plan`: load before bind); `--with-yours` needs `--all`. Nothing handed back. Checklist line 3 record now
+        material + ~185-215k (material > ~35k → split first). Phase 4 so far: 1 314k.
+      - **RESUME HERE (LATEST, 2026-11-22, phase 4 wave A briefs done):** all wave A briefs written in
+        `.claude/issue39/phase4/`: phase4-plan.md, V4.1a, V4.1b, V4.2a, V4.2b (238k), V4.3 (212k), V4.4 (264k). Next, one
+        at a time: phase4-dispatch.md by me (rows from the briefs' size lines; the plan's Opus estimates are low: wave B
+        detailing one brief per run, material + ~185-215k; brief checks per group); one Sonnet run for
+        review-V4.1..V4.4 + rehearse-V4.1..V4.4; the brief check split by group (V4.1; V4.2 (also decides the `place`
+        numbering on the code); V4.3+V4.4), fresh Opus each, measured < ~250k else split; then `feat/cli-4-writes` from
+        main and the builds by the dispatch table. Every prompt carries checklist rules 12 + 14. Phase 4 so far 1 314k.
+        No release.
       - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
