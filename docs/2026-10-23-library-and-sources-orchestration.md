@@ -1468,7 +1468,22 @@ Results:
         version; LATER_CHANGE words; window saves logged too; engine fills the default folder; bad_args gains `next`;
         files keys optional; no network preview skips sync_running). Flag for V4.2b: the T1 dict-argument test checks
         nothing today (api.py annotations are strings). Phase 4 so far: 382k + 218k = 600k.
-      - **RESUME HERE (LATEST, 2026-11-22, phase 4 detailing wave A running):** user "go" for phase 4 (open-scope Decided).
+      - Post-compact system rebuilt (user: "i want to do /compact as much as i like ... without worrying"). Why it failed:
+        after-compact.sh read the log from the main checkout (old branch feat/cli-2-foundations: a 2-day-old RESUME HERE),
+        and its 18 KB output was saved to a file with only a 2 KB preview shown, so the checklist and decisions never
+        reached context; nothing enforced a re-read. Now: SessionStart (startup|clear|compact) prints a 1 KB pointer and
+        writes `.claude/state/reread.txt` (checklist, open-scope, the log's RESUME HERE (LATEST) from main-log); the new
+        PostToolUse Read hook `reread-tick.sh` ticks each file off when read in full; dispatch-check.sh refuses every
+        Agent while the list is not empty. Pipe-tested (partial read ticks nothing; gate deny → allow) and proved live.
+        Checklist: Opus planning records (one brief = material + ~185k), rehearsals automated in the scratchpad, rule 13
+        (CI after every merge, tell every gate refusal).
+      - **RESUME HERE (LATEST, 2026-11-22, phase 4 wave A briefs):** phase4-plan.md, V4.1a.md, V4.1b.md, V4.2a.md written;
+        V4.2b brief run (Opus, exp. 225k) running. Next, one at a time: V4.3 brief run, V4.4 brief run (Opus, one brief
+        each, measured material + ~185k); phase4-dispatch.md by me (fix the plan's low Opus estimates: wave B detailing
+        and the brief check split per group, record 370k); one Sonnet for review-V4.1..V4.4 + rehearse-V4.1..V4.4; the
+        brief check split by group (V4.1; V4.2; V4.3+V4.4), fresh Opus each; then `feat/cli-4-writes` from main and the
+        builds by the dispatch table. Phase 4 so far 600k + V4.2b. No release.
+      - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
         groups logged 369k): wave A (Opus, brief-detail-waveA.md, material 97k + ~30k by grep, exp. 380k): plan for all
