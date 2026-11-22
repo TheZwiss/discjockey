@@ -1379,6 +1379,12 @@ Results:
         detailing; detailing + check 739k → phase 3 ≈ 2.9M. New word tables in check.md §6 (shown to the user, nothing
         waits). Phase branch `feat/cli-3-reads` = main de5cc633, pushed.
         V3.1a dispatched (Sonnet, worktree `.claude/worktrees/cli3-1` on `feat/cli-3-paging`, material 39k, exp. 220k).
+      - V3.1a done 60553713 (5 commits on `feat/cli-3-paging`): logged **255k** (exp. 220k, 1.16x), agent-cost 133 calls,
+        cache 21.6M, fresh in 254k, out 76k, advisor 0k; 6507 passed. Deviations: examples fit the fixture; `sync plan`
+        locks `rekordbox_r` (T10 driver measured it); golden masks `plan:<id>`; `views.search_query`; PLANNED_CEILING 74.
+        Fixed on the way: dashboard fake dropped `runs(since)`. For review half A: `cli_golden/track_spectrum.txt` is
+        69 KB of base64 matrix from the real ffmpeg (a different ffmpeg build may change it). Merged into
+        `feat/cli-3-reads`. V3.1b dispatched (cli3-2 on `feat/cli-3-dryrun`).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
