@@ -1391,6 +1391,10 @@ Results:
         carries in `phase3/carry-review.md` (undo_note "this page" printed by the CLI, /Music golden, spectrum golden).
         Merged into `feat/cli-3-reads` 0f0d005e. Usage limit hit: V3.1c NOT dispatched yet; its worktree cli3-3 on
         `feat/cli-3-open` is ready (node_modules linked). V3.1c dispatched after the reset (Sonnet, material 35k, exp. 207k).
+      - V3.1c done 296bde85 (3 commits): logged **217k** (exp. 207k, 1.05x), agent-cost 93 calls, cache 12.5M, fresh in
+        216k, out 48k, advisor 0k; 6662 passed. `todo` takes a list of groups (contract), `Opened` shape + six openers
+        with `print_only`, stubbed opener in tests. Carries for half A added. Merged into `feat/cli-3-reads` fab8b7c6.
+        V3.3a dispatched (cli3-4 on `feat/cli-3-history`, material 17k re-measured, exp. 208k).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
