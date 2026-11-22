@@ -355,6 +355,7 @@ DRIVERS = {
     "batch_detail": lambda api, rec: api.batch_detail("moves:1"),
     "rekordbox_match": lambda api, rec: _with_rekordbox(api, api.rekordbox_match),
     "library_superseded": lambda api, rec: _with_rekordbox(api, api.library_superseded),  # the shared hold while master.db is open
+    "doctor": lambda api, rec: api.doctor(),  # every check on the fixture: master.db's state is read once, shared
     "history": lambda api, rec: api.history(),  # the records, the reports and the operations log: no lock
     "move_batches": lambda api, rec: api.move_batches(),
     "run": lambda api, rec: api.run("last"),

@@ -151,7 +151,7 @@ BY_ID_KIND: dict[str, tuple[str, str]] = {"batch undo": ("batch_id", "batch")}
 # chosen to pin it (`set_auto_upgrade` and `set_sync_scope` are writes: probed by hand, they answer `ok` with none chosen).
 NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope",
                               "check_music_folder", "setup_status", "setup_check_tools", "downloads_view", "find_logins", "app_update",
-                              "open_external", "open_licenses", "open_privacy_settings"))  # Settings works before a folder is chosen
+                              "open_external", "open_licenses", "open_privacy_settings", "doctor"))  # Settings works before a folder is chosen
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
@@ -446,6 +446,7 @@ ENTRIES: tuple[Entry, ...] = (
        cli_first=True, pages="entries", built=True, locks={"rekordbox_r"}),
     _e("library_superseded", "library superseded", "R", "library superseded", cli_first=True, pages="files", built=True,
        locks={"rekordbox_r"}),
+    _e("doctor", "doctor", "R", "doctor", cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional("batch")}, cli_first=True,
        built=True),
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),

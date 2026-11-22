@@ -4242,6 +4242,153 @@
       ],
       "type": "object"
     },
+    "Doctor": {
+      "additionalProperties": false,
+      "description": "`doctor`: everything that is wrong, each problem with what to do next, and every check that ran.",
+      "properties": {
+        "checks": {
+          "description": "Every check, in order, with its state.",
+          "items": {
+            "$ref": "#/$defs/DoctorCheck"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "problems": {
+          "description": "What was found: problems first, then notes, each in check order.",
+          "items": {
+            "$ref": "#/$defs/DoctorProblem"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "text": {
+          "description": "The answer in one sentence: how many problems and notes, or that nothing is wrong.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "text",
+        "problems",
+        "checks"
+      ],
+      "type": "object"
+    },
+    "DoctorCheck": {
+      "additionalProperties": false,
+      "description": "One line of `doctor`'s checks.",
+      "properties": {
+        "check": {
+          "$ref": "#/$defs/DoctorCheckKey",
+          "description": "The check.",
+          "x-shown": false
+        },
+        "label": {
+          "description": "What the check looks at, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "state": {
+          "description": "`ok`: nothing found. `problem` / `note`: it found something of that level (a problem wins). `skipped`: it needs a music folder and none is chosen.",
+          "enum": [
+            "ok",
+            "problem",
+            "note",
+            "skipped"
+          ],
+          "x-shown": true
+        }
+      },
+      "required": [
+        "check",
+        "label",
+        "state"
+      ],
+      "type": "object"
+    },
+    "DoctorCheckKey": {
+      "description": "One check of `doctor` (`discjockey/hub/doctor.py`, `CHECKS`).",
+      "enum": [
+        "music_folder",
+        "tools",
+        "logins",
+        "folder_access",
+        "rekordbox",
+        "stale_lock",
+        "lost_jobs",
+        "pending_steps",
+        "drives_away",
+        "downloads_paused"
+      ]
+    },
+    "DoctorProblem": {
+      "additionalProperties": false,
+      "description": "One thing `doctor` found, with what to do about it.",
+      "properties": {
+        "check": {
+          "$ref": "#/$defs/DoctorCheckKey",
+          "description": "The check that found it.",
+          "x-shown": false
+        },
+        "count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The number the text counts (jobs, folders); null when it counts nothing.",
+          "x-shown": true
+        },
+        "gig": {
+          "description": "Whether the next gig depends on it (`status --ready` lists these).",
+          "type": "boolean",
+          "x-shown": false
+        },
+        "level": {
+          "description": "`problem`: something to fix. `note`: worth knowing, nothing to fix.",
+          "enum": [
+            "problem",
+            "note"
+          ],
+          "x-shown": true
+        },
+        "next": {
+          "description": "Commands that look further or move on.",
+          "items": {
+            "$ref": "#/$defs/FailNext"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "person_steps": {
+          "description": "The steps only a person can do.",
+          "items": {
+            "$ref": "#/$defs/FailPersonStep"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "text": {
+          "description": "What is wrong, in words.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "check",
+        "level",
+        "gig",
+        "text",
+        "count",
+        "next",
+        "person_steps"
+      ],
+      "type": "object"
+    },
     "DownloadTool": {
       "additionalProperties": false,
       "description": "One download tool in Settings → This Mac.",
@@ -17436,6 +17583,7 @@
     "check_music_folder": "FolderCheck",
     "convert": "AiffBatchResult",
     "dashboard": "Dashboard",
+    "doctor": "Doctor",
     "downloads_view": "DownloadsViewAnswer",
     "facts_preview": "FactsPreview",
     "fill_facts": "FactsResult",

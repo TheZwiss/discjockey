@@ -146,6 +146,7 @@ STEPS: dict[str, Step] = {
     "folder_access": Step("Allow {app} to open {folder}: answer the macOS question, or turn it on in System Settings "
                           "› Privacy & Security › Files and Folders.", None),
     "connect_drive": Step("Connect the drive {drive}.", None),
+    "install_tools": Step("Paste `{hint}` into the Terminal.", "tools status"),
 }
 
 

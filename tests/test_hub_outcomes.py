@@ -100,7 +100,8 @@ def test_a_step_with_no_command_of_its_own_has_a_null_then():
                          ("connect_drive", {"drive": "D"})):
         assert outcomes.person_step(name, **fields)["then"] is None
     assert outcomes.person_step("relocate_new", tracks="t1")["then"] == "check done t1"
-    assert all(step.then is None or step.then.startswith("check done") for step in outcomes.STEPS.values())
+    assert outcomes.person_step("install_tools", hint="brew install ffmpeg")["then"] == "tools status"
+    assert all(step.then is None or step.then.startswith(("check done", "tools status")) for step in outcomes.STEPS.values())
 
 
 def test_person_step_fills_its_words():
@@ -109,7 +110,8 @@ def test_person_step_fills_its_words():
     assert step["say"].startswith("Allow Discjockey to open Music")
     assert outcomes.person_step("quit_rekordbox") == {
         "id": "step:quit_rekordbox", "say": "Quit rekordbox, then tell me to carry on.", "then": None}
-    assert set(outcomes.STEPS) == {"quit_rekordbox", "relocate_new", "reload_tag", "look", "folder_access", "connect_drive"}
+    assert set(outcomes.STEPS) == {"quit_rekordbox", "relocate_new", "reload_tag", "look", "folder_access", "connect_drive",
+                                   "install_tools"}
 
 
 class Fake:
