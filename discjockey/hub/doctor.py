@@ -5,7 +5,8 @@ check is tested with plain values and nothing in this module opens a file, a dat
 
 A check yields problems; a problem is `problem` (something to fix) or `note` (worth knowing, nothing to fix). Each is
 told with `next` (commands that look further or move on) and `person_steps` (what only the person can do, from
-`outcomes.STEPS`). A check that needs the library is `skipped` while no music folder is bound: `music_folder` says why.
+`outcomes.STEPS`). A check that needs the library is `skipped` while no music folder is bound: `music_folder` says why. A check
+that reads the library's records is `skipped` too while library.db cannot be read: `records` says why.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from typing import Any, NamedTuple
 
 from .. import words
 from ..accounts import ACCOUNTS, SERVICE_NAMES, SERVICES
+from ..scanner import volume_of
 from .outcomes import person_step
 
 LOST_DAYS = 7  # a job that stopped without finishing counts for this long (the registry keeps jobs for 30 days)
@@ -51,18 +53,14 @@ class Inputs:
     superseded_files: int  # files under Superseded/
     superseded_bytes: int  # and their size together
     rekordbox_match: Mapping[str, int] | None  # `rekordbox match`'s counts; None: no rekordbox library to compare, or unreadable
-    stopped_batches: tuple[str, ...]  # typed ids (`aiff:2`, `moves:1`) of the batches whose state is `stopped`
+    stopped_batches: tuple[str, ...]  # typed ids (`aiff:2`) of the AIFF batches whose state is `stopped`
     check_tracks: int  # tracks with an open rekordbox check (To-do's `check_tracks`)
     cdj_files: int  # To-do's CDJ group
     missing_files: int  # To-do's Missing files group
     upgrades_ready: int  # To-do's Upgrade ready group
     to_load: int  # playlist songs the next sync would download (the Dashboard's "still to load"; 0 before a first read)
-
-
-def drive_name(path: str) -> str:
-    """The drive a path is on, as the person knows it: the `/Volumes/<name>` part; any other path is its own name."""
-    parts = Path(path).parts
-    return parts[2] if len(parts) >= 3 and parts[:2] == ("/", "Volumes") else path
+    records_problem: str | None = None  # the words of the failure when library.db cannot be read; the facts above that come from it are empty
+    rekordbox_match_why: str | None = None  # why `rekordbox_match` is None while a rekordbox library is there (a writer, busy, unreadable)
 
 
 def failed_logins(downloads: Mapping[str, Any]) -> list[str]:
@@ -123,8 +121,14 @@ def _music_folder(i: Inputs) -> list[dict]:
         return []
     if i.music_state == "not_chosen":
         return [_problem(words.NOT_CHOSEN, next=[_next("setup status", words.DOCTOR_WHY_SETUP)])]
-    return [_problem(words.MISSING.format(path=i.music_path),
-                     steps=[person_step("connect_drive", drive=drive_name(i.music_path))])]
+    return [_problem(words.MISSING.format(path=i.music_path), steps=[_whereabouts_step(i.music_path)])]
+
+
+def _whereabouts_step(path: str) -> dict:
+    """What only the person can do for a folder that is not there: connect its drive, or, for a folder on no external
+    drive (moved or deleted), put it back."""
+    drive = volume_of(Path(path))
+    return person_step("connect_drive", drive=drive) if drive else person_step("folder_gone", folder=path)
 
 
 def _tools(i: Inputs) -> list[dict]:
@@ -173,6 +177,13 @@ def _lost_jobs(i: Inputs) -> list[dict]:
                      next=[_next(f"job show {lost[0].id}", words.DOCTOR_WHY_LOST)])]
 
 
+def _records(i: Inputs) -> list[dict]:
+    if not i.records_problem:
+        return []
+    return [_problem(f"{i.records_problem} {words.DOCTOR_RECORDS_SKIPPED}",
+                     next=[_next("where", words.DOCTOR_WHY_RECORDS)])]
+
+
 def _pending_steps(i: Inputs) -> list[dict]:
     if not i.pending:
         return []
@@ -182,9 +193,14 @@ def _pending_steps(i: Inputs) -> list[dict]:
 def _drives_away(i: Inputs) -> list[dict]:
     if not i.away_folders:
         return []
-    drives = dict.fromkeys(drive_name(path) for path in i.away_folders)
-    return [_problem(words.plural(len(i.away_folders), *words.DOCTOR_AWAY), count=len(i.away_folders),
-                     steps=[person_step("connect_drive", drive=drive) for drive in drives])]
+    gone = sum(volume_of(Path(path)) is None for path in i.away_folders)  # on no drive: moved or deleted
+    text = " ".join(words.plural(n, *forms)
+                    for n, forms in ((len(i.away_folders) - gone, words.DOCTOR_AWAY), (gone, words.DOCTOR_GONE)) if n)
+    steps: dict[str, dict] = {}  # one step per drive and per folder that is gone, in the order of the folders
+    for path in i.away_folders:
+        step = _whereabouts_step(path)
+        steps.setdefault(step["say"], step)
+    return [_problem(text, count=len(i.away_folders), steps=list(steps.values()))]
 
 
 def _downloads_paused(i: Inputs) -> list[dict]:
@@ -210,8 +226,11 @@ def _superseded(i: Inputs) -> list[dict]:
 
 
 def _rekordbox_files(i: Inputs) -> list[dict]:
-    if i.rekordbox_match is None:  # rekordbox could not be compared: nothing is claimed either way
-        return []
+    if i.rekordbox_match is None:  # rekordbox could not be compared: say so, never read it as "everything matches"
+        if not i.rekordbox_match_why:
+            return []  # no rekordbox library here: nothing to compare
+        return [_problem(words.DOCTOR_RB_NOT_COMPARED.format(why=i.rekordbox_match_why), level="note",
+                         next=[_next("rekordbox status", words.DOCTOR_WHY_NOT_COMPARED)])]
     n = i.rekordbox_match["missing"] + i.rekordbox_match["superseded"]
     if not n:
         return []
@@ -222,9 +241,7 @@ def _rekordbox_files(i: Inputs) -> list[dict]:
 def _stopped_batches(i: Inputs) -> list[dict]:
     if not i.stopped_batches:
         return []
-    # an AIFF batch goes on where it stopped; a move batch has nothing to resume, so it is looked at
-    next_ = [_next(f"batch resume {b}", words.DOCTOR_WHY_RESUME) if b.startswith("aiff:")
-             else _next(f"batch show {b}", words.DOCTOR_WHY_MOVES) for b in i.stopped_batches]
+    next_ = [_next(f"batch resume {b}", words.DOCTOR_WHY_RESUME) for b in i.stopped_batches]  # an AIFF batch goes on where it stopped
     return [_problem(words.plural(len(i.stopped_batches), *words.DOCTOR_STOPPED), count=len(i.stopped_batches),
                      next=next_)]
 
@@ -263,42 +280,48 @@ def _upgrades_waiting(i: Inputs) -> list[dict]:
 
 @dataclass(frozen=True)
 class Check:
-    key: str
-    label: str
+    key: str  # `words.DOCTOR_LABELS` says what it looks at
     gig: bool  # what the next gig depends on (`status --ready` lists these)
     needs_library: bool  # skipped while no music folder is bound
     run: Callable[[Inputs], list[dict]]
+    reads_records: bool = False  # skipped while library.db cannot be read (`records` says why)
+
+    @property
+    def label(self) -> str:
+        return words.DOCTOR_LABELS[self.key]
 
 
 CHECKS: tuple[Check, ...] = (
-    Check("music_folder", "Music folder", True, False, _music_folder),
-    Check("tools", "Programs", False, False, _tools),
-    Check("logins", "Logins", False, False, _logins),
-    Check("folder_access", "Folder access", True, False, _folder_access),
-    Check("rekordbox", "rekordbox", True, False, _rekordbox),
-    Check("stale_lock", "Library lock", False, False, _stale_lock),
-    Check("lost_jobs", "Jobs", False, False, _lost_jobs),
-    Check("pending_steps", "Cut-off steps", True, True, _pending_steps),
-    Check("drives_away", "Drives", True, True, _drives_away),
-    Check("downloads_paused", "Download limits", False, True, _downloads_paused),
-    Check("out_of_place", "Files out of place", False, True, _out_of_place),
-    Check("superseded", "Superseded/", False, True, _superseded),
-    Check("rekordbox_files", "rekordbox tracks", True, True, _rekordbox_files),
-    Check("stopped_batches", "Stopped batches", True, True, _stopped_batches),
-    Check("open_checks", "rekordbox checks", True, True, _open_checks),
-    Check("cdj", "CDJ problems", True, True, _cdj),
-    Check("songs_without_file", "Songs without a file", True, True, _songs_without_file),
-    Check("upgrades_waiting", "Better versions", True, True, _upgrades_waiting),
+    Check("music_folder", True, False, _music_folder),
+    Check("tools", False, False, _tools),
+    Check("logins", False, False, _logins),
+    Check("folder_access", True, False, _folder_access),
+    Check("rekordbox", True, False, _rekordbox),
+    Check("stale_lock", False, False, _stale_lock),
+    Check("lost_jobs", False, False, _lost_jobs),
+    Check("records", True, True, _records),
+    Check("pending_steps", True, True, _pending_steps, reads_records=True),
+    Check("drives_away", True, True, _drives_away, reads_records=True),
+    Check("downloads_paused", False, True, _downloads_paused, reads_records=True),
+    Check("out_of_place", False, True, _out_of_place, reads_records=True),
+    Check("superseded", False, True, _superseded),
+    Check("rekordbox_files", True, True, _rekordbox_files, reads_records=True),
+    Check("stopped_batches", True, True, _stopped_batches, reads_records=True),
+    Check("open_checks", True, True, _open_checks, reads_records=True),
+    Check("cdj", True, True, _cdj, reads_records=True),
+    Check("songs_without_file", True, True, _songs_without_file, reads_records=True),
+    Check("upgrades_waiting", True, True, _upgrades_waiting, reads_records=True),
 )
 
 
 def answer(inputs: Inputs, library: bool) -> dict:
     """`Doctor`: the problems (problems first, then notes, each in check order), one line per check, and the sentence.
-    `library`: a music folder is bound; the checks that need it are `skipped` without."""
+    `library`: a music folder is bound; the checks that need it are `skipped` without, and so are those that read the
+    records while `inputs.records_problem` says they cannot be read."""
     found: list[dict] = []
     checks: list[dict] = []
     for check in CHECKS:
-        if check.needs_library and not library:
+        if (check.needs_library and not library) or (check.reads_records and inputs.records_problem):
             checks.append({"check": check.key, "label": check.label, "state": "skipped"})
             continue
         problems = [{"check": check.key, "level": p["level"], "gig": check.gig, **{k: v for k, v in p.items() if k != "level"}}

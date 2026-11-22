@@ -1051,6 +1051,7 @@ engine names each one; a command never pretends to do it.
 | `step:spotify_app`, `step:qobuz_password` | setup | the window's numbered setup words | `login spotify --client-id …`, `login qobuz …` |
 | `step:install_tools` | a program missing | "Paste `brew install ffmpeg` into the Terminal." (an agent may run it if the user agrees) | `tools status` |
 | `step:connect_drive` | files or the music folder on a drive that isn't connected | "Connect the drive <name>." | the same command |
+| `step:folder_gone` | the music folder or a watched folder that is on no external drive and is not there (moved or deleted) | "Put the folder <folder> back, or choose another folder." | — |
 | `step:add_to_path` | `app install-command` put the short name in a folder that is not on `PATH` | "Add this line to ~/.zprofile, then open a new Terminal tab: `export PATH="<folder>:$PATH"`." | `where` |
 | `step:reopen_window` | music folder or tools changed while the window is open | "Quit Discjockey and open it again." | — |
 | `step:delete_superseded` | the user wants space back | "Discjockey never deletes music. You can delete these files in the Finder." + the list | — |

@@ -117,6 +117,22 @@ def test_rekordbox_s_folder_is_checked_too(lib, tmp_path, monkeypatch, capsys):
     assert access[0]["person_steps"][0]["say"].startswith("Allow Warp to open ")
 
 
+@NOT_ROOT
+def test_a_track_in_a_folder_the_app_may_not_open_does_not_end_doctor(lib, tmp_path, tmp_path_factory, monkeypatch, capsys):
+    locked = tmp_path_factory.mktemp("outside") / "Locked"
+    locked.mkdir()
+    (locked / "a.mp3").write_bytes(b"audio")
+    watch(lib, locked)
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(make_master(tmp_path / "rekordbox", [{"path": str(locked / "a.mp3")}]).parent))
+    locked.chmod(0)
+    try:
+        code, env, data = doctor_json(capsys)
+    finally:
+        locked.chmod(0o755)
+    assert (code, env["outcome"]) == (0, "ok")  # rekordbox's track is not claimed missing: `folder_access` says why
+    assert [p["check"] for p in data["problems"]] == ["folder_access"] and states(data)["rekordbox_files"] == "ok"
+
+
 def test_a_job_that_stopped_this_week_is_counted_and_an_older_one_is_not(lib, capsys):
     now = datetime.now().astimezone()
     a_job(lib, "lost", now - timedelta(days=8))
@@ -174,6 +190,32 @@ def test_a_music_folder_that_is_gone_is_a_problem_with_its_drive(tmp_path, monke
     assert problem["text"] == words.MISSING.format(path="/Volumes/Gig Stick/Music")
     assert problem["person_steps"][0]["say"] == "Connect the drive Gig Stick."
     assert states(data)["pending_steps"] == "skipped"
+
+
+def test_a_watched_folder_that_is_gone_from_no_drive_is_put_back_not_connected(lib, tmp_path_factory, capsys):
+    gone = tmp_path_factory.mktemp("outside") / "Moved Crates"  # on no external drive, and not there
+    watch(lib, gone)
+    _, _, data = doctor_json(capsys)
+    (problem,) = data["problems"]
+    assert (problem["check"], problem["text"], problem["count"]) == ("drives_away", "1 watched folder is not there.", 1)
+    assert problem["person_steps"] == [{"id": "step:folder_gone", "say": f"Put the folder {gone} back, or choose another folder.",
+                                       "then": None}]
+
+
+def test_records_that_cannot_be_read_are_said_by_doctor_which_skips_what_reads_them(lib, capsys):
+    lib.db_file.write_bytes(b"this is not a database" * 50)
+    code, env, data = doctor_json(capsys)
+    assert (code, env["outcome"]) == (0, "ok")  # doctor is what a person runs then: it answers, it does not fail
+    states_ = states(data)
+    assert states_["records"] == "problem" and states_["music_folder"] == "ok"
+    skipped = {c.key for c in doctor.CHECKS if c.reads_records}
+    assert {k for k, v in states_.items() if v == "skipped"} == skipped
+    (problem,) = [p for p in data["problems"] if p["check"] == "records"]
+    assert problem["level"] == "problem" and problem["gig"] is True
+    assert problem["text"].startswith("Discjockey can't read its records of this music folder (.discjockey/library.db)")
+    assert problem["text"].endswith(words.DOCTOR_RECORDS_SKIPPED)
+    assert problem["next"] == [{"run": "where", "why": "where Discjockey keeps its records"}]
+    assert cli.main(["doctor"]) == 0 and "Records" in capsys.readouterr().out
 
 
 def test_every_command_a_problem_says_to_run_is_one_the_command_line_has(capsys):
@@ -246,7 +288,23 @@ def test_a_rekordbox_that_cannot_be_read_is_one_problem_and_no_claim_about_its_t
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(folder))
     (folder / "master.db").write_bytes(b"not a database" * 100)
     _, _, data = doctor_json(capsys)
-    assert states(data)["rekordbox"] == "problem" and states(data)["rekordbox_files"] == "ok"
+    assert states(data)["rekordbox"] == "problem"
+    (note,) = [p for p in data["problems"] if p["check"] == "rekordbox_files"]  # not compared: said, never "all match"
+    assert note["level"] == "note" and note["text"].startswith("rekordbox's tracks could not be compared with your files: ")
+
+
+def test_while_a_writer_holds_rekordbox_the_tracks_are_not_compared_and_doctor_says_so(lib, tmp_path, monkeypatch, capsys):
+    from discjockey.rekordbox import lock as rb_lock
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(make_master(tmp_path / "rekordbox", []).parent))
+    with rb_lock.writer_lock(lib.support):
+        code, env, data = doctor_json(capsys)
+    assert (code, env["outcome"]) == (0, "ok")
+    p = problem_of(data, "rekordbox_files")
+    assert (p["level"], p["gig"]) == ("note", True)
+    assert p["text"] == f"rekordbox's tracks could not be compared with your files: {words.WRITING_WORDS}."
+    assert p["next"] == [{"run": "rekordbox status", "why": "whether rekordbox can be read now"}]
+    _, _, again = doctor_json(capsys)  # the writer is done: compared again, nothing to say
+    assert states(again)["rekordbox_files"] == "ok"
 
 
 def test_songs_whose_file_is_missing_are_counted_with_the_command_that_lists_them(tmp_path, monkeypatch, capsys):
@@ -302,12 +360,12 @@ def test_every_command_the_library_checks_say_to_run_is_one_the_command_line_has
         music_state="ok", music_path="/m", missing_tools=(), downloads={}, paused_accounts=frozenset(),
         unreadable_folders=(), app="Terminal", rekordbox_state="ready", rekordbox_problem=None, lock_holder=None, jobs=(),
         now=datetime.now().astimezone(), pending=False, away_folders=(), tidy_rows=1, superseded_files=1,
-        superseded_bytes=1, rekordbox_match={"missing": 1, "superseded": 1}, stopped_batches=("aiff:2", "moves:1"),
+        superseded_bytes=1, rekordbox_match={"missing": 1, "superseded": 1}, stopped_batches=("aiff:2",),
         check_tracks=1, cdj_files=1, missing_files=1, upgrades_ready=1, to_load=1)
     answer = doctor.answer(facts, True)
     assert [c["state"] for c in answer["checks"][-8:]] == ["note", "note", "problem", "problem", "note", "note", "note",
                                                           "note"]
     runs = {n["run"] for p in answer["problems"] for n in p["next"]}
-    assert len(runs) == 10
+    assert len(runs) == 9
     for run in runs:
         assert parser.parse(shlex.split(run)).command, run

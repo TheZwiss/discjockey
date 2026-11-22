@@ -1,11 +1,11 @@
 3 rekordbox tracks need a look, 1 of your files is not in rekordbox.
 
 Entries
-Kind                                     Path                                                                     Rel path                                                           Track id  Rekordbox id  Artist         Title
-File missing                             <tmp>/Library/Hard_Bounce/Gone.aiff                                      Library/Hard_Bounce/Gone.aiff                                      none      1001          Some Artist    Gone Track
-Points at Superseded/                    <tmp>/Superseded/Hard_Bounce/Old.mp3                                     Superseded/Hard_Bounce/Old.mp3                                     none      1002          Armin Hermann  Get Naughty (old)
-In your music folder but no song's file  <tmp>/Library/Hard_Bounce/Stray.aiff                                     Library/Hard_Bounce/Stray.aiff                                     none      1003          Stray Artist   Stray Title
-Not in rekordbox                         <tmp>/Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff  Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff  t2        none          Armin Hermann  Get Naughty
+Kind                                          Path                                                                     Rel path                                                           Track id  Rekordbox id  Artist         Title
+File missing                                  <tmp>/Library/Hard_Bounce/Gone.aiff                                      Library/Hard_Bounce/Gone.aiff                                      none      1001          Some Artist    Gone Track
+Points at Superseded/                         <tmp>/Superseded/Hard_Bounce/Old.mp3                                     Superseded/Hard_Bounce/Old.mp3                                     none      1002          Armin Hermann  Get Naughty (old)
+In your library's folders but no song's file  <tmp>/Library/Hard_Bounce/Stray.aiff                                     Library/Hard_Bounce/Stray.aiff                                     none      1003          Stray Artist   Stray Title
+Not in rekordbox                              <tmp>/Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff  Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff  t2        none          Armin Hermann  Get Naughty
 4 of 4 shown
 
 Counts

@@ -808,9 +808,10 @@ class HubApi:
     def _record_waiting_signs(self) -> None:
         self._record_signs([])
 
-    def _paused_accounts(self) -> frozenset[str]:
-        """The account services paused today, counting the signs still waiting for the library lock."""
-        return run.paused_now(self._paths, self._state(), self._today())
+    def _paused_accounts(self, state: dict | None = None) -> frozenset[str]:
+        """The account services paused today, counting the signs still waiting for the library lock. `state`: the
+        snapshot the caller has read already."""
+        return run.paused_now(self._paths, self._state() if state is None else state, self._today())
 
     def _images(self, prep: run.Prepared | None) -> dict[str, str]:
         """Each song's cover address from the plan's read (`prep`: the plan the caller asked once)."""
@@ -1662,12 +1663,13 @@ class HubApi:
         Without a music folder the library counts are zero."""
         return {"downloads": self._downloads()}
 
-    def _downloads(self) -> dict:
-        """`views.downloads` for the settings as they are now (`downloads_view`'s answer and `doctor`'s read)."""
+    def _downloads(self, records: bool = True) -> dict:
+        """`views.downloads` for the settings as they are now (`downloads_view`'s answer and `doctor`'s read).
+        `records` False: counted on an empty library, for `doctor` while library.db cannot be read."""
         settings = self._settings()
         names = {s: profile_name(a.browser, a.profile, self._svc.home) for s, a in settings.accounts.items()}
         qobuz_ok = setup_status(self._support, self._bound, self._music_status(), self._svc.which)["qobuz"]
-        state = self._shown_state() if self._bound is not None else library.empty_state()
+        state = self._shown_state() if self._bound is not None and records else library.empty_state()
         return views.downloads(state, settings, qobuz_ok, names, self._today())
 
     # --- other ---
@@ -4292,11 +4294,11 @@ class CliApi(HubApi):
                 state_text, problem_text = rekordbox_words("unreadable", e.problem)
                 return part("unreadable", e.problem), problem_text or state_text, None
 
-    def _library_files(self, state: dict) -> dict[str, str]:
-        """The folded absolute path of every song's current file -> the song's key (`rekordbox.match.classify`'s
-        `library_files`)."""
+    def _library_files(self, state: dict) -> dict[str, tuple[str, Path]]:
+        """The folded absolute path of every song's current file -> (the song's key, the file's path)
+        (`rekordbox.match.classify`'s `library_files`)."""
         root = self._paths.root
-        return {fold(str(root / e["path"])): key for key, e in state["tracks"].items() if e.get("path")}
+        return {fold(str(root / e["path"])): (key, root / e["path"]) for key, e in state["tracks"].items() if e.get("path")}
 
     def _match_view(self, state: dict, view: str, key: str | None) -> tuple[frozenset[str], frozenset[str]]:
         """What `rekordbox match --in C` narrows to: the folded folders that hold the files of the songs the view shows
@@ -4325,7 +4327,7 @@ class CliApi(HubApi):
                 folders = [f for f in (db.watched_folders(conn) if conn is not None else []) if f.kind == "import"]
             found = rb_match.classify(
                 tracks, root=root, roots=[root, *(f.path for f in folders)], library_files=self._library_files(state),
-                away_roots=[Path(p) for p in self._away_by_root(folders)], exists=lambda p: p.exists())
+                away_roots=[Path(p) for p in self._away_by_root(folders)], exists=rb_match.present)
             if view != "all" or key is not None:
                 near, keys = self._match_view(state, view, key)
                 found = [r for r in found if (r.key in keys if r.entry is None
@@ -4354,11 +4356,13 @@ class CliApi(HubApi):
         return {"kind": row.kind, "kind_text": engine_words.MATCH_KINDS[row.kind], "path": path, "rel_path": rel,
                 "track_id": row.key, "rekordbox_id": rekordbox_id, "artist": artist or None, "title": title or None}
 
-    def _match_counts(self, state: dict) -> dict | None:
-        """`rekordbox match`'s counts for the whole library (`MatchCounts`), for `doctor` and `status --ready`: None when
-        there is nothing to compare, because rekordbox has no library here, cannot be read or is being written."""
+    def _match_counts(self, state: dict) -> tuple[dict | None, str | None]:
+        """`rekordbox match`'s counts for the whole library (`MatchCounts`), for `doctor` and `status --ready`, and why
+        there are none: (None, the words) when rekordbox has a library here that cannot be read now or is being written,
+        (None, None) when it has no library here (nothing to compare)."""
         answer = self._match(state)
-        return answer["counts"] if answer["rekordbox"]["state"] == "ready" else None
+        rb = answer["rekordbox"]["state"]
+        return (answer["counts"], None) if rb == "ready" else (None, answer["text"] if rb == "unreadable" else None)
 
     @cli_first
     def rekordbox_match(self, view: str = "all", key: str | None = None) -> dict:
@@ -4412,8 +4416,8 @@ class CliApi(HubApi):
                   "text": engine_words.superseded_text(len(rows), size, held if readable else None)
                   if rows else engine_words.NO_SUPERSEDED}
         if rows:
-            answer["next"] = [{"run": "open folder Superseded", "why": "show them in the Finder"},
-                              *([{"run": "rekordbox match", "why": "which rekordbox tracks still use them"}]
+            answer["next"] = [{"run": "open folder Superseded", "why": engine_words.SUPERSEDED_WHY_OPEN},
+                              *([{"run": "rekordbox match", "why": engine_words.SUPERSEDED_WHY_MATCH}]
                                 if held else [])]
         return answer
 
@@ -4452,10 +4456,20 @@ class CliApi(HubApi):
         present = self._tool_presence()
         rows: list[WatchedFolder] = []
         pending = False
+        facts = self._NO_LIBRARY_FACTS
+        paused: frozenset[str] = frozenset()
+        records_problem = None
         if bound:
-            with self._move_log() as conn:
-                if conn is not None:
-                    rows, pending = db.watched_folders(conn), db.has_pending(conn)
+            try:
+                state = self._state()  # the one read of the records: everything below reads from the same file
+                with self._move_log() as conn:
+                    if conn is not None:
+                        rows, pending = db.watched_folders(conn), db.has_pending(conn)
+                paused = self._paused_accounts(state)
+                facts = self._library_facts(state, dashboard)
+            except StateError as e:  # library.db cannot be read: `doctor` says so and skips what reads it
+                rows, pending, facts, records_problem = [], False, self._NO_LIBRARY_FACTS, str(e)
+            facts = {**facts, **self._superseded_facts()}  # a folder walk: it needs no records
         away = self._away_folders(rows)
         place = self._svc.rekordbox_place()
         roots = [*([self._paths.root] if bound else []), *(f.path for f in rows if f.id not in away),
@@ -4466,30 +4480,34 @@ class CliApi(HubApi):
         return doctor_mod.answer(doctor_mod.Inputs(
             music_state=music["state"], music_path=music["path"] or "",
             missing_tools=tuple((tool, TOOL_HINTS[tool]) for tool, there in present.items() if not there),
-            downloads=self._downloads(), paused_accounts=self._paused_accounts() if bound else frozenset(),
+            downloads=self._downloads(records_problem is None),
+            paused_accounts=paused,
             unreadable_folders=self._unreadable_roots(roots), app=engine_words.running_app(os.environ),
             rekordbox_state=status.state, rekordbox_problem=status.problem, lock_holder=self._jobs.console_holder(),
             jobs=tuple(doctor_mod.JobRow(str(s.get("id")), str(s.get("status")), str(s.get("started")))
                        for s in listed),
             now=self._svc.now(), pending=pending, away_folders=tuple(str(f.path) for f in rows if f.id in away),
-            **(self._library_facts(dashboard) if bound else self._NO_LIBRARY_FACTS)), bound)
+            records_problem=records_problem, **facts), bound)
 
     # what `Inputs` holds while no music folder is bound (the checks that read it are skipped then)
     _NO_LIBRARY_FACTS = {"tidy_rows": 0, "superseded_files": 0, "superseded_bytes": 0, "rekordbox_match": None,
-                         "stopped_batches": (), "check_tracks": 0, "cdj_files": 0, "missing_files": 0,
-                         "upgrades_ready": 0, "to_load": 0}
+                         "rekordbox_match_why": None, "stopped_batches": (), "check_tracks": 0, "cdj_files": 0,
+                         "missing_files": 0, "upgrades_ready": 0, "to_load": 0}
 
-    def _library_facts(self, dashboard: dict | None) -> dict:
-        """The library's own facts for `doctor`'s checks (`Inputs`), each read once: the To-do answer's counts, the tidy-up's
-        rows, `Superseded/`, rekordbox's match counts, the stopped batches and the Dashboard's songs still to load."""
-        state = self._state()
-        todo = self._todo(state, None, False)
+    def _superseded_facts(self) -> dict:
         files, size = self._superseded_size()
+        return {"superseded_files": files, "superseded_bytes": size}
+
+    def _library_facts(self, state: dict, dashboard: dict | None) -> dict:
+        """The facts of `doctor`'s checks (`Inputs`) that come from the library's records, each read once: the To-do
+        answer's counts, the tidy-up's rows, rekordbox's match counts (and why there are none), the stopped AIFF batches
+        and the Dashboard's songs still to load. `state`: the snapshot already read."""
+        todo = self._todo(state, None, False)
         if dashboard is None:
             dashboard = self._dashboard_view()
-        return {"tidy_rows": len(planner.tidy_rows(state)), "superseded_files": files, "superseded_bytes": size,
-                "rekordbox_match": self._match_counts(state),
-                "stopped_batches": tuple(r["id"] for r in self._batch_rows() if r["state"] == "stopped"),
+        match, match_why = self._match_counts(state)
+        return {"tidy_rows": len(planner.tidy_rows(state)), "rekordbox_match": match, "rekordbox_match_why": match_why,
+                "stopped_batches": tuple(r["id"] for r in self._batch_rows("aiff") if r["state"] == "stopped"),
                 "check_tracks": todo["check_tracks"], "cdj_files": todo["chips"]["cdj"],
                 "missing_files": todo["chips"]["missing_file"], "upgrades_ready": todo["chips"]["upgrade_ready"],
                 "to_load": dashboard["tiles"]["still_to_load"]["count"] or 0}
@@ -4502,7 +4520,8 @@ class CliApi(HubApi):
         sidebar's four numbers (`todo`, `all_tracks`, `not_in_playlist`, `limits_warning`); `jobs` every job of this music
         folder that has not ended (`queued`, `running`, `stopping`), newest first, with `line`, its progress in one line.
         `ready` (the command line's `--ready`, "is my library ready for a gig?") is the problems of `doctor` that a gig
-        depends on, taken from the same `doctor` call (never a count of its own), none when it is ready; null without it.
+        depends on, taken from the same `doctor` call (never a count of its own), none when it is ready; null without it;
+        `ready_text` says the verdict in one sentence (with `--ready` only).
         Read only: with `ready` it takes `rekordbox.lock` shared as `doctor` does."""
         dashboard = self._dashboard_view()
         sidebar = self._sidebar_view()
@@ -4513,6 +4532,8 @@ class CliApi(HubApi):
                   "jobs": [{"id": s["id"], "command": s["command"], "via": s["via"], "status": s["status"],
                             "line": (s.get("progress") or {}).get("line"), "started": s["started"]} for s in states],
                   "ready": [p for p in self._doctor(dashboard)["problems"] if p["gig"]] if ready else None}
+        if answer["ready"] is not None:
+            answer["ready_text"] = engine_words.ready_text(len(answer["ready"]))
         if steps := [step for s in states for step in s.get("person_steps") or ()]:
             answer["person_steps"] = steps
         return answer

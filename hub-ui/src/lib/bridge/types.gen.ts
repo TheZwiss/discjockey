@@ -4128,7 +4128,11 @@ export type History = {
   /** The time the list starts at, an ISO time; null when it was not limited. */
   since: string | null;
 };
-/** What state rekordbox's library was in for the read, in words. */
+/**
+ * What state rekordbox's library was in for the read, in words. `unreadable` answers "was it read just now";
+ * it is not the library's health: `rekordbox status` says that (`ready` with `problem: busy` is a healthy
+ * library that was busy).
+ */
 export type MatchRekordbox = {
   /**
    * `ready`: it was read; `none`: no rekordbox library on this Mac; `unreadable`: it could not be read now (a
@@ -4235,6 +4239,7 @@ export type DoctorCheckKey =
   | 'rekordbox'
   | 'stale_lock'
   | 'lost_jobs'
+  | 'records'
   | 'pending_steps'
   | 'drives_away'
   | 'downloads_paused'
@@ -4271,7 +4276,8 @@ export type DoctorCheck = {
   label: string;
   /**
    * `ok`: nothing found. `problem` / `note`: it found something of that level (a problem wins). `skipped`: it
-   * needs a music folder and none is chosen.
+   * was not run: it needs a music folder and none is chosen, or it reads the library's records and those
+   * cannot be read (the `records` check says so).
    */
   state: 'ok' | 'problem' | 'note' | 'skipped';
 };
@@ -4329,6 +4335,11 @@ export type StatusData = {
    * without it.
    */
   ready: DoctorProblem[] | null;
+  /**
+   * With `--ready`: whether the library is ready for a gig, or how many things to look at first, in one
+   * sentence; left out without it.
+   */
+  ready_text?: string;
 };
 /**
  * `status`: the answer of the engine. The command line moves `person_steps` out of `data` into the envelope.

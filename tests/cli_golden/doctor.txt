@@ -15,6 +15,7 @@ folder_access       Folder access         ok
 rekordbox           rekordbox             ok
 stale_lock          Library lock          ok
 lost_jobs           Jobs                  ok
+records             Records               ok
 pending_steps       Cut-off steps         ok
 drives_away         Drives                problem
 downloads_paused    Download limits       note
@@ -26,4 +27,4 @@ open_checks         rekordbox checks      ok
 cdj                 CDJ problems          ok
 songs_without_file  Songs without a file  ok
 upgrades_waiting    Better versions       ok
-18 of 18 shown
+19 of 19 shown

@@ -2,6 +2,7 @@
 holding a track of each kind, `--in` narrowing, no library, a writer holding `rekordbox.lock`, paging. The kinds
 themselves are pinned on plain inputs in tests/test_rekordbox_match.py."""
 import json
+import os
 import shutil
 from datetime import datetime
 
@@ -139,6 +140,30 @@ def test_match_names_a_drive_that_is_away_and_a_folder_nothing_knows(lib, tmp_pa
     assert away["data"]["entries"][0]["kind_text"] == words.MATCH_KINDS["away"]
 
 
+def test_a_library_file_that_is_gone_is_not_one_rekordbox_lacks(lib, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(make_master(tmp_path / "rekordbox", []).parent))
+    (lib.root / LOSSY).unlink()  # t2's file is gone: a missing file (To-do says so), not something rekordbox lacks
+    code, env = data_of(["rekordbox", "match"], capsys)
+    assert code == 0 and [(e["kind"], e["track_id"]) for e in env["data"]["entries"]] == [("not_in_rekordbox", "t1")]
+    assert env["data"]["counts"]["not_in_rekordbox"] == 1
+    assert env["data"]["text"] == "0 rekordbox tracks need a look, 1 of your files is not in rekordbox."
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens every folder")
+def test_a_track_in_a_folder_macos_refuses_is_not_claimed_missing(lib, tmp_path, monkeypatch, elsewhere, capsys):
+    locked = elsewhere / "Locked"
+    locked.mkdir()
+    (locked / "a.mp3").write_bytes(b"audio")
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(make_master(tmp_path / "rekordbox", [{"path": str(locked / "a.mp3")}]).parent))
+    locked.chmod(0)  # Path.exists() raises PermissionError in there
+    try:
+        code, env = data_of(["rekordbox", "match"], capsys)
+    finally:
+        locked.chmod(0o755)
+    assert code == 0 and env["outcome"] == "ok"
+    assert env["data"]["counts"]["missing"] == 0 and env["data"]["counts"]["outside"] == 1
+
+
 def test_match_pages_through_the_envelope(lib, tmp_path, monkeypatch, elsewhere, capsys):
     with_tracks(lib, tmp_path, monkeypatch, elsewhere)
     _, env = data_of(["rekordbox", "match", "--limit", "4"], capsys)
@@ -190,15 +215,15 @@ def test_the_counts_helper_is_the_commands_counts_and_none_when_rekordbox_cannot
     from discjockey.cli import bind
     api = bind.default()
     with_tracks(lib, tmp_path, monkeypatch, elsewhere)
-    counts = api._match_counts(library.load_state(lib))
+    counts, why = api._match_counts(library.load_state(lib))
     _, env = data_of(["rekordbox", "match"], capsys)
-    assert counts == env["data"]["counts"]
-    with rb_lock.writer_lock(lib.support):
-        assert api._match_counts(library.load_state(lib)) is None
+    assert counts == env["data"]["counts"] and why is None
+    with rb_lock.writer_lock(lib.support):  # a library that is there but is not read: the words that say why
+        assert api._match_counts(library.load_state(lib)) == (None, words.WRITING_WORDS)
     empty = tmp_path / "none"
     empty.mkdir()
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(empty))
-    assert api._match_counts(library.load_state(lib)) is None
+    assert api._match_counts(library.load_state(lib)) == (None, None)  # no library at all: nothing to say
 
 
 # --- library superseded ---

@@ -10,7 +10,7 @@ from test_cli_batches import with_batches
 from hub_helpers import choose_music, make_root, services, stub_headless
 
 import discjockey.cli as cli
-from discjockey import db, library, pending_signs
+from discjockey import db, library, pending_signs, words
 from discjockey.cli import bind
 from discjockey.hub.api import CliApi
 from discjockey.hub.registry import Registry
@@ -105,7 +105,19 @@ def test_ready_is_the_gig_problems_of_doctor_and_nothing_of_its_own(lib, api, ca
 
 def test_a_library_that_is_ready_says_so_with_an_empty_list_not_null(lib, capsys):
     _, env = status_json(capsys, "--ready")
-    assert env["data"]["ready"] == []
+    assert env["data"]["ready"] == [] and env["data"]["ready_text"] == words.READY_YES
+    _, plain = status_json(capsys)
+    assert "ready_text" not in plain["data"]  # the verdict comes with the question only
+
+
+def test_ready_says_how_many_things_to_look_at_and_the_text_page_starts_with_it(lib, capsys):
+    with db.connect(lib.db_file) as conn:
+        db.add_watched_folder(conn, Path("/Volumes/Gig Stick/Crates"), datetime(2026, 11, 20, 9, 0))
+    _, env = status_json(capsys, "--ready")
+    assert env["data"]["ready_text"] == "1 thing to look at before a gig." == words.ready_text(1)
+    assert words.ready_text(3) == "3 things to look at before a gig."
+    assert cli.main(["status", "--ready"]) == 0
+    assert capsys.readouterr().out.splitlines()[0] == "1 thing to look at before a gig."
 
 
 def test_ready_lists_a_stopped_batch(lib, capsys):

@@ -197,7 +197,9 @@ class History(TypedDict):
 
 @shape
 class MatchRekordbox(TypedDict):
-    """What state rekordbox's library was in for the read, in words."""
+    """What state rekordbox's library was in for the read, in words. `unreadable` answers "was it read just now"; it is
+    not the library's health: `rekordbox status` says that (`ready` with `problem: busy` is a healthy library that was
+    busy)."""
     state: Annotated[Literal["ready", "none", "unreadable"], F("`ready`: it was read; `none`: no rekordbox library on "
                                                                "this Mac; `unreadable`: it could not be read now (a "
                                                                "writer holds it, or its problem).")]
@@ -272,8 +274,8 @@ class Superseded(TypedDict):
 
 DoctorCheckKey = alias(
     "DoctorCheckKey",
-    Literal["music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs", "pending_steps",
-            "drives_away", "downloads_paused", "out_of_place", "superseded", "rekordbox_files", "stopped_batches",
+    Literal["music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs", "records",
+            "pending_steps", "drives_away", "downloads_paused", "out_of_place", "superseded", "rekordbox_files", "stopped_batches",
             "open_checks", "cdj", "songs_without_file", "upgrades_waiting"],
     doc="One check of `doctor` (`discjockey/hub/doctor.py`, `CHECKS`).")
 
@@ -297,7 +299,8 @@ class DoctorCheck(TypedDict):
     label: Annotated[str, F("What the check looks at, in words.")]
     state: Annotated[Literal["ok", "problem", "note", "skipped"],
                      F("`ok`: nothing found. `problem` / `note`: it found something of that level (a problem wins). "
-                       "`skipped`: it needs a music folder and none is chosen.")]
+                       "`skipped`: it was not run: it needs a music folder and none is chosen, or it reads the library's "
+                       "records and those cannot be read (the `records` check says so).")]
 
 
 @shape
@@ -340,6 +343,8 @@ class StatusData(TypedDict):
     jobs: Annotated[list[StatusJob], F("The jobs of this music folder that have not ended, newest first.")]
     ready: Annotated[list[DoctorProblem] | None, F("With `--ready`: the problems of `doctor` that a gig depends on, "
                                                    "none when the library is ready; null without it.")]
+    ready_text: NotRequired[Annotated[str, F("With `--ready`: whether the library is ready for a gig, or how many "
+                                             "things to look at first, in one sentence; left out without it.")]]
 
 
 @shape
