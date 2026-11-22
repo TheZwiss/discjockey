@@ -1325,7 +1325,13 @@ Results:
         waiting): covered by tests, not by a real copy. Brief errata: settings writer adds default keys (auto_upgrade);
         bought.flac must be a real FLAC. 'Job started' before a `sync scope off nonsense` refusal = design §6.3 (every
         Terminal write is a registry job first, V1.6), not a bug. Spotify refresh token unchanged.
-      - Fix round FR-ps (Sonnet fix-round, F-R1, est. 90k) RUNNING on feat/cli-2-fix-ps; then merge, suite, CI → main.
+      - Fix round FR-ps (Sonnet fix-round, F-R1): logged 77k (exp. 90k), advisor 0k. d6a53b71: reads ask `ps` once per
+        answer (sync_preview 2 → 1, To-do with the CDJ group 3 → 1; dashboard 0); write guards still ask fresh. pytest
+        6444 passed. Merged d59ea7ae on the phase branch, pushed.
+      - PHASE 2 MERGED INTO MAIN (LATEST, 2026-11-22): 3a2063d8 (main differs from the phase branch only by this log),
+        CI green (44967540408). No release. Today's agents: 87k + 93k + 77k = 257k → phase 2 ≈ 9.63M logged.
+        NEXT on the user's go: phase 3 detailing (plan v2 §6 phase 3, 1 230k), same method; the cost projection told the
+        user: phases 3-8 ≈ 12.9M plan → ~28M logged at the 2.2x ratio.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
