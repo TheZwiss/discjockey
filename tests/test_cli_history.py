@@ -9,7 +9,7 @@ from hub_helpers import choose_music, make_root, services, write_state
 from test_cli_batches import with_batches, with_report
 
 import discjockey.cli as cli
-from discjockey import library, words
+from discjockey import db, library, words
 from discjockey.cli import bind
 from discjockey.hub.api import CliApi
 
@@ -147,3 +147,48 @@ def test_history_of_a_library_with_nothing_in_it_is_an_empty_list(tmp_path, monk
 def test_history_needs_a_music_folder(tmp_path, capsys):
     code, env = history([], capsys)          # conftest: an empty support folder, no Setup done
     assert code == 7 and (env["outcome"], env["reason"]) == ("refused", "no_library")
+
+
+def test_a_tidy_up_whose_files_moved_again_has_nothing_left_to_undo(lib, capsys):
+    """A done move batch (one file moved, its file no longer where it went): the window reads "Nothing left to undo",
+    and `history` does not offer `batch undo moves:2`."""
+    from datetime import datetime
+
+    from discjockey.models import PlannedMove
+    with db.connect(lib.db_file) as conn:
+        moves = [PlannedMove("file", None, "Song", "Library/Old/Song.aiff", "Library/New/Song.aiff", None, "import",
+                             "playlist")]
+        batch = db.start_batch(conn, started_by="tidy", about=None, undoes=None, moves=moves,
+                               now=datetime(2026, 11, 12, 20, 0, 0))
+        for move in db.batch_moves(conn, batch):
+            db.finish_move(conn, move.id)
+        db.close_batch(conn, batch, datetime(2026, 11, 12, 20, 0, 5))
+    _, env = history([], capsys)
+    (entry,) = [e for e in env["data"]["entries"] if e["id"] == f"moves:{batch}"]
+    assert "1 file moved" in entry["text"]
+    assert (entry["undo"], entry["cant_text"]) == (None, words.NOTHING_LEFT)
+
+
+def test_a_step_that_was_undone_says_so_and_the_step_after_it_is_the_one_to_undo(lib, capsys):
+    lib.operations_log.write_text("\n".join([
+        log_line("2026-11-12T01:00:00", "t1", "upgrade_same_track", "Vatoz Locoz", "Gimme Gimme"),
+        log_line("2026-11-12T02:00:00", "t1", "undo_upgrade", "Vatoz Locoz", "Gimme Gimme"),
+        log_line("2026-11-12T03:00:00", "t1", "upgrade_same_track", "Vatoz Locoz", "Gimme Gimme"),
+    ]) + "\n")
+    _, env = history([], capsys)
+    third, second, first = [e for e in env["data"]["entries"] if e["track_id"] == "t1"]
+    assert (first["undo"], first["cant_text"]) == (None, words.UNDONE)
+    assert (second["undo"], second["cant_text"]) == (None, words.WAS_UNDO)
+    assert (third["undo"], third["cant_text"]) == ("track undo t1", None)
+
+
+def test_a_batch_that_only_gave_clean_names_reads_as_the_window_words_it(lib, capsys):
+    from datetime import datetime
+    with db.connect(lib.db_file) as conn:
+        batch = db.start_aiff_batch(conn, "convert", "make_aiff", None, [("t1", "rename")], datetime(2026, 11, 13, 9, 0, 0))
+        db.set_aiff_item(conn, batch, 0, "done", None, {"path": "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff",
+                                                           "note": "Renamed", "rekordbox": None})
+        db.set_aiff_batch(conn, batch, state="done", ended=datetime(2026, 11, 13, 9, 1, 0))
+    _, env = history([], capsys)
+    (entry,) = [e for e in env["data"]["entries"] if e["id"] == f"aiff:{batch}"]
+    assert entry["text"] == f"{words.BATCH_CLEAN_NAME} · 1 of 1 done"
