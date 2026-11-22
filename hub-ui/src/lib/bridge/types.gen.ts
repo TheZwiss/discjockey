@@ -4232,7 +4232,15 @@ export type DoctorCheckKey =
   | 'lost_jobs'
   | 'pending_steps'
   | 'drives_away'
-  | 'downloads_paused';
+  | 'downloads_paused'
+  | 'out_of_place'
+  | 'superseded'
+  | 'rekordbox_files'
+  | 'stopped_batches'
+  | 'open_checks'
+  | 'cdj'
+  | 'songs_without_file'
+  | 'upgrades_waiting';
 /** One thing `doctor` found, with what to do about it. */
 export type DoctorProblem = {
   /** The check that found it. */
@@ -4243,7 +4251,7 @@ export type DoctorProblem = {
   gig: boolean;
   /** What is wrong, in words. */
   text: string;
-  /** The number the text counts (jobs, folders); null when it counts nothing. */
+  /** The number the text counts (jobs, folders, files, tracks); null when it counts nothing. */
   count: number | null;
   /** Commands that look further or move on. */
   next: FailNext[];

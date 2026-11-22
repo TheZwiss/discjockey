@@ -47,6 +47,16 @@ class Inputs:
     now: datetime
     pending: bool  # a file step was cut off (`db.has_pending`)
     away_folders: tuple[str, ...]  # watched folders on a drive that isn't connected, or gone
+    tidy_rows: int  # files the playlist order would put elsewhere (`planner.tidy_rows`)
+    superseded_files: int  # files under Superseded/
+    superseded_bytes: int  # and their size together
+    rekordbox_match: Mapping[str, int] | None  # `rekordbox match`'s counts; None: no rekordbox library to compare, or unreadable
+    stopped_batches: tuple[str, ...]  # typed ids (`aiff:2`, `moves:1`) of the batches whose state is `stopped`
+    check_tracks: int  # tracks with an open rekordbox check (To-do's `check_tracks`)
+    cdj_files: int  # To-do's CDJ group
+    missing_files: int  # To-do's Missing files group
+    upgrades_ready: int  # To-do's Upgrade ready group
+    to_load: int  # playlist songs the next sync would download (the Dashboard's "still to load"; 0 before a first read)
 
 
 def drive_name(path: str) -> str:
@@ -185,6 +195,72 @@ def _downloads_paused(i: Inputs) -> list[dict]:
                      next=[_next(f"limits show {s}", words.DOCTOR_WHY_LIMITS) for s in paused])]
 
 
+def _out_of_place(i: Inputs) -> list[dict]:
+    if not i.tidy_rows:
+        return []
+    return [_problem(words.plural(i.tidy_rows, *words.DOCTOR_OUT_OF_PLACE), level="note", count=i.tidy_rows,
+                     next=[_next("tidy run --dry-run", words.DOCTOR_WHY_TIDY)])]
+
+
+def _superseded(i: Inputs) -> list[dict]:
+    if not i.superseded_files:
+        return []
+    return [_problem(words.doctor_superseded(i.superseded_files, i.superseded_bytes), level="note",
+                     count=i.superseded_files, next=[_next("library superseded", words.DOCTOR_WHY_SUPERSEDED)])]
+
+
+def _rekordbox_files(i: Inputs) -> list[dict]:
+    if i.rekordbox_match is None:  # rekordbox could not be compared: nothing is claimed either way
+        return []
+    n = i.rekordbox_match["missing"] + i.rekordbox_match["superseded"]
+    if not n:
+        return []
+    return [_problem(words.plural(n, *words.DOCTOR_RB_FILES), count=n,
+                     next=[_next("rekordbox match", words.DOCTOR_WHY_MATCH)])]
+
+
+def _stopped_batches(i: Inputs) -> list[dict]:
+    if not i.stopped_batches:
+        return []
+    # an AIFF batch goes on where it stopped; a move batch has nothing to resume, so it is looked at
+    next_ = [_next(f"batch resume {b}", words.DOCTOR_WHY_RESUME) if b.startswith("aiff:")
+             else _next(f"batch show {b}", words.DOCTOR_WHY_MOVES) for b in i.stopped_batches]
+    return [_problem(words.plural(len(i.stopped_batches), *words.DOCTOR_STOPPED), count=len(i.stopped_batches),
+                     next=next_)]
+
+
+def _open_checks(i: Inputs) -> list[dict]:
+    if not i.check_tracks:
+        return []
+    return [_problem(words.plural(i.check_tracks, *words.DOCTOR_CHECKS), level="note", count=i.check_tracks,
+                     next=[_next("check list", words.DOCTOR_WHY_CHECKS)])]
+
+
+def _cdj(i: Inputs) -> list[dict]:
+    if not i.cdj_files:
+        return []
+    return [_problem(words.plural(i.cdj_files, *words.DOCTOR_CDJ), level="note", count=i.cdj_files,
+                     next=[_next("todo list --group cdj", words.DOCTOR_WHY_CDJ)])]
+
+
+def _songs_without_file(i: Inputs) -> list[dict]:
+    found = []
+    if i.missing_files:
+        found.append(_problem(words.plural(i.missing_files, *words.DOCTOR_MISSING_FILES), level="note",
+                              count=i.missing_files, next=[_next("missing list", words.DOCTOR_WHY_MISSING)]))
+    if i.to_load:
+        found.append(_problem(words.plural(i.to_load, *words.DOCTOR_TO_LOAD), level="note", count=i.to_load,
+                              next=[_next("sync plan", words.DOCTOR_WHY_SYNC_PLAN)]))
+    return found
+
+
+def _upgrades_waiting(i: Inputs) -> list[dict]:
+    if not i.upgrades_ready:
+        return []
+    return [_problem(words.plural(i.upgrades_ready, *words.DOCTOR_UPGRADES), level="note", count=i.upgrades_ready,
+                     next=[_next("upgrade list", words.DOCTOR_WHY_UPGRADES)])]
+
+
 @dataclass(frozen=True)
 class Check:
     key: str
@@ -205,6 +281,14 @@ CHECKS: tuple[Check, ...] = (
     Check("pending_steps", "Cut-off steps", True, True, _pending_steps),
     Check("drives_away", "Drives", True, True, _drives_away),
     Check("downloads_paused", "Download limits", False, True, _downloads_paused),
+    Check("out_of_place", "Files out of place", False, True, _out_of_place),
+    Check("superseded", "Superseded/", False, True, _superseded),
+    Check("rekordbox_files", "rekordbox tracks", True, True, _rekordbox_files),
+    Check("stopped_batches", "Stopped batches", True, True, _stopped_batches),
+    Check("open_checks", "rekordbox checks", True, True, _open_checks),
+    Check("cdj", "CDJ problems", True, True, _cdj),
+    Check("songs_without_file", "Songs without a file", True, True, _songs_without_file),
+    Check("upgrades_waiting", "Better versions", True, True, _upgrades_waiting),
 )
 
 

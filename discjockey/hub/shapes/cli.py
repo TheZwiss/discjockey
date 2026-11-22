@@ -273,7 +273,8 @@ class Superseded(TypedDict):
 DoctorCheckKey = alias(
     "DoctorCheckKey",
     Literal["music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs", "pending_steps",
-            "drives_away", "downloads_paused"],
+            "drives_away", "downloads_paused", "out_of_place", "superseded", "rekordbox_files", "stopped_batches",
+            "open_checks", "cdj", "songs_without_file", "upgrades_waiting"],
     doc="One check of `doctor` (`discjockey/hub/doctor.py`, `CHECKS`).")
 
 
@@ -284,7 +285,7 @@ class DoctorProblem(TypedDict):
     level: Annotated[Literal["problem", "note"], F("`problem`: something to fix. `note`: worth knowing, nothing to fix.")]
     gig: Annotated[bool, F("Whether the next gig depends on it (`status --ready` lists these).", shown=False)]
     text: Annotated[str, F("What is wrong, in words.")]
-    count: Annotated[int | None, F("The number the text counts (jobs, folders); null when it counts nothing.")]
+    count: Annotated[int | None, F("The number the text counts (jobs, folders, files, tracks); null when it counts nothing.")]
     next: Annotated[list[FailNext], F("Commands that look further or move on.")]
     person_steps: Annotated[list[FailPersonStep], F("The steps only a person can do.")]
 
