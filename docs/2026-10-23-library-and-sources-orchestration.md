@@ -1453,7 +1453,11 @@ Results:
         User asked why the gate error (my prompt format, twice: told + memory) and the approval prompt (above).
         Now: `npm run verify` (background, cli3-reads-pass worktree at c3ebc31e) + CI watch; both green → merge into
         main, push. No release.
-      - **RESUME HERE (LATEST, 2026-11-22, phase 3 merge):** all builds (1 573k), review parts (603k), FR1-4 (577k), read pass
+      - **RESUME HERE (LATEST, 2026-11-22, phase 3 done):** PHASE 3 MERGED INTO MAIN d735c8d3 (verify 1270 shots, 0
+        problems; CI green on feat/cli-3-reads c3ebc31e and on main). Branch feat/cli-3-reads and worktree cli3-reads-pass
+        removed. Phase 3 ≈ 3.6M logged (est. ~2.9M). No release. Issue 46 stays open. Next: phase 4 detailing (Opus,
+        sizing script first) only on the user's go; V3.4 hand pages wait for the end of phase 6.
+      - RESUME HERE (superseded, 2026-11-22, phase 3 merge): all builds (1 573k), review parts (603k), FR1-4 (577k), read pass
         (90k) done; phase 3 ≈ 3.6M incl. detailing + check 739k. Waiting on two background tasks: `npm run verify` in
         `.claude/worktrees/cli3-reads-pass` (detached c3ebc31e; log in the session scratchpad `verify-p3.log`) and the CI
         run of `feat/cli-3-reads` c3ebc31e. Both green → in the main-log worktree: `git merge --no-ff origin/feat/cli-3-reads`
