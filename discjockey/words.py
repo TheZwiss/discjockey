@@ -75,6 +75,8 @@ NOT_WATCHED = "{path} is not one of the watched folders."
 LIBRARY_NOT_REMOVABLE = "{path} is your Library: it is always watched and cannot be removed."
 BAD_FOLDER = "A folder is its path, or folder:<path>."
 BAD_COLLECTION = "A collection is all, unlisted, playlist:<name> or folder:<path>."
+UPDATE_NO_ANSWER_DEV = "No answer: this is a developer's version."  # `app info --check` that asked nobody
+UPDATE_NO_ANSWER_OFFLINE = "No answer: GitHub could not be reached."  # `app info --check` that asked and got nothing
 BAD_SINCE = ("--since takes today, yesterday, a number of days or hours (3d, 12h) or a date or time (2026-11-20, "
              "2026-11-20T18:00), not {text}.")
 

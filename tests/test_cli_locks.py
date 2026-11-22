@@ -429,7 +429,6 @@ DRIVERS = {
     "open_external": lambda api, rec: _opened(api.open_external("https://example.com", print_only=True)),
     "open_licenses": lambda api, rec: _opened(api.open_licenses(print_only=True)),
     "open_privacy_settings": lambda api, rec: _opened(api.open_privacy_settings(print_only=True)),
-    "retry_music_folder": lambda api, rec: api.retry_music_folder(),  # a built read with no command of its own
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]

@@ -26,6 +26,11 @@ def run_json(argv, capsys):
     return code, json.loads(capsys.readouterr().out)
 
 
+def next_runs(env) -> list[list[str]]:
+    """The commands `next` names, without the program's path in front (`cli.runnable` puts it there)."""
+    return [n["run"].split()[-2:] for n in env["next"]]
+
+
 ONLY = (["tidy", "run"], ["limits", "set", "qobuz", "40"], ["setup", "music", "/Music/Discjockey"])
 
 
@@ -53,7 +58,8 @@ def test_a_dry_run_only_command_answers_its_read_as_data_and_no_plan(lib, capsys
         answer = getattr(api, method)(*args)
         assert code == 0 and env["outcome"] == "ok"
         assert env["data"] == {k: v for k, v in answer.items() if k != "ok"} and "plan_id" not in env["data"]
-        assert env["next"] == [] and env["as_of"] is not None
+        # `tidy run` plans on the last scan's files (this library was never scanned: it says so), `limits set` reads none
+        assert next_runs(env) == ([["library", "scan"]] if method == "tidy_preview" else []) and env["as_of"] is not None
 
 
 def test_a_what_if_takes_the_extra_for_today(lib, capsys):
@@ -88,3 +94,57 @@ def test_call_takes_a_stand_in_as_a_read_and_refuses_a_dry_run_of_a_read_with_no
     assert code == 0 and env["data"]["empty"]  # the stand-in is its own dry run
     code, env = run_json(["call", "library", "--args", "{}", "--dry-run"], capsys)
     assert code == 2 and "has no --dry-run" in env["message"]
+
+
+def big_move_batch(paths, n: int) -> int:
+    """A closed move batch of `n` moves (the typed id `moves:<id>` the dry run of `batch undo` answers)."""
+    from datetime import datetime
+
+    from discjockey import db
+    from discjockey.models import PlannedMove
+    with db.connect(paths.db_file) as conn:
+        moves = [PlannedMove("file", None, f"Song {i}", f"Library/Old/Song {i}.aiff", f"Library/New/Song {i}.aiff", None,
+                             "import", "playlist") for i in range(n)]
+        batch = db.start_batch(conn, started_by="tidy", about=None, undoes=None, now=datetime(2026, 11, 11, 12, 0, 0), moves=moves)
+        for move in db.batch_moves(conn, batch):
+            db.finish_move(conn, move.id)  # done: the undo lists a row for each (their files are not there: each says why it cannot go back)
+        db.close_batch(conn, batch, datetime(2026, 11, 11, 12, 0, 5))
+    return batch
+
+
+def test_a_command_with_a_read_and_a_write_takes_limit_and_offset_and_pages_its_dry_run(lib, capsys):
+    """`batch undo` has a read (`undo_preview`) and a write (`batch_undo`): the count line must not name a flag the
+    command refuses, and `--limit 0` must show every row."""
+    for line in (["batch", "undo"], ["aiff", "convert"], ["aiff", "rename"]):
+        flags = parser.extra_flags(parser.commands()[tuple(line)])
+        assert "--limit" in flags and "--offset" in flags, line
+    batch = big_move_batch(lib, 250)
+    argv = ["batch", "undo", f"moves:{batch}", "--dry-run"]
+    assert cli.main(argv) == 0
+    shown = capsys.readouterr().out
+    assert "200 of 250 shown" in shown and "--limit 0" in shown
+    assert cli.main([*argv, "--limit", "0"]) == 0
+    everything = capsys.readouterr().out
+    assert "250 of 250 shown" in everything and "Song 0 " in everything and "Song 0 " not in shown  # the rows come in reverse: Song 0 is last
+    assert cli.main([*argv, "--limit", "10", "--offset", "5"]) == 0  # both flags parse
+    assert "10 of 250 shown" in capsys.readouterr().out
+
+
+def test_a_stand_in_that_plans_on_the_scan_asks_for_one_when_a_folder_changed_since(lib, capsys):
+    """`tidy run --dry-run` and `batch undo moves:<n> --dry-run` read the last scan's files, so they say `library scan`
+    when a folder changed after it; `limits set` and `setup music` read nothing the scan holds: no hint."""
+    import os
+    from datetime import datetime
+
+    from discjockey import db
+    with db.connect(lib.db_file) as conn, db.transaction(conn):
+        conn.execute("UPDATE watched_folders SET last_scan = ?", ("2026-11-01T10:00:00",))
+    os.utime(lib.library, (datetime(2026, 11, 2).timestamp(),) * 2)  # Library/ changed after that scan
+    batch = big_move_batch(lib, 1)
+    for argv in (["tidy", "run", "--dry-run"], ["batch", "undo", f"moves:{batch}", "--dry-run"]):
+        code, env = run_json(argv, capsys)
+        assert code == 0 and next_runs(env) == [["library", "scan"]], argv
+        assert "plan_id" not in env["data"] and "result_words" not in env  # still no plan
+    for argv in (["limits", "set", "qobuz", "40", "--dry-run"], ["setup", "music", "/Music/Discjockey", "--dry-run"]):
+        code, env = run_json(argv, capsys)
+        assert code == 0 and env["next"] == [], argv

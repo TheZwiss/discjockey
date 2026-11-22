@@ -1,6 +1,6 @@
 Rows       none
 Ticked     0
-Rekordbox  rekordbox may show the moved tracks as missing., Its Relocate finds them again by file name: Discjockey never renames them.
-Undo note  You can undo this on this page.
+Rekordbox  rekordbox may show the moved tracks as missing. Its Relocate finds them again by file name: Discjockey never renames them.
+Undo note  You can undo this afterwards.
 Empty      Every file is where the playlist order puts it.
 Yours      none

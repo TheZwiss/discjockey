@@ -242,7 +242,7 @@ def _selection_flags(entries: list[Entry], taken: Collection[str]) -> list[str]:
 
 def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
     """The flags a command has beside its method's own: the selection words of a bulk write, `--dry-run` when an entry
-    answers it, `--yes` when an entry needs it, `--limit` and `--offset` on a read (unless the method's own flags took
+    answers it, `--yes` when an entry needs it, `--limit` and `--offset` on a command with a read entry (unless the method's own flags took
     the word). The parser and `help --json` both read this."""
     flags = _selection_flags(entries, taken)
     if (switch := catalog.PHASE_ONLY.get(" ".join(entries[0].command))) is not None:
@@ -251,7 +251,7 @@ def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
         flags.append("--dry-run")
     if any(e.needs_yes for e in entries):
         flags.append("--yes")
-    if all(e.kind == "R" for e in entries):
+    if any(e.kind in ("R", "RJ") for e in entries):  # a command with a read entry pages what it prints (`batch undo --dry-run`'s rows)
         flags += [f"--{word}" for word in ("limit", "offset") if f"--{word}" not in taken]
     return flags
 

@@ -1409,7 +1409,7 @@ def test_tidy_preview_ticks_follow_placed_by_and_yours_is_marked():
     assert p["ticked"] == 1 and p["empty"] is None
     assert p["rekordbox"] == ["rekordbox may show the moved tracks as missing.",
                               "Its Relocate finds them again by file name: Discjockey never renames them."]
-    assert p["undo_note"] == "You can undo this on this page."
+    assert p["undo_note"] == "You can undo this afterwards."
     assert p["yours"] == {"count": 2, "movable": 2, "mark": "You put this here", "header": "You put these here",
                           "control": "Put these in playlist order too"}
 

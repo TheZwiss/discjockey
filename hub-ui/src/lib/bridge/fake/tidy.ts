@@ -18,7 +18,7 @@ const FOLDER_TAKEN = (name: string) => `A folder called ${name} is already in yo
 const EMPTY = 'Every file is where the playlist order puts it.';
 const REKORDBOX = ['rekordbox may show the moved tracks as missing.',
   'Its Relocate finds them again by file name: Discjockey never renames them.'];
-const UNDO_NOTE = 'You can undo this on this page.';
+const UNDO_NOTE = 'You can undo this afterwards.';
 const SKIPPED_TEXT = { offline: SKIP_OFFLINE, not_found: SKIP_NOT_FOUND } as const;
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many.replace('{n}', String(n)));

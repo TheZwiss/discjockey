@@ -449,12 +449,13 @@ describe('fake backend', () => {
 describe('update notice', () => {
   it('app_update: up to date in normal, a newer version in update_available', async () => {
     expect(await createFakeBridge('normal').app_update())
-      .toEqual({ ok: true, state: 'up_to_date', current: '1.0.0', latest: null, url: null, checked: false, checked_at: expect.any(String) });
+      .toEqual({ ok: true, state: 'up_to_date', current: '1.0.0', latest: null, url: null, ran_check: false, checked_at: expect.any(String), message: null });
     const r = await createFakeBridge('update_available').app_update();
     expect(r).toMatchObject({ ok: true, state: 'available', latest: '1.1.0' });
     expect(await createFakeBridge('offline').app_update())
-      .toEqual({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null, checked: false, checked_at: null });
-    expect(await createFakeBridge('normal').app_update(true)).toMatchObject({ ok: true, checked: true });
+      .toEqual({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null, ran_check: false, checked_at: null, message: null });
+    expect(await createFakeBridge('normal').app_update(true)).toMatchObject({ ok: true, ran_check: true, message: null });
+    expect(await createFakeBridge('offline').app_update(true)).toMatchObject({ ok: true, ran_check: true, message: 'No answer: GitHub could not be reached.' });
     expect((r as { url: string }).url).toMatch(/^https:\/\/github\.com\/TheZwiss\/discjockey\/releases\/tag\//);
   });
 });

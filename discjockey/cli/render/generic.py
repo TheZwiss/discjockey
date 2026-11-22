@@ -34,11 +34,13 @@ def scalar(value: object) -> str:
 
 
 def cell(value: object) -> str:
-    """Any value on one line: a list joined by commas, an object as `key: value` pairs."""
+    """Any value on one line: a list joined by commas (a list of sentences, each ending in `.`, `!` or `?`, by a space:
+    a comma after a full stop reads as a typo), an object as `key: value` pairs."""
     if isinstance(value, Mapping):
         return ", ".join(f"{k}: {cell(v)}" for k, v in value.items()) or "none"
     if isinstance(value, Sequence) and not isinstance(value, str):
-        return ", ".join(cell(v) for v in value) or "none"
+        sentences = bool(value) and all(isinstance(v, str) and v.endswith((".", "!", "?")) for v in value)
+        return (" " if sentences else ", ").join(cell(v) for v in value) or "none"
     return scalar(value)
 
 

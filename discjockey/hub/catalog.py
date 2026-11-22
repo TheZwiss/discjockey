@@ -71,8 +71,8 @@ class Entry:
     schema: str | None = None           # the shape of the method's answer (hub/shapes), from `_e`
 
 
-WINDOW_ONLY = {"pick_folder": "native_dialog", "quit": "closes_window"}
-WINDOW_ONLY_REASONS = frozenset(("native_dialog", "closes_window"))
+WINDOW_ONLY = {"pick_folder": "native_dialog", "quit": "closes_window", "retry_music_folder": "binds_folder"}
+WINDOW_ONLY_REASONS = frozenset(("native_dialog", "closes_window", "binds_folder"))
 DROPPED = frozenset(("media_url", "select", "setup_check_account"))
 
 # Commands that run no engine method of their own: the command line's own words.
@@ -177,6 +177,9 @@ def stands_in(entry: "Entry") -> bool:
     return entry.kind == "R" and not entry.planned and any(
         e.dry_run == entry.method for e in ENTRIES
         if e.command == entry.command and e.kind in ("J", "B") and e.planned)
+
+
+STAND_INS_ON_SCAN = frozenset(("tidy_preview", "undo_preview"))  # stand-ins that plan on the last scan's files: their dry run says `library scan` when a folder changed since (a limit's what-if or a folder check does not)
 
 
 def dry_run_only(command: tuple[str, ...]) -> bool:
@@ -362,9 +365,9 @@ ENTRIES: tuple[Entry, ...] = (
     _e("check_music_folder", "setup music", "R", "setup music /Music/Discjockey --dry-run", params={"path": _positional()}, built=True),
     _e("set_music_folder", "setup music", "J", params={"path": _positional()}, needs_yes=True,
        dry_run="check_music_folder", planned="phase 4: V4.8"),
-    # the window's Try again on the missing-folder screen; a command resolves the folder fresh every time, so `setup status`
-    # answers (design §5.2)
-    _e("retry_music_folder", "", "R", built=True),
+    # the window's Try again on the missing-folder screen (it can bind the folder and start watchers and a playlists read,
+    # which no read does); a command resolves the folder fresh every time, so `setup status` answers (design §5.2)
+    _e("retry_music_folder", "", "W"),
     _e("setup_skip_import", "setup skip-import", "B", planned="phase 4: V4.8"),
     _e("add_watched_folder", "folder add", "J", "folder add /Music/Crate", params={"path": _positional()},
        dry_run="check_import_folder", built=True, locks={"library"}),

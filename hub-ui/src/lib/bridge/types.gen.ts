@@ -2918,9 +2918,14 @@ export type AppUpdate = {
   /**
    * This call ran the update check (`--check`); the network is asked only when the last answer is a day old.
    */
-  checked: boolean;
+  ran_check: boolean;
   /** When the last answer was fetched; null when it never was. */
   checked_at: string | null;
+  /**
+   * Why a check that ran has no answer (a developer's version asks nobody; GitHub could not be reached); null
+   * otherwise.
+   */
+  message: string | null;
 };
 /** A saved login check (settings.json): when it ran and what it found. */
 export type LastCheck = {
@@ -3417,7 +3422,7 @@ export type TidyPreview = {
   ticked: number;
   /** Two lines for the confirmation. */
   rekordbox: string[];
-  /** "You can undo this on this page." */
+  /** "You can undo this afterwards." */
   undo_note: string;
   /**
    * Null, or the text shown instead of the list (nothing out of place, or only `yours` rows left: the button

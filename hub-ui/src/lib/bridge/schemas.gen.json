@@ -1036,11 +1036,6 @@
       "additionalProperties": false,
       "description": "`app_update(check)`: the update check's last answer (the event `AppUpdate` carries its first four fields); without `check` it never touches the network.",
       "properties": {
-        "checked": {
-          "description": "This call ran the update check (`--check`); the network is asked only when the last answer is a day old.",
-          "type": "boolean",
-          "x-shown": true
-        },
         "checked_at": {
           "anyOf": [
             {
@@ -1070,6 +1065,23 @@
           "description": "The newest version; only for `available`.",
           "x-shown": true
         },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why a check that ran has no answer (a developer's version asks nobody; GitHub could not be reached); null otherwise.",
+          "x-shown": true
+        },
+        "ran_check": {
+          "description": "This call ran the update check (`--check`); the network is asked only when the last answer is a day old.",
+          "type": "boolean",
+          "x-shown": true
+        },
         "state": {
           "description": "`unknown`: no answer yet (offline, rate limit, or a version that is not plain); the page shows nothing.",
           "enum": [
@@ -1097,8 +1109,9 @@
         "current",
         "latest",
         "url",
-        "checked",
-        "checked_at"
+        "ran_check",
+        "checked_at",
+        "message"
       ],
       "type": "object"
     },
@@ -14096,7 +14109,7 @@
           "x-shown": true
         },
         "undo_note": {
-          "description": "\"You can undo this on this page.\"",
+          "description": "\"You can undo this afterwards.\"",
           "type": "string",
           "x-shown": true
         },

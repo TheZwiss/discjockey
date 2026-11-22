@@ -8,7 +8,7 @@ import pytest
 from hub_helpers import choose_music, make_root, stub_headless
 
 import discjockey.cli as cli
-from discjockey import library
+from discjockey import library, words
 
 
 @pytest.fixture
@@ -79,21 +79,22 @@ def test_app_info_reads_the_cache_and_check_asks_the_network_once_and_says_so(tm
     stub_headless(monkeypatch, "1.0.0")
     monkeypatch.setattr(app_update, "fetch_latest", lambda url: asked.append(url) or NEWER)
     code, env = run_json(["app", "info"], capsys)
-    assert code == 0 and env["outcome"] == "ok" and env["data"]["state"] == "unknown" and env["data"]["checked"] is False
+    assert code == 0 and env["outcome"] == "ok" and env["data"]["state"] == "unknown" and env["data"]["ran_check"] is False
     assert env["data"]["checked_at"] is None and asked == []  # a headless api asks nothing by itself
     code, env = run_json(["app", "info", "--check"], capsys)
-    assert code == 0 and (env["data"]["state"], env["data"]["latest"], env["data"]["checked"]) == ("available", "999.0.0", True)
+    assert code == 0 and (env["data"]["state"], env["data"]["latest"], env["data"]["ran_check"]) == ("available", "999.0.0", True)
     assert env["data"]["checked_at"] and len(asked) == 1
     code, env = run_json(["app", "info"], capsys)  # the next command line reads what the check wrote
-    assert (env["data"]["state"], env["data"]["checked"]) == ("available", False) and len(asked) == 1
+    assert (env["data"]["state"], env["data"]["ran_check"]) == ("available", False) and len(asked) == 1
     code, env = run_json(["app", "info", "--check"], capsys)
-    assert env["data"]["checked"] is True and len(asked) == 1  # the cap: a cache under a day old is the answer
+    assert env["data"]["ran_check"] is True and len(asked) == 1  # the cap: a cache under a day old is the answer
 
 
 def test_app_info_check_with_no_answer_is_ok_and_says_unknown(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv(library.SUPPORT_ENV, str(tmp_path / "support"))
     stub_headless(monkeypatch, "1.0.0")  # conftest: no network
     code, env = run_json(["app", "info", "--check"], capsys)
-    assert code == 0 and (env["data"]["state"], env["data"]["checked"], env["data"]["checked_at"]) == ("unknown", True, None)
+    assert code == 0 and (env["data"]["state"], env["data"]["ran_check"], env["data"]["checked_at"]) == ("unknown", True, None)
+    assert env["data"]["message"] == words.UPDATE_NO_ANSWER_OFFLINE
     code, text = cli.main(["app", "info", "--check"]), capsys.readouterr().out
-    assert code == 0 and "unknown" in text
+    assert code == 0 and "unknown" in text and words.UPDATE_NO_ANSWER_OFFLINE in text

@@ -1,11 +1,11 @@
 Restored rekordbox's library from <backup>. Your library as it was is saved as <backup>. 2 of your rekordbox tracks now point at files that Discjockey has since moved to Superseded/. Undo those batches first (`batch undo`), or Relocate them in rekordbox.
 
-Restored  <backup>
+Restored       <backup>
 Saved current  <backup>
-Recovered  none
+Recovered      none
 
 Missing after
-Id  Path  Was
-1  <tmp>/music/Library/A/Old 0.mp3  <tmp>/music/Library/A/Artist - Song 0.aiff
-2  <tmp>/music/Library/A/Old 1.mp3  <tmp>/music/Library/A/Artist - Song 1.aiff
+Id  Path                             Was
+1   <tmp>/music/Library/A/Old 0.mp3  <tmp>/music/Library/A/Artist - Song 0.aiff
+2   <tmp>/music/Library/A/Old 1.mp3  <tmp>/music/Library/A/Artist - Song 1.aiff
 2 of 2 shown

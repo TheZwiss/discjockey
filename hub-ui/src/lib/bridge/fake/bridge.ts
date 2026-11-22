@@ -1503,7 +1503,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return /^https:\/\//.test(url ?? '') ? ok({ target: url, opened: true }) : fail('refused', 'Only https links open in the browser.');
     },
     async app_update(check?: boolean) {
-      return ok({ ...s.appUpdate, checked: !!check, checked_at: s.appUpdate.state === 'unknown' ? null : '2026-10-20T21:47:00+00:00' });
+      const unknown = s.appUpdate.state === 'unknown';
+      return ok({ ...s.appUpdate, ran_check: !!check, checked_at: unknown ? null : '2026-10-20T21:47:00+00:00',
+        message: check && unknown ? 'No answer: GitHub could not be reached.' : null });
     },
     // the music folder (api.py pick_folder / check_music_folder / set_music_folder / retry_music_folder)
     async pick_folder(_start?: string | null) { return later(300, () => ok({ path: s.pick })); },

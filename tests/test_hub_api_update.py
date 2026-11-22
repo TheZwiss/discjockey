@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from hub_helpers import make_unbound_api
 
-from discjockey import __version__
+from discjockey import __version__, words
 from discjockey.hub import jobs
 
 NEWER = json.dumps({"tag_name": "v999.0.0", "draft": False, "prerelease": False}).encode()
@@ -28,7 +28,7 @@ def updates(rec):
 def test_app_update_answers_before_any_check_and_without_a_music_folder(tmp_path):
     api, _ = make_unbound_api(tmp_path / "support")
     assert api.app_update() == {"ok": True, "state": "unknown", "current": __version__, "latest": None, "url": None,
-                                "checked": False, "checked_at": None}
+                                "ran_check": False, "checked_at": None, "message": None}
 
 
 def test_the_watch_checks_at_start_and_sends_the_answer_once(tmp_path):
@@ -110,7 +110,7 @@ def test_a_fresh_cache_answers_without_a_check_and_without_the_network(tmp_path)
     when = cache_of(support, age=timedelta(hours=3))
     api, _ = make_unbound_api(support, fetch_release=lambda url: asked.append(url) or NEWER)
     answer = api.app_update()
-    assert (answer["state"], answer["latest"], answer["checked"], answer["checked_at"]) == ("available", "999.0.0", False, when)
+    assert (answer["state"], answer["latest"], answer["ran_check"], answer["checked_at"]) == ("available", "999.0.0", False, when)
     assert asked == []
 
 
@@ -120,7 +120,7 @@ def test_a_cache_a_day_old_is_not_an_answer_but_its_time_is_told(tmp_path):
     when = cache_of(support, age=timedelta(days=2))
     api, _ = make_unbound_api(support, fetch_release=lambda url: asked.append(url) or NEWER)
     answer = api.app_update()
-    assert (answer["state"], answer["checked"], answer["checked_at"]) == ("unknown", False, when) and asked == []
+    assert (answer["state"], answer["ran_check"], answer["checked_at"]) == ("unknown", False, when) and asked == []
 
 
 def test_check_asks_the_network_once_writes_the_cache_and_says_so(tmp_path):
@@ -128,7 +128,7 @@ def test_check_asks_the_network_once_writes_the_cache_and_says_so(tmp_path):
     support = tmp_path / "support"
     api, _ = make_unbound_api(support, fetch_release=lambda url: asked.append(url) or NEWER)
     answer = api.app_update(check=True)
-    assert (answer["state"], answer["latest"], answer["checked"]) == ("available", "999.0.0", True) and len(asked) == 1
+    assert (answer["state"], answer["latest"], answer["ran_check"]) == ("available", "999.0.0", True) and len(asked) == 1
     assert answer["checked_at"] == json.loads((support / "cache" / "app_update.json").read_text())["checked_at"]
     again = api.app_update(check=True)  # the Checker's own cap: a fresh cache is the answer
     assert len(asked) == 1 and again["checked_at"] == answer["checked_at"]
@@ -141,14 +141,14 @@ def test_check_with_a_fresh_cache_asks_nothing_and_a_check_that_gets_no_answer_s
     cache_of(support, age=timedelta(hours=1), version=None)  # a repo with no release: nothing newer
     api, _ = make_unbound_api(support, fetch_release=lambda url: asked.append(url) or NEWER)
     answer = api.app_update(check=True)
-    assert (answer["state"], answer["checked"]) == ("up_to_date", True) and asked == []
+    assert (answer["state"], answer["ran_check"]) == ("up_to_date", True) and asked == []
 
     def offline(url):
         raise OSError("offline")
 
     api, _ = make_unbound_api(tmp_path / "other", fetch_release=offline)
     answer = api.app_update(check=True)
-    assert (answer["state"], answer["checked"], answer["checked_at"]) == ("unknown", True, None)
+    assert (answer["state"], answer["ran_check"], answer["checked_at"]) == ("unknown", True, None)
 
 
 def test_a_check_that_ran_is_not_overwritten_by_an_older_cache_read(tmp_path):
@@ -164,3 +164,29 @@ def test_the_checkers_status_keeps_its_four_keys_for_the_window_event(tmp_path):
     api, _ = make_unbound_api(tmp_path / "support", fetch_release=lambda url: NEWER)
     api._update.check()
     assert set(api._update.status()) == {"state", "current", "latest", "url"}  # `AppUpdate(**status())` builds the event
+
+
+def test_a_check_that_ends_unknown_says_why_in_the_message(tmp_path):
+    """`app info --check`: a developer's version asks nobody, an offline machine asks and gets nothing: both are `unknown`
+    with no `checked_at`, and only the message tells them apart (no check, no message)."""
+    asked = []
+    api, _ = make_unbound_api(tmp_path / "dev", fetch_release=lambda url: asked.append(url) or NEWER)
+    api._update.current = "1.0.0-dev"  # no plain release number
+    answer = api.app_update(check=True)
+    assert (answer["state"], answer["ran_check"], answer["checked_at"], answer["message"]) == (
+        "unknown", True, None, words.UPDATE_NO_ANSWER_DEV) and asked == []
+
+    def offline(url):
+        asked.append(url)
+        raise OSError("offline")
+
+    api, _ = make_unbound_api(tmp_path / "offline", fetch_release=offline)
+    answer = api.app_update(check=True)
+    assert (answer["state"], answer["ran_check"], answer["checked_at"], answer["message"]) == (
+        "unknown", True, None, words.UPDATE_NO_ANSWER_OFFLINE) and len(asked) == 1
+    assert api.app_update()["message"] is None  # without `check` nobody asked: nothing to explain
+
+
+def test_a_check_with_an_answer_has_no_message(tmp_path):
+    api, _ = make_unbound_api(tmp_path / "support", fetch_release=lambda url: NEWER)
+    assert api.app_update(check=True)["message"] is None
