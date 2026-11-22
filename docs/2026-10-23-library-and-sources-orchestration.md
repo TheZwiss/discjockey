@@ -1453,7 +1453,14 @@ Results:
         User asked why the gate error (my prompt format, twice: told + memory) and the approval prompt (above).
         Now: `npm run verify` (background, cli3-reads-pass worktree at c3ebc31e) + CI watch; both green → merge into
         main, push. No release.
-      - **RESUME HERE (LATEST, 2026-11-22, phase 3 done):** PHASE 3 MERGED INTO MAIN d735c8d3 (verify 1270 shots, 0
+      - **RESUME HERE (LATEST, 2026-11-22, phase 4 detailing wave A running):** user "go" for phase 4 (open-scope Decided).
+        Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
+        size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
+        groups logged 369k): wave A (Opus, brief-detail-waveA.md, material 97k + ~30k by grep, exp. 380k): plan for all
+        of phase 4 + V4.1-V4.4 briefs, rehearsal + review files, dispatch, carry-waveB.md. Then a fresh Opus brief check
+        of wave A, then the wave A builds on `feat/cli-4-writes` (from main), each group: builds → own Sonnet review →
+        fix → rehearsal on a scratchpad clone; then wave B detailing on the code. No release.
+      - RESUME HERE (superseded, 2026-11-22, phase 3 done): PHASE 3 MERGED INTO MAIN d735c8d3 (verify 1270 shots, 0
         problems; CI green on feat/cli-3-reads c3ebc31e and on main). Branch feat/cli-3-reads and worktree cli3-reads-pass
         removed. Phase 3 ≈ 3.6M logged (est. ~2.9M). No release. Issue 46 stays open. Next: phase 4 detailing (Opus,
         sizing script first) only on the user's go; V3.4 hand pages wait for the end of phase 6.
