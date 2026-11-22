@@ -88,9 +88,11 @@ class AppUpdate(TypedDict):
     current: Annotated[str, F("This app's version.")]
     latest: Annotated[str | None, F("The newest version; only for `available`.")]
     url: Annotated[str | None, F("The release page; only for `available`.", shown=False)]
-    checked: Annotated[bool, F("This call ran the update check (`--check`); the network is asked only when the last "
-                               "answer is a day old.")]
+    ran_check: Annotated[bool, F("This call ran the update check (`--check`); the network is asked only when the last "
+                                 "answer is a day old.")]
     checked_at: Annotated[str | None, F("When the last answer was fetched; null when it never was.")]
+    message: Annotated[str | None, F("Why a check that ran has no answer (a developer's version asks nobody; GitHub could "
+                                     "not be reached); null otherwise.")]
 
 
 @shape

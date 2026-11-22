@@ -547,10 +547,16 @@ parameter `print_only=false`, which the window never sends: the command line's `
 answers `opened: false`. `open_report("not-lossless")` opens `.discjockey/not_lossless.md` (the buy list), refused with "There is
 no buy list yet: …" when the file is not there. `open_external`, `open_licenses` and `open_privacy_settings` work without a music folder.
 
-`app_update()` (immediate, also without a music folder: not a library method) — the last answer of the update check (spec
-public-release §8); it never touches the network itself. `unknown` means no answer yet (offline, rate limit, or a version
-that isn't plain), and then the page shows nothing. `latest` and `url` are set only for `available`, and the page opens
-`url` with `open_external`. Read it at boot; the `AppUpdate` event brings later changes.
+`app_update(check?)` (immediate, also without a music folder: not a library method) — the last answer of the update check
+(spec public-release §8). Without `check` it never touches the network: the window's own check keeps the answer in
+memory, and a process with no window (the command line's `app info`) reads the cache while it is at most a day old. With
+`check` (`app info --check`) the update check runs: GitHub is asked only when the cache is a day old or missing, and never
+for a developer's version (it is never compared). `ran_check` says this call ran the check; `checked_at` is when the last
+answer was fetched (null: never). `unknown` means no answer (offline, rate limit, or a version that isn't plain), and
+then the page shows nothing; a call with `check` that ends `unknown` says why in `message` ("No answer: this is a
+developer's version." / "No answer: GitHub could not be reached."), else `message` is null. `latest` and `url` are set
+only for `available`, and the page opens `url` with `open_external`. Read it at boot; the `AppUpdate` event brings later
+changes and carries only `state`, `current`, `latest` and `url`.
 Shape: `AppUpdate` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
 `quit()` (immediate) — closes the hub window (after `update_tools` or `rollback_tools` with `restart`: the page says

@@ -1735,16 +1735,21 @@ class HubApi:
     @bridge
     def app_update(self, check: bool = False) -> dict:
         """Is a newer Discjockey out (spec public-release §8)? {state: available | up_to_date | unknown, current, latest,
-        url, checked, checked_at}. Without `check` never the network: the window's check keeps the answer in memory, and
-        a process that runs none (the command line) reads the cache while it is a day old at most. With `check` this call
-        ran the update check (`Checker.check`: GitHub only when the cache is a day old or missing, never for a
-        developer's version): `checked` says so, `checked_at` is when the last answer was fetched (null: never).
+        url, ran_check, checked_at, message}. Without `check` never the network: the window's check keeps the answer in
+        memory, and a process that runs none (the command line) reads the cache while it is a day old at most. With `check`
+        this call ran the update check (`Checker.check`: GitHub only when the cache is a day old or missing, never for a
+        developer's version): `ran_check` says so, `checked_at` is when the last answer was fetched (null: never), and a
+        check that ends `unknown` says why in `message` (a developer's version asked nobody; else GitHub gave no answer).
         Works without a music folder."""
         if check:
             self._update.check()
         else:
             self._update.load_cache()
-        return {**self._update.status(), "checked": bool(check), "checked_at": self._update.cached_at()}
+        status = self._update.status()
+        message = None
+        if check and status["state"] == "unknown":
+            message = engine_words.UPDATE_NO_ANSWER_DEV if self._update.developer_version else engine_words.UPDATE_NO_ANSWER_OFFLINE
+        return {**status, "ran_check": bool(check), "checked_at": self._update.cached_at(), "message": message}
 
     def _watch_app_update(self, interval: float = _UPDATE_TICK) -> threading.Thread:
         """The update check at start, then every `interval` while the window is open: the cached answer, or GitHub's

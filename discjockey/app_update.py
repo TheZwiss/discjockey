@@ -192,8 +192,13 @@ class Checker:
         """When the cache was fetched (`cached_at`), at any age; None while there is none."""
         return cached_at(self.cache_file)
 
+    @property
+    def developer_version(self) -> bool:
+        """Whether this is a version that is no plain release number (a checkout's): it is never compared, so never asked about."""
+        return parse_version(self.current) is None
+
     def check(self) -> bool:
-        if parse_version(self.current) is None:  # a developer's version is never compared: don't ask, stay unknown
+        if self.developer_version:  # a developer's version is never compared: don't ask, stay unknown
             return False
         try:
             release = latest(self.cache_file, fetch=self._fetch, now=self._now())

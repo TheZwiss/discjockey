@@ -2,5 +2,6 @@ State       unknown
 Current     1.0.0
 Latest      none
 Url         none
-Checked     no
+Ran check   no
 Checked at  none
+Message     none
