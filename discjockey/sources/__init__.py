@@ -132,9 +132,10 @@ def read(paths: SupportPaths, lines: list[PlaylistLine], *, emit: Emit = no_emit
 
 def read_infos(paths: SupportPaths, refs: list[str], infos: dict, token: CancelToken,
                paused: frozenset[str] = frozenset(),
-               on_signal: Callable[[str, str, str], None] | None = None) -> None:
+               on_signal: Callable[[str, str, str], None] | None = None, dropped: set[str] | None = None) -> None:
     """Fills `infos[ref]` (a PlaylistInfo) for each playlist ref, one reader per service. A playlist the service says
-    it can't show (kind playlist_unreadable) loses its entry. Any other failure is the service's, not the playlist's
+    it can't show (kind playlist_unreadable) loses its entry, and its ref is added to `dropped` (the caller deletes
+    what it stored of it). Any other failure is the service's, not the playlist's
     (a login that fails, the service not answering): the entries already in `infos` stay, and the other services are
     read as usual. Only Stop (events.Cancelled) raises. `paused` and `on_signal` as in `read`: a Liked music ref is
     skipped (no request) while its account is paused or the choice is off; a warning sign met is passed on."""
@@ -159,5 +160,7 @@ def read_infos(paths: SupportPaths, refs: list[str], infos: dict, token: CancelT
                     except SourceError as e:
                         if e.kind == "playlist_unreadable":
                             infos.pop(ref, None)
+                            if dropped is not None:
+                                dropped.add(ref)
         except SourceError:
             continue

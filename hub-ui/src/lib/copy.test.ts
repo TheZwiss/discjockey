@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PLAN_COUNT_WORDS, PLAYLIST_SERVICE_NAMES, SERVICE_SETTINGS, detailLine, problemCopy, serviceProblem } from './copy';
+import { BANNER, PLAN_COUNT_WORDS, consoleBanner, sentence, PLAYLIST_SERVICE_NAMES, SERVICE_SETTINGS, detailLine, problemCopy, serviceProblem } from './copy';
 
 describe('detailLine', () => {
   it('drops a detail that only repeats the headline', () => {
@@ -67,5 +67,20 @@ describe('a playlist service missing: one wording and one link per service on ev
   });
   it('rekordbox open: the title is short, the engine\'s message says the rest', () => {
     expect(problemCopy('rekordbox_open').title).toBe('rekordbox is open.');
+  });
+});
+
+describe('consoleBanner', () => {
+  it('says the engine\'s holder words, then the tail of the page that shows it', () => {
+    const text = 'Sync running in the Terminal · 4 of 60';
+    expect(consoleBanner(text)).toBe(`${text}. You can look around; changes wait until it's finished.`);
+    expect(consoleBanner(text, BANNER.console_tail_setup)).toBe(`${text}. You can go on with setup when it has finished.`);
+  });
+  it('adds no full stop after holder words that end in one (Reading your playlists...)', () => {
+    expect(sentence('Reading your playlists...')).toBe('Reading your playlists...');
+    expect(sentence('Reading your playlists…')).toBe('Reading your playlists…');
+    expect(sentence('Sync running in the Terminal · 4 of 60')).toBe('Sync running in the Terminal · 4 of 60.');
+    expect(consoleBanner('Sync running in the Terminal · Reading your playlists...'))
+      .toBe("Sync running in the Terminal · Reading your playlists... You can look around; changes wait until it's finished.");
   });
 });

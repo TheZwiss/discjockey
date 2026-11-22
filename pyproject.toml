@@ -34,5 +34,6 @@ addopts = ["-n", "auto", "--dist", "worksteal"]
 markers = [
     "real_durability: the test runs with the real drive flushes (F_FULLFSYNC, synchronous = FULL, fullfsync); tests/speed_durability.py turns them off otherwise",
     "real_tools: the test runs every ffprobe and ffmpeg for real (tests/tool_memo.py answers a repeat on the same bytes otherwise)",
+    "shapes_unchecked: a test whose job work or answer is a stub, not the engine's: the answers and job results it makes are not checked against their shapes (tests/conftest.py)",
     "real_sqlcipher_kdf: the test uses SQLCipher's own passphrase key derivation (tests/speed_sqlcipher.py derives it once per key otherwise)",
 ]

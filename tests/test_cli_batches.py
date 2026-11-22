@@ -46,8 +46,10 @@ def with_report(paths, stamp: str = "2026-11-10_110000", tracks: tuple[str, ...]
     day, clock = stamp.split("_")
     (paths.reports / f"{stamp}.json").write_text(json.dumps({
         "started": f"{day}T{clock[:2]}:{clock[2:4]}:00", "finished": f"{day}T{clock[:2]}:{int(clock[2:4]) + 5:02d}:00",
-        "exit_code": 0, "results": [{"section": "new_lossless", "status": "lossless", "track_id": t, "artist": "A",
-                                     "title": f"Song {t}", "path": f"Library/Hard_Bounce/A - Song {t}.aiff"} for t in tracks]}))
+        "exit_code": 0, "results": [{"section": "new_lossless", "folder": "Hard_Bounce", "artist": "A", "title": f"Song {t}",
+                                     "track_id": t, "note": "", "status": "lossless", "source": None, "cutoff_hz": None,
+                                     "path": f"Library/Hard_Bounce/A - Song {t}.aiff", "error_kind": None}
+                                    for t in tracks]}))
     return stamp
 
 

@@ -17,12 +17,13 @@
   // round from where it is. The browser column stays mounted outside Library (`away`: hidden, inert, its scroll kept),
   // so its arrival and leaving are transitions too.
   import { get } from 'svelte/store';
-  import { hub, hubSyncRunning } from '../stores/hub';
+  import { hub } from '../stores/hub';
+  import { shownSync } from '../stores/follow';
   import { libraryTarget, link, route } from '../router';
   import { updateLink } from '../appUpdate';
   import { ExternalLink, NavIcon, Ring, tip } from '../components';
   import { player } from '../stores/player';
-  import { ACTIVE_PHASES, run } from '../stores/run';
+  import { ACTIVE_PHASES } from '../stores/run';
   import {
     BROWSER_DEFAULT, BROWSER_MAX, BROWSER_MIN, bringBrowserBack, chromeMotion, edgeCursor, edgeKeyWidth, fold,
     lastLibrary, setBrowserWidth,
@@ -68,10 +69,11 @@
   const side = $derived($hub.sidebar);
   const update = $derived(updateLink($hub.app_update));
   const r = $derived($route);
-  const syncing = $derived($hubSyncRunning && ACTIVE_PHASES.includes($run.phase));
+  // the own sync, or the Terminal's while it runs (`shownSync`)
+  const syncing = $derived($shownSync && ACTIVE_PHASES.includes($shownSync.phase) ? $shownSync : null);
   const sig: NavSignals = $derived({
     todo: side?.todo ?? 0,
-    sync: syncing ? { index: $run.index, total: $run.total, frac: activityProgress($run) } : null,
+    sync: syncing ? { index: syncing.index, total: syncing.total, frac: activityProgress(syncing) } : null,
     limitsWarning: !!side?.limits_warning,
   });
   const pill = $derived(railPill(sig.todo));

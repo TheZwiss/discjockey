@@ -16,7 +16,8 @@ the entry when a command has several (`DISPATCH`).
 
 `planned` is "phase N" while the command is not built: T1 counts it as covered, the parser and `help --json` leave
 it out, and the last phase's test fails while any is left. `locks` (design §6.1) names the locks a command takes,
-per built entry (a later group fills it with its command; T10, tests/test_cli_locks.py, pins it); `schema` stays None in phase 1 (phase 2 fills it)."""
+per built entry (a later group fills it with its command; T10, tests/test_cli_locks.py, pins it); `schema` names the shape that
+answers the method (`shapes.ANSWERS`, read when the entry is made), None while none is mapped."""
 from __future__ import annotations
 
 import inspect
@@ -26,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from .. import missing as missing_rule
-from . import select
+from . import select, shapes
 
 Kind = Literal["R", "RJ", "J", "J-control", "B", "W", "dropped"]
 
@@ -62,7 +63,7 @@ class Entry:
     cli_first: bool = False             # a method the command line needs and the window does not have yet
     planned: str | None = None
     example: str = ""
-    schema: str | None = None
+    schema: str | None = None           # the shape of the method's answer (hub/shapes), from `_e`
 
 
 WINDOW_ONLY = {"pick_folder": "native_dialog", "quit": "closes_window"}
@@ -127,7 +128,7 @@ DISPATCH: dict[str, str] = {
     "sync run": "`--auto-upgrade-only` runs auto_upgrade_run; the whole sync (start_sync) is phase 4's",
     "batch undo": "the id kind of the first word: `aiff:N` runs batch_undo, `moves:N` runs undo_moves",
     "version use": "`--link URL` runs use_link, else a candidate runs use_candidate",
-    "duplicate keep": "a file id as the second word runs supersede_duplicate, `--all` runs keep_duplicates",
+    "duplicate keep": "a file id as the second word runs keep_file, `--all` runs keep_duplicates",
     "folder crates show": "several folders run set_crates_shown, one runs set_crate_shown",
     "folder crates hide": "several folders run set_crates_shown, one runs set_crate_shown",
     "folder crates default": "several folders run set_crates_shown, one runs set_crate_shown",
@@ -139,8 +140,8 @@ DISPATCH: dict[str, str] = {
 
 # The built methods that work without a bound music folder (every other one answers `refused`, `no_library` first): a
 # fact `help --json` lists as the `no_library` reason. tests/test_cli_housekeeping.py runs every built read with none
-# chosen to pin it (`set_auto_upgrade` is a write: probed by hand, it answers `ok` with none chosen).
-NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade"))  # Settings works before a folder is chosen
+# chosen to pin it (`set_auto_upgrade` and `set_sync_scope` are writes: probed by hand, they answer `ok` with none chosen).
+NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope"))  # Settings works before a folder is chosen
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
@@ -178,7 +179,8 @@ def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapp
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
                  params=params or {}, fixed=fixed or {}, cli_first=cli_first, locks=frozenset(locks),
                  partial=frozenset(partial), match=match or {},
-                 planned=None if built or kind in ("W", "dropped") else PHASE, example=example)
+                 planned=None if built or kind in ("W", "dropped") else PHASE, example=example,
+                 schema=shapes.ANSWERS.get(method))
 
 
 def _positional(resolve: str | None = None, *, many: bool = False, type: str = "str") -> Arg:
@@ -245,6 +247,7 @@ ENTRIES: tuple[Entry, ...] = (
        params={"batch_id": _positional("moves", type="int")}),
     _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True, locks={"rekordbox_r"}),
     _e("job_status", "", "R", built=True),  # the window's own job; `job list` / `job show` read the registry
+    _e("job_events", "", "R", built=True),  # the window's follow; `job follow --jsonl` reads the same files
     _e("spectrum", "track spectrum", "R", "track spectrum local:1 --which current", params={"track_id": TRACK}),
     _e("media_url", "", "dropped"),
     _e("dashboard", "status", "R", "status"),
@@ -308,6 +311,11 @@ ENTRIES: tuple[Entry, ...] = (
     _e("setup_skip_spotify", "login skip", "J", match={"service": "spotify"}),
     _e("set_auto_upgrade", "settings set auto-upgrade", "J", "settings set auto-upgrade off",
        params={"on": _positional(type="bool")}, built=True, locks={"library", "support"}),
+    _e("sync_scope", "sync scope show", "R", "sync scope show", built=True),
+    _e("set_sync_scope", "sync scope off", "J", "sync scope off kind:weekly", params={"off": _positional(many=True)},
+       fixed={"on": []}, built=True, locks={"library", "support"}),
+    _e("set_sync_scope", "sync scope on", "J", "sync scope on kind:weekly", params={"on": _positional(many=True)},
+       fixed={"off": []}, built=True, locks={"library", "support"}),
     _e("setup_check_tools", "tools status", "R", "tools status"),
     _e("update_tools", "tools update", "J"),
     _e("rollback_tools", "tools rollback", "J", needs_yes=True),
@@ -331,7 +339,7 @@ ENTRIES: tuple[Entry, ...] = (
         "song_key": _derived("question"), "own_key": _derived("question"), "same": _positional(type="bool")}),
     _e("keep_duplicates", "duplicate keep", "J", params={
         "group_id": _positional("duplicate"), "paths": Arg("--all", type="bool", resolve="duplicate_paths")}),
-    _e("supersede_duplicate", "duplicate keep", "J", params={
+    _e("keep_file", "duplicate keep", "J", params={
         "group_id": _positional("duplicate"), "file_id": _positional("file", type="int"),
         "paths": _derived("duplicate_paths", "list")}),
     # `aiff convert` is three entries of one command: `convert` (named or --rows songs), `make_aiff` (--all [--in C | --todo
@@ -377,7 +385,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("missing_files", "missing remove", "J", "missing remove --all --yes", params={"track_ids": TRACKS},
        fixed={"action": "remove"}, needs_yes=True, dry_run="missing_files_preview", built=True, locks={"library"},
        partial=MISSING_PARTIAL),
-    _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK}),
+    _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK, "path": _positional(type="str")}),
     _e("search_candidates", "version search", "RJ", params={"track_id": TRACK}),
     _e("preview", "version preview", "RJ", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),
     _e("use_candidate", "version use", "J", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),
@@ -419,6 +427,30 @@ def by_method(method: str) -> list[Entry]:
     return [e for e in ENTRIES if e.method == method]
 
 
+# The arguments no file may keep (a password), `method -> names`: every `Arg(secret=True)` of ENTRIES. A job's `state.json`
+# holds its arguments, so every writer of one (the window's `Jobs`, the terminal's `call.start_job`) takes them through
+# `public_args`.
+SECRET_PARAMS: dict[str, frozenset[str]] = {}
+for _entry in ENTRIES:
+    if _secret := frozenset(name for name, arg in _entry.params.items() if arg.secret):
+        SECRET_PARAMS[_entry.method] = SECRET_PARAMS.get(_entry.method, frozenset()) | _secret
+
+
+def public_args(method: str | None, args: Mapping[str, object]) -> dict:
+    """`args` without the arguments of `method` that are secret (`SECRET_PARAMS`): what may be written to a job's files."""
+    secret = SECRET_PARAMS.get(method or "", frozenset())
+    return {name: value for name, value in args.items() if name not in secret}
+
+
+def holds_library(state: Mapping) -> bool:
+    """Whether the job `state` (a registry `state.json`) holds the library lock: its own `library_lock` when it says (the
+    window's jobs and the terminal's both write it), else the catalogue's `locks` column of its method (a record from
+    before the field, or one a test wrote)."""
+    if state.get("library_lock") is not None:
+        return bool(state["library_lock"])
+    return any("library" in e.locks for e in by_method(state.get("method") or ""))
+
+
 def _type_of(annotation: object) -> str:
     """`str`, `int`, `bool`, `list` or `dict` from a parameter's annotation (a string here: `from __future__`)."""
     text = annotation if isinstance(annotation, str) else getattr(annotation, "__name__", str(annotation))
@@ -439,7 +471,7 @@ def generated_arg(name: str, parameter: inspect.Parameter) -> Arg:
         return Arg(positional=True, type="list", many=True, resolve=resolve)
     if parameter.default is inspect.Parameter.empty:
         return Arg(positional=True, type=type_, resolve=resolve)
-    word = name[:-3] if name.endswith("_id") and len(name) > 3 else name
+    word = "if-rev" if name == "expect" else name[:-3] if name.endswith("_id") and len(name) > 3 else name
     return Arg(flag="--" + word.replace("_", "-"), type=type_, resolve=resolve)
 
 

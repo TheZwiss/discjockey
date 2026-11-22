@@ -3,7 +3,7 @@
     uv run python scripts/record_hub_events.py            # writes tests/fixtures/hub_events_*.jsonl and the schema
 
 The run uses the real engine and the real hub (HubApi, jobs, run.prepare/execute, Acquirer, make_ready with ffmpeg,
-the real Pacer with its countdowns) in a throw-away folder. Only the outside world is faked: Spotify answers from a
+the real SharedPacer with its countdowns) in a throw-away folder. Only the outside world is faked: Spotify answers from a
 list, Qobuz and YouTube "download" files made here with ffmpeg, and the pauses don't really wait. No network.
 Needs ffmpeg. Two recordings: a whole sync, and one stopped by "Stop safely" during the third action.
 """
@@ -22,6 +22,7 @@ import typing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
 from discjockey import events as ev, run  # noqa: E402
 from discjockey.sources import spotify  # noqa: E402
@@ -30,9 +31,10 @@ from discjockey.hub import jobs  # noqa: E402
 from discjockey.hub.api import HubApi, Services  # noqa: E402
 from discjockey.library import Paths, empty_state, save_state  # noqa: E402
 from discjockey.models import Candidate, FetchedPlaylist, PlaylistInfo, SourceTrack  # noqa: E402
-from discjockey.pacing import Pacer  # noqa: E402
+from discjockey.pacing import SharedPacer  # noqa: E402
 from discjockey.planner import ENTRY_KEYS  # noqa: E402
 from discjockey.settings import Settings, save_settings  # noqa: E402
+from pace_helpers import FakeClock  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 SHOWN_ROOT = "/Users/you/Music/Discjockey"
@@ -195,17 +197,25 @@ def record(work: Path, stop_at: int | None = None) -> list[str]:
         "spotify", pid, "Playlist", "you", "You", False, None, len(PLAYLISTS[pid]), True, True))
     patch(run.QobuzSource, "open", classmethod(lambda cls, p: FakeQobuz(audio)))
     patch(run, "FallbackSource", lambda **kw: FakeFallback(audio, **kw))
-    patch(run, "Pacer", lambda emit, token: Pacer(emit, token, sleep=lambda s: time.sleep(0.001),
-                                                  rng=random.Random(7)))
     try:
         api_ref: list = []
         rec = Recorder(paths.root, stop_at, api_ref)
-        api = HubApi(paths.support, rec, Services(now=lambda: __import__("datetime").datetime(2026, 10, 16, 21, 47)))
+        # the real pacing on a clock that only moves when it waits (a sleep of a millisecond on the real clock would wait the
+        # gaps for real), with the last Qobuz request a second ago so the first search waits as the old per-run pacer did
+        clock = FakeClock(time.time())
+        paths.support.mkdir(parents=True, exist_ok=True)
+        paths.support.joinpath("pace.json").write_text(json.dumps({"v": 1, "services": {"qobuz": {
+            "last_request_at": clock.time() - 1, "last_download_end_at": None, "in_flight": None,
+            "since_break": 0, "next_break": 12}}}), encoding="utf-8")
+        api = HubApi(paths.support, rec, Services(
+            now=lambda: __import__("datetime").datetime(2026, 10, 16, 21, 47),
+            pacer=lambda support, emit, token: SharedPacer(support, emit, token, sleep=clock.sleep, clock=clock.time,
+                                                           rng=random.Random(7))))
         api._attach(paths)
         api_ref.append(api)
         _wait(api, api.refresh())
-        keys = [a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]]
-        _wait(api, api.start_sync(keys))
+        preview = api.sync_preview()
+        _wait(api, api.start_sync(preview["plan_id"], [a["id"] for g in preview["groups"] for a in g["actions"]]))
         return rec.lines
     finally:
         for obj, name, value in reversed(restore):

@@ -337,9 +337,11 @@ remove it on every page, not just yours.
   The shell imports no page. A view never loses the warning: it claims a banner only while it really shows its own.
 - **Sync's use of it:** the before-start view shows reading and Spotify problems as cards in its body
   (`readStatusInBody`), so the slot keeps only the control. It claims `console` only while it shows a plan (Start
-  off, with its Hint "A sync is running in the terminal"), and `readStatus` only while the card above the plan can
-  show. The up-to-date, empty and preview-error views keep the console banner (`sync-before-up-to-date-console`);
-  the running and end views keep both banners.
+  off, with its Hint, the engine's words for the holder: "Tidy-up running in the Terminal · 12 of 80 · Techno": a
+  Terminal job that is not a sync), and `readStatus` only while the card above the plan can show. The up-to-date,
+  empty and preview-error views keep the console banner (`sync-before-up-to-date-console`). A sync the Terminal runs
+  is not a plan with a note: the live view shows it (below), and claims `console`, its header saying "In the
+  Terminal". The own running and end views keep both banners.
 
 ---
 
@@ -462,7 +464,7 @@ beside it below 680 px list width; What to do shows the same icons beside the ki
 
 The gallery's "Other components" (WriteButton, Badge, Cover, TrackRow, fields (CopyCode and SecretField have their own
 sections), Banner, Dialog, Ring, Spectrum, player,
-DropZone) are shared and in use, not reworked yet; phase 2 reworks each with its page. `Ring mark` is a 2 px ring
+DropZone) are shared and in use, not reworked yet (`Banner` sets `data-banner` on its root, so its status sentence counts as a container for the loose-text rule, and its text wraps inside the frame, never clips); phase 2 reworks each with its page. `Ring mark` is a 2 px ring
 with nothing inside, round a glyph (the rail's running sync): decorative (the glyph's Tip says it), its arc at the
 live pace. To-do no longer uses `TrackRow`
 (its rows are `ListRow`s) and Library's table has its own cells, so `TrackRow` is in no page any more. A round icon button that isn't a `Button` (`PlayButton`,
@@ -513,7 +515,7 @@ npm run rules -- --page sync --only sync-many,sync-end       # only the named sh
 | `button` | a button is wider than its natural size (allowed: a `wide` button in a panel foot, and the hit areas that fill by design: segments, switch rows, menu items, `[data-row-hit]`, StepStrip's `[data-step-hit]`; a button in a list's head or a row's trailing cell is checked) |
 | `primary` | more than one visible `[data-primary]` per screen, or per dialog |
 | `clipped` | at 1100 × 700: a control outside the window and not in a scroller, or a `Panel` foot not fully visible |
-| `loose-text` | more than 90 characters of text outside `[data-surface]`, `[data-note]`, `[data-infotip]` or a dialog (blocks set these markers; `lib/guards.test.ts` fails a page that writes one, or any other checker marker, by hand) |
+| `loose-text` | more than 90 characters of text outside `[data-surface]`, `[data-note]`, `[data-banner]` (the shell's `Banner`: a toned status block whose sentence carries engine data of varying length), `[data-infotip]` or a dialog (blocks set these markers; `lib/guards.test.ts` fails a page that writes one, or any other checker marker, by hand) |
 | `font-size` | a text size not in `--type-scale` |
 | `colour` | a text, background or border colour that isn't a token value (transparent is fine) |
 | `read-status` | a `[data-read-status]` outside `[data-page-header]` |
@@ -549,6 +551,7 @@ Sync is built on the system in every state. When unsure how something should loo
 | Up to date | same (`plan/UpToDate.svelte`, `plan/UpToDatePanel.svelte`) | `sync-before-up-to-date`, `sync-before-up-to-date-wait` (`sync-last-wait` on the waiting StatCard), `sync-before-up-to-date-console` |
 | Auto-upgrade before the start | same (`BeforeStart.svelte`'s `startNote`, in `RunPanel`'s foot under Start sync) | `sync-before-auto-rekordbox-open`, `sync-before-auto-ready` |
 | Running, pause, stopping | `ColumnFrame` (`LiveView.svelte`) | `sync-downloading`, `sync-pause`, `sync-break`, `sync-stopping`, `sync-stop-refused`, `sync-auto-running` |
+| A sync the Terminal runs | the same `LiveView.svelte` and `EndScreen.svelte`, their sync passed in (`liveSource.ts`: the followed `RunState`, Stop safely for that job, the header's "In the Terminal"); a Terminal tidy-up keeps the plan with its note | `sync-terminal-reading`, `sync-terminal-running`, `sync-terminal-ended`, `sync-terminal-tidy` |
 | End, failed, crashed | `ColumnFrame` (`EndScreen.svelte`) | `sync-end`, `sync-end-stopped`, `sync-end-auto`, `sync-end-auto-waiting`, `sync-failed-login-expired`, `sync-crashed` |
 
 Each shot exists at `@1100`, `@1280` and `@2560`. Worth copying:

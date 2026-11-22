@@ -7,7 +7,7 @@ import { onEvent } from '$lib/bridge/events';
 import { waitForJob } from '$lib/stores/jobs';
 import type {
   AiffBatchResult, AiffPlan, AiffScope, DuplicatePair, JobSnap, JobStart, MissingAction, MissingConfirm, MissingPreview, MissingResult, RekordboxCheckView,
-  RekordboxStatus, Result, TodoItem, UndoResult,
+  RekordboxStatus, TodoItem, UndoResult,
 } from '$lib/bridge/types';
 import { latestOnly } from '$lib/latest';
 import { aiffProblem } from './aiffModel';
@@ -16,7 +16,7 @@ import { confirm } from '$lib/components/confirm';
 import { toasts } from '$lib/stores/toasts';
 import { problemCopy, successCopy } from '$lib/copy';
 import {
-  batchEnd, canTryAgain, discardConfirm, endRows, groupIdOf, isOwnCheck, progressRows, runRow, undoAsk, undoManyConfirm, undoProblem, undoneToast,
+  batchEnd, canTryAgain, discardConfirm, endRows, isOwnCheck, progressRows, runRow, undoAsk, undoManyConfirm, undoProblem, undoneToast,
   type BatchEnd,
   type BatchMode, type DuplicatePick, type RunRow, type UndoProblem, type UpgradeWays, type Way,
 } from './decisionModel';
@@ -56,13 +56,14 @@ export class UpgradeFlow {
   }
   /** Replace with lossless (swap / add_new) or Discard (spec §6.6). A replace needs no confirm: it can be undone until
    *  Done (the hint under it says so); Discard deletes the new version, so it asks. "changed": runJob shows "This
-   *  track changed in the meantime."; the finished job re-fetches the page. */
-  async upgrade(track_id: string, mode: Way | 'discard'): Promise<void> {
+   *  track changed in the meantime."; the finished job re-fetches the page. `rev`: the one the card was read with: the
+   *  write is refused `changed` when the song's record is not at that rev any more. */
+  async upgrade(track_id: string, mode: Way | 'discard', rev: string | null = null): Promise<void> {
     if (mode === 'discard' && !(await confirm({ title: 'Throw away the new version?',
       body: 'Your current file stays. This version is not offered again.', confirmLabel: 'Discard', tone: 'danger' }))) return;
     this.busy = mode;
     this.#onact?.();
-    await runJob(api.upgrade([track_id], BRIDGE_MODE[mode]));
+    await runJob(api.upgrade([track_id], BRIDGE_MODE[mode], null, rev));
     this.busy = null;
   }
   /** "Done, checked in rekordbox". */
@@ -141,8 +142,8 @@ export class AiffFlow {
 }
 
 /** "Which file stays?": the pick (the app's recommendation until the user picks) and Keep. Keeping a file is
- *  "supersede" write jobs (D10: journaled, no undo), one per file that goes; after each, the group is the one of the
- *  files left (groupIdOf), so a group of three takes two jobs. Keep both / Keep all is one "answer" job. */
+ *  one "supersede" write job (`keep_file`, D10: journaled, no undo) that moves every other file of the group. Keep both /
+ *  Keep all is one "answer" job. */
 export class DuplicateFlow {
   chosen = $state<DuplicatePick | undefined>(undefined);
   busy = $state(false);
@@ -177,19 +178,10 @@ export class DuplicateFlow {
   async #keepOne(g: DuplicatePair, keep: number): Promise<void> {
     this.busy = true;
     this.#onact?.(g.files.filter((x) => x.file_id === keep).map((x) => x.path));
-    let left = [...g.files];
-    let last: Result | null = null;
-    for (const f of g.files.filter((x) => x.file_id !== keep)) {
-      const r = await runJob<{ result: Result }>(api.supersede_duplicate(groupIdOf(left.map((x) => x.file_id)), f.file_id,
-        left.map((x) => x.path)), { success: false });
-      if (!r.ok) break;
-      last = r.result?.result ?? null;
-      left = left.filter((x) => x !== f);
-    }
+    // one engine job moves every other file; its toast is the engine's own line ("Moved to …" / "Moved 2 files …")
+    const r = await runJob(api.keep_file(g.group_id, keep, g.files.map((f) => f.path)), { success: false });
     this.busy = false;
-    const moved = g.files.length - left.length;
-    if (moved === 1 && last?.note) toasts.show({ tone: 'success', title: last.note });
-    else if (moved > 1) toasts.show({ tone: 'success', title: `Moved ${moved} files to Superseded/.` });
+    if (r.ok && r.message) toasts.show({ tone: 'success', title: r.message });
   }
 }
 
@@ -379,7 +371,9 @@ export class UpgradeBatchFlow {
     if (mode === 'discard' && !(await confirm(discardConfirm(items.length)))) return;
     const ids = items.map((i) => i.track_id);
     this.know(items.map((i) => [i.track_id, name(i)]));
-    const call = () => mode === 'swap' && all ? api.upgrade_all() : api.upgrade(ids, BRIDGE_MODE[mode]);
+    // a rev is the check of one song's record: only a one-song list sends it
+    const call = () => mode === 'swap' && all ? api.upgrade_all()
+      : ids.length === 1 ? api.upgrade(ids, BRIDGE_MODE[mode], null, items[0].rev) : api.upgrade(ids, BRIDGE_MODE[mode], null);
     await this.#run(mode, ids, items.map((i) => runRow(i, name(i))), call);
   }
   /** Resume · k left: the stopped batch's planned tracks (their rows come with its progress). */

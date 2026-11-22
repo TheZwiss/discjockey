@@ -339,3 +339,61 @@ def test_no_engine_sentence_points_at_a_command_that_is_not_built_yet():
         first = span.split()[0]
         if first in nouns and len(span.split()) > 1 and not span.split()[1].startswith(("-", "<")):
             assert " ".join(span.split()[:2]) in runnable, (name, span)
+
+
+# --- sync scope (issue 39 V2.5b) ---
+
+def test_sync_scope_off_show_on_through_the_command_line(music, capsys):
+    paths, _ = music
+    code, text, _ = run(["sync", "scope", "show"], capsys)
+    assert code == OK and "none" in text  # nothing left out
+    off = ["sync", "scope", "off", "kind:weekly", "playlist:spotify:x", "folder:Library/Hard_Bounce"]
+    code, env = run_json(off, capsys)
+    assert (code, env["outcome"], env["command"]) == (OK, "ok", "sync scope off"), env
+    assert env["data"] == {"off": [{"target": "playlist:spotify:x", "name": "playlist:spotify:x"},
+                                   {"target": "folder:Library/Hard_Bounce", "name": "Hard_Bounce"}],
+                           "weekly_off": [{"kind": "weekly", "label": "Weekly checks"}]}
+    s = load_settings(paths.settings_file)
+    assert (s.scope_off, s.weekly_off) == (("playlist:spotify:x", "folder:Library/Hard_Bounce"), ("weekly",))
+    code, env = run_json(["sync", "scope", "show"], capsys)
+    assert (code, env["command"], env["outcome"]) == (OK, "sync scope show", "ok")
+    assert env["data"]["weekly_off"] == [{"kind": "weekly", "label": "Weekly checks"}]
+    code, text, _ = run(["sync", "scope", "show"], capsys)
+    assert code == OK and "Weekly checks" in text and "Hard_Bounce" in text
+    code, env = run_json(["sync", "scope", "on", "kind:weekly", "folder:Library/Hard_Bounce"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok") and env["data"]["weekly_off"] == []
+    assert [c["target"] for c in env["data"]["off"]] == ["playlist:spotify:x"]
+    assert load_settings(paths.settings_file).weekly_off == ()
+
+
+def test_the_page_of_sync_scope_off_is_the_golden_text(music, capsys):
+    code, out, _ = run(["sync", "scope", "off", "kind:weekly", "playlist:spotify:x", "folder:Library/Hard_Bounce"], capsys)
+    assert code == OK
+    check_golden("sync_scope_off", out)
+
+
+def test_sync_scope_works_without_a_music_folder_and_keeps_the_other_settings(tmp_path, monkeypatch, capsys, inline_workers):
+    support = tmp_path / "support"
+    monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(support))
+    assert run_json(["sync", "scope", "show"], capsys)[1]["outcome"] == "ok"
+    save_settings(support / "settings.json", replace(Settings(), daily_qobuz_limit=40))
+    code, env = run_json(["sync", "scope", "off", "kind:retry"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    s = load_settings(support / "settings.json")
+    assert (s.weekly_off, s.daily_qobuz_limit) == (("retry",), 40)
+
+
+def test_sync_scope_refuses_an_unknown_item_and_one_in_both_words(music, capsys):
+    paths, _ = music
+    code, env = run_json(["sync", "scope", "off", "bogus"], capsys)
+    assert (code, env["outcome"]) == (REFUSED, "refused") and "bogus" in env["message"]
+    assert not paths.settings_file.exists()
+
+
+def test_sync_scope_takes_the_support_lock_and_the_library_lock_and_show_takes_none(music, capsys, fake_locks):
+    fake_locks.words.clear()
+    assert run_json(["sync", "scope", "off", "kind:weekly"], capsys)[0] == OK
+    assert {"library", "support"} <= set(fake_locks.words)
+    fake_locks.words.clear()
+    assert run_json(["sync", "scope", "show"], capsys)[0] == OK
+    assert fake_locks.words == []

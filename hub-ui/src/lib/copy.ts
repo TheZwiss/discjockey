@@ -133,12 +133,25 @@ export const WRITE_BLOCKED = {
   console: 'A sync is running in the terminal.',
 } as const;
 
+/** The banner while another process holds the library says the engine's words for the holder (`HubState.console.text`),
+ *  then a tail: the shell's, or Setup's (its steps wait, nothing to look around at). */
 export const BANNER = {
-  console: "A sync is running in the terminal. You can look around; changes wait until it's finished.",
+  console_tail: "You can look around; changes wait until it's finished.",
+  console_tail_setup: 'You can go on with setup when it has finished.',
 } as const;
+
+/** `t` as a sentence: a full stop after it unless it already ends in one (the engine's holder text may end in "…" or ".":
+ *  "Reading your playlists..."). */
+export const sentence = (t: string): string => (/[.!?…]$/.test(t) ? t : `${t}.`);
+
+/** The holder's words (engine text), then the tail: the one composition both console banners use. */
+export const consoleBanner = (holderText: string, tail: string = BANNER.console_tail): string => `${sentence(holderText)} ${tail}`;
 
 export const DROP_BLOCKED = "macOS didn't let Discjockey read this file. Move it to Downloads, or allow access in "
   + 'System Settings → Privacy & Security → Files and Folders.';
+
+/** A readable file dropped while no to-do item is open (the window's own selection, not an engine fact). */
+export const DROP_NO_TRACK = 'Select the track in the to-do list first, then drop the file on the window.';
 
 export const STEP_LABEL: Record<string, string> = {
   search: 'Searching', download: 'Downloading', check: 'Checking', convert: 'Converting', analyse: 'Analysing',

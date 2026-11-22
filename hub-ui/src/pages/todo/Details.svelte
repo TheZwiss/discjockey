@@ -18,6 +18,8 @@
   // tip and a Hint under it. After the job the song leaves the group and the page's selection moves on (MissingFlow,
   // no hold: there is nothing left to decide here); one song's words come as a toast.
   import { untrack } from 'svelte';
+  import { get } from 'svelte/store';
+  import { dropTarget } from '$lib/stores/drag';
   import type { Spectrum as Spec, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { api, runJob } from '$lib/bridge/client';
   import { networkReadsAllowed } from '$lib/stores/hub';
@@ -110,7 +112,7 @@
 
   async function hide() {
     flow.busy = 'hide';
-    const r = await runJob(api.hide(track.track_id, !track.hidden));
+    const r = await runJob(api.hide(track.track_id, !track.hidden, track.rev));
     flow.busy = null;
     if (r.ok && act.hide === 'hide') onhidden();
   }
@@ -118,7 +120,7 @@
   // unreadable drop on it would show nothing. Toast macOS's message like the shell does on other pages.
   $effect(() => onEvent((e) => {
     if (e.type !== 'FileDropped' || act.dropZone) return;
-    const d = dropDecision(e, track.track_id);
+    const d = dropDecision(e, get(dropTarget), track.track_id);
     if (d.do === 'message') toasts.show({ tone: 'problem', title: "Can't read this file.", body: d.text });
   }));
 
@@ -265,7 +267,7 @@
       onclick={missingAct} data-test="missing-action" data-action={f.action}>{f.label}</WriteButton>
     {#if f.hint}<div class="reason"><Hint text={f.hint} wrap data-test="missing-why" /></div>{/if}
   {:else if (act.main === 'swap' || act.main === 'add_new') && track.upgrade}
-    <UpgradeFoot track_id={track.track_id} upgrade={track.upgrade} {way} {flow} />
+    <UpgradeFoot track_id={track.track_id} rev={track.rev} upgrade={track.upgrade} {way} {flow} />
   {:else if act.main === 'rekordbox' && item}
     <CheckFoot {item} {flow} />
   {:else if act.main === 'find'}

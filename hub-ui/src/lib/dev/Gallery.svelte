@@ -123,7 +123,7 @@
     ['Playing while a sync runs', 'the sync\'s short form at the right end, a link to Sync', np(), { sync: true }],
   ];
   const sp = (o: Partial<ReadStatusT>): ReadStatusT => ({ read_at: new Date(now.getTime() - 120000).toISOString(),
-    minutes_ago: 2, problem: null, message: '', stale: false, reading: false, offline: false, auto_read: true,
+    minutes_ago: 2, problem: null, message: '', lines_changed: false, reading: false, offline: false, auto_read: true,
     problem_service: null, services: [{ service: 'spotify', name: 'Spotify', connected: true }], ...o });
   const EMPTY_KINDS: EmptyKind[] = ['no_playlists', 'not_set_up', 'empty_library', 'no_preview', 'up_to_date', 'no_match',
     'all_lossless', 'all_hidden', 'nothing_here'];
@@ -465,7 +465,7 @@
     <div class="col headers">
       <PageHeader title="Good morning" readStatus readStatusState={sp({})} />
       <PageHeader title="To-do" sub="18 tracks are not lossless yet" readStatus readStatusState={sp({ reading: true })} />
-      <PageHeader title="To-do" sub="18 tracks are not lossless yet" readStatus readStatusState={sp({ stale: true })} />
+      <PageHeader title="To-do" sub="18 tracks are not lossless yet" readStatus readStatusState={sp({ lines_changed: true })} />
       <PageHeader title="To-do" sub="18 tracks are not lossless yet" readStatus
         readStatusState={sp({ offline: true, problem: 'offline', minutes_ago: 184, read_at: new Date(now.getTime() - 184 * 60000).toISOString() })} />
       <!-- a status line too long for the space beside the title wraps under it, whole, after a "·" -->
@@ -1379,7 +1379,7 @@
   <section data-test="gallery-banner">
     {@render head('Banner · Toast', 'The shell\'s banners under the title bar; toasts confirm what just happened')}
     <div class="col bordered">
-      <Banner tone="warn" text="A sync is running in the terminal. You can look around; changes wait until it's finished." />
+      <Banner tone="warn" text="Sync running in the Terminal · 4 of 60. You can look around; changes wait until it's finished." />
       <Banner tone="info" text="Spotify isn't connected." action={{ label: 'Set up →', href: '#/setup/spotify' }} />
     </div>
     <div class="row top">

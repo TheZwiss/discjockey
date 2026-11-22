@@ -3,12 +3,16 @@ B1.2, B1.3; D1, D2, D15, I2). Never library state: no generation bump, never in 
 import sqlite3
 import threading
 import time
-from datetime import datetime
+import json
+from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from discjockey import db
-from discjockey.models import FetchedPlaylist, PlaylistLine, PlaylistRecord, RecordedTrack, SourceTrack
+from discjockey.models import (FetchedPlaylist, PlaylistInfo, PlaylistLine, PlaylistRecord, RecordedTrack, SourceTrack,
+                               StoredRead)
 
 NOW = datetime(2026, 10, 30, 9, 15, 0)
 LATER = datetime(2026, 10, 31, 18, 40, 5)
@@ -37,9 +41,24 @@ def qobuz_read(*tracks):
     return FetchedPlaylist(PlaylistLine("Warm_Up", "4242", 2, "qobuz"), list(tracks), [])
 
 
+def info(name, ref_id=BOUNCE):
+    return PlaylistInfo("spotify", ref_id, name, "owner1", "Example Owner", False, "https://img.example/c.jpg", 12, True,
+                        True)
+
+
+def sync_read(reads, started=NOW, unread=(), lines=None):
+    """A good sync read of `reads`; its lines are the reads' own unless `lines` says more (lines left out or unread)."""
+    return StoredRead("sync", started, list(reads), lines if lines is not None else [fp.line for fp in reads],
+                      list(unread))
+
+
+def check_read(fp, started=NOW):
+    return StoredRead("check", started, [fp])
+
+
 def record(path, reads, now=NOW, keep=(BOUNCE, WARMUP)):
     with db.connect(path) as conn:
-        db.record_reads(conn, reads, now, keep)
+        return db.store_read(conn, sync_read(reads, now), keep, now=now)
 
 
 def records(path):
@@ -183,14 +202,15 @@ def test_several_crate_switches_are_saved_all_or_none(path):
 # --- B1.2, B1.3: never library state, and a held write makes them wait ---
 
 def every_write(conn, now=NOW):
-    db.record_reads(conn, [spotify_read(track("t1", "First Song"))], now, [BOUNCE])
+    db.store_read(conn, sync_read([spotify_read(track("t1", "First Song"))], now), [BOUNCE], now=now)
+    db.store_infos(conn, {BOUNCE: info("First Name")}, now)
     db.set_favourites(conn, [f"playlist:{BOUNCE}"])
     db.set_crate_shown(conn, "/Volumes/Example/Crates/Old", False)
 
 
 def written(path):
     with db.connect(path) as conn:
-        return db.playlist_records(conn), db.favourites(conn), db.crate_overrides(conn)
+        return (db.playlist_records(conn), db.stored_infos(conn), db.favourites(conn), db.crate_overrides(conn))
 
 
 def test_no_write_bumps_the_generation_or_shows_in_the_snapshot(path):
@@ -202,7 +222,9 @@ def test_no_write_bumps_the_generation_or_shows_in_the_snapshot(path):
 
 
 WRITES = {
-    "record_reads": lambda conn: db.record_reads(conn, [spotify_read(track("t2", "Second Song"))], LATER, [BOUNCE]),
+    "store_read": lambda conn: db.store_read(conn, sync_read([spotify_read(track("t2", "Second Song"))], LATER),
+                                             [BOUNCE], now=LATER),
+    "store_infos": lambda conn: db.store_infos(conn, {BOUNCE: info("Second Name")}, LATER),
     "set_favourites": lambda conn: db.set_favourites(conn, ["folder:Library/Old_Hardstyle"]),
     "set_crate_shown": lambda conn: db.set_crate_shown(conn, "/Volumes/Example/Crates/Old", True),
 }
@@ -250,3 +272,308 @@ def test_a_write_still_held_up_after_the_wait_fails_cleanly(path, name):
         other.execute("ROLLBACK")
         other.close()
     assert written(path) == before
+
+
+# --- issue 39 phase 2 (V2.2a): the stored read ---
+
+def full_track(id="t1"):
+    """A track with every fact the planner reads, none of them at its default."""
+    return SourceTrack(id, "Full Song", ("Example Artist", "Guest"), "Full Album", "https://img.example/a.jpg", 201000,
+                       "USEX00000001", "spotify", "https://open.spotify.com/track/" + id, False, True)
+
+
+def lines_of(*reads):
+    return [fp.line for fp in reads]
+
+
+def test_a_stored_read_comes_back_whole_and_equal(path):
+    one, two = full_track("t1"), SourceTrack("77", "Warm Tune", (), "", None, 0, None, "qobuz")
+    reads = [spotify_read(one, track("t2", "Second Song"), one), qobuz_read(two)]
+    record(path, reads)
+    with db.connect(path) as conn:
+        db.store_infos(conn, {BOUNCE: info("Hard Bounce")}, NOW)
+        loaded = db.load_read(conn)
+    assert loaded.lines == lines_of(*reads) and loaded.unread == [] and loaded.read_at == NOW
+    assert [fp.line for fp in loaded.fetched] == lines_of(*reads)
+    assert [fp.tracks for fp in loaded.fetched] == [fp.tracks for fp in reads]  # equal, order and repeats kept
+    assert loaded.fetched[0].tracks[0].artists == ("Example Artist", "Guest")  # a tuple again
+    assert loaded.fetched[1].tracks[0].duration_ms == 0  # a NULL length back as 0
+    assert [fp.skipped for fp in loaded.fetched] == [[], []]
+    assert loaded.fetched[0].info == info("Hard Bounce") and loaded.fetched[1].info is None
+    assert loaded.checked == {BOUNCE: tuple(reads[0].tracks), WARMUP: tuple(reads[1].tracks)}
+    assert loaded.infos == {BOUNCE: info("Hard Bounce")}
+
+
+def test_a_tracks_secret_link_token_and_the_label_are_stored_nowhere(path):
+    secret = SourceTrack("900", "Private One", ("Example Artist",), "", None, 1000, None, "soundcloud",
+                         "https://soundcloud.com/example/private-one/s-s3cr3t", secret_token="s-s3cr3t",
+                         record_label="Example Label L")
+    read = FetchedPlaylist(PlaylistLine("Private", "example/sets/p", 3, "soundcloud"), [secret], [])
+    record(path, [read], keep=[read.line.ref])
+    with db.connect(path) as conn:
+        for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall():
+            for row in conn.execute(f"SELECT * FROM {table}"):
+                assert not any(isinstance(v, str) and ("s3cr3t" in v or "Example Label L" in v) for v in row), table
+        (loaded,) = db.load_read(conn).fetched[0].tracks
+    assert loaded.secret() is None and loaded.label is None
+    assert loaded.link == "https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/900"  # derived again
+    assert loaded == SourceTrack("900", "Private One", ("Example Artist",), "", None, 1000, None, "soundcloud")
+
+
+def test_a_private_sets_token_is_in_its_ref_so_only_the_columns_that_name_a_record_hold_it(path):
+    secret = SourceTrack("900", "Private One", ("Example Artist",), "", None, 1000, None, "soundcloud",
+                         "https://soundcloud.com/example/private-one/s-s3cr3t", secret_token="s-s3cr3t",
+                         record_label="Example Label L")
+    read = FetchedPlaylist(PlaylistLine("Private", "example/sets/p/s-s3cr3t", 3, "soundcloud"), [secret], [])
+    record(path, [read], keep=[read.line.ref])
+    with db.connect(path) as conn:
+        db.store_infos(conn, {read.line.ref: PlaylistInfo("soundcloud", "example/sets/p/s-s3cr3t", "Private", "o",
+                                                          "Example Owner", False, None, 1, False, True)}, NOW)
+        holding = set()
+        for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall():
+            columns = [c[1] for c in conn.execute(f"PRAGMA table_info({table})")]
+            for row in conn.execute(f"SELECT * FROM {table}"):
+                holding |= {f"{table}.{c}" for c, v in zip(columns, row) if isinstance(v, str) and "s3cr3t" in v}
+    # the ref is the record's identity wherever a record is named (`playlist_tracks.playlist` is its foreign key); no
+    # track fact (title, link, ...) and no message holds the token
+    assert holding == {"reads.lines", "reads.read_refs", "playlist_reads.playlist", "playlist_tracks.playlist",
+                       "playlist_infos.playlist", "playlist_infos.info"}
+
+
+def test_an_older_sync_read_stores_nothing_and_answers_the_newer_ones_id(path):
+    newer = record(path, [spotify_read(track("t2", "Newer Song"))], LATER)
+    older = record(path, [spotify_read(track("t1", "Older Song"))], NOW)  # started earlier, finished later
+    assert older == newer
+    with db.connect(path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM reads").fetchone()[0] == 1
+        assert [t.title for t in db.load_read(conn).fetched[0].tracks] == ["Newer Song"]
+
+
+def test_a_check_read_older_than_a_stored_record_leaves_it_and_a_newer_one_replaces_it(path):
+    record(path, [spotify_read(track("t2", "Sync Song"))], LATER)
+    with db.connect(path) as conn:
+        first = db.store_read(conn, check_read(spotify_read(track("t1", "Check Song")), NOW), None, now=NOW)
+        assert db.stored_tracks(conn)[BOUNCE][0].title == "Sync Song"
+        assert db.read_head(conn).current == first  # the check read is stored all the same
+        db.store_read(conn, check_read(spotify_read(track("t3", "Newer Check")), LATER + timedelta(hours=1)), None)
+        assert db.stored_tracks(conn)[BOUNCE][0].title == "Newer Check"
+        assert db.load_read(conn).fetched[0].tracks[0].title == "Newer Check"  # the plan reads the records as they are
+
+
+def test_read_ids_rise_and_a_pruned_one_never_comes_back(path):
+    ids = [record(path, [spotify_read(track("t1", f"Song {n}"))], NOW + timedelta(minutes=n)) for n in range(3)]
+    assert ids == [1, 2, 3]
+    with db.connect(path) as conn:
+        assert [r[0] for r in conn.execute("SELECT id FROM reads")] == [3]  # older ones pruned
+        assert db.current_read_id(conn) == 3
+        assert db.store_read(conn, sync_read([spotify_read()], NOW + timedelta(hours=1)), None, now=NOW) == 4
+    assert db.read_label(4) == "read:4" and db.read_number("read:4") == 4
+    for bad in ("x", "read:", "read:x", "read:-1", "reads:1", "read:1:2"):
+        with pytest.raises(ValueError):
+            db.read_number(bad)
+
+
+def test_prune_keeps_a_read_a_record_still_names_and_a_check_read_does_not_prune(path):
+    record(path, [spotify_read(track("t1", "A")), qobuz_read(track("77", "B", service="qobuz"))])
+    with db.connect(path) as conn:
+        db.store_read(conn, check_read(spotify_read(track("t2", "Check"))), None, now=NOW)  # id 2, older than read 3 below
+    record(path, [spotify_read(track("t3", "C"))], LATER)  # replaces the Spotify record only: read 1 names Qobuz's
+    with db.connect(path) as conn:
+        assert [r[0] for r in conn.execute("SELECT id FROM reads ORDER BY id")] == [1, 3]
+
+
+def test_a_first_failed_read_has_its_problem_and_no_good_read(path):
+    failed = StoredRead("sync", NOW, [], None, [], "offline", "qobuz", "Qobuz can't be reached.")
+    with db.connect(path) as conn:
+        assert db.read_head(conn) is None
+        assert db.store_read(conn, failed, None, now=NOW) == 1
+        head = db.read_head(conn)
+        assert (head.current, head.sync_id, head.read_at) == (1, None, None)
+        assert (head.problem, head.problem_service, head.message) == ("offline", "qobuz", "Qobuz can't be reached.")
+        assert db.load_read(conn) is None
+
+
+def test_a_failed_read_keeps_the_last_good_tracks_and_a_good_one_clears_the_problem(path):
+    record(path, [spotify_read(track("t1", "Good Song"))])
+    failed = StoredRead("sync", LATER, [], None, [], "offline", "spotify", "No connection.")
+    with db.connect(path) as conn:
+        db.store_read(conn, failed, None, now=LATER)
+        loaded = db.load_read(conn)
+        assert [t.title for t in loaded.fetched[0].tracks] == ["Good Song"] and loaded.id == 1
+        assert (loaded.problem, loaded.problem_service, loaded.message) == ("offline", "spotify", "No connection.")
+        assert db.read_head(conn).sync_id == 1 and db.read_head(conn).current == 2
+        db.store_read(conn, sync_read([spotify_read(track("t2", "Next Song"))], LATER + timedelta(hours=1)), None)
+        loaded = db.load_read(conn)
+        assert loaded.problem is None and loaded.message == "" and loaded.id == 3
+
+
+def test_clear_read_problem_follows_the_three_cases(path):
+    def fail(conn, problem, service, message, hours):
+        db.store_read(conn, StoredRead("sync", NOW + timedelta(hours=hours), [], None, [], problem, service, message),
+                      None, now=NOW)
+
+    with db.connect(path) as conn:
+        assert db.clear_read_problem(conn, "qobuz", None, None) is False  # nothing stored
+        fail(conn, "login_expired", "qobuz", "Log in again.", 1)
+        assert db.clear_read_problem(conn, "spotify", None, None) is False  # another service
+        assert db.clear_read_problem(conn, "qobuz", frozenset({"offline"}), None) is False  # a login can't cure it
+        assert db.clear_read_problem(conn, "qobuz", None, "other words") is False  # not this message
+        assert db.read_head(conn).problem == "login_expired"
+        assert db.clear_read_problem(conn, "qobuz", frozenset({"login_expired"}), "Log in again.") is True
+        head = db.read_head(conn)
+        assert (head.problem, head.problem_service, head.message) == (None, None, "")
+        assert db.clear_read_problem(conn, "qobuz", None, None) is False  # nothing left to clear
+        fail(conn, "login_expired", "qobuz", "Log in again.", 2)
+        assert db.clear_read_problem(conn, "qobuz", None, None) is True
+
+
+def test_a_line_switched_off_since_is_not_fetched_though_its_record_stays(path):
+    liked_line = PlaylistLine("Liked", "LM", 3, "youtube_music")
+    liked = FetchedPlaylist(liked_line, [track("v1", "Liked Song", service="youtube_music")], [])
+    spotify = spotify_read(track("t1", "First Song"))
+    lines = [spotify.line, liked_line]
+    liked_ref = liked_line.ref
+    with db.connect(path) as conn:
+        db.store_read(conn, sync_read([spotify, liked], NOW, lines=lines), [BOUNCE, liked_ref], now=NOW)
+        assert [fp.line.ref for fp in db.load_read(conn).fetched] == [BOUNCE, liked_ref]
+        # Settings' choice is off now: the line is read-listed but left out, so it is neither fetched nor unread
+        db.store_read(conn, sync_read([spotify], LATER, lines=lines), [BOUNCE, liked_ref], now=LATER)
+        loaded = db.load_read(conn)
+        assert [fp.line.ref for fp in loaded.fetched] == [BOUNCE] and loaded.unread == []
+        assert liked_ref in db.playlist_records(conn)  # the Library page still shows it
+        assert liked_ref in loaded.checked
+
+
+def test_a_paused_line_is_unread_and_a_record_from_schema_11_cannot_be_rebuilt(path):
+    spotify, qobuz = spotify_read(track("t1", "First Song")), qobuz_read(track("77", "Warm", service="qobuz"))
+    record(path, [spotify, qobuz])
+    with db.connect(path) as conn:
+        conn.execute("UPDATE playlist_tracks SET id = NULL, artists = NULL WHERE playlist = ?", (WARMUP,))
+        loaded = db.load_read(conn)
+        assert [fp.line.ref for fp in loaded.fetched] == [BOUNCE] and loaded.unread == [WARMUP]
+        assert WARMUP not in loaded.checked and WARMUP not in db.stored_tracks(conn)
+        assert WARMUP in db.playlist_records(conn)  # the Library page answers from the old columns
+        db.store_read(conn, sync_read([spotify], LATER, unread=[WARMUP], lines=lines_of(spotify, qobuz)), None,
+                      now=LATER)
+        assert db.load_read(conn).unread == [WARMUP]  # named once, not twice
+
+
+def test_a_sync_read_drops_what_keep_leaves_out_and_a_check_read_never_prunes(path):
+    record(path, [spotify_read(track("t1", "First Song")), qobuz_read(track("77", "Warm", service="qobuz"))])
+    with db.connect(path) as conn:
+        db.store_infos(conn, {BOUNCE: info("Hard Bounce"), WARMUP: info("Warm Up", "4242")}, NOW)
+        db.store_read(conn, check_read(spotify_read(track("t2", "Pasted")), LATER), None, now=LATER)  # no keep
+        assert set(db.stored_tracks(conn)) == {BOUNCE, WARMUP}
+        db.store_read(conn, sync_read([spotify_read(track("t3", "Third"))], LATER + timedelta(hours=1)), [BOUNCE],
+                      now=LATER)
+        assert set(db.stored_tracks(conn)) == {BOUNCE} and set(db.stored_infos(conn)) == {BOUNCE}
+        assert conn.execute("SELECT COUNT(*) FROM playlist_tracks WHERE playlist = ?", (WARMUP,)).fetchone()[0] == 0
+
+
+def test_infos_are_replaced_by_ref_and_the_others_stay(path):
+    with db.connect(path) as conn:
+        db.store_infos(conn, {BOUNCE: info("One"), WARMUP: info("Two", "4242")}, NOW)
+        db.store_infos(conn, {BOUNCE: info("One again")}, LATER)
+        assert {ref: i.name for ref, i in db.stored_infos(conn).items()} == {BOUNCE: "One again", WARMUP: "Two"}
+        assert db.current_read_id(conn) is None  # no read id change
+
+
+def test_the_stored_read_json_is_what_the_plan_needs(path):
+    spotify = spotify_read(track("t1", "First Song"))
+    record(path, [spotify])
+    with db.connect(path) as conn:
+        lines, unread, refs = conn.execute("SELECT lines, unread, read_refs FROM reads").fetchone()
+    assert json.loads(lines) == [{"folder": "Hard_Bounce", "playlist_id": BOUNCE, "line_no": 1, "service": "spotify"}]
+    assert json.loads(unread) == [] and json.loads(refs) == [BOUNCE]
+
+
+def test_store_infos_drop_removes_only_the_refs_named(path):
+    with db.connect(path) as conn:
+        db.store_infos(conn, {BOUNCE: info("One"), WARMUP: info("Two", "4242")}, NOW)
+        db.store_infos(conn, {}, LATER, drop=[WARMUP, "not-stored"])
+        assert set(db.stored_infos(conn)) == {BOUNCE}
+
+
+def test_load_read_is_one_snapshot_whatever_another_connection_stores_meanwhile(path):
+    record(path, [spotify_read(track("t1", "Older Song"))], NOW)
+    real = db.stored_infos
+
+    def newer_read_meanwhile(conn):
+        with db.connect(path) as other:  # read N+1 stored and read N pruned between the head and the infos
+            db.store_read(other, sync_read([spotify_read(track("t2", "Newer Song"))], LATER), [BOUNCE, WARMUP], now=LATER)
+        return real(conn)
+
+    with db.connect(path, read_only=True) as conn:
+        original, db.stored_infos = db.stored_infos, newer_read_meanwhile
+        try:
+            loaded = db.load_read(conn)
+        finally:
+            db.stored_infos = original
+        assert [t.title for t in loaded.fetched[0].tracks] == ["Older Song"]  # id and lines and tracks: the same read
+    with db.connect(path) as conn:
+        assert db.load_read(conn).id > loaded.id
+
+
+def test_load_read_answers_none_when_its_row_went_before_it_was_read(path):
+    record(path, [spotify_read(track("t1", "Song"))])
+    with db.connect(path) as conn:
+        conn.execute("DELETE FROM reads")
+        assert db.load_read(conn) is None
+
+
+def test_read_snapshot_joins_one_already_open(path):
+    with db.connect(path) as conn:
+        with db.read_snapshot(conn):
+            with db.read_snapshot(conn):
+                assert conn.in_transaction
+            assert conn.in_transaction
+        assert not conn.in_transaction
+
+
+def test_the_read_head_carries_the_good_reads_lines_as_folder_and_ref_pairs(path):
+    with db.connect(path) as conn:
+        assert db.read_head(conn) is None
+    record(path, [spotify_read(track("t1", "A")), qobuz_read(track("77", "B", service="qobuz"))])
+    with db.connect(path) as conn:
+        assert db.read_head(conn).lines == (("Hard_Bounce", BOUNCE), ("Warm_Up", WARMUP))
+        db.store_read(conn, StoredRead("sync", LATER, [], None, [], "offline", None, "Offline."), None, now=LATER)
+        assert db.read_head(conn).lines == (("Hard_Bounce", BOUNCE), ("Warm_Up", WARMUP))  # a failed read keeps them
+
+
+def test_start_times_order_across_the_autumn_clock_change(path):
+    zone = ZoneInfo("Europe/Berlin")
+    first = datetime(2026, 10, 25, 2, 30, tzinfo=zone, fold=0)  # CEST, the first pass of the repeated hour
+    second = datetime(2026, 10, 25, 2, 30, tzinfo=zone, fold=1)  # CET, an hour later
+    assert db._stamp(first) < db._stamp(second)
+    both = record(path, [spotify_read(track("t1", "First"))], first)
+    later = record(path, [spotify_read(track("t2", "Second"))], second)
+    assert later != both  # the second pass is stored, not dropped as older
+    with db.connect(path) as conn:
+        assert [t.title for t in db.load_read(conn).fetched[0].tracks] == ["Second"]
+
+
+def test_a_stored_json_with_an_extra_or_a_missing_defaulted_key_still_loads(path):
+    record(path, [spotify_read(track("t1", "First Song"))])
+    with db.connect(path) as conn:
+        stored = json.loads(conn.execute("SELECT lines FROM reads").fetchone()[0])
+        stored[0]["a_field_added_later"] = 1
+        del stored[0]["service"]  # defaulted
+        conn.execute("UPDATE reads SET lines = ?", (json.dumps(stored),))
+        document = asdict(info("One"))
+        document["a_field_added_later"] = 1
+        conn.execute("INSERT INTO playlist_infos (playlist, info, at) VALUES (?, ?, ?)", (BOUNCE, json.dumps(document), "x"))
+        loaded = db.load_read(conn)
+    assert loaded.lines == [PlaylistLine("Hard_Bounce", BOUNCE, 1)]
+    assert loaded.infos[BOUNCE].name == "One"
+
+
+def test_two_failed_reads_out_of_order_keep_the_later_starts_problem(path):
+    with db.connect(path) as conn:
+        first = db.store_read(conn, StoredRead("sync", LATER, [], None, [], "offline", None, "Later words."), None,
+                              now=LATER)
+        again = db.store_read(conn, StoredRead("sync", NOW, [], None, [], "login_failed", "spotify", "Earlier words."),
+                              None, now=LATER)
+        assert again == first  # the older start stores nothing and answers the stored one's id
+        assert conn.execute("SELECT COUNT(*) FROM reads").fetchone()[0] == 1
+        head = db.read_head(conn)
+        assert (head.problem, head.problem_service, head.message) == ("offline", None, "Later words.")

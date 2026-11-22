@@ -3,6 +3,7 @@ may call (T3), global flags anywhere, the envelope and exit codes, the first rea
 and the routes to the old commands."""
 import ast
 import json
+import re
 import shlex
 from dataclasses import replace
 from pathlib import Path
@@ -89,7 +90,7 @@ BANNED_IMPORTS = {"sqlite3", "views", "db", "planner", "library", "run"}
 
 
 def test_t3_a_cli_module_calls_only_what_its_entries_name():
-    allowed = {e.method for e in catalog.ENTRIES} | {"resolve", "save_plan", "scan_next"}  # the last two: a dry run's plan and `next`
+    allowed = {e.method for e in catalog.ENTRIES} | {"resolve", "save_plan", "scan_next", "_job_envelope"}  # the last three: a dry run's plan, `next`, and the envelope of a finished job (the worker, `HubApi._job_envelope`)
     assert (CLI_DIR / "housekeeping.py").is_file()  # the command line's own words are checked like every module
     checked = 0
     for path in sorted(CLI_DIR.rglob("*.py")):
@@ -251,7 +252,7 @@ def test_the_headless_api_binds_nothing_and_answers_no_library_without_a_folder(
     answer = api.dashboard()
     assert (answer["ok"], answer["kind"], answer["outcome"], answer["reason"]) == (False, "no_library", "refused",
                                                                                    "no_library")
-    assert api._remember is not None and api._check_shown is False and api._jobs.running() is None
+    assert api._jobs.running() is None
 
 
 def test_the_headless_api_of_a_missing_folder_says_so(tmp_path, monkeypatch):
@@ -375,6 +376,11 @@ def test_call_and_noun_verb_refuse_without_yes(monkeypatch):
     assert env["reason"] == "needs_yes"
 
 
+def test_the_windows_stop_controls_point_to_job_stop(capsys):
+    code, env = run_json(["call", "stop", "--json"], capsys)
+    assert code == 2 and env["message"] == "stop is the window's Stop safely: use `job stop <job>`."
+
+
 def test_a_dry_run_on_a_command_without_one_is_bad_args(capsys):
     code, env = run_json(["call", "rekordbox_status", "--dry-run", "--json"], capsys)
     assert code == 2 and "no --dry-run" in env["message"]
@@ -431,6 +437,17 @@ def test_the_generic_page_prints_words_for_facts_and_every_field_with_verbose():
     verbose = layout.render(generic.page(payload, verbose=True))
     assert all(leaf in verbose for leaf in generic.leaves(payload))
     assert "16000" in verbose
+
+
+def test_a_rev_prints_only_with_verbose_in_rows_and_in_table_columns():
+    from discjockey.cli.render import generic, layout
+    payload = {"rev": "0123456789", "artist": "A",
+               "rows": [{"track_id": "t1", "rev": "abcdef0123", "title": "One"}]}
+    plain = layout.render(generic.page(payload))
+    assert "0123456789" not in plain and "abcdef0123" not in plain and "One" in plain and "Rev" not in plain
+    verbose = layout.render(generic.page(payload, verbose=True))
+    assert "0123456789" in verbose and "abcdef0123" in verbose and "Rev" in verbose
+    assert [k for k, _ in generic._columns(payload["rows"], False)] == ["track_id", "title"]
 
 
 def test_the_generic_page_headline_is_the_first_text_field_and_lists_page_by_limit_and_offset():
@@ -530,24 +547,36 @@ def test_the_envelope_rejects_a_word_it_does_not_know():
     assert (env["outcome"], env["reason"], env["data"]) == ("busy", "library_lock", {"holder": "sync"})
 
 
-# --- remember=False: a write acts on the record as it is ---
+# --- `rev` replaces the window's memory of what it showed ---
 
-def test_a_write_checks_nothing_against_how_a_page_showed_it_when_remember_is_off(tmp_path):
-    import hub_helpers
+def test_the_api_keeps_no_memory_of_what_a_page_showed():
+    import inspect
+
     from discjockey.hub.api import HubApi
-    results = {}
-    for remember in (True, False):
-        root = tmp_path / str(remember)
-        root.mkdir()
-        paths = make_root(root)
-        rec = hub_helpers.Recorder()
-        api = HubApi(paths.support, rec, hub_helpers.services(), remember=remember)
-        hub_helpers._MADE.append(api)
-        api._attach(paths)
-        api._jobs.keep_awake = hub_helpers._no_awake
-        finished = hub_helpers.wait_job(api, rec, api.hide("t1", True))  # no page ever showed t1
-        results[remember] = finished.ok
-    assert results == {True: False, False: True}
+    assert not any(hasattr(HubApi, name) for name in ("_shown", "_check_shown", "_remember"))
+    assert "remember" not in inspect.signature(HubApi.__init__).parameters
+    source = inspect.getsource(HubApi)
+    assert not re.search(r"\._shown\b|_check_shown|\._remember\b", source)
+
+
+def test_a_write_checks_the_rev_only_when_it_is_given(tmp_path):
+    import hub_helpers
+    from discjockey import models
+    paths = make_root(tmp_path)
+    api, rec = hub_helpers.make_api(paths)
+    stale = hub_helpers.wait_job(api, rec, api.hide("t1", True, "0123456789"))  # no page showed t1: only the rev counts
+    assert (stale.ok, stale.problem) == (False, "changed")
+    current = models.rev(library.load_state(paths)["tracks"]["t1"])
+    assert hub_helpers.wait_job(api, rec, api.hide("t1", True, current)).ok
+    assert hub_helpers.wait_job(api, rec, api.hide("t1", False)).ok  # no expect: acts on the record as it is
+
+
+def test_a_parameter_named_expect_is_the_flag_if_rev():
+    import inspect
+
+    from discjockey.hub.api import HubApi
+    arg = catalog.generated_arg("expect", inspect.signature(HubApi.hide).parameters["expect"])
+    assert arg.flag == "--if-rev" and not arg.positional
 
 
 # --- the removal of `batch_cmd` and `upgrades_cmd` (issue 39, group 1.12) ---

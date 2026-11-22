@@ -3,6 +3,10 @@ change that rekordbox does not notice by itself. The window still builds its own
 (`decisionModel.ts`); phase 6 splits these into numbered steps and takes that copy away. A later group adds the words
 of the other answers here.
 
+The module also holds the window's banner words for another process's job (`JOB_TITLES`, `job_title`, `holder_text`,
+`holder_where`, `UNNAMED_HOLDER`, `HOLDER_PLACES`, `HOLDER_WHERE`): `Jobs._holder_of` makes them, and they reach the
+window as `ConsoleBusy.text` / `ConsoleBusy.where`, `JobStatus.console` and `Busy.data.holder`.
+
 `person_steps` turns one open rekordbox check into the steps of `HubApi.todo`'s `check.person_steps`: the step's `id`
 and `then` come from `outcomes.STEPS`, its `say` is the engine's own sentence for the check (`report.check_text`, with
 the USB step where the check has one: `report.usb_step`). The track's name is its key: `check done <key>` is the next
@@ -147,6 +151,9 @@ LIKED_MUSIC_LABEL = "Read my Liked music"
 AUTO_UPGRADE_SET = {True: "Upgrade automatically when I sync: on. Nothing moves until the next sync.",
                     False: "Upgrade automatically when I sync: off. The upgrades that are ready wait in your to-do list."}
 
+# The Sync scope's weekly kinds (`sync scope show|on|off`; the Sync page's two weekly switches)
+SCOPE_KIND_LABELS = {"retry": "Not found last time", "weekly": "Weekly checks"}
+
 # Watched folders (`folder add`, `folder remove`): the words of the window's remove question (`removeWords`), and what the
 # command says once the folder is no longer watched
 REMOVAL_FORGETS = "Discjockey forgets its {files}. The files stay where they are."
@@ -267,3 +274,55 @@ def short_day(d: date, today: date) -> str:
     """A day in few words: "12 Nov" in `today`'s year, "12 Nov 2025" otherwise."""
     day = f"{d.day} {MONTHS[d.month - 1]}"
     return day if d.year == today.year else f"{day} {d.year}"
+
+
+def job_line(fields: dict) -> str | None:
+    """The one line a running job's progress is said in (`state.json`'s `progress.line`, what the window's foot shows):
+    "3 of 12" when the total is known, with " · <item>" when an item is in work; else the last message; else None. A
+    data word (design §8.3): it counts and names, it explains nothing."""
+    total = fields.get("total")
+    if total is not None:
+        line = f"{fields.get('done') or 0} of {total}"
+        return f"{line} · {fields['item']}" if fields.get("item") else line
+    return fields.get("message") or None
+
+
+# A job kind as the window names it, sentence case (the banner "Sync running in the Terminal · 4 of 60"); a kind not
+# listed says its own name (`job_title`)
+JOB_TITLES = {
+    "sync": "Sync", "refresh": "Playlists read", "tidy": "Tidy-up", "scan": "Library scan", "import": "Import",
+    "aiff_batch": "AIFF conversion", "batch_resume": "AIFF batch", "upgrade_batch": "Upgrade",
+    "auto_upgrade": "Auto-upgrade", "missing_files": "Missing files", "undo_moves": "Undo of a tidy-up",
+    "undo_upgrade": "Undo of an upgrade", "use_candidate": "Download of a version", "use_link": "Download from a link",
+    "supersede": "Same-song choice", "update_tools": "Tools update", "rollback_tools": "Tools rollback",
+}
+# what the banner says of a holder nobody can name: an older Discjockey or the legacy console, which may run a sync, a
+# setup or an update
+UNNAMED_HOLDER = "A Discjockey command is running in the Terminal"
+HOLDER_PLACES = {"terminal": "the Terminal", "window": "another window"}
+# where a holder runs as the Sync page's live view names it ("In the Terminal"), carried as `ConsoleBusy.where`
+HOLDER_WHERE = {via: f"In {place}" for via, place in HOLDER_PLACES.items()}
+
+
+def job_title(kind: str) -> str:
+    """The job kind as the window names it: its entry of `JOB_TITLES`, else its words with `_` as a space and a capital
+    first letter ("auto_upgrade_run" says "Auto upgrade run")."""
+    return JOB_TITLES.get(kind) or kind.replace("_", " ").capitalize()
+
+
+def holder_where(via: str | None) -> str:
+    """Where a holder runs, for the Sync page's live view ("In the Terminal", "In another window"): the same places as
+    `holder_text`, and a `via` the registry does not say counts as the Terminal too."""
+    return HOLDER_WHERE.get(via or "terminal", HOLDER_WHERE["terminal"])
+
+
+def holder_text(kind: str | None, via: str | None, line: str | None) -> str:
+    """What the window says while another process's job holds the library (design §8.3, a data word next to its facts):
+    "<job> running in the Terminal" (`via` terminal) or "... in another window" (`via` window), with " · <line>" when the
+    job's progress is known; for a holder with no registry entry (`kind` None) `UNNAMED_HOLDER`. A `via` the registry
+    does not say counts as the Terminal (the registry only knows `terminal` and `window`)."""
+    if not kind:
+        return UNNAMED_HOLDER
+    place = HOLDER_PLACES.get(via or "terminal", HOLDER_PLACES["terminal"])
+    text = f"{job_title(kind)} running in {place}"
+    return f"{text} · {line}" if line else text

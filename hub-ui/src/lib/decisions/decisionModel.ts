@@ -353,10 +353,6 @@ export function keepWords(files: FileSide[], pick: DuplicatePick): { label: stri
   // which file leaves is already in its row ("→ Goes to Superseded/"); the line says only that it isn't deleted
   return { label: cap(label), hint: SUPERSEDED_NOT_DELETED, ready: true };
 }
-/** A duplicate group's id from its file ids (models.group_id): the group left after one of its files moved. */
-export function groupIdOf(ids: number[]): string {
-  return 'dup:' + [...ids].sort((a, b) => a - b).join('-');
-}
 
 // ---------- which decision a track waits for (the Library's details) ----------
 /** What the details of one track decide, in the to-do list's order (its groups' order: the rekordbox check, the

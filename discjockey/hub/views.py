@@ -23,8 +23,8 @@ from ..accounts import assessment as service_assessment, zones as service_zones
 from ..names import expected_stem, fold, search_fold
 from ..models import (CONTAINER_NAMES, FORMAT_NAMES, OWN_FILE, SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES,
                       AiffBatchRow, BatchResult, BatchRow, DupFile, DuplicateGroup, ImportCounts, MoveRow, PlannedMove,
-                      PlaylistRecord, Question, WatchedFolder, file_missing, is_own, split_token, track_link as key_link)
-from ..pacing import KEEP_SIGNALS, Budget
+                      PlaylistRecord, Question, WatchedFolder, file_missing, is_own, rev as record_rev, split_token, track_link as key_link)
+from ..pacing import KEEP_SIGNALS, Budget, streak_stopped
 from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PART_LABELS, PLAN_LABELS, SECTIONS, auto_upgrade_line, check_text, result_folder
@@ -191,8 +191,11 @@ def plan_counts(actions: list) -> dict:
     return c
 
 
+DOWNLOAD_KINDS = ("acquire", "upgrade")  # the actions that take time and count against a daily limit
+
+
 def downloads_in(actions: list) -> int:
-    return sum(1 for a in actions if a.kind in ("acquire", "upgrade"))
+    return sum(1 for a in actions if a.kind in DOWNLOAD_KINDS)
 
 
 def estimate(actions: list, money: dict | None, accounts: list | tuple = ()) -> dict:
@@ -244,18 +247,36 @@ def still_to_load(prep, money: dict | None, state: dict) -> dict:
     return {"count": count, "days": days, "fits_today": money is None or count <= money["remaining"]}
 
 
-def read_status(store, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]]) -> dict:
+@dataclass(frozen=True)
+class ReadView:
+    """What the pages show of the stored read, as `HubApi._read_view` gathers it (this module does no I/O): `prep` the
+    plan derived from it (None before the first good read), `read_at` when it was stored, `problem` / `problem_service` /
+    `message` the newest sync read's (a failed first read shows its problem with no plan), `read_id` its name
+    (`read:<n>`, None before the first good read), `auto_read` the window's one automatic read of this session has
+    started, `lines_changed` playlists.txt's lines are not those the read was made for."""
+    prep: object | None = None
+    read_at: datetime | None = None
+    problem: str | None = None
+    problem_service: str | None = None
+    message: str = ""
+    read_id: str | None = None
+    auto_read: bool = False
+    lines_changed: bool = False
+
+
+def read_status(read: ReadView, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]]) -> dict:
     """"Playlists read 2 min ago · ↻" (the wire field is `read_status`). problem: the last read's problem kind
     (offline: the data shown is older); problem_service: the playlist service it is about, else null. auto_read: the
-    hub's one automatic read of this session has started (the Sync page then never reads by itself). services: each
-    playlist service playlists.txt uses with whether its login is there; `logins` is (service, connected) in that
-    order, worked out by the caller (this module does no I/O)."""
-    read_at = store.read_at
+    hub's one automatic read of this session has started (the Sync page then never reads by itself). lines_changed:
+    playlists.txt's lines changed since the read, so the plan is from the old lines. services: each playlist service
+    playlists.txt uses with whether its login is there; `logins` is (service, connected) in that order, worked out by
+    the caller (this module does no I/O)."""
+    read_at = read.read_at
     return {"read_at": read_at.isoformat(timespec="seconds") if read_at else None,
             "minutes_ago": int((now - read_at).total_seconds() // 60) if read_at else None,
-            "problem": store.problem, "problem_service": store.problem_service, "message": store.message,
-            "stale": store.stale, "reading": reading, "offline": store.problem == "offline",
-            "auto_read": store.auto_read,
+            "problem": read.problem, "problem_service": read.problem_service, "message": read.message,
+            "lines_changed": read.lines_changed, "reading": reading, "offline": read.problem == "offline",
+            "auto_read": read.auto_read,
             "services": [{"service": s, "name": PLAYLIST_SERVICES[s], "connected": ok} for s, ok in logins]}
 
 
@@ -356,11 +377,11 @@ def needs_you(state: dict) -> dict:
             "weak": sum(1 for _, e in live if quality_class(e) == "weak")}
 
 
-def dashboard(state: dict, settings: Settings, store, reports: list[tuple[str, dict]], folder_order: list[str],
+def dashboard(state: dict, settings: Settings, read: ReadView, reports: list[tuple[str, dict]], folder_order: list[str],
               setup: dict, today: date, now: datetime, reading: bool, logins: Sequence[tuple[str, bool]] = ()) -> dict:
     money = budget(state, settings, today)
     m = moneys(state, settings, today)
-    prep = store.prep
+    prep = read.prep
     ready = None
     todo = planned(prep, state)[0]
     if prep is not None:
@@ -374,7 +395,7 @@ def dashboard(state: dict, settings: Settings, store, reports: list[tuple[str, d
         empty = "not_set_up"
     elif not state["tracks"]:
         empty = "empty_library"
-    return {"greeting": greeting(now), "read_status": read_status(store, now, reading, logins),
+    return {"greeting": greeting(now), "read_status": read_status(read, now, reading, logins),
             "tiles": {"lossless": lossless_share(state), "qobuz_today": money,
                       "still_to_load": still_to_load(prep, gate(m), state),
                       "account_today": next((c for c in limit_cards(state, settings, today) if c["set_up"]), None)},
@@ -397,7 +418,9 @@ def _signals(state: dict, today: date, service: str = "qobuz", seen: str | None 
 
 
 def limit_cards(state: dict, settings: Settings, today: date) -> list[dict]:
-    """The three cards on top of the Download limits page, always all three (spec §6)."""
+    """The three cards on top of the Download limits page, always all three (spec §6). A card is `paused` while the
+    service's stored streak says stopped (until the next sync starts); an account's also on a day it signalled an
+    auto-stop, because that day the reads of Liked music stay away from it too (`pacing.account_paused`)."""
     up = services_of(settings)
     out = []
     for service in SERVICES:
@@ -408,7 +431,8 @@ def limit_cards(state: dict, settings: Settings, today: date) -> list[dict]:
             signals = _signals(state, today, service, settings.warnings_seen.get(service))
             card.update(used=m["used"], allowance=m["allowance"], warnings=len(signals),
                         new_warnings=sum(1 for s in signals if s["new"]),
-                        paused=any(s["kind"] == "auto_stop" and s["time"][:10] == today.isoformat() for s in signals))
+                        paused=streak_stopped(state, service) or (service in ACCOUNTS and any(
+                            s["kind"] == "auto_stop" and s["time"][:10] == today.isoformat() for s in signals)))
         out.append(card)
     return out
 
@@ -541,7 +565,7 @@ def track_row(track_id: str, e: dict, cover: Url | None = None) -> dict:
             "source_name": (SHORT_OWN if is_own_file(e) else SHORT_SOURCE.get(source)) if source else None,
             "in_playlists": bool(e.get("in_playlists")), "own": is_own_file(e), "hidden": bool(e.get("hidden")),
             "upgrade_ready": bool(e.get("upgrade")), "path": e.get("path"), "added": added,
-            "cover_url": cover(track_id, e) if cover else None}
+            "cover_url": cover(track_id, e) if cover else None, "rev": record_rev(e)}
 
 
 def cue_text(alignment: dict | None, can_swap: bool = True) -> str:
@@ -1150,7 +1174,7 @@ def _playlist_rows(line: pf.Row, record: PlaylistRecord | None, state: dict, wit
                 # the song's own length, else the one the playlist gives
                 "duration_ms": (e or {}).get("duration_ms") or t.duration_ms,
                 "status": "missing", "path": None, "source": None, "cutoff_hz": None, "upgrade": None}
-        rows.append({**track_row(k, base, cover), "sound_checked": True, "file_state": "no_file",
+        rows.append({**track_row(k, base, cover), "rev": None, "sound_checked": True, "file_state": "no_file",
                      "in_missing_files": False,
                      "wait": "not_found" if e is not None and _group(e) == "not_found" else "waiting",
                      # when a song nothing usable was found for is looked for again (To-do's next-try line)
@@ -1750,7 +1774,7 @@ def _duplicate_item(g: DuplicateGroup, files: Sequence[DupFile], state: dict, co
            "cutoff_hz": (e or {}).get("cutoff_hz"), "source": None, "source_name": None,
            "in_playlists": any(s["in_playlist"] for s in sides), "hidden": False, "upgrade_ready": False, "path": first["path"],
            "added": None, "cover_url": cover(first["song_key"], {"path": first["path"]}) if cover and first["song_key"]
-           else None}
+           else None, "rev": None}  # a group of files, not one record
     n = len(sides)
     keep, why = recommend(files)
     return {**row, "group": "duplicate", "file_state": "here", "detail": (DUPLICATE_AUDIO if g.why == "same_audio" else DUPLICATE_SONG).format(n=n),
@@ -1880,7 +1904,7 @@ def _batch_item(batch_id: int, tracks: list[dict], started_by: str | None = None
     how = _batch_how(started_by, kind, tracks)
     placed = _placed(tracks)
     day = _day_words(started, today)
-    return {**tracks[0], "track_id": key, "key": key, "group": "rekordbox_check",
+    return {**tracks[0], "track_id": key, "key": key, "rev": None, "group": "rekordbox_check",  # a batch has no record
             "detail": f"{started or ''} · {how}".strip(" ·"),
             "batch": {"id": batch_id, "aiff_id": f"aiff:{batch_id}", "size": len(tracks), "started": started, "started_by": started_by, "kind": kind,
                       "from_sync": started_by in SYNC_STARTERS, "tracks": tracks,
@@ -2152,7 +2176,7 @@ def action_row(a, state: dict, cover: Url | None = None, where: Callable[[str], 
     e = state["tracks"].get(a.track_id)
     artist, title = (e["artist"], e["title"]) if e else (a.track.first_artist, a.track.title)
     to_dir = a.dest_dir or f"Library/{a.folder}"
-    return {"key": [a.kind, a.track_id, to_dir], "kind": a.kind, "reason": a.reason or None,
+    return {"kind": a.kind, "reason": a.reason or None,
             "track_id": a.track_id, "artist": artist, "title": title, "folder": action_folder(a, e, where),
             "to_dir": to_dir, "to_not_lossless": to_dir.endswith("/not_lossless"),
             "src": a.src, "cover_url": cover(a.track_id, e) if cover and e else a.track.image_url}
@@ -2233,11 +2257,75 @@ def _members(prep, plan_state: dict, places: Places | None):
     return members, names
 
 
-def sync_preview(store, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
+# --- the Sync's scope and "how many" (the window's planModel words, issue 39 phase 2: engine answers) ---
+
+HOW_MANY_STEPS = (5, 10, 25, 50)  # the number presets, each offered only below the downloads in scope
+
+
+def scope_kind(row: Mapping) -> str:
+    """The kind a row is switched by in the Sync scope: `retry` (an acquisition not found last time), `weekly` (an
+    upgrade check) or the row's own kind word; only those two can be switched off (`settings.SCOPE_KINDS`)."""
+    if row["kind"] == "acquire":
+        return "retry" if row.get("reason") == "retry" else "new"
+    return "weekly" if row["kind"] == "upgrade" else row["kind"]
+
+
+def _target_on(folders: Sequence[str], target: str, off: Collection[str]) -> bool:
+    """A folder of a row's `in` (outer to inner) is on: its own switch and those of the folders around it."""
+    return target in folders and all(f not in off for f in folders[:folders.index(target) + 1])
+
+
+def in_scope(row: Mapping, off: Collection[str], weekly_off: Collection[str]) -> bool:
+    """Whether the Sync does something with this action row (`off`: the collections switched off, `playlist:<ref>` and
+    `folder:<path>`; `weekly_off`: the kinds switched off). Left out only when every collection its song belongs to
+    (`in`) is off: any playlist on keeps it; else its innermost folder and every folder around it must be on. A row in no
+    collection has no switch. A kind switched off leaves its rows out whatever their collections say."""
+    if scope_kind(row) in weekly_off:
+        return False
+    held = row["in"]
+    if not held or any(t.startswith("playlist:") and t not in off for t in held):
+        return True
+    folders = [t for t in held if t.startswith("folder:")]
+    return bool(folders) and _target_on(folders, folders[-1], off)
+
+
+def how_many(rows: Sequence[Mapping], left: int | None, off: Collection[str], weekly_off: Collection[str]
+             ) -> tuple[list[dict], str | None]:
+    """The "how many" choices of the plan's `rows` (every row with its `id`, `kind`, `in` and `run`): `([{key, label,
+    downloads, selected}], default key)`. Downloads are the acquisitions and upgrade checks in scope (`total`); `left` is
+    today's allowance (None: no daily limit). Offered: 5, 10, 25 and 50 below `total`; "fits today" when the allowance
+    is more than nothing and less than `total` (the number preset that equals it is dropped); and all of them. Nothing
+    in scope: none. A preset ticks every action in scope that is no download and the first n downloads in run order;
+    the default is "fits" when it is offered, else "all"."""
+    scoped = sorted((r for r in rows if in_scope(r, off, weekly_off)), key=lambda r: r["run"])
+    if not scoped:
+        return [], None
+    total = sum(1 for r in scoped if r["kind"] in DOWNLOAD_KINDS)
+    fits = left is not None and 0 < left < total
+    offered = [(str(n), str(n), n) for n in HOW_MANY_STEPS if n < total and not (fits and n == left)]
+    if fits:
+        offered.append(("fits", f"{left} · fits today", left))
+    offered.append(("all", f"All {total}" if total else "All", total))
+
+    def ticks(n: int) -> list[str]:
+        done = 0
+        out = []
+        for r in scoped:
+            if r["kind"] not in DOWNLOAD_KINDS:
+                out.append(r["id"])
+            elif done < n:
+                out.append(r["id"])
+                done += 1
+        return out
+    return ([{"key": key, "label": label, "downloads": n, "selected": ticks(n)}
+             for key, label, n in sorted(offered, key=lambda o: o[2])], "fits" if fits else "all")
+
+
+def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
                  where: Callable[[str], str] | None = None, places: Places | None = None,
                  auto_upgrade: dict | None = None) -> dict:
-    """The check before the start: every planned action in groups, each with the key the page sends back ticked.
+    """The check before the start: every planned action in groups, each with the id the page sends back ticked.
     `auto_upgrade` (issue 33 stage C, issue 43): `{on, ready, places, place_notes}` from the api (`ready`: the upgrades
     the sync's last phase would put in place; `places`: the missing songs it would give their parked better version;
     None: the switch is off and nothing is to be placed), passed on as it is; null as well while there is no preview.
@@ -2245,17 +2333,20 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
     `places`: `song_places`, the folders a file sits in. Each row's `in` lists the collections of the browser column
     its song belongs to (`_members`; Sync's switches leave a row out only when every one of them is off, issue 37),
     and `collections` names each of them (target -> name)."""
-    prep = store.prep
-    status = read_status(store, now, reading, logins)
+    prep = read.prep
+    status = read_status(read, now, reading, logins)
     if prep is None:
         return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
-                "waiting_answers": 0, "deferred_checks": 0, "collections": {}, "auto_upgrade": None}
+                "waiting_answers": 0, "deferred_checks": 0, "collections": {}, "auto_upgrade": None,
+                "read_id": read.read_id, "plan_id": None, "presets": [], "default_how_many": None}
+    from .. import run  # at call time: run imports this module
     plan_state = prep.state
     members, names = _members(prep, plan_state, places)
+    ids = run.action_ids(prep)
 
     def row(a) -> dict:
-        return {**action_row(a, plan_state, cover, where), "in": members(a.track_id)}
+        return {**action_row(a, plan_state, cover, where), "id": ids[run.action_key(a)], "in": members(a.track_id)}
     m = moneys(state, settings, today)
     todo, never = planned(prep, state)
     groups: dict[str, list] = {}
@@ -2263,11 +2354,13 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
         groups.setdefault(f"acquire:{a.reason}" if a.kind == "acquire" else a.kind, []).append(a)
     in_playlists = {t.key for fp in prep.fetched for t in fp.tracks}
     run_index = {id(a): i for i, a in enumerate(todo)}  # the order the sync works through them
-    return {"read_status": status, "counts": plan_counts(todo),
-            "groups": [{"key": key, "label": label,
-                        "actions": [{**row(a), "run": run_index[id(a)]} for a in groups[key]]}
-                       for key, label in PLAN_LABELS if key in groups],
-            "estimate": sync_estimate(todo, m),
+    grouped = [{"key": key, "label": label, "actions": [{**row(a), "run": run_index[id(a)]} for a in groups[key]]}
+               for key, label in PLAN_LABELS if key in groups]
+    size = sync_estimate(todo, m)
+    presets, default = how_many([r for g in grouped for r in g["actions"]], size["left"], settings.scope_off,
+                                settings.weekly_off)
+    return {"read_status": status, "counts": plan_counts(todo), "groups": grouped,
+            "estimate": size,
             "never": [row(a) for a in never],
             "folders": [line.folder for line in prep.lines],
             "in_playlists": len(in_playlists),
@@ -2281,7 +2374,9 @@ def sync_preview(store, state: dict, settings: Settings, today: date, now: datet
             "waiting_answers": len({q.song_key for q in prep.plan.questions}),
             "deferred_checks": prep.plan.deferred_checks,
             # every collection a row is in, by its target (the browser column's key) -> its name (issue 37)
-            "collections": names, "auto_upgrade": auto_upgrade}
+            "collections": names, "auto_upgrade": auto_upgrade, "read_id": read.read_id,
+            # the id the plan is stored under is the api's to give (`HubApi.sync_preview` saves it): a view stores nothing
+            "plan_id": None, "presets": presets, "default_how_many": default}
 
 
 # --- watched folders (Settings, Setup; plan library stage 4 I11) ---
@@ -2296,7 +2391,7 @@ def watched_folders(folders: Sequence[WatchedFolder], counts: Mapping[int, Impor
     db.import_counts; `away`: folder id -> why its path isn't there now ("unmounted" |
     "missing", scanner.away_reason); `listed`: `listed_counts`' answer,
     the tracks each folder lists (the sidebar's number: one definition for both); `unreadable`: db.import_unreadable (path, reason); `waiting`: db.import_left, the files an import would work
-    through now (offline drives' left out); `stopped`: the user stopped an import this session (Continue import);
+    through now (offline drives' left out); `stopped`: the user stopped an import (kept in library.db until Continue import);
     `phase`: the running import's phase (ImportProgress.phase), None when none runs; `crates`: `crates()`' answer by
     folder path (Settings' switches): each import row gets `crates` (all of them, label order) and `too_many`, the
     Library row none ([], False).
@@ -2510,7 +2605,7 @@ def batch_title(b: BatchRow, undone_title: str | None = None) -> str:
 
 def _summary(moved: int, skipped: int) -> str:
     text = _plural(moved, "1 file moved", "{n} files moved")
-    return f"{text} \u00b7 {skipped} not moved" if skipped else text
+    return f"{text} · {skipped} not moved" if skipped else text
 
 
 def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | None = None) -> dict:

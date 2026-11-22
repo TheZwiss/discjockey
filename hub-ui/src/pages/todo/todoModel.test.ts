@@ -4,11 +4,12 @@ import type {
 } from '$lib/bridge/types';
 import { createFakeBridge } from '$lib/bridge/fake/bridge';
 import {
+  canRetryAdd,
   dropDecision,
   FILTER_ORDER, isFilter, actionsFor, segOptions, filterFrom, flatten, itemKey, keepSelection, moveSelection, rowDim, rowOff,
   cutoffStat, freeHint, qobuzText, selectAfterHide, selectFromTrack,
   NO_VALUE, compareLines, fileFolder, filePlace, fileName, fileQueue, fileState, keepLabel, linkService, queueRows, rowBadge,
-  checkCard, editLine, fileFormat, fileWords, groupIdOf, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
+  checkCard, editLine, fileFormat, fileWords, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
   sinceText, upgradeWays, findHeld, ghostOf, holdApplies, openCount, withHeldItem, type TodoHold,
   batchListStep, checksPanelShows, coalesce, keepPinned, upgradeAllKeys, wholeUpgradeGroup,
   MULTI_GROUPS, cdjAllKeys, cdjGroup, multiCdj, wholeCdjGroup,
@@ -21,7 +22,7 @@ function item(id: string, group: TodoGroupKey, extra: Partial<TodoItem> = {}): T
   return { track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless',
     quality: 'weak', quality_label: '16.0 kHz', cutoff_hz: 16000, source: 'youtube', source_name: 'YouTube',
     in_playlists: true, own: false, hidden: false, upgrade_ready: false, path: 'Library/Hard_Bounce/A - x.aiff', added: null,
-    cover_url: null, group, detail: '', free: false, file_state: 'here', ...extra };
+    cover_url: null, rev: null, group, detail: '', free: false, file_state: 'here', ...extra };
 }
 function todo(groups: [TodoGroupKey, string[]][]): Todo {
   const chips = { all: 0, rekordbox_check: 0, missing_file: 0, same_song: 0, duplicate: 0, cdj: 0, upgrade_ready: 0, not_found: 0, weak: 0, good_lossy: 0, fake: 0, other: 0 };
@@ -221,21 +222,30 @@ describe('texts', () => {
 });
 
 describe('FileDropped decision', () => {
-  const ev = (more: Partial<{ track_id: string | null; readable: boolean; message: string }>) =>
-    ({ track_id: 't17', name: 'Armin Hermann - Get Naughty.wav', readable: true, message: '', ...more });
-  it('adds a readable file dropped on the selected track', () => {
-    expect(dropDecision(ev({}), 't17')).toEqual({ do: 'add' });
+  // the target is the to-do item the window had open when the file came (`dropTarget`); the event names no track
+  const ev = (more: Partial<{ path: string | null; readable: boolean; message: string }> = {}) =>
+    ({ name: 'Armin Hermann - Get Naughty.wav', path: '/Users/you/Downloads/Armin Hermann - Get Naughty.wav',
+       readable: true, message: '', ...more });
+  it('adds a readable file dropped on the open track', () => {
+    expect(dropDecision(ev(), 't17', 't17')).toEqual({ do: 'add' });
   });
   it('shows the message in the drop zone when macOS blocked the file', () => {
-    expect(dropDecision(ev({ readable: false, message: "macOS didn't let Discjockey read this file." }), 't17'))
+    expect(dropDecision(ev({ readable: false, message: "macOS didn't let Discjockey read this file." }), 't17', 't17'))
       .toEqual({ do: 'message', text: "macOS didn't let Discjockey read this file." });
   });
-  it('leaves a drop with nothing selected to the toast', () => {
-    expect(dropDecision(ev({ track_id: null, message: 'Select the track this file belongs to, then drop it again.' }),
-      null)).toEqual({ do: 'toast' });
+  it('leaves a drop with nothing open to the toast', () => {
+    expect(dropDecision(ev(), null, 't17')).toEqual({ do: 'toast' });
+    expect(dropDecision(ev({ path: null, readable: false, message: 'Drag it from a Finder window.' }), null, null))
+      .toEqual({ do: 'toast' });
   });
-  it('ignores a drop meant for another track', () => {
-    expect(dropDecision(ev({ track_id: 't2' }), 't17')).toEqual({ do: 'ignore' });
+  it('ignores a drop for another track than this panel shows', () => {
+    expect(dropDecision(ev(), 't2', 't17')).toEqual({ do: 'ignore' });
+  });
+  it('offers "Add again" only for a refusal that can go through next time', () => {
+    expect(canRetryAdd({ job_id: null, kind: 'busy' })).toBe(true);
+    expect(canRetryAdd({ job_id: null, kind: 'console' })).toBe(true);
+    expect(canRetryAdd({ job_id: null, kind: 'refused' })).toBe(false);  // "There is no file at …": the same answer again
+    expect(canRetryAdd({ job_id: 'job:0000000a', kind: 'busy' })).toBe(false);  // a job started and failed
   });
 });
 
@@ -579,9 +589,6 @@ describe('which duplicate stays', () => {
     expect(keepWords([aiff, mp3, wav], 1).hint).toBe('Not deleted: kept in Superseded/');
     expect(keepWords([aiff, mp3, wav], 'all').label).toBe('Keep all');
   });
-  it('a group id from its files, sorted', () => {
-    expect(groupIdOf([12, 3, 7])).toBe('dup:3-7-12');
-  });
   it('arrow keys skip rows that cannot be picked and wrap', () => {
     const opts = [{ key: 'a' }, { key: 'b', disabled: true }, { key: 'c' }];
     expect(stepChoice(opts, 'a', 1)).toBe('c');
@@ -706,7 +713,7 @@ describe('the item just acted on (the hold)', () => {
     if (!up.ok) throw new Error('todo failed');
     const h = hold();
     expect(findHeld(flatten(up), h)?.group).toBe('upgrade_ready');
-    const job = await b.upgrade(['t2'], 'same_track');
+    const job = await b.upgrade(['t2'], 'same_track', null);
     if (!job.ok) throw new Error('upgrade failed');
     await new Promise((r) => setTimeout(r, 300));
     const view = await b.todo('upgrade_ready', false);

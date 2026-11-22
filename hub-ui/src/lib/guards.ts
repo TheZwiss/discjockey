@@ -27,7 +27,7 @@ export const usesGhost = (src: string): boolean => /variant\s*(=|:)\s*\{?\s*["']
 
 /** The markers the rule checker trusts: a block or a frame sets each one, a page never writes it by hand. A page that
  *  wrote `data-note` on a paragraph made its own shelter from the loose-text rule (final review I5: LiveView did). */
-export const BLOCK_MARKERS = ['note', 'surface', 'infotip', 'dev', 'hint', 'row-hit', 'frame', 'frame-main',
+export const BLOCK_MARKERS = ['note', 'banner', 'surface', 'infotip', 'dev', 'hint', 'row-hit', 'frame', 'frame-main',
   'frame-content', 'frame-foot', 'panel', 'panel-root', 'panel-head', 'panel-fill', 'panel-after', 'panel-foot',
   'page-header', 'max', 'stretch', 'primary', 'read-status', 'catalogue'] as const;
 

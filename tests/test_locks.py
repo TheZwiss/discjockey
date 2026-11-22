@@ -194,8 +194,10 @@ WRITE_SITES = {
     "hub/plan_store.py": (1, "<support>/plans/: one owner per plan file, whole-file atomic write (a dry run's one write)"),
     "hub/registry.py": (6, "the job registry's files: one owner per job, whole-file atomic writes"),
     "hub/window_port.py": (1, "window.json: one owner (the window), whole-file atomic write"),
+    "hub/windows.py": (1, "<support>/windows/<pid>.json: one owner per window, whole-file atomic write"),
     "library.py": (4, "write_json_atomic itself, the library's state file (library lock), write_music_folder "
                       "(takes the support lock inside)"),
+    "pacing.py": (1, "pace.json: under its own pace.lock (an flock held only to read and write), whole-file atomic write"),
     "pending_signs.py": (1, "the music folder's sign file: library lock"),
     "playlists_file.py": (1, "a playlist file in the music folder: library lock"),
     "qobuz.py": (3, "config.toml: _write_config and _save_login run inside support_lock, _save_secrets takes it"),

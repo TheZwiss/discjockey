@@ -1,5 +1,6 @@
 """The job registry (issue 39 group 1.4; design §6.2, §6.4): liveness by the `alive` lock, the capped events file,
 retention, the stop file and the string job ids."""
+import dataclasses
 import fcntl
 import json
 import os
@@ -33,6 +34,7 @@ def test_new_job_ids_are_job_and_eight_hex():
     assert all(re.fullmatch(r"job:[0-9a-f]{8}", registry.new_job_id()) for _ in range(50))
 
 
+@pytest.mark.shapes_unchecked  # a stub's result under a real job kind
 def test_the_window_jobs_carry_such_a_string_in_every_place_an_id_goes():
     got = []
     js = jobs.Jobs(None, got.append)
@@ -179,6 +181,23 @@ def test_the_file_keeps_the_first_2000_a_marker_and_a_rolling_tail_of_10000(tmp_
     assert len(head) == 2001 and head[0]["text"] == "m0" and head[1999]["text"] == "m1999"
     assert head[2000] == {"type": "Truncated", "event": "Truncated", "skipped": total - 2000 - 10000}
     assert len(tail) == 10000 and tail[0]["text"] == f"m{total - 10000}" and tail[-1]["text"] == f"m{total - 1}"
+
+
+def test_past_both_caps_every_action_finished_is_still_in_the_files_in_order(tmp_path):
+    from test_hub_events import ACTION, RESULT
+    files = make(tmp_path)
+    writer = files.events(head=5, tail=10)
+    for i in range(60):  # one finished action to every 9 chatty lines: the tail's cap is passed many times over
+        writer.emit(ev.ActionFinished(ACTION, dataclasses.replace(RESULT, title=f"s{i}")))
+        for j in range(9):
+            writer.emit(ev.Message("info", f"m{i}.{j}"))
+    writer.close()
+    head, tail = lines(files.dir / "events.jsonl"), lines(files.dir / "events.tail.jsonl")
+    marker = [r for r in head if r["type"] == "Truncated"]
+    rows = [r for r in [*head, *tail] if r["type"] != "Truncated"]
+    assert [r["result"]["title"] for r in rows if r["type"] == "ActionFinished"] == [f"s{i}" for i in range(60)]
+    assert len(tail) == 10 + 58 and tail[-1]["text"] == "m59.8"  # the last 10 lines, and s1..s58 (s0 is in the head) before
+    assert marker[0]["skipped"] == 60 * 10 - len(rows)  # the marker counts the lines that are in no file any more
 
 
 def test_a_job_with_few_events_has_no_marker_and_no_tail(tmp_path):

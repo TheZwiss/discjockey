@@ -50,10 +50,10 @@ absolute path of the program.
   then}`; `then` is the command to run afterwards, or `null` for the same command again; every `next[].run` and every
   `then` starts with this program's path), `recovered` (always a list), `job`, `as_of` (`{scanned_at, read_at}`: when
   the index was last scanned and the playlists last read, from the stored records; both `null` without a music folder),
-  `sandbox`. `data` is the answer of the command's bridge method minus `ok` (`help --json` names no shapes):
-  docs/hub-bridge-contract.md describes each one, the command line's own methods (`cli_first`) included; where a method
-  has no row there (`rekordbox preview`), its docstring in `discjockey/hub/api.py` (`CliApi`) and the module that builds
-  the answer (`discjockey/rekordbox/preview.py`) are the reference.
+  `sandbox`. `data` is the answer of the command's bridge method minus `ok`, plus what the command line adds (a dry run's
+  `plan_id`, a batch's `batch_id`, the counts of `check done`; `shapes.CLI_DATA`): `help <command> --json` prints its
+  `data_schema` (and `dry_run_schema`), which fits the `data` printed, and the shapes themselves, with each field's meaning, are in `discjockey/hub/shapes/`
+  (`cli.py` holds the command line's own methods, `cli_first` included).
 - **Exit codes** are the outcome's: 0 `ok`, 1 `failed`, 2 `bad_args`, 3 `busy`, 4 `needs_person`, 5 `stopped`,
   6 `partial`, 7 `refused`, 8 `running`. `reason` is one word of the closed list in `discjockey/hub/outcomes.py`.
 - **Jobs** (commands that change the library, and reads that can take minutes) run in a worker process that outlives the
@@ -157,7 +157,8 @@ page is built from and the rule checker. From `hub-ui/`:
 | Screenshots of a page in fake mode | `node scripts/shots.mjs --port <dev port> --page <page>` → `hub-ui/screenshots/` |
 
 The fake backend's catalogue of blocks is the gallery at `#/dev/gallery`. A change that touches the bridge between
-the engine and the page updates [docs/hub-bridge-contract.md](docs/hub-bridge-contract.md) in the same commit.
+the engine and the page regenerates the shapes (`uv run python -m discjockey.hub.shapes --export`) and keeps the rules in
+[docs/hub-bridge-contract.md](docs/hub-bridge-contract.md) true, in the same commit.
 
 **Dev switches of the fake backend.** In fake mode `window.__fake.ctx.s` is the fake's state; set a field in the
 browser console and the next call sees it. `s.briefBusy = true` makes both brief saves (Favourites, crate switches)

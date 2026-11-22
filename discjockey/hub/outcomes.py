@@ -13,6 +13,8 @@ from ..problem import Problem
 from ..rekordbox.eligible import REASONS as ITEM_REASONS
 from ..rekordbox.preview import REASON_WORDS as ITEM_REASON_WORDS
 
+VERSION = 1
+NO_AS_OF = {"scanned_at": None, "read_at": None}
 EXIT = {"ok": 0, "failed": 1, "bad_args": 2, "busy": 3, "needs_person": 4, "stopped": 5, "partial": 6, "refused": 7,
         "running": 8}
 
@@ -78,6 +80,7 @@ REASONS: dict[str, Reason] = {
         "not_set_up": "This needs a setup step that is not done yet.",
         "needs_yes": "This changes things, so it needs --yes. Nothing was done.",
         "changed": "Things changed since the plan was made, so nothing was done.",
+        "rev_changed": "This song changed since it was read, so nothing was done. Read it again for its new rev.",
         "not_stopped": "That job is not stopped, so it cannot be carried on.",
         "not_running": "Nothing is running, so there is nothing to stop.",
         "plan_expired": "That plan is more than a day old. Make a new one.",
@@ -190,3 +193,40 @@ def problem_fields(kind: str, error: BaseException | None = None) -> dict:
         person_steps = [person_step("quit_rekordbox")]
     return {"outcome": outcome, "reason": reason, "next": list(getattr(carried, "next", None) or ()),
             "person_steps": person_steps, "data": getattr(carried, "data", None)}
+
+
+_OUTCOME_PROBLEM = {"failed": "failed", "refused": "refused", "busy": "busy", "stopped": "stopped",
+                    "needs_person": "refused", "bad_args": "refused"}
+
+
+def finished_problem(envelope: Mapping) -> str | None:
+    """The problem kind (`JobFinished.problem`) a job's `result.json` stands for, as the window would have said it:
+    None for `ok` and `partial`. The envelope's `reason` when it is a bridge problem kind; the lock's and the stop
+    reasons by their kinds; else the outcome's own kind."""
+    outcome = envelope.get("outcome")
+    if outcome in ("ok", "partial"):
+        return None
+    reason = envelope.get("reason")
+    if reason in KIND_OUTCOME:
+        return reason
+    if reason == "library_lock":
+        return "busy"
+    if reason in ("stop", "stop_now"):
+        return "stopped"
+    return _OUTCOME_PROBLEM.get(outcome, "failed")
+
+
+def envelope(command: str, outcome: str, *, reason: str | None = None, message: str | None = None,
+             data: Mapping | None = None, next: Iterable[Mapping] = (), person_steps: Iterable[Mapping] = (),
+             recovered: Iterable[Mapping] = (), job: str | None = None, as_of: Mapping | None = None,
+             sandbox: str | None = None) -> dict:
+    """The envelope (design §4.1), its keys in design order: what `--json` prints for a command and what a job's
+    `result.json` holds, the window's jobs too. `recovered` is always a list, `as_of` always has both keys."""
+    if outcome not in EXIT:
+        raise ValueError(f"no such outcome {outcome!r}")
+    if reason is not None and reason not in REASONS:
+        raise ValueError(f"no such reason {reason!r}")
+    return {"v": VERSION, "command": command, "outcome": outcome, "reason": reason, "message": message,
+            "data": dict(data) if data is not None else None, "next": [dict(n) for n in next],
+            "person_steps": [dict(s) for s in person_steps], "recovered": [dict(r) for r in recovered], "job": job,
+            "as_of": {**NO_AS_OF, **(as_of or {})}, "sandbox": sandbox}

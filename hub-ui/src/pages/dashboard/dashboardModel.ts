@@ -67,7 +67,7 @@ export function nextSync(d: Pick<Dashboard, 'ready' | 'tiles' | 'next_checks'>, 
   if (running) return { state: 'running' };
   const r = d.ready;
   if (!r) return { state: 'unread', line: canRead ? EMPTY.no_preview.body ?? null : null };
-  if (!r.actions) return { state: 'up_to_date', checks: d.next_checks, limits: limitsLine(d.tiles, r),
+  if (!r.actions) return { state: 'up_to_date', checks: d.next_checks ?? 0, limits: limitsLine(d.tiles, r),
     day: r.left === null ? null : dayInput(d.tiles, r) };
   const count = runCount(r.actions, r.qobuz_needed, r.qobuz_uses);
   return { state: 'ready', count, time: runTime(r.duration_min, count), day: dayInput(d.tiles, r),

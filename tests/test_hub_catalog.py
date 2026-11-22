@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from discjockey.hub import catalog
+from discjockey.hub import catalog, shapes
 from discjockey.hub.api import CliApi, HubApi
 from discjockey.hub.catalog import Arg, Entry
 
@@ -40,13 +40,15 @@ EXISTING = [e for e in catalog.ENTRIES if not e.cli_first]
 
 
 def test_the_bridge_has_97_methods_and_each_has_an_entry():
+    # a dropped method (kind `dropped`) keeps its row for the command line's refusal; the bridge has none of them
     assert len(BRIDGE) == 97
-    assert set(BRIDGE) == {e.method for e in EXISTING}
+    assert not set(BRIDGE) & catalog.DROPPED
+    assert set(BRIDGE) == {e.method for e in EXISTING if e.kind != "dropped"}
 
 
 def test_an_entry_names_no_method_the_bridge_lacks():
     for e in EXISTING:
-        assert e.method in BRIDGE, e
+        assert e.kind == "dropped" or e.method in BRIDGE, e
     for e in catalog.ENTRIES:
         if e.cli_first:
             # a method that does not exist yet is planned until its group builds it
@@ -164,14 +166,14 @@ def test_every_read_with_a_command_has_an_example_that_starts_with_it():
         if e.kind == "R" and e.command:
             assert e.example, f"{e.method} {e.command} has no example"
             assert e.example.startswith(" ".join(e.command)), e.example
-        assert e.schema is None  # phase 2 fills it
+        assert e.schema == shapes.ANSWERS.get(e.method), e
 
 
 def test_the_entries_are_well_formed():
     seen = set()
     for e in catalog.ENTRIES:
         assert e.kind in ("R", "RJ", "J", "J-control", "B", "W", "dropped"), e
-        key = (e.method, e.command, e.cli_first, tuple(sorted(e.fixed.items(), key=str)))
+        key = (e.method, e.command, e.cli_first, repr(sorted(e.fixed.items(), key=str)))  # a fixed value may be a list
         assert key not in seen, e
         seen.add(key)
         assert e.planned is None or e.planned.startswith("phase "), e
@@ -217,3 +219,32 @@ def test_a_login_row_names_its_service_in_match_not_in_its_command():
         "setup_spotify_login": {"service": "spotify"}, "spotify_sign_out": {"service": "spotify"},
         "setup_skip_spotify": {"service": "spotify"}}
     assert all(len(e.command) == 2 for e in rows.values())
+
+
+def test_secret_arguments_never_reach_a_job_record():
+    """`SECRET_PARAMS` is every `Arg(secret=True)` of the catalogue by method; `public_args` leaves those out."""
+    assert catalog.SECRET_PARAMS == {"setup_qobuz_login": frozenset({"password"})}
+    assert catalog.public_args("setup_qobuz_login", {"email": "a@b.c", "password": "pw"}) == {"email": "a@b.c"}
+    assert catalog.public_args("hide", {"track_id": "t1", "password": "kept"}) == {"track_id": "t1", "password": "kept"}
+    assert catalog.public_args(None, {}) == {}
+
+
+def test_a_job_holds_the_library_by_its_own_record_else_by_the_catalogue():
+    assert catalog.holds_library({"method": "hide", "library_lock": True})  # a window hide: its `locks` is empty
+    assert not catalog.holds_library({"method": "rescan_library", "library_lock": False})
+    assert catalog.holds_library({"method": "rescan_library"})  # a record without the field: the `locks` column
+    assert not catalog.holds_library({"method": "settings_view"}) and not catalog.holds_library({})
+
+
+def test_add_bought_file_takes_the_files_path_after_the_track():
+    (entry,) = catalog.by_method("add_bought_file")
+    assert list(entry.params) == ["track_id", "path"] and entry.params["path"].positional and entry.params["path"].type == "str"
+
+
+def test_duplicate_keep_with_a_file_id_runs_keep_file_and_all_runs_keep_duplicates():
+    by_method = {m: catalog.by_method(m)[0] for m in ("keep_duplicates", "keep_file")}
+    assert {e.command for e in by_method.values()} == {("duplicate", "keep")} and not catalog.by_method("supersede_duplicate")
+    assert "supersede_duplicate" not in BRIDGE
+    assert list(by_method["keep_file"].params) == ["group_id", "file_id", "paths"]
+    assert by_method["keep_file"].params["file_id"].positional and by_method["keep_file"].params["paths"].resolve == "duplicate_paths"
+    assert catalog.DISPATCH["duplicate keep"] == ("a file id as the second word runs keep_file, `--all` runs keep_duplicates")

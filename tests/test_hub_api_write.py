@@ -1,21 +1,28 @@
 import json
+import os
+import random
 import threading
 import time
-from datetime import datetime
+import types
+from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder, make_api, make_root, music_root,
-                         refreshed, wait_job, write, window)
+                         refreshed, sync_plan, wait_job, write, window)
 
-from discjockey import db, importer, library, run
+from discjockey import db, importer, library, models, run
+from discjockey import report as report_mod
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
-from discjockey.events import ImportProgress, SourceChosen
-from discjockey.hub import jobs
+from discjockey.events import ImportProgress, SourceChosen, Waiting
+from discjockey.hub import jobs, plan_store, registry
 from discjockey.library import load_state, run_lock, save_state
 from discjockey.models import Candidate, ScanSummary, WatchedFolder
+from discjockey.pacing import Budget, NoPacer, SharedPacer
+from pace_helpers import FakeClock
 from discjockey.settings import Account, Settings, load_settings, save_settings
 
 
@@ -40,24 +47,101 @@ def test_hide_through_the_bridge(root):
     assert api.todo("all", True)["hidden_count"] == 1
 
 
-def test_precondition_refusal_when_the_console_changed_the_track(root):
+def rev_of(root, track_id="t2"):
+    return models.rev(load_state(root)["tracks"][track_id])
+
+
+def refusal(api, answer):
+    """The job's final envelope (its `result.json`): what the command line prints for the refusal."""
+    return api._jobs.registry.get(answer["job_id"]).result()
+
+
+def a_bought_file(tmp_path):
+    src = tmp_path / "Downloads" / "Get Naughty (Extended).wav"
+    src.parent.mkdir()
+    src.write_bytes(b"RIFF bought")
+    return src
+
+
+STALE = "0000000000"
+SIX_WRITES = {  # name -> (api options as a function: some classes are defined further down, what to call with `expect`)
+    "hide": (dict, lambda api, tmp, expect: api.hide("t2", True, expect)),
+    "add_bought_file": (lambda: {"analyze": lambda p: ("pcm_s16le", None)},
+                        lambda api, tmp, expect: api.add_bought_file("t2", str(a_bought_file(tmp)), expect)),
+    "use_candidate": (lambda: {"fallback": FakeFallback, "process": fake_process},
+                      lambda api, tmp, expect: api.use_candidate("t2", api.search_candidates("t2")["candidates"][1],
+                                                                 expect)),
+    "use_link": (lambda: {"fallback": FakeFallback, "process": fake_process},
+                 lambda api, tmp, expect: api.use_link("t2", "https://youtu.be/zzzzzzzzzzz", expect)),
+    "reject_current": (dict, lambda api, tmp, expect: api.reject_current("t2", expect)),
+    "upgrade": (dict, lambda api, tmp, expect: api.upgrade(["t2"], "discard", None, expect)),
+}
+
+
+@pytest.mark.parametrize("name", SIX_WRITES)
+def test_a_write_with_the_current_rev_runs(root, tmp_path, name):
+    options, call = SIX_WRITES[name]
+    api, rec = make_api(root, **options())
+    f = wait_job(api, rec, call(api, tmp_path, rev_of(root)))
+    assert f.ok, f
+
+
+@pytest.mark.parametrize("name", SIX_WRITES)
+def test_a_write_with_a_stale_rev_is_refused_and_writes_nothing(root, tmp_path, name):
+    options, call = SIX_WRITES[name]
+    api, rec = make_api(root, **options())
+    before = library.load_state(root)
+    f = wait_job(api, rec, call(api, tmp_path, STALE))
+    assert (f.ok, f.problem) == (False, "changed") and "changed" in f.message
+    assert library.load_state(root) == before
+    assert oplog(root)[-1]["result"] == "changed"
+    envelope = refusal(api, {"job_id": f.job_id})
+    assert (envelope["outcome"], envelope["reason"]) == ("refused", "rev_changed")
+    assert envelope["data"]["rev"] == rev_of(root) != STALE
+    assert envelope["next"][0]["run"] == "track show t2"
+
+
+def test_a_rev_that_went_stale_because_the_record_changed_is_refused(root):
     api, rec = make_api(root)
-    api.track("t2")
+    read = api.track("t2")["track"]["rev"]
+    assert read == rev_of(root)
     state = load_state(root)  # the console placed a lossless file a minute ago
     state["tracks"]["t2"].update(status="lossless", path="Library/Hard_Bounce/Armin Hermann - Get Naughty.aiff",
                                  upgrade=None)
     save_state(root, state)
     before = library.load_state(root)
-    f = wait_job(api, rec, api.hide("t2", True))
+    f = wait_job(api, rec, api.hide("t2", True, read))
     assert (f.ok, f.problem) == (False, "changed") and "changed in the meantime" in f.message
     assert library.load_state(root) == before
     assert oplog(root)[-1]["result"] == "changed"
+    assert wait_job(api, rec, api.hide("t2", True, rev_of(root))).ok
 
 
-def test_a_track_never_shown_is_refused(root):
+def test_a_rev_read_before_another_version_took_the_same_path_is_refused(root):
     api, rec = make_api(root)
-    f = wait_job(api, rec, api.hide("t2", True))
+    read = api.track("t2")["track"]["rev"]
+    state = load_state(root)  # `use_candidate` placed version B under the same name: same path, same status
+    state["tracks"]["t2"]["source_id"] = "another-version"
+    save_state(root, state)
+    f = wait_job(api, rec, api.reject_current("t2", read))
+    assert (f.ok, f.problem) == (False, "changed")
+    assert refusal(api, {"job_id": f.job_id})["reason"] == "rev_changed"
+
+
+def test_a_write_without_expect_acts_on_the_record_as_it_is(root):
+    api, rec = make_api(root)  # no read before: the window keeps no memory of what it showed
+    assert wait_job(api, rec, api.hide("t2", True)).ok and load_state(root)["tracks"]["t2"]["hidden"] is True
+    f = wait_job(api, rec, api.hide("nope", True))  # a song that is gone is still refused
     assert f.problem == "changed"
+
+
+def test_a_rev_with_more_than_one_song_is_a_usage_error_and_with_one_is_checked(root):
+    api, rec = make_api(root)
+    answer = api.upgrade(["t2", "t3"], "new_track", None, rev_of(root))
+    assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "bad_args", "usage")
+    assert "takes one song" in answer["message"]
+    f = wait_job(api, rec, api.upgrade(["t2"], "same_track", None, STALE))  # Same track checks the one song too
+    assert (f.ok, f.problem) == (False, "changed") and (root.root / LOSSY).read_bytes() == b"lossy audio"
 
 
 def test_interrupted_steps_are_recovered_first_and_reported(root):
@@ -101,33 +185,35 @@ def test_rescan_library_runs_a_scan_job_and_counts_what_it_found(root, monkeypat
     assert f.result == {"moved": 1, "new": 2, "gone": 3, "missing": 6, "back": 7, "changed": 4, "copies": 5}
 
 
-def test_a_scan_that_changed_something_plans_the_preview_again_without_reading_spotify(root, monkeypatch):
+def derivations(monkeypatch):
+    """How often the plan is derived from the stored read (`run.prepared_from_read`)."""
+    derived, real = [], run.prepared_from_read
+    monkeypatch.setattr(run, "prepared_from_read", lambda paths, loaded: derived.append(loaded.id) or real(paths, loaded))
+    return derived
+
+
+def test_a_scan_that_changed_something_shows_in_the_derived_plan_without_reading_spotify(root, monkeypatch):
     api, rec = make_api(root)
     refreshed(api, rec)
-    before, read_at = api._store.prep, api._store.read_at
     monkeypatch.setattr(spotify, "fetch_playlist", lambda *a, **k: pytest.fail("the scan read Spotify"))
-    replans, real = [], run.replan
-    monkeypatch.setattr(run, "replan", lambda prep: replans.append(prep) or real(prep))
-    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary())
-    assert wait_job(api, rec, api.rescan_library()).ok
-    assert replans == [] and api._store.prep is before  # nothing changed: the preview stays as it is
-    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(gone=1))
-    assert wait_job(api, rec, api.rescan_library()).ok
-    assert replans == [before] and api._store.prep is not before
-    assert api._store.prep.fetched is before.fetched and api._store.read_at == read_at
-    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(missing=1))  # a song's file went:
-    assert wait_job(api, rec, api.rescan_library()).ok  # the plan is made again, so the song isn't downloaded
-    assert len(replans) == 2
-    monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(back=1))
-    assert wait_job(api, rec, api.rescan_library()).ok
-    assert len(replans) == 3
+    derived = derivations(monkeypatch)
+    before = api._plan()
+    assert derived == [1]
+    assert wait_job(api, rec, api.rescan_library()).ok  # nothing changed: the plan is the one derived already
+    assert api._plan() is before and derived == [1]
+    (root.root / LOSSY).unlink()  # a song's file went: the scan finds it, so the song isn't taken for downloaded
+    f = wait_job(api, rec, api.rescan_library())
+    assert f.ok and f.result["missing"] == 1
+    after = api._plan()  # no re-plan hook: the next ask derives from the same read on the records as they are
+    assert after is not before and derived == [1, 1] and after.read_id == before.read_id == 1
+    assert after.fetched == before.fetched
 
 
-def test_a_scan_without_a_preview_plans_nothing(root, monkeypatch):
+def test_a_scan_without_a_stored_read_derives_nothing(root, monkeypatch):
     api, rec = make_api(root)
-    monkeypatch.setattr(run, "replan", lambda prep: pytest.fail("nothing to plan again"))
+    derived = derivations(monkeypatch)
     monkeypatch.setattr(library, "scan_library", lambda paths, emit: ScanSummary(gone=1))
-    assert wait_job(api, rec, api.rescan_library()).ok and api._store.prep is None
+    assert wait_job(api, rec, api.rescan_library()).ok and api._plan() is None and derived == []
 
 
 def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):
@@ -135,6 +221,41 @@ def test_rescan_library_on_a_real_library_finishes_without_a_problem(root):
     f = wait_job(api, rec, api.rescan_library())
     assert f.ok and set(f.result) == {"moved", "new", "gone", "missing", "back", "changed", "copies"}
     assert all(isinstance(n, int) for n in f.result.values())
+
+
+def test_a_write_refused_for_a_terminal_job_names_it_in_the_answers_data(root):
+    from discjockey.hub import outcomes, registry
+    api, rec = make_api(root)
+    api.todo()
+    files = registry.Registry(root.support).create("sync", "sync run", {}, "terminal", {"music": str(root.root)})
+    files.update(method="sync_run", library_lock=True, status="running", progress={"line": "4 of 60"})
+    files.flush()
+    answer = api.hide("t2", True)
+    assert window(answer) == {"ok": False, "kind": "console", "message": jobs.CONSOLE_TEXT}  # the words stay
+    assert answer["data"] == {"holder": {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60",
+                                         "text": "Sync running in the Terminal · 4 of 60", "where": "In the Terminal"}}
+    assert answer["outcome"] == "busy" and answer["reason"] == "console"
+    files.release_claim()
+    assert outcomes.KIND_OUTCOME["console"] == "busy"
+
+
+def test_a_reloaded_window_learns_who_holds_the_library_from_job_status_at_once(root):
+    nothing, _ = make_api(root)
+    status = nothing.job_status()
+    assert status["console_running"] is False and status["console"] is None
+    with registered_job(root, "sync", "sync_run", library_lock=True) as files, run_lock(root.lock):
+        files.update(via="terminal", progress={"line": "4 of 60"})
+        files.flush()
+        reloaded, _ = make_api(root)  # a new HubApi: no `ConsoleBusy` has been sent to it yet
+        status = reloaded.job_status()
+        assert status["console_running"] is True
+        assert status["console"] == {"job": files.id, "via": "terminal", "kind": "sync", "line": "4 of 60",
+                                     "text": "Sync running in the Terminal · 4 of 60", "where": "In the Terminal"}
+    with run_lock(root.lock):  # a holder the registry knows nothing of: nobody can name it
+        status = make_api(root)[0].job_status()
+        assert status["console_running"] is True
+        assert status["console"] == {"job": None, "via": None, "kind": None, "line": None,
+                                     "text": "A Discjockey command is running in the Terminal", "where": None}
 
 
 def test_rescan_library_answers_busy_and_console_at_once(root):
@@ -268,6 +389,7 @@ def test_save_the_qobuz_limit(root):
                                                          "extra_today": {"date": "2026-10-20", "amount": 20},
                                                          "qobuz_skipped": False, "spotify_skipped": False, "import_skipped": False,
                                                          "read_liked_music": False, "auto_upgrade": True,
+                                                         "sync_scope": {"off": [], "weekly_off": []},
                                                              "warnings_seen": {},
                                                          "qobuz_last_check": None,
                                                          "accounts": {}}
@@ -283,37 +405,69 @@ def drop(api, path):
     api._on_drop({"type": "drop", "dataTransfer": {"files": [{"name": path.name, "pywebviewFullPath": str(path)}]}})
 
 
-def test_drop_then_add_bought_file(root, tmp_path):
+def test_a_readable_drop_is_told_with_its_path_and_nothing_is_remembered(root, tmp_path):
+    api, rec = make_api(root)
+    src = a_bought_file(tmp_path)
+    drop(api, src)
+    assert rec.events[-1] == jobs.FileDropped(src.name, str(src), True, "")
+    assert not hasattr(api, "_dropped") and not hasattr(api, "_selected") and not hasattr(api, "select")
+
+
+def test_add_bought_file_by_path_needs_no_drop_before(root, tmp_path):
     api, rec = make_api(root, analyze=lambda p: ("pcm_s16le", None))
     api.todo()
-    api.select("t2")
-    src = tmp_path / "Downloads" / "Get Naughty (Extended).wav"
-    src.parent.mkdir()
-    src.write_bytes(b"RIFF bought")
-    drop(api, src)
-    assert rec.events[-1] == jobs.FileDropped("t2", src.name, True, "")
-    f = wait_job(api, rec, api.add_bought_file("t2"))
+    src = a_bought_file(tmp_path)
+    f = wait_job(api, rec, api.add_bought_file("t2", str(src)))
     assert f.ok and f.result["result"]["section"] == "bought"
     e = load_state(root)["tracks"]["t2"]
     assert e["path"] == "Library/Hard_Bounce/Armin Hermann - Get Naughty.wav" and e["upgrade"] is None
     assert src.read_bytes() == b"RIFF bought"
-    assert api.add_bought_file("t2")["kind"] == "refused"  # the drop is used up
 
 
-def test_a_drop_for_another_track_or_without_a_selection(root, tmp_path):
+def test_add_bought_file_refuses_a_missing_or_unreadable_file_before_a_job_starts(root, tmp_path):
     api, rec = make_api(root)
-    src = tmp_path / "x.wav"
-    src.write_bytes(b"x")
-    drop(api, src)
-    assert rec.events[-1].readable is False and "Select the track" in rec.events[-1].message
-    api.select("t3")
-    drop(api, src)
-    assert api.add_bought_file("t2")["kind"] == "refused"
+    api.todo()
+    src = a_bought_file(tmp_path)
+    for gone in (str(tmp_path / "nothing.wav"), str(src.parent), str(tmp_path / "a\0b.wav")):
+        answer = api.add_bought_file("t2", gone)
+        assert answer["kind"] == "refused" and answer["message"] == f"There is no file at {gone}."
+    relative = api.add_bought_file("t2", "./relative.wav")
+    assert relative["kind"] == "refused" and relative["message"] == (
+        "Give the full path of the file: it starts with /. ./relative.wav is not one.")
+    src.chmod(0)
+    try:
+        locked = api.add_bought_file("t2", str(src))
+    finally:
+        src.chmod(0o644)
+    assert locked["kind"] == "refused" and "macOS didn't let Discjockey read this file" in locked["message"]
+    for bad in ("", None, 5):  # a bad argument is the bridge's "refused" answer
+        answer = api.add_bought_file("t2", bad)
+        assert (answer["ok"], answer["kind"]) == (False, "refused")
+    assert not api._jobs.running()
+
+
+def test_add_bought_file_refuses_a_pipe_at_once_without_opening_it(root, tmp_path):
+    api, rec = make_api(root)
+    api.todo()
+    fifo = tmp_path / "some.fifo"
+    os.mkfifo(fifo)
+    answer = api.add_bought_file("t2", str(fifo))  # opening a pipe would wait for a writer: this would hang
+    assert answer["kind"] == "refused" and answer["message"] == f"There is no file at {fifo}."
+    assert not api._jobs.running()
+
+
+def test_a_dropped_folder_or_vanished_file_says_there_is_no_file(root, tmp_path):
+    api, rec = make_api(root)
+    drop(api, tmp_path)
+    event = rec.events[-1]
+    assert event == jobs.FileDropped(tmp_path.name, str(tmp_path), False, f"There is no file at {tmp_path}.")
+    gone = tmp_path / "gone.wav"
+    drop(api, gone)
+    assert rec.events[-1].readable is False and rec.events[-1].message == f"There is no file at {gone}."
 
 
 def test_a_file_macos_does_not_let_us_read(root, tmp_path):
     api, rec = make_api(root)
-    api.select("t2")
     src = tmp_path / "locked.wav"
     src.write_bytes(b"x")
     src.chmod(0)
@@ -321,7 +475,16 @@ def test_a_file_macos_does_not_let_us_read(root, tmp_path):
         drop(api, src)
     finally:
         src.chmod(0o644)
-    assert rec.events[-1].readable is False and "macOS didn't let Discjockey read this file" in rec.events[-1].message
+    event = rec.events[-1]
+    assert event == jobs.FileDropped("locked.wav", str(src), False, event.message)
+    assert "macOS didn't let Discjockey read this file" in event.message
+
+
+def test_a_drop_with_no_full_path_says_to_drag_from_finder(root):
+    api, rec = make_api(root)
+    api._on_drop({"type": "drop", "dataTransfer": {"files": [{"name": "x.wav"}]}})
+    event = rec.events[-1]
+    assert event.path is None and event.readable is False and "Drag it from a Finder window" in event.message
 
 
 def test_a_broken_drop_event_is_ignored(root):
@@ -420,6 +583,171 @@ def test_searches_and_previews_wait_while_a_sync_runs(root):
         assert api.search_candidates("t2")["kind"] == "sync_running"
 
 
+@contextmanager
+def registered_job(root, kind, method, *, status="running", music="same", library_lock=None):
+    """A job of another process in the registry (its `alive` claim held, so it counts as running)."""
+    files = registry.Registry(root.support).create(
+        kind, "x", {}, "terminal", {"music": str(root.root) if music == "same" else music, "support": str(root.support)})
+    files.update(method=method, status=status, **({} if library_lock is None else {"library_lock": library_lock}))
+    files.flush()
+    try:
+        yield files
+    finally:
+        files.release_claim()
+
+
+def test_a_sync_of_any_music_folder_in_the_registry_stops_searches(root):
+    api, rec = make_api(root, fallback=FakeFallback)
+    assert api.search_candidates("t2")["ok"]
+    with registered_job(root, "sync", "start_sync", music="/another/music/folder"):  # the accounts are the support folder's
+        assert api.search_candidates("t2")["kind"] == "sync_running"
+        assert api.preview("t2", {"source": "youtube", "id": "x", "url": "https://x"})["kind"] == "sync_running"
+    assert api.search_candidates("t2")["ok"]
+
+
+def test_a_tidy_up_holding_the_library_no_longer_stops_a_search(root):
+    api, rec = make_api(root, fallback=FakeFallback)
+    with registered_job(root, "tidy", "tidy_up", library_lock=True), run_lock(root.lock):
+        assert api.search_candidates("t2")["ok"]
+    with run_lock(root.lock):  # a holder the registry knows nothing of is an older Discjockey's or the console's sync
+        assert api.search_candidates("t2")["kind"] == "sync_running"
+
+
+def test_a_queued_terminal_sync_stops_a_search_but_not_the_windows_own_sync(root):
+    api, rec = make_api(root, fallback=FakeFallback)
+    refreshed(api, rec)
+    with registered_job(root, "start_sync", "start_sync", status="queued"):  # made the CLI way: its kind is its method
+        assert api.search_candidates("t2")["kind"] == "sync_running"
+        answer = api.start_sync(api.sync_preview()["plan_id"], [])
+        assert answer["ok"]
+        wait_job(api, rec, answer)
+
+
+class SearchingQobuz:
+    def __init__(self, order):
+        self.order = order
+
+    def search(self, query, limit=10):
+        self.order.append("request")
+        return []
+
+    def close(self):
+        pass
+
+
+def test_every_qobuz_search_waits_for_its_slot(root):
+    order = []
+
+    def pacer(support, emit, token):
+        assert support == root.support
+        return types.SimpleNamespace(before_qobuz_search=lambda: order.append("slot"))
+
+    api, rec = make_api(root, fallback=FakeFallback, open_qobuz=lambda p: SearchingQobuz(order), pacer=pacer)
+    assert api.search_candidates("t2")["ok"]
+    assert order and order[::2] == ["slot"] * (len(order) // 2) and order[1::2] == ["request"] * (len(order) // 2)
+
+
+class LinkQobuz:
+    def __init__(self, order):
+        self.order = order
+
+    def track(self, ref):
+        self.order.append("request")
+        raise ValueError("Qobuz has no such track.")
+
+    def close(self):
+        pass
+
+
+@pytest.mark.parametrize("url, expected", [("https://open.qobuz.com/track/123", ["slot", "request"]),
+                                           ("https://youtu.be/zzzzzzzzzzz", [])])
+def test_use_link_takes_its_slot_before_a_qobuz_track_lookup(root, url, expected):
+    order = []
+    api, rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=lambda p: LinkQobuz(order),
+                        pacer=lambda support, emit, token: types.SimpleNamespace(
+                            before_qobuz_search=lambda: order.append("slot"),
+                            between_account_downloads=lambda s: None, between_fallback_downloads=lambda: None,
+                            between_qobuz_downloads=lambda: None, downloaded=lambda s: None))
+    api.track("t2")
+    wait_job(api, rec, api.use_link("t2", url))
+    assert order == expected
+
+
+def test_a_paused_qobuz_is_left_out_of_a_search_with_a_note(root):
+    calls = []
+    state = load_state(root)
+    state["qobuz_usage"]["streak"] = {"failures_in_a_row": 3, "download_failed_in_row": False, "stopped": True}
+    save_state(root, state)
+    api, rec = make_api(root, fallback=FakeFallback, open_qobuz=lambda p: calls.append(p))
+    answer = api.search_candidates("t2")
+    assert answer["ok"] and calls == []  # Qobuz was not opened
+    assert answer["notes"] == ["Qobuz was not searched: it is paused after 3 failed requests in a row."]
+    assert [r["key"] for r in answer["candidates"]] == ["youtube:abcdefghijk", "youtube_music:abc"]
+    assert stored_streak(root) == {"failures_in_a_row": 3, "download_failed_in_row": False, "stopped": True}  # unchanged
+
+
+def test_use_this_waits_for_the_slot_a_terminal_job_reserved(root):
+    clock = FakeClock(time.time())
+    ended = []
+
+    def sleep(seconds):
+        clock.sleep(seconds)
+        if len(clock.slept) == 2:  # the other process's download ends
+            ended.append(clock.now)
+            (root.support / "pace.json").write_text(json.dumps({"v": 1, "services": {"qobuz": {
+                "last_request_at": clock.now, "last_download_end_at": clock.now, "in_flight": None, "since_break": 1,
+                "next_break": 12}}}))
+
+    (root.support / "pace.json").write_text(json.dumps({"v": 1, "services": {"qobuz": {
+        "last_request_at": clock.now, "last_download_end_at": clock.now,
+        "in_flight": {"pid": os.getppid(), "since": clock.now}, "since_break": 1, "next_break": 12}}}))
+    started = []
+
+    class Qobuz:
+        def download(self, cand, workdir, progress=None):
+            started.append(clock.now)
+            path = workdir / "q.flac"
+            path.write_bytes(b"x")
+            return path
+
+        def close(self):
+            pass
+
+    api, rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=lambda p: Qobuz(),
+                        pacer=lambda support, emit, token: SharedPacer(support, emit, token, sleep=sleep, clock=clock.time,
+                                                                       rng=random.Random(1)))
+    api.track("t2")
+    f = wait_job(api, rec, api.use_candidate("t2", QOBUZ_ROW))
+    assert f.ok
+    waits = [e for e in rec.events if isinstance(e, Waiting)]
+    assert waits and waits[0].kind == "between" and waits[0].remaining == waits[0].total
+    assert started and 20 <= started[0] - ended[0] <= 60 and waits[-1].remaining == 0
+
+
+def test_a_sync_gets_its_pacer_from_the_services(root, monkeypatch):
+    asked = []
+    api, rec = make_api(root, pacer=lambda support, emit, token: asked.append(support) or NoPacer())
+    refreshed(api, rec)
+
+    class FastAcquirer:
+        def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
+            f = workdir / "q.aiff"
+            f.write_bytes(b"audio")
+            return AcquireResult("ready", Ready(f, "lossless", "qobuz", "q" + track.id, "flac", None, "ok"))
+
+    class FakeQobuz:
+        check = None
+
+        def close(self):
+            pass
+
+    seen_pacers = []
+    monkeypatch.setattr(run, "Acquirer", lambda qobuz, fallback, budget, pacer, *a, **k: seen_pacers.append(pacer) or FastAcquirer())
+    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: FakeQobuz()))
+    f = wait_job(api, rec, api.start_sync(*sync_plan(api)))
+    assert f.ok and asked == [root.support] and len(seen_pacers) == 1 and isinstance(seen_pacers[0], NoPacer)
+
+
 def test_bad_candidates_from_the_page_are_refused(root):
     api, rec = make_api(root)
     assert api.use_candidate("t2", {"source": "spotify", "id": "x"})["kind"] == "refused"
@@ -462,8 +790,7 @@ def test_reads_during_a_sync_never_write_state(root, monkeypatch):
         real_save(paths, state, **kw)
 
     monkeypatch.setattr(library, "save_state", spy)
-    keys = [a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]]
-    answer = api.start_sync(keys)
+    answer = api.start_sync(*sync_plan(api))
     assert second.wait(5)
     before = library.load_state(root)
     for call in (api.dashboard, api.sidebar, api.sync_preview, api.job_status, api.todo, api.library,
@@ -501,7 +828,7 @@ def test_stop_safely_from_the_page(root, monkeypatch):
 
     monkeypatch.setattr(run, "Acquirer", lambda *a, **k: StopAware())
     monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, p: FakeQobuz()))
-    answer = api.start_sync([a["key"] for g in api.sync_preview()["groups"] for a in g["actions"]])
+    answer = api.start_sync(*sync_plan(api))
     assert started.wait(5)
     assert api.job_status()["job"]["stopping"] is False
     assert api.stop() == {"ok": True, "stopped": True}
@@ -510,9 +837,45 @@ def test_stop_safely_from_the_page(root, monkeypatch):
     assert api.stop() == {"ok": True, "stopped": False}
 
 
-def test_start_sync_checks_the_keys(root):
+def test_start_sync_without_a_plan_id_asks_for_a_read_first(root):
     api, rec = make_api(root)
-    assert api.start_sync([["acquire", "t1"]])["kind"] == "refused"
+    answer = api.start_sync()
+    assert (answer["ok"], answer["kind"]) == (False, "refused") and "Read your playlists first" in answer["message"]
+    assert api.start_sync(None, [])["kind"] == "refused" and api.job_status()["job"] is None
+
+
+def test_start_sync_answers_an_unknown_plan_as_bad_args(root):
+    api, rec = make_api(root)
+    for unknown in ("plan:0123456789ab", "plan:nonsense", "not a plan"):
+        answer = api.start_sync(unknown, [])
+        assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "bad_args", "unknown_id")
+    assert api.job_status()["job"] is None
+
+
+def test_start_sync_refuses_an_expired_plan_with_no_command_to_repeat(root):
+    api, rec = make_api(root)
+    old = plan_store.save(root.support, "sync", str(root.root), {"act:acquire:t1:1": {"kind": "acquire",
+                          "track_id": "t1", "to_dir": "Library/A"}}, now=datetime.now() - timedelta(hours=25))
+    answer = api.start_sync(old, ["act:acquire:t1:1"])
+    assert (answer["ok"], answer["kind"], answer["reason"], answer["next"]) == (False, "refused", "plan_expired", [])
+    other = plan_store.save(root.support, "sync", "/another/music", {})  # a plan made for another music folder
+    assert api.start_sync(other, [])["reason"] == "plan_expired"
+    assert api.job_status()["job"] is None
+
+
+def test_start_sync_refuses_an_id_the_plan_does_not_hold_and_a_plan_of_another_kind(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    answer = api.start_sync(plan_id, [ids[0], "act:acquire:t1:9"])
+    assert (answer["ok"], answer["kind"]) == (False, "refused") and "act:acquire:t1:9" in answer["message"]
+    assert api.start_sync(plan_id, [["acquire", "t1", "Library/A"]])["kind"] == "refused"  # the old key is no id
+    for not_a_list in (5, ids[0], {ids[0]: True}):  # no crash, and a string is not split into letters
+        answer = api.start_sync(plan_id, not_a_list)
+        assert (answer["ok"], answer["kind"]) == (False, "refused") and "`selected` is a list" in answer["message"]
+    other = plan_store.save(root.support, "upgrade", str(root.root), {"upgrade:t1": {"track": "t1"}})
+    assert (api.start_sync(other, [])["kind"], api.start_sync(other, [])["reason"]) == ("bad_args", "unknown_id")
+    assert api.job_status()["job"] is None
 
 
 def test_rekordbox_checked_through_the_bridge(root):
@@ -542,21 +905,53 @@ class RefusingQobuz:
 QOBUZ_ROW = {"source": "qobuz", "id": "q9", "title": "Get Naughty", "artist": "Armin Hermann", "duration_s": 268.0}
 
 
-def test_failed_qobuz_downloads_in_a_row_pause_qobuz_for_the_hub_session(root):
+def stored_streak(root, service="qobuz"):
+    return load_state(root).get(f"{service}_usage", {}).get("streak")
+
+
+def test_failed_qobuz_downloads_in_a_row_pause_qobuz_for_every_process_until_a_sync_starts(root):
     RefusingQobuz.tries = 0
     api, rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=lambda p: RefusingQobuz())
     api.track("t2")
     for _ in range(3):
         f = wait_job(api, rec, api.use_candidate("t2", QOBUZ_ROW))
         assert not f.ok and f.problem == "failed"
-    f = wait_job(api, rec, api.use_candidate("t2", QOBUZ_ROW))
+    assert stored_streak(root) == {"failures_in_a_row": 3, "download_failed_in_row": True, "stopped": True}
+    assert [s["kind"] for s in load_state(root)["qobuz_usage"]["signals"]][-1] == "auto_stop"
+    assert "paused until the next sync" in load_state(root)["qobuz_usage"]["signals"][-1]["message"]
+    # another window (or a terminal) of the same folder starts from the stored streak: nothing is sent to Qobuz
+    other, other_rec = make_api(root, fallback=FakeFallback, process=fake_process, open_qobuz=lambda p: RefusingQobuz())
+    other.track("t2")
+    f = wait_job(other, other_rec, other.use_candidate("t2", QOBUZ_ROW))
     assert not f.ok and f.problem == "refused" and "Qobuz is paused" in f.message
     assert RefusingQobuz.tries == 3  # the 4th click sent nothing to Qobuz
-    assert [s["kind"] for s in load_state(root)["qobuz_usage"]["signals"]][-1] == "auto_stop"
-    f = wait_job(api, rec, api.use_link("t2", "https://open.qobuz.com/track/123"))
+    f = wait_job(other, other_rec, other.use_link("t2", "https://open.qobuz.com/track/123"))
     assert not f.ok and "Qobuz is paused" in f.message
-    wait_job(api, rec, api.start_sync([]))  # a new sync starts a new streak
-    assert api._qobuz_streak == {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
+    refreshed(api, rec)
+    wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))  # a new sync ends the pause
+    assert stored_streak(root) is None
+    f = wait_job(other, other_rec, other.use_candidate("t2", QOBUZ_ROW))
+    assert not f.ok and f.problem == "failed" and RefusingQobuz.tries == 4
+
+
+def test_a_failed_download_through_an_account_pauses_it_for_the_next_window_too(root, tmp_path):
+    class Refusing(FakeFallback):
+        def download(self, cand, workdir, progress=None, section=None, account=False):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+
+        def stream_kbps(self, source, sid, account=False, secret=None):
+            return 256
+
+    save_settings(root.settings_file, Settings(accounts={"youtube": Account("chrome", 30)}))
+    api, rec = make_api(root, fallback=Refusing, process=fake_process)
+    api.track("t2")
+    row = {"source": "youtube_music", "id": "abc", "title": "Get Naughty", "artist": "Armin Hermann - Topic",
+           "duration_s": 268.0, "url": "https://music.youtube.com/watch?v=abc"}
+    for _ in range(3):
+        f = wait_job(api, rec, api.use_candidate("t2", row))
+        assert not f.ok and f.problem == "failed"
+    assert stored_streak(root, "youtube")["stopped"] is True and stored_streak(root) is None
+    assert Budget(load_state(root), lambda: None, load_settings(root.settings_file), service="youtube").stopped
 
 
 def counting_qobuz(calls):
@@ -587,16 +982,14 @@ def test_daily_limit_and_current_version_are_checked_before_qobuz_is_asked(root)
     assert calls == []  # no login, no link lookup
 
 
-def test_a_dropped_file_is_kept_when_its_job_is_refused(root, tmp_path):
+def test_a_refused_add_bought_file_job_can_be_asked_again(root, tmp_path):
     api, rec = make_api(root, analyze=lambda p: ("pcm_s16le", None))
     api.todo()
-    api.select("t2")
     src = tmp_path / "Get Naughty.wav"
     src.write_bytes(b"RIFF bought")
-    drop(api, src)
     with run_lock(root.lock):  # the console runs
-        assert api.add_bought_file("t2")["kind"] == "console"
-    f = wait_job(api, rec, api.add_bought_file("t2"))
+        assert api.add_bought_file("t2", str(src))["kind"] == "console"
+    f = wait_job(api, rec, api.add_bought_file("t2", str(src)))
     assert f.ok and f.result["result"]["section"] == "bought"
 
 
@@ -866,8 +1259,18 @@ def test_a_stop_holds_the_automatic_start_for_the_session(lib):
     api._auto_import()
     api._auto_import()
     assert len([e for e in rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]) == 1
+    assert api.watched_folders()["stopped"] is True
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.import_stopped_at(conn) is not None  # kept in library.db, not in this window
+    other, other_rec = make_api(paths)  # another window or process: it sees the stop and does not start the import
+    refreshed(other, other_rec)
+    assert other.watched_folders()["stopped"] is True
+    other._auto_import()
+    assert not [e for e in other_rec.events if isinstance(e, jobs.JobStarted) and e.kind == "import"]
     assert wait_job(api, rec, api.start_import()).ok  # Continue import still works, and lets it start by itself again
-    assert api._import_stopped is False
+    assert api.watched_folders()["stopped"] is False and other.watched_folders()["stopped"] is False
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.import_stopped_at(conn) is None
 
 
 def test_the_import_links_the_playlists_and_asks_what_is_plausible(lib):
@@ -902,7 +1305,7 @@ def test_answering_yes_links_the_file_and_no_releases_the_download(lib):
     assert (yes.ok, yes.kind, yes.result) == (True, "answer", {})
     no = wait_job(api, rec, api.answer_same_song("t5", pairs["t5"]["own_key"], False))
     assert no.ok
-    planned = api._store.prep.plan.state["tracks"]  # the next plan: saved by the next sync or import
+    planned = api._plan().plan.state["tracks"]  # the next plan: saved by the next sync or import
     linked = planned[pairs["t4"]["own_key"]]  # "Yes": the file's own song is the playlist song now
     assert (linked["aliases"], linked["in_playlists"]) == (["t4"], True)
     assert linked["path"].endswith("Example Artist - Song 1.aiff")
@@ -923,8 +1326,8 @@ def test_an_answer_the_records_cannot_take_fails_in_plain_words(lib):
         assert (a["ok"], a["kind"]) == (False, "refused")
     for call in (lambda: api.keep_duplicates("not a group", []), lambda: api.keep_duplicates(5, []),
                  lambda: api.keep_duplicates("dup:1-2", "x"), lambda: api.keep_duplicates("dup:1-2", [1]),
-                 lambda: api.supersede_duplicate("dup:1-2", "x", []), lambda: api.supersede_duplicate("nope", 1, []),
-                 lambda: api.supersede_duplicate("dup:1-2", 1, None)):
+                 lambda: api.keep_file("dup:1-2", "x", []), lambda: api.keep_file("nope", 1, []),
+                 lambda: api.keep_file("dup:1-2", 1, None), lambda: api.keep_file("dup:1-2", True, [])):
         assert call()["kind"] == "refused"
 
 
@@ -955,25 +1358,95 @@ def test_a_group_of_copies_is_one_duplicate_item_and_keep_all_answers_the_whole_
     assert api.todo()["chips"]["duplicate"] == 0 and api.sidebar()["todo"] == before - 1  # one answer, all three
 
 
-def test_moving_a_duplicate_to_superseded_keeps_the_file_and_the_others(lib, tmp_path):
+def test_keeping_one_file_of_a_duplicate_moves_the_other_to_superseded(lib, tmp_path):
     paths, folder, fakes = lib
     api, rec = make_api(paths)
     copy_dir = copies(paths, tmp_path, fakes, 2)
     wait_job(api, rec, api.add_watched_folder(str(copy_dir)))
     pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
-    moving = pair["files"][1]
+    kept, moving = pair["files"]
     shown = [f["path"] for f in pair["files"]]
-    other = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"], [shown[0], "/x/else.aiff"]))
+    other = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [shown[0], "/x/else.aiff"]))
     assert (other.ok, other.problem) == (False, "changed") and Path(moving["path"]).is_file()
-    done = wait_job(api, rec, api.supersede_duplicate(pair["group_id"], moving["file_id"], shown))
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], shown))
     assert (done.ok, done.kind) == (True, "supersede")
-    assert done.result["recovered"] == [] and done.result["result"]["section"] == "replaced"
-    moved_to = paths.root / done.result["result"]["path"]
+    assert done.result["recovered"] == [] and [r["section"] for r in done.result["results"]] == ["replaced"]
+    moved_to = paths.root / done.result["results"][0]["path"]
     assert moved_to.is_file() and not Path(moving["path"]).exists()  # moved, never deleted
-    assert Path(pair["files"][0]["path"]).is_file()
+    assert done.message == f"Moved to {done.result['results'][0]['path']}."
+    assert done.result["results"][0]["track_id"] == moving["song_key"]
+    assert done.result["kept_track"] == kept["song_key"] and Path(kept["path"]).is_file()
     assert api.todo()["chips"]["duplicate"] == 0
-    stale = api.supersede_duplicate(pair["group_id"], moving["file_id"], shown)
+    stale = api.keep_file(pair["group_id"], kept["file_id"], shown)
     assert wait_job(api, rec, stale).problem == "changed"
+
+
+def test_keeping_one_file_of_three_is_one_job_that_moves_the_other_two(lib, tmp_path):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][1]
+    started = len(rec.events)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert done.ok and done.message == "Moved 2 files to Superseded/."
+    assert len([e for e in rec.events[started:] if isinstance(e, jobs.JobStarted)]) == 1
+    assert sorted(r["track_id"] for r in done.result["results"]) == sorted(
+        f["song_key"] for f in pair["files"] if f is not kept)
+    assert all((paths.root / r["path"]).is_file() for r in done.result["results"])
+    assert done.result["kept_track"] == kept["song_key"] and Path(kept["path"]).is_file()
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, True, False]
+    assert api.todo()["chips"]["duplicate"] == 0
+
+
+def test_a_refused_move_of_keep_file_fails_the_job_with_the_files_moved_so_far(lib, tmp_path, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][2]
+    real, calls = library.move_path, []
+
+    def second_refused(*a, **kw):
+        calls.append(a)
+        if len(calls) == 2:
+            raise PermissionError(13, "Permission denied")
+        return real(*a, **kw)
+    monkeypatch.setattr(library, "move_path", second_refused)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert (done.ok, done.problem) == (False, "failed") and done.message.startswith(
+        "Moved 1 of 2 files to Superseded/, then stopped.")
+    assert len(done.result["results"]) == 1 and done.result["kept_track"] is None
+    assert (paths.root / done.result["results"][0]["path"]).is_file()
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, True, True]
+
+
+def test_an_unexpected_error_between_the_moves_of_keep_file_still_lists_what_moved(lib, tmp_path, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    wait_job(api, rec, api.add_watched_folder(str(copies(paths, tmp_path, fakes, 3))))
+    pair = next(i for g in api.todo()["groups"] if g["key"] == "duplicate" for i in g["items"])["pair"]
+    kept = pair["files"][2]
+    real, calls = report_mod.write_not_lossless, []
+
+    def second_crashes(*a, **kw):
+        calls.append(a)
+        if len(calls) == 2:
+            raise OSError(5, "Input/output error")
+        return real(*a, **kw)
+    monkeypatch.setattr(report_mod, "write_not_lossless", second_crashes)
+    done = wait_job(api, rec, api.keep_file(pair["group_id"], kept["file_id"], [f["path"] for f in pair["files"]]))
+    assert not done.ok and done.problem == "crashed"
+    # both moved files are listed: the first, and the second whose report write failed after it had moved
+    assert len(done.result["results"]) == 2 and done.result["kept_track"] is None
+    assert all((paths.root / r["path"]).is_file() for r in done.result["results"])
+    assert [Path(f["path"]).exists() for f in pair["files"]] == [False, False, True]
+
+
+def test_supersede_duplicate_is_no_bridge_method_any_more(lib):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    assert not hasattr(api, "supersede_duplicate") and callable(api.keep_file)
 
 
 def test_removing_a_folder_forgets_its_files_and_reports_what_downloads_again(lib):
@@ -1014,20 +1487,61 @@ def test_removing_the_folder_of_a_playlist_songs_only_file_makes_it_download_aga
 def test_continue_import_clears_the_stop_before_the_job_can_be_stopped_again(lib, monkeypatch):
     paths, folder, fakes = lib
     api, rec = make_api(paths)
-    api._import_stopped = True
+    with db.connect(paths.db_file) as conn:
+        db.set_import_stopped(conn, datetime(2026, 11, 20, 9, 30, 0))
+        before = db.import_stopped_at(conn)
     seen = []
     real = api._jobs.start
 
     def start(kind, work, *a, **kw):
-        seen.append(api._import_stopped)
+        seen.append(api.watched_folders()["stopped"])
         raise jobs.Busy("busy", "busy")
 
     monkeypatch.setattr(api._jobs, "start", start)
     assert api.start_import()["kind"] == "busy"
     assert seen == [False]  # cleared before the job could stop itself again
-    assert api._import_stopped is True  # a refused start leaves the stop as it was
+    assert api.watched_folders()["stopped"] is True  # a refused start leaves the stop as it was
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.import_stopped_at(conn) == before  # the very time that was stored
     monkeypatch.setattr(api._jobs, "start", real)
 
+
+def test_a_refused_start_whose_put_back_of_the_stop_fails_still_raises_the_start_error(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    with db.connect(paths.db_file) as conn:
+        db.set_import_stopped(conn, datetime(2026, 11, 20, 9, 30, 0))
+    real = api._store_import_stopped
+
+    def store(at):
+        if at is not None:  # clearing works, putting the stop back does not
+            raise OSError(5, "Input/output error")
+        real(at)
+
+    def start(kind, work, *a, **kw):
+        raise jobs.Busy("busy", "busy")
+    monkeypatch.setattr(api._jobs, "start", start)
+    monkeypatch.setattr(api, "_store_import_stopped", store)
+    assert api.start_import()["kind"] == "busy"  # the Busy, not the OSError of the put-back
+
+
+def test_a_stop_that_cannot_be_written_still_ends_the_import_stopped(lib, monkeypatch):
+    paths, folder, fakes = lib
+    api, rec = make_api(paths)
+    real = spotify.fetch_playlist
+
+    def stopping(session, line):
+        api.stop()
+        return real(session, line)
+
+    def cannot_write(write):
+        raise OSError(5, "Input/output error")
+    monkeypatch.setattr(spotify, "fetch_playlist", stopping)
+    monkeypatch.setattr(api, "_brief_write", cannot_write)
+    f = wait_job(api, rec, api.add_watched_folder(str(folder)))
+    assert (f.ok, f.problem, f.kind) == (False, "stopped", "import")  # logged, the job still ends as stopped
+    assert f.result["stopped"] is True
+    assert api.watched_folders()["stopped"] is False  # nothing was stored: the import starts by itself next window
 
 
 def test_an_import_folders_file_plays_through_its_file_id(lib):
@@ -1071,21 +1585,22 @@ def test_a_stop_while_the_import_reads_the_playlists_to_link_ends_it_stopped(lib
     f = wait_job(api, rec, api.add_watched_folder(str(folder)))
     assert (f.ok, f.problem, f.kind) == (False, "stopped", "import")
     assert f.result["stopped"] is True and f.message.startswith("Import stopped with")
-    assert api._import_stopped is True  # no automatic start again this session; Continue import is offered
+    with db.connect(paths.db_file, read_only=True) as conn:
+        assert db.import_stopped_at(conn) is not None  # no automatic start again; Continue import is offered
     assert api.watched_folders()["stopped"] is True
 
 
 
-def test_a_stopped_or_failed_import_plans_the_preview_again(lib, monkeypatch):
+def test_the_plan_after_a_stopped_or_failed_import_shows_the_files_it_imported(lib, monkeypatch):
     paths, folder, fakes = lib
     api, rec = make_api(paths)
-    refreshed(api, rec)  # the window's read: the preview exists
-    planned = []
-    real = jobs.preview_after_run
-    monkeypatch.setattr(jobs, "preview_after_run", lambda store, prep, at: planned.append(prep) or real(store, prep, at))
+    refreshed(api, rec)  # the window's read: the plan exists
+    derived = derivations(monkeypatch)
     fakes.on_probe = lambda n: api.stop() if n == 2 else None
     f = wait_job(api, rec, api.add_watched_folder(str(folder)))
-    assert f.problem == "stopped" and len(planned) == 1  # the files imported before the stop show in To-do and Sync
+    assert f.problem == "stopped"
+    imported = own_songs(paths)
+    assert imported and set(imported) <= set(api._plan().state["tracks"])  # the files imported before the stop show
     fakes.on_probe = None
 
     def broken(*a, **kw):
@@ -1093,7 +1608,7 @@ def test_a_stopped_or_failed_import_plans_the_preview_again(lib, monkeypatch):
 
     monkeypatch.setattr(importer, "run_import", broken)
     f = wait_job(api, rec, api.start_import())
-    assert (f.ok, f.problem) == (False, "crashed") and len(planned) == 2
+    assert (f.ok, f.problem) == (False, "crashed") and derived  # derived again from the records as they are
 
 
 def test_a_folder_refused_inside_the_job_shows_the_w5_words():

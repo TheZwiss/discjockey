@@ -2,6 +2,7 @@
 `as_of` from `HubApi.freshness()`."""
 import json
 import shlex
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from rekordbox_helpers import make_master
 import discjockey.cli as cli
 from discjockey import __version__, db, library
 from discjockey.cli import bind, housekeeping, parser
-from discjockey.hub import catalog
+from discjockey.hub import catalog, shapes, windows
 
 
 def run_json(argv, capsys):
@@ -41,11 +42,32 @@ def test_help_json_lists_every_built_entry_with_what_an_agent_needs(capsys):
         assert all("id" in a for a in found["args"]), command
         assert found["example"] and found["usage"].startswith(command)
         assert "usage" in found["reasons"] and set(found["reasons"]) <= set(housekeeping.REASONS)
-        assert "schema" not in found  # plan v2 D11: no data schema in phase 1
+        assert found["schema"] is None or found["schema"] in {*shapes.ANSWERS.values(), *shapes.CLI_DATA.values()}  # the shape of a mapped method
     status = listed["rekordbox status"]
     assert (status["kind"], status["writes"], status["job"], status["flags"]) == ("R", False, False,
                                                                                   ["--limit", "--offset"])
     assert [f["flag"] for f in data["global_flags"]][:2] == ["--json", "--jsonl"]
+
+
+def test_a_command_with_a_mapped_shape_names_it_and_help_of_it_carries_the_schema():
+    built = catalog.entry_of("rekordbox_status", "rekordbox status")
+    row = housekeeping.index_entry(built.command, [replace(built, schema="Freshness")])
+    assert row["schema"] == "Freshness"
+    [full] = housekeeping.with_schemas([row])
+    assert full["data_schema"] == shapes.json_schema("Freshness") and full["dry_run_schema"] is None
+    assert full["data_schema"]["$defs"]["Freshness"]["properties"]["read_at"]
+    # a dry run that is answered by a mapped method brings that method's schema
+    dry = housekeeping.with_schemas([{**row, "dry_run_method": "freshness"}])
+    assert dry[0]["dry_run_schema"] == shapes.json_schema("Freshness")
+
+
+def test_a_command_with_no_mapped_method_has_null_schemas_and_the_text_page_shows_none(capsys):
+    row = run_json(["help", "rekordbox", "backups"], capsys)[1]["data"]["commands"][0]
+    unmapped = {**row, "schema": None, "dry_run_method": None}  # every command is mapped now: a made-up row
+    [full] = housekeeping.with_schemas([unmapped])
+    assert (full["data_schema"], full["dry_run_schema"]) == (None, None)
+    code = cli.main(["help", "rekordbox", "backups"])  # the text page shows no schema
+    assert code == 0 and "schema" not in capsys.readouterr().out
 
 
 def test_every_example_of_the_index_parses(capsys):
@@ -116,8 +138,14 @@ def test_where_resolves_exactly_as_the_window_does(tmp_path, monkeypatch, capsys
     assert env["data"] == {"music": {"path": str(paths.root), "state": "ok"}, "not_lossless": None,
                            "support": str(resolved.support), "rekordbox": str(box / "master.db"),
                            "command": housekeeping.command_path(), "version": __version__, "sandbox": None,
-                           "jobs_running": 0}
+                           "jobs_running": 0, "windows_open": 0}
     assert resolved.support == paths.support  # DISCJOCKEY_SUPPORT honoured
+    window = windows.register(resolved.support, paths.root)  # an open window is counted, and only while it is open
+    try:
+        assert run_json(["where"], capsys)[1]["data"]["windows_open"] == 1
+    finally:
+        window.close()
+    assert run_json(["where"], capsys)[1]["data"]["windows_open"] == 0
     paths.not_lossless_md.parent.mkdir(parents=True, exist_ok=True)
     paths.not_lossless_md.write_text("buy these")
     assert run_json(["where"], capsys)[1]["data"]["not_lossless"] == str(paths.not_lossless_md)

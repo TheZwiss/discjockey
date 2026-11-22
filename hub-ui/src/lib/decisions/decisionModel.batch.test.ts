@@ -12,7 +12,7 @@ import {
 const item = (id: string, same_track: string | null, extra: Partial<TodoItem> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless', quality: 'weak',
   quality_label: '16.0 kHz', cutoff_hz: 16000, source: 'youtube', source_name: 'YouTube', in_playlists: true, own: false,
-  hidden: false, upgrade_ready: true, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null,
+  hidden: false, upgrade_ready: true, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null, rev: null,
   group: 'upgrade_ready', detail: 'Lossless ready · cues can stay', free: false, file_state: 'here', same_track, ...extra });
 const mp3 = (id: string, same: string | null = null) => item(id, same, { path: `Library/Hard_Bounce/A - ${id}.mp3` });
 

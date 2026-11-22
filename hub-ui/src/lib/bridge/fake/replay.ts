@@ -89,7 +89,9 @@ export type ReplayOpts = {
 /** Rewrites a fixture event for this replay: the job id, the report path. */
 export function rewrite(e: HubEvent, jobId: string, reportPath: string): HubEvent {
   if (e.type === 'JobFinished' && e.result?.report) {
-    return { ...e, job_id: jobId, result: { ...e.result, report: reportPath } };
+    // the recorded fixtures predate the plan binding: their `new_since_preview` count is a list now, and nothing was new
+    const { new_since_preview: _count, ...result } = e.result as Record<string, unknown>;
+    return { ...e, job_id: jobId, result: { ...result, new_since_plan: [], report: reportPath } };
   }
   if (e.type === 'JobStarted' || e.type === 'JobFinished') return { ...e, job_id: jobId } as HubEvent;
   if (e.type === 'RunFinished') return { ...e, report_path: reportPath };
@@ -152,7 +154,7 @@ export class Replay {
     this.o.emit({ type: 'RunFinished', exit_code: 1, report_path: report });
     this.o.emit({ type: 'JobFinished', job_id: this.o.jobId, kind: 'sync', ok: false, problem: 'crashed',
       message: "The sync stopped unexpectedly. Everything done up to then is saved, and the next sync carries on from there.",
-      result: { exit_code: 1, report, actions: this.actions(), new_since_preview: 0 }, service: null });
+      result: { exit_code: 1, report, actions: this.actions(), new_since_plan: [] }, service: null });
     this.finish();
   }
 

@@ -7,7 +7,9 @@ that is not a bridge method starts with "_", because pywebview exposes every pub
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import functools
+import hashlib
 import inspect
 import json
 import logging
@@ -21,16 +23,18 @@ import tomllib
 import traceback
 import unicodedata
 import webbrowser
+from collections import OrderedDict, deque
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
+from stat import S_ISREG
 import time
 from typing import Callable
 from urllib.parse import quote
 
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
-from .. import aiff_plan as plans, audio, cdj, missing, quality
+from .. import aiff_plan as plans, audio, cdj, missing, models, quality
 from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
@@ -42,25 +46,26 @@ from ..acquire import make_ready
 from ..candidates import current_key
 from ..fallback import FallbackSource
 from ..library import NoLibrary, Paths, Resolved, StateError, SupportPaths
-from ..events import BatchProgress, Cancelled, CancelToken, Result
+from ..events import BatchProgress, Cancelled, CancelToken, Result, no_emit
 from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatchRow, BatchResult, BatchRow, Candidate,
                       PlaylistLine,
-                      PlaylistRecord, SaveChoice, SourceTrack, WatchedFolder, file_missing, token)
+                      PlaylistRecord, ReadHead, SaveChoice, SourceTrack, WatchedFolder, file_missing, token)
 from ..names import fold, search_fold
 from ..words import SCAN_OLDER, preview_words, rekordbox_words
-from ..ops import OpProblem, snapshot
+from ..ops import OpProblem
 from .. import pending_signs, words as engine_words
-from ..pacing import Budget
+from ..pacing import Budget, SharedPacer, streak_stopped
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
-from ..settings import MAX_DAILY_LIMIT, MAX_EXTRA, Settings, SettingsError, extra_json, load_settings, update_settings_held
+from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, SettingsError, extra_json, is_scope_target,
+                        load_settings, update_settings_held)
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, media as media_mod, plan_store, registry, select, spectrum as spec, views
+from . import catalog, media as media_mod, plan_store, registry, select, shapes, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
 from .jobs import (NOT_CONNECTED, UNEXPECTED, AppUpdate, Busy, DrivesChanged, FileDropped, Job, Jobs, PreviewStore, SignInPhase,
-                   import_work, preview_after_run, problem_of, refresh_work, replanned_work, service_of, sync_work)
+                   event_dict, finished_of, import_work, problem_of, refresh_work, service_of, sync_work)
 
 RUN_ID = re.compile(r"\d{4}-\d{2}-\d{2}_\d{6}")
 WHICH = ("current", "upgrade")
@@ -75,6 +80,10 @@ RESUME_FIRST = "An upgrade was stopped halfway. Carry it on instead of starting 
 BAD_AIFF_SCOPE = "That isn't a set of files Discjockey can make AIFF."
 BAD_AIFF_ONLY = "`only` is rename, or left out."
 AIFF_ORIGINS = ("library", "todo")  # where a Convert was started: the batch's scope says so ("library:selection")
+SYNC_PLAN = "sync"  # the kind of the plan a Sync preview stores (`plan_store`)
+PLAN_RESAVE = timedelta(hours=1)  # a Sync plan this window saved is saved again after this long (it is good for 24 hours)
+JOB_EVENTS_PAGE = 500  # the most lines one `job_events` answer carries
+JOB_EVENTS_READERS = 4  # followed jobs whose reader is kept between answers (the least recent is dropped)
 TAG_CACHE_MAX = 50000  # file tag reads kept in memory (plan stage D §0.7); a library past it starts the cache over
 NO_AIFF_BATCH = "Discjockey has no record of this batch."
 NOT_STOPPED = "This batch is not stopped, so there is nothing to resume."
@@ -89,10 +98,12 @@ CHECK_ENDS_UNDO = " Their undo has ended: `track undo` can't put them back any m
 BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
 NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove",
                          "missing download", "missing remove"))  # run on what is there when --yes comes: no plan to run
+QOBUZ_PAUSED_NOTE = "Qobuz was not searched: it is paused after 3 failed requests in a row."
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
-NO_DROP = "Drag the bought file onto the window while this track is selected in the to-do list."
-NOT_SELECTED = "Select the track in the to-do list first, then drop the file on the window."
+NO_FILE = "There is no file at {path}."
+NEEDS_FULL_PATH = "Give the full path of the file: it starts with /. {path} is not one."
+NO_PATH = "A bought file needs the path of the file."
 CLIENT_ID = re.compile(r"[0-9a-fA-F]{32}")
 NO_FOLDER = "That folder isn't one of the watched folders."
 FAVOURITE_KEYS = ("playlist:", "folder:")  # what a Favourite's key starts with (plan library stage 5, D3)
@@ -112,14 +123,14 @@ MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or
 # tests/test_hub_api_music.py and, against contract.ts, by hub-ui's contract test (keep the one-name-per-string form).
 LIBRARY_METHODS = frozenset((
     "dashboard", "sidebar", "sync_preview", "refresh", "library", "track", "todo", "playlists", "limits",
-    "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum", "media_url",
+    "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change", "start_sync", "save_playlists",
     "hide", "never_download", "add_bought_file", "use_candidate", "use_link", "reject_current",
     "rekordbox_checked", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo", "aiff_plan", "convert",
     "rename", "make_aiff", "rescan_library", "show_in_finder", "reveal", "open_report",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "set_favourites", "set_crate_shown", "set_crates_shown", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
-    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "add_liked_music",
+    "start_import", "answer_same_song", "keep_duplicates", "keep_file", "add_liked_music",
     "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
@@ -145,6 +156,7 @@ class Services:
     analyze: Callable = quality.inspect
     probe: Callable = quality.probe  # ffprobe's answer for one file: the facts a fill or a dry run reads
     process: Callable = make_ready
+    pacer: Callable = SharedPacer  # (support folder, emit, token) -> the pacer of a sync's or "Use this"'s requests
     compare: Callable = align.compare_files
     timeline_offset: Callable = rekordbox.timeline_offset  # where rekordbox's timeline sits for a file (New track)
     # whether rekordbox runs and where its library is (late-bound: tests and the fake never touch a real one)
@@ -189,6 +201,11 @@ LIKED_NEEDS_LOGIN = "Sign in to YouTube first: Discjockey reads your Liked music
 LIKED_LISTED = "Liked music is in your playlists already."
 
 
+# The bridge call being answered, `(method name, its arguments without self)`, for as long as `_answering` runs it. A job
+# started inside it writes both into its registry record (`HubApi._job_record`), so `job list` says what the window started.
+CALL: contextvars.ContextVar[tuple[str, dict] | None] = contextvars.ContextVar("bridge_call", default=None)
+
+
 def _answering(fn):
     """The answer wrapper of `bridge` and `cli_first`: {"ok": true, **result} or {"ok": false, "kind", "message",
     "outcome", "reason", "next", "person_steps", "data"}; never raises. The window reads `kind` and `message`; the
@@ -196,37 +213,68 @@ def _answering(fn):
     move on, the steps only a person can do). A problem with a playlist service (a SourceError) also carries
     "service", a setting_off one "setting". A `BadId` (a typed id the command line cannot use) answers `bad_args`:
     the command line's methods raise it, and `todo` for a filter that is no group (the window sends only group keys)."""
+    signature = inspect.signature(fn)
+
     @functools.wraps(fn)
     def call(self, *args, **kwargs):
         try:
+            bound = dict(signature.bind(self, *args, **kwargs).arguments)
+            bound.pop(next(iter(signature.parameters)), None)  # self
+        except TypeError:  # the page called with wrong arguments: the call below answers it
+            bound = {}
+        token = CALL.set((fn.__name__, bound))
+        try:
             if fn.__name__ in LIBRARY_METHODS or fn.__name__ in CLI_LIBRARY_METHODS:
                 self._need_library()  # NoLibrary -> no_library before anything starts
-            return {"ok": True, **(fn(self, *args, **kwargs) or {})}
+            answer = fn(self, *args, **kwargs) or {}
+            shapes.note_answer(fn.__name__, answer)  # test mode only: the answer must fit its shape
+            return {"ok": True, **answer}
         except Busy as e:
-            return {"ok": False, "kind": e.kind, "message": str(e), **problem_fields(e.kind, e)}
+            out = {"ok": False, "kind": e.kind, "message": str(e), **problem_fields(e.kind, e)}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except StateError as e:
-            return {"ok": False, "kind": "config_invalid", "message": str(e), **problem_fields("config_invalid", e)}
+            out = {"ok": False, "kind": "config_invalid", "message": str(e), **problem_fields("config_invalid", e)}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except BadId as e:
-            return {"ok": False, "kind": "bad_args", "message": e.message, "outcome": "bad_args", "reason": e.reason,
-                    "next": [], "person_steps": [], "data": None}
+            out = {"ok": False, "kind": "bad_args", "message": e.message, "outcome": "bad_args", "reason": e.reason,
+                   "next": [], "person_steps": [], "data": None}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except plan_store.UnknownPlan as e:  # `--plan` with an id no dry run made (or one pruned long ago)
-            return {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": "unknown_id",
-                    "next": [], "person_steps": [], "data": None}
+            out = {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": "unknown_id",
+                   "next": [], "person_steps": [], "data": None}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
+        except registry.NoSuchJob as e:  # a job id the registry has no folder for (`job_events`, `stop(job_id)`)
+            out = {"ok": False, "kind": "bad_args", "message": str(e), "outcome": "bad_args", "reason": e.reason,
+                   "next": [], "person_steps": [], "data": None}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except plan_store.PlanExpired as e:  # older than 24 hours, or made for another music folder
-            return {"ok": False, "kind": "refused", "message": str(e), **problem_fields("refused", e)}
+            out = {"ok": False, "kind": "refused", "message": str(e), **problem_fields("refused", e)}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except TypeError as e:  # the page called with wrong arguments
             traceback.print_exc()
-            return {"ok": False, "kind": "crashed", "message": UNEXPECTED, **problem_fields("crashed")}
+            out = {"ok": False, "kind": "crashed", "message": UNEXPECTED, **problem_fields("crashed")}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
         except BaseException as e:  # noqa: BLE001 - nothing may reach the page as a traceback
             kind, message = problem_of(e)
             if kind == "crashed":  # for whoever looks at the terminal; the page gets the plain message
                 traceback.print_exc()
             service = service_of(e)
             setting = getattr(e, "setting", None)  # setting_off: the choice in Settings that is off
-            return {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {}),
-                    **({"setting": setting} if setting else {}), **problem_fields(kind, e)}
+            out = {"ok": False, "kind": kind, "message": message, **({"service": service} if service else {}),
+                   **({"setting": setting} if setting else {}), **problem_fields(kind, e)}
+            shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
+            return out
+        finally:
+            CALL.reset(token)
 
-    call.__signature__ = inspect.signature(fn)  # pywebview reads the parameter names from it
+    call.__signature__ = signature  # pywebview reads the parameter names from it
     return call
 
 
@@ -263,6 +311,32 @@ def profile_name(browser: str, profile: str | None, home: Path | None) -> str | 
 def _paths_list(value: object) -> bool:
     """Whether `value` is a list of path strings (the group's files as the card showed them)."""
     return isinstance(value, list) and all(isinstance(p, str) for p in value)
+
+
+def _file_problem(path: str | Path) -> str | None:
+    """Why `path` can't be added as a file, None when it is an absolute path of a regular file this process can open
+    for reading: the words of a relative path (NEEDS_FULL_PATH), of a missing file or one that is no regular file
+    (NO_FILE), or of one macOS doesn't let it read (`ops.NO_ACCESS`). It stats before it opens, so a pipe is never
+    opened (that would wait for a writer)."""
+    p = Path(path)
+    if not p.is_absolute():
+        return NEEDS_FULL_PATH.format(path=path)
+    try:
+        st = os.stat(p)
+    except (FileNotFoundError, NotADirectoryError, ValueError):  # ValueError: a NUL byte in the path
+        return NO_FILE.format(path=path)
+    except OSError:
+        return ops.NO_ACCESS
+    if not S_ISREG(st.st_mode):
+        return NO_FILE.format(path=path)
+    try:
+        with open(p, "rb"):
+            pass
+    except (FileNotFoundError, NotADirectoryError, IsADirectoryError):
+        return NO_FILE.format(path=path)
+    except OSError:
+        return ops.NO_ACCESS
+    return None
 
 
 def _import_folders(paths: Paths | None) -> int:
@@ -342,17 +416,38 @@ def setup_status(support: SupportPaths, paths: Paths | None, music: dict, which:
                              if (a := settings.accounts.get(s)) else None) for s in ACCOUNTS}}
 
 
+
+
+class _FollowReader:
+    """What `HubApi.job_events` keeps of one followed job between answers: the file reader (its byte offsets can't travel
+    in a position), the lines it read but did not deliver yet (an answer holds at most `JOB_EVENTS_PAGE`), and `count`,
+    the position of the next line to deliver. A reader made for an `after` drops that many lines first."""
+
+    def __init__(self, reader: registry.EventReader, after: int):
+        self.reader, self.count = reader, after
+        self._skip = after  # lines of the files still to drop: they were delivered before this reader existed
+        self._pending: deque[str] = deque()
+
+    def take(self, most: int) -> list[str]:
+        self._pending.extend(self.reader.read())
+        while self._skip and self._pending:
+            self._pending.popleft()
+            self._skip -= 1
+        if self._skip:  # the position is past what the files hold: nothing to deliver yet
+            return []
+        taken = [self._pending.popleft() for _ in range(min(most, len(self._pending)))]
+        self.count += len(taken)
+        return taken
+
+
 class HubApi:
     _skipped_check_is_ok = False  # the window's job ends `changed` when no named track had a check; the command line's is ok, the rows skipped
     _resume_first = False  # the command line refuses Upgrade all while a stopped upgrade batch waits (the window hides it)
     _via = "window"  # where the batches this api starts say they started (`CliApi`: terminal)
 
-    def __init__(self, support: Path, events=None, services: Services | None = None, media=None,
-                 remember: bool = True):
+    def __init__(self, support: Path, events=None, services: Services | None = None, media=None):
         """Built from the support folder alone; a library is bound later with _bind (app.main at start when the
-        music folder is there, or set_music_folder / retry_music_folder when it is chosen or comes back).
-        `remember=False` (the command line): a write acts on the record as it is now, with no check against how a page
-        last showed it (`_shown`)."""
+        music folder is there, or set_music_folder / retry_music_folder when it is chosen or comes back)."""
         self._support = SupportPaths(support=support)
         self._bound: Paths | None = None
         self._missing: Path | None = None  # config.json names this folder, but it isn't there
@@ -362,14 +457,18 @@ class HubApi:
         self._update = update_check.Checker(self._support.cache / update_check.CACHE_NAME,
                                             fetch=lambda url: self._svc.fetch_release(url))
         self._media = media  # MediaServer, or None (no audio or covers)
-        self._jobs = Jobs(None, self._emit, now=self._svc.now)
+        self._jobs = Jobs(None, self._emit, now=self._svc.now, registry=registry.Registry(self._support.support))
         self._jobs.on_locked = self._record_waiting_signs  # a write job starts: signs that waited for the lock go in
+        self._jobs.record_of = self._job_record  # what a job the window starts writes into the registry
+        self._jobs.on_finished = self._registered_envelope  # ... and its `result.json` at the end
         self._settings_mutex = threading.Lock()  # settings.json: read, change, save — one at a time
         self._store = PreviewStore()
-        self._infos: dict = {}  # playlist ref -> models.PlaylistInfo
-        self._extra_tracks: dict = {}  # playlist ref -> tracks of playlists read outside a refresh
-        self._shown: dict[str, dict] = {}  # track id -> how the page last showed it (ops.snapshot)
-        self._check_shown = remember  # False: no page showed anything, so a write checks nothing against `_shown`
+        # the plan derived from the stored read (`_plan`): the newest key's plan, so each page asks library.db's head,
+        # not the whole read, and a process that did not make the read still has the plan
+        self._plan_lock = threading.Lock()
+        self._plan_cache: tuple[tuple, run.Prepared] | None = None
+        # the Sync plan this window last stored in `<support>/plans/` and when (`_store_sync_plan`), under `_lock`
+        self._saved_plan: tuple[str, dict, datetime] | None = None
         self._rb_cache: tuple[tuple, rekordbox.Status] | None = None  # (_rekordbox_status's key, its answer)
         self._rb_at: str | None = None  # when `_rb_cache`'s answer was read (ISO time): the `as_of` of a `writing` answer
         # the CDJ group's plan (To-do's `all {n,k}` and its rows' waits): (state generation, rekordbox's key, drives
@@ -378,18 +477,16 @@ class HubApi:
         # what a file's tags said (plan stage D §0.7): (path, size, mtime_ns) -> audio.FileFacts, so reopening the panel
         # reads no file again; a changed file has a new key
         self._tag_cache: dict[tuple[str, int, int], audio.FileFacts] = {}
-        self._selected: str | None = None
-        self._dropped: dict | None = None
         self._drives_seen: dict[str, str] | None = None  # the away set the drives watch saw last (None: not yet)
         self._lock = threading.Lock()
         self._auto_lock = threading.Lock()
+        # `job_events`: one reader per followed job (the least recent dropped), with how many lines it delivered and the
+        # lines it read but did not deliver yet. Its own lock: file reads never hold `_lock` (the bridge's)
+        self._events_lock = threading.Lock()
+        self._event_readers: OrderedDict[str, _FollowReader] = OrderedDict()
         self._quit: Callable[[], None] | None = None  # set by app.main: closes the window
-        # the Qobuz auto-stop for "Use this" and links: one failure streak for the whole hub session (reset when a
-        # sync starts), not one per job, so that failed downloads in a row do pause Qobuz
-        self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
-        self._account_streaks: dict[str, dict] = {}  # service -> the same, for "Use this" through an account
-        # the user stopped an import this session: it starts by itself no more until Continue import (D14)
-        self._import_stopped = False
+        # the user stopping an import is in library.db (`import_state`: every process reads it): the import starts by
+        # itself no more until Continue import (D14). Only the window's automatic start once per session is kept here
         self._import_auto_done = False  # the window's automatic start has run (or had nothing to do) this session
 
     # --- helpers (not reachable from the page) ---
@@ -423,7 +520,8 @@ class HubApi:
             self._jobs.bind(paths.lock)
             if self._media is not None:
                 self._media.bind(paths, self._file_path)
-            self._store.records_reopened()  # its records may count their generation from 0 again
+            with self._plan_lock:
+                self._plan_cache = None  # another library's records: its plan is derived afresh
             self._bound, self._missing = paths, None  # last: the library gate opens once lock and media are ready
 
     def _bind(self, paths: Paths) -> None:
@@ -436,7 +534,7 @@ class HubApi:
             if self._bound is not None:
                 raise RuntimeError("A library is bound already; changing it needs a restart.")
             self._attach(paths)
-            self._jobs.watch_console()
+            self._jobs.watch_registry()
             self._watch_playlists_file()
             self._watch_drives()
 
@@ -484,6 +582,17 @@ class HubApi:
         plan = plan_store.load(self._support.support, plan_id, self._plan_root())
         return plan, plan_store.bind(plan, now)
 
+    @staticmethod
+    def _planned_actions(plan: plan_store.Plan) -> dict[str, tuple[str, str, str]]:
+        """A stored Sync plan's actions by their ids as `run.action_key`s. A plan of another kind, or one whose file
+        holds no such items, is no plan to start a sync from: `UnknownPlan`."""
+        try:
+            if plan.kind != SYNC_PLAN:
+                raise TypeError(plan.kind)
+            return {act: (item["kind"], item["track_id"], item["to_dir"]) for act, item in plan.items.items()}
+        except (KeyError, TypeError):
+            raise plan_store.UnknownPlan(plan.id) from None
+
     def _settings(self) -> Settings:
         try:
             return load_settings(self._support.settings_file)
@@ -498,7 +607,7 @@ class HubApi:
         except SettingsError:
             return False
 
-    def _auto_upgrade_ready(self, state: dict) -> dict | None:
+    def _auto_upgrade_ready(self, state: dict, prep: run.Prepared | None, running: bool) -> dict | None:
         """`sync_preview().auto_upgrade`: `{on, ready, places, place_notes}`. `on`: the Auto-upgrade switch; `ready`: the
         tracks the sync's last phase would upgrade now (`auto_upgrade.plan`, quick: the cached rekordbox state, no read
         open of its library; a refusal that can't be told to still hold without one counts as holding), counting those
@@ -506,8 +615,8 @@ class HubApi:
         in for (Download again on a missing file; with the switch off too), counting those that would wait;
         `place_notes`: `{closed, open}` the sentence for them (`engine_words.place_plan_line`, rekordbox closed / open), null
         with none. None when the switch is off and nothing is to be placed (or the settings file is unreadable) or there
-        is no preview (no plan, so no questions to hold songs)."""
-        prep = self._store.prep
+        is no preview (no plan `prep`, so no questions to hold songs). `running`: whether rekordbox runs, asked once by the
+        caller (`sync_preview`) and shared with the cached rekordbox state, so a preview costs one process check."""
         if prep is None:
             return None
         try:
@@ -515,8 +624,8 @@ class HubApi:
         except SettingsError:
             return None
         planned = auto_upgrade.plan(self._paths, state, {q.song_key for q in prep.plan.questions}, settings,
-                                    running=self._svc.rekordbox_running, place=self._svc.rekordbox_place(),
-                                    status=self._rekordbox_status(), quick=True)
+                                    running=lambda: running, place=self._svc.rekordbox_place(),
+                                    status=self._rekordbox_status(running), quick=True)
         if planned is None:
             return None
         coming = [k for k in (*planned.run, *(k for k, _ in planned.waiting))]
@@ -563,6 +672,96 @@ class HubApi:
 
     def _reading(self) -> bool:
         return self._jobs.status()["refresh_running"]
+
+    def _plan(self, *, strict: bool = False) -> run.Prepared | None:
+        """The Sync plan, derived from the stored read (issue 39 phase 2, D22): `run.prepared_from_read` on library.db's
+        newest good sync read, the records and the settings as they are now. Never stored: every process that asks gets
+        the plan for the library as it is, after any read or write, so no writer re-plans anything. None before the
+        first good read (and while no library is bound or library.db does not exist yet). Kept for the newest key
+        `(library folder, newest read id of any kind, the records' generation, sha256 of settings.json, today)`: a check
+        read may replace a record the plan's songs come from, a write changes the generation, and the planner plans
+        with today's date (budgets, first checks). A settings.json or state that can't be read gives no plan (None),
+        as `PreviewStore` did, so a page that only shows what there is keeps working; `strict` (a Sync preview and a
+        sync) raises the SettingsError / StateError instead."""
+        return self._plan_and_head(strict=strict)[1]
+
+    def _plan_and_head(self, *, strict: bool = False) -> tuple[ReadHead | None, run.Prepared | None]:
+        """`_plan`'s answer with the stored read's head, read in one snapshot of library.db."""
+        head, prep, _ = self._derive(True, strict)
+        return head, prep
+
+    def _derive(self, derive: bool, strict: bool) -> tuple[ReadHead | None, run.Prepared | None, Exception | None]:
+        """(the stored read's head, its plan, why there is no plan though there is a good read). `derive` False: the head
+        only (and settings.json read, to name a refusal). Not strict: a SettingsError / StateError from reading library.db, settings.json or the state is the third
+        answer, never raised."""
+        head = None
+        try:
+            paths = self._paths
+        except NoLibrary:
+            return None, None, None
+        try:
+            loaded = None
+            with self._move_log() as conn:
+                if conn is None:
+                    return None, None, None
+                with db.read_snapshot(conn):  # the head, the generation and the read are one moment of library.db
+                    head = db.read_head(conn)
+                    if head is None or head.sync_id is None:
+                        return head, None, None
+                    if not derive:
+                        load_settings(self._support.settings_file)  # the one refusal a poll can name without a plan
+                        return head, None, None
+                    key = (str(paths.root), head.current, db._generation(conn), self._settings_hash(), self._today())
+                    with self._plan_lock:
+                        cached = self._plan_cache
+                    if cached is not None and cached[0] == key:
+                        return head, cached[1], None
+                    loaded = db.load_read(conn)
+            if loaded is None:  # the read went meanwhile (library.db replaced): no plan
+                return head, None, None
+            prep = run.prepared_from_read(paths, loaded)  # no lock held: two threads may both derive, the second stores
+        except (SettingsError, StateError) as e:
+            if strict:
+                raise
+            return head, None, e
+        with self._plan_lock:
+            self._plan_cache = (key, prep)
+        return head, prep, None
+
+    def _settings_hash(self) -> str:
+        try:
+            return hashlib.sha256(self._support.settings_file.read_bytes()).hexdigest()
+        except FileNotFoundError:
+            return ""
+
+    def _read_view(self, *, plan: bool = True, strict: bool = False) -> views.ReadView:
+        """What the pages show of the stored read: the derived plan and the newest sync read's problem and words (a
+        failed first read shows its problem with no plan), with the window's `auto_read` and whether playlists.txt's
+        lines are still those the plan was made for. `plan` False (the window's poll): the head only, nothing derived (a
+        settings.json that is refused is still named).
+        A plan that can't be derived (settings.json refused) shows that as the problem, with the read's time and name
+        and no plan; `strict` raises it instead (the Sync preview answers it as an error)."""
+        head, prep, error = self._derive(plan, strict)
+        if head is None:
+            return views.ReadView(auto_read=self._store.auto_read)
+        label = None if head.sync_id is None else db.read_label(head.sync_id)
+        if error is not None:
+            problem, message = (problem_of(error) if isinstance(error, SettingsError) else ("failed", str(error)))
+            return views.ReadView(None, head.read_at, problem, None, message, label, self._store.auto_read, False)
+        return views.ReadView(prep, head.read_at, head.problem, head.problem_service, head.message, label,
+                              self._store.auto_read, self._lines_changed(head.lines))
+
+    def _lines_changed(self, stored: tuple[tuple[str, str], ...] | None) -> bool:
+        """playlists.txt's switched-on lines (folder, ref; `line_no` shifts with a comment) are not those the stored read
+        was made for, `stored` (a line added, removed, switched or retargeted since). With no line on at all (or no
+        file) they changed if the read had any; a file that can't be read otherwise: unchanged. No good read: False."""
+        if stored is None:
+            return False
+        try:
+            now = tuple((ln.folder, ln.ref) for ln in config.load_playlists(self._paths.playlists_file))
+        except config.ConfigError as e:
+            return e.kind == "not_set_up" and bool(stored)
+        return now != stored
 
     def _logins(self) -> list[tuple[str, bool]]:
         """(service, logged in) for each playlist service the switched-on playlists.txt lines use, in line order.
@@ -612,8 +811,8 @@ class HubApi:
         """The account services paused today, counting the signs still waiting for the library lock."""
         return run.paused_now(self._paths, self._state(), self._today())
 
-    def _images(self) -> dict[str, str]:
-        prep = self._store.prep
+    def _images(self, prep: run.Prepared | None) -> dict[str, str]:
+        """Each song's cover address from the plan's read (`prep`: the plan the caller asked once)."""
         return {t.key: t.image_url for fp in (prep.fetched if prep else []) for t in fp.tracks if t.image_url}
 
     def _cover(self, images: dict[str, str]) -> Callable[[str, dict], str | None]:
@@ -644,11 +843,6 @@ class HubApi:
         with db.connect(self._paths.db_file, read_only=True) as conn:
             where = db.online_file(conn, file_id)
         return media_mod.file_inside(*where) if where is not None else None
-
-    def _remember(self, state: dict, track_ids) -> None:
-        with self._lock:
-            for k in track_ids:
-                self._shown[k] = snapshot(state["tracks"].get(k))
 
     def _entry(self, state: dict, track_id: str) -> dict:
         e = state["tracks"].get(track_id)
@@ -690,17 +884,18 @@ class HubApi:
             raise OpProblem("That file or folder is not there.", "refused")
         return path
 
-    def _others(self, state: dict) -> dict[str, str]:
+    def _others(self, prep: run.Prepared | None) -> dict[str, str]:
         reports = self._reports()
-        return views.todo_others(self._store.prep, reports[-1][1] if reports else None)
+        return views.todo_others(prep, reports[-1][1] if reports else None)
 
     def _todo(self, state: dict, filt: str, show_hidden: bool, count_only: bool = False) -> dict:
         """views.todo with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
         records' same-audio ones, each with its files). `count_only` (the sidebar's number): the records' groups are
         counted without loading their files (they are online and not held by how they are found), so only the plan's
         few same-song groups read theirs; the groups of the answer are then not listed. While an import folder is
-        away right now every group's files are read, so a group with a file in it is left out of the count too."""
-        prep = self._store.prep
+        away right now every group's files are read, so a group with a file in it is left out of the count too. The plan is
+        asked once, for the questions, the groups, the others and the covers."""
+        prep = self._plan()
         questions = list(prep.plan.questions) if prep else []
         groups = list(prep.plan.duplicates) if prep else []
         files: dict[str, list] = {}
@@ -718,7 +913,8 @@ class HubApi:
         # the songs an open question or duplicate group asks about leave the CDJ group (their decision comes first)
         decided = views.decided_songs(state, questions, groups, files, counted, away, owners)
         # the sidebar's number needs neither rekordbox's state nor a look at each file
-        rb = None if count_only else self._rekordbox_status()
+        running = None if count_only else bool(self._svc.rekordbox_running())  # once for the whole answer (a `ps`)
+        rb = None if count_only else self._rekordbox_status(running)
         # the files whose presence the page needs live: a parked upgrade's (Same track) and the CDJ group's (Convert)
         members = {} if count_only else cdj.group_members(state, include_hidden=True, held=decided)
         present = None if count_only else {k: batches.present(self._paths, e) for k, e in state["tracks"].items()
@@ -726,13 +922,13 @@ class HubApi:
         rows = [] if count_only else self._aiff_batches()
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
-        cdj_plan = self._cdj_plan(state, away, decided) if members and filt in (None, "all", "cdj") else None
+        cdj_plan = self._cdj_plan(state, away, decided, running) if members and filt in (None, "all", "cdj") else None
         # where a missing file was (the Missing files group's words); the sidebar's count needs none
         where = None
         if not count_only and any(file_missing(e) for e in state["tracks"].values()):
             where = self._place(state)
         cdj_all = views.cdj_counts(cdj_plan.to_dict()) if cdj_plan else (0, 0)
-        return views.todo(state, filt, show_hidden, self._others(state), self._today(), self._cover(self._images()),
+        return views.todo(state, filt, show_hidden, self._others(prep), self._today(), self._cover(self._images(prep)),
                           questions, groups, files, self._audio, counted, away, rb, present,
                           views.stopped_batch(rows, kinds=("upgrade",)), self._auto_upgrade_on(),
                           {i: r.started_by for i, r in checked.items()}, cdj_all,
@@ -744,12 +940,14 @@ class HubApi:
         a missing file was."""
         return views.sites(state, pf.load(self._paths.playlists_file).rows, self._records_and_folders()[1]).place
 
-    def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str]) -> plans.AiffPlan:
+    def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str],
+                  running: bool | None = None) -> plans.AiffPlan:
         """The `cdj` scope's plan for To-do, remembered on the records' generation (every write of songs, files or
         decisions bumps it), rekordbox's cache key (`_rekordbox_status`: master.db's change, whether it runs) and the
         folders away now: a To-do read that changed none of them opens no library of rekordbox's again. A state that
-        carries no generation is planned every time. `decided`: `views.decided_songs`, which the plan leaves out."""
-        self._rekordbox_status()  # first: it refreshes the key below
+        carries no generation is planned every time. `decided`: `views.decided_songs`, which the plan leaves out.
+        `running`: whether rekordbox runs, when the caller (`_todo`) has asked already: the plan reuses it."""
+        self._rekordbox_status(running)  # first: it refreshes the key below
         with self._lock:
             rb_key = self._rb_cache[0] if self._rb_cache else None
             last = self._cdj_cache
@@ -758,25 +956,30 @@ class HubApi:
                if generation is not None else None)
         if key is not None and last is not None and last[0] == key:
             return last[1]
-        plan, blind = self._planned_read(state, {"kind": "cdj"}, held=decided)
+        plan, blind = self._planned_read(state, {"kind": "cdj"}, held=decided, running=running)
         # a plan made while a writer held rekordbox.lock took rekordbox's cached state and no lookup: not kept
         if key is not None and not blind:
             with self._lock:
                 self._cdj_cache = (key, plan)
         return plan
 
-    def _rekordbox_status(self) -> rekordbox.Status:
-        """`_rekordbox_read`'s status: what the screens and plans take of rekordbox's state."""
-        return self._rekordbox_read()[0]
+    def _rekordbox_status(self, running: bool | None = None) -> rekordbox.Status:
+        """`_rekordbox_read`'s status: what the screens and plans take of rekordbox's state. `running`: as there."""
+        return self._rekordbox_read(running)[0]
 
-    def _rekordbox_read(self) -> tuple[rekordbox.Status, bool, str | None, tuple[int, int] | None]:
+    def _rekordbox_read(self, running: bool | None = None
+                        ) -> tuple[rekordbox.Status, bool, str | None, tuple[int, int] | None]:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
         (plan rekordbox B §4): one read open per change. A reader takes `rekordbox.lock` shared and without waiting
         (design §6.1): while a writer of any Discjockey process holds it master.db is never opened and the answer is the
         last value (or "ready" when there is none), `writing` True, with the time it was read (`as_of`). A write job that
         holds no rekordbox session does not stop the read: only a writer's lock does. Returns (status, writing, as_of,
-        stat): `stat` is master.db's (modified time in ns, size) as that value was read, None without a library."""
-        running = bool(self._svc.rekordbox_running())
+        stat): `stat` is master.db's (modified time in ns, size) as that value was read, None without a library.
+        `running`: the answer to "does rekordbox run" the caller already has for this read answer (the check is a `ps`
+        of ~40 ms, so a bridge read asks once and hands it down); None asks now. Only reads pass it: whatever guards a
+        write of rekordbox's files asks fresh at the write."""
+        if running is None:
+            running = bool(self._svc.rekordbox_running())
         with rb_lock.reader_lock(self._support.support) as free:
             with self._lock:
                 last, at = self._rb_cache, self._rb_at
@@ -828,10 +1031,10 @@ class HubApi:
             self._tag_cache[key] = found
         return found
 
-    def _decided_now(self, state: dict) -> set[str]:
+    def _decided_now(self, state: dict, prep: run.Prepared | None) -> set[str]:
         """`views.decided_songs` for the records and the import's last plan as they are now: the songs the `cdj` scope
-        leaves out (a Convert all and the plan read ask; To-do computes its own from what it has read)."""
-        prep = self._store.prep
+        leaves out (a Convert all and the plan read ask; To-do computes its own from what it has read). `prep`: the plan
+        the caller asked."""
         questions = list(prep.plan.questions) if prep else []
         groups = list(prep.plan.duplicates) if prep else []
         files: dict[str, list] = {}
@@ -847,14 +1050,16 @@ class HubApi:
         return self._planned_read(state, scope, only, in_job=in_job, held=held)[0]
 
     def _planned_read(self, state: dict, scope: dict, only: str | None = None, *, in_job: bool = False,
-                      held: Collection[str] | None = None) -> tuple[plans.AiffPlan, bool]:
+                      held: Collection[str] | None = None, running: bool | None = None
+                      ) -> tuple[plans.AiffPlan, bool]:
         """`aiff_plan.read_plan` for `scope` with one read open of rekordbox's library (the lookup of its tracks), and
         whether it was made blind. A read asked while a writer holds `rekordbox.lock` (any Discjockey process) takes
         rekordbox's cached state and no lookup instead (as `_rekordbox_status`); a job plans for itself (`in_job`,
         after its recovery, holding no reader lock: its own session takes the writer's). The `cdj` scope leaves out
-        `held` (`_decided_now` when not given: what To-do shows as a question or a duplicate)."""
+        `held` (`_decided_now` when not given: what To-do shows as a question or a duplicate). `running`: whether rekordbox
+        runs, when the caller has asked already for this read answer (a job's plan, `in_job`, always asks for itself)."""
         if held is None:
-            held = self._decided_now(state) if scope.get("kind") == "cdj" else ()
+            held = self._decided_now(state, self._plan()) if scope.get("kind") == "cdj" else ()
         if in_job:
             return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
                                    running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags,
@@ -863,9 +1068,10 @@ class HubApi:
             if hold.enter_context(rb_lock.reader_lock(self._support.support)):
                 # the shared hold ends once master.db is closed (the lookups are done), not after the tag reads
                 return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
-                                       running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags,
+                                       running=bool(self._svc.rekordbox_running()) if running is None else running,
+                                       only=only, tags=self._tags,
                                        held=held, released=hold.close), False
-        return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(), entries=None, tags=self._tags,
+        return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(running), entries=None, tags=self._tags,
                           only=only, held=held), True
 
     def _planned_reading(self, state: dict, scope: dict, only: str | None = None) -> plans.AiffPlan:
@@ -877,7 +1083,7 @@ class HubApi:
         have none stored are read in memory (`aiff_plan.with_facts`), none is stored. `FactsMissing` for more than a
         read takes (the command line's; the window plans on the facts stored). Also whether the plan was made blind (a
         writer held `rekordbox.lock`: rekordbox's cached state and no lookup of its tracks)."""
-        held = self._decided_now(state) if scope.get("kind") == "cdj" else ()
+        held = self._decided_now(state, self._plan()) if scope.get("kind") == "cdj" else ()
         try:
             state = plans.with_facts(self._paths, state, scope, probe=self._svc.probe, held=held)
         except plans.FactsMissing:
@@ -905,7 +1111,7 @@ class HubApi:
 
     @bridge
     def dashboard(self) -> dict:
-        return views.dashboard(self._shown_state(), self._settings(), self._store, self._reports(), self._folders(),
+        return views.dashboard(self._shown_state(), self._settings(), self._read_view(), self._reports(), self._folders(),
                                setup_status(self._support, self._paths, self._music_status(), self._svc.which),
                                self._today(), self._svc.now(),
                                self._reading(), self._logins())
@@ -956,10 +1162,36 @@ class HubApi:
             folders, overrides = (db.watched_folders(conn), db.crate_overrides(conn)) if conn is not None else ([], {})
         lines = pf.load(self._paths.playlists_file).rows
         where = views.sites(state, lines, folders).place
-        return views.sync_preview(self._store, state, self._settings(), self._today(), self._svc.now(),
-                                  self._reading(), self._cover(self._images()), self._logins(), where,
-                                  views.song_places(state, lines, folders, overrides),
-                                  self._auto_upgrade_ready(state))
+        read = self._read_view(strict=True)  # a refused settings.json is the answer here, not an empty preview
+        running = bool(self._svc.rekordbox_running())  # once for the whole answer: it is a `ps` of ~40 ms
+        answer = views.sync_preview(read, state, self._settings(), self._today(), self._svc.now(),
+                                    self._reading(), self._cover(self._images(read.prep)), self._logins(), where,
+                                    views.song_places(state, lines, folders, overrides),
+                                    self._auto_upgrade_ready(state, read.prep, running))
+        if read.prep is not None:
+            answer["plan_id"] = self._store_sync_plan(answer, state.get("generation"))
+        return answer
+
+    def _store_sync_plan(self, preview: dict, generation: int | None) -> str:
+        """Stores the plan a Sync preview answers (design §7.1, §9.2) where every process finds it, and returns its id:
+        the actions the preview groups, by their ids, as `(kind, track_id, to_dir)`, with the read and the records'
+        generation it was derived from. A preview is asked for on every data change, so the plan is saved when its id
+        is another than the last one this window saved, its actions' targets differ from that save's (the id is a hash
+        of the action ids only), or that save is over an hour old (a plan is good for 24 hours from its last save). A
+        save that fails (the support folder can't be written) is the preview's problem."""
+        items = {a["id"]: {"kind": a["kind"], "track_id": a["track_id"], "to_dir": a["to_dir"]}
+                 for g in preview["groups"] for a in g["actions"]}
+        root = self._plan_root()
+        identifier = plan_store.plan_id(SYNC_PLAN, root, list(items))
+        now = datetime.now()  # as plan_store reads the clock: it is the plan's own 24 hours
+        with self._lock:
+            last = self._saved_plan
+        if last is None or last[0] != identifier or last[1] != items or now - last[2] > PLAN_RESAVE:
+            plan_store.save(self._support.support, SYNC_PLAN, root, items,
+                            {"read_id": preview["read_id"], "generation": generation}, now=now)
+            with self._lock:
+                self._saved_plan = (identifier, items, now)
+        return identifier
 
     @bridge
     def refresh(self, auto: bool = False) -> dict:
@@ -968,7 +1200,7 @@ class HubApi:
         with self._auto_lock:
             if auto and self._store.auto_read:
                 raise OpProblem(AUTO_READ_DONE, "refused")
-            read = refresh_work(self._paths, self._store, self._svc.now, infos=self._infos,
+            read = refresh_work(self._paths, self._svc.now, infos={},
                                 lock=self._opening_scan if auto else self._jobs.scan_lock)
 
             def work(ctx) -> dict:
@@ -995,11 +1227,14 @@ class HubApi:
 
     def _auto_import(self) -> None:
         """D14: the window opened and files wait for an import: it starts by itself, once per session, unless the
-        user stopped one this session or something else is writing (the import then waits for Continue import or the
-        next window). Only the window's own first read gets here, never a Sync page's ↻ Read playlists."""
-        if self._import_stopped or self._import_auto_done:
+        user stopped one (it stays stopped in library.db, for every window and process) or something else is writing (the
+        import then waits for Continue import or the next window). Only the window's own first read gets here, never a
+        Sync page's ↻ Read playlists."""
+        if self._import_auto_done:
             return
         try:
+            if self._import_stopped_at() is not None:
+                return
             if importer.files_waiting(self._paths) > 0:
                 self._start_import()
             self._import_auto_done = True
@@ -1010,16 +1245,40 @@ class HubApi:
 
     def _start_import(self, folder: Path | str | None = None):
         """The import as a write job (Busy when another job or a terminal run holds the library)."""
-        stopped, self._import_stopped = self._import_stopped, False  # before it starts: it may be stopped at once
+        stopped = self._import_stopped_at()
+        if stopped is not None:  # cleared before it starts: it may be stopped at once
+            self._store_import_stopped(None)
         try:
-            return self._jobs.start("import", import_work(self._paths, self._store, self._svc.now, folder=folder,
+            return self._jobs.start("import", import_work(self._paths, self._plan, self._svc.now, folder=folder,
                                                           on_stopped=self._note_stopped))
         except BaseException:
-            self._import_stopped = stopped
+            if stopped is not None:  # a start that failed leaves the stop as it was
+                try:
+                    self._store_import_stopped(datetime.fromisoformat(stopped))
+                except Exception:  # noqa: BLE001 - the start's own error is the one to show
+                    log.warning("could not put back that the import was stopped", exc_info=True)
             raise
 
+    def _import_stopped_at(self) -> str | None:
+        """When the user stopped the import (library.db's `import_state`), None while none is stopped or there is no
+        library.db yet."""
+        if not self._paths.db_file.exists():
+            return None
+        with self._move_log() as conn:
+            return db.import_stopped_at(conn)
+
+    def _store_import_stopped(self, at: datetime | None) -> None:
+        if self._paths.db_file.exists():  # no records yet: nothing could have been stopped, nothing to clear
+            self._brief_write(lambda conn: db.set_import_stopped(conn, at))
+
     def _note_stopped(self) -> None:
-        self._import_stopped = True
+        """The import job was stopped: remembered in library.db so the window and every other process know (D14). A
+        write that can't be made must not replace the job's own `stopped` ending: it is logged, and the import then
+        starts by itself again at the next window."""
+        try:
+            self._store_import_stopped(self._svc.now())
+        except Exception:  # noqa: BLE001
+            log.warning("could not note that the import was stopped", exc_info=True)
 
     @bridge
     def stop_refresh(self) -> dict:
@@ -1027,8 +1286,65 @@ class HubApi:
 
     @bridge
     def job_status(self) -> dict:
-        return {**self._jobs.status(), "read_status": views.read_status(self._store, self._svc.now(), self._reading(),
-                                                                           self._logins())}
+        read = self._read_view(plan=False)  # the head only: this runs on every window refresh, no plan is derived
+        return {**self._jobs.status(), "read_status": views.read_status(read, self._svc.now(), self._reading(),
+                                                                           self._logins()),
+                "last_sync": self._last_sync()}
+
+    @bridge
+    def job_events(self, job_id: str, after: int = 0) -> dict:
+        """The events of any job of this support folder (the window's own, the Terminal's) from position `after` on, at
+        most `JOB_EVENTS_PAGE` lines, as `job follow --jsonl` reads them: `events.jsonl`, then the rolling tail.
+        Positions count the lines of the files (a line that does not parse is skipped from `events` but has its place),
+        so `next` is the `after` of the following call. The window sends only 0 or the `next` it was given: the reader
+        that delivered up to there is kept (`_FollowReader`) and reads on; any other `after` starts a fresh one. Once
+        `done`, `finished` is the job's end as the window's `JobFinished` (from its `result.json`, `jobs.finished_of`;
+        `worker_lost` when it left none), so a follower need not find it among the lines: the file has none when the
+        worker died, and may hold another job's (a retry's) before the last."""
+        files = registry.Registry(self._support.support).get(job_id)
+        state = files.state()
+        status = state.get("status")  # before the lines: an ended job's last events are in them
+        after = max(0, int(after))
+        with self._events_lock:
+            follow = self._event_readers.pop(job_id, None)
+            if follow is None or follow.count != after:
+                follow = _FollowReader(registry.EventReader(files.dir), after)
+            lines = follow.take(JOB_EVENTS_PAGE)
+            self._event_readers[job_id] = follow  # now the most recent
+            while len(self._event_readers) > JOB_EVENTS_READERS:
+                self._event_readers.popitem(last=False)
+            next_ = follow.count
+        events = []
+        for line in lines:
+            try:
+                data = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(data, dict):
+                events.append(data)
+        done = status in ("done", "lost") and len(lines) < JOB_EVENTS_PAGE
+        return {"events": events, "next": next_, "status": status, "done": done,
+                "finished": event_dict(finished_of(job_id, state.get("kind") or "", files)) if done else None}
+
+    def _last_sync(self) -> dict | None:
+        """The newest sync of this music folder in the registry (any `via`: the window's or the terminal's, a queued one
+        of the terminal included: its kind is still its method name `start_sync`), as `{job,
+        args: {plan_id, selected}, ended}`: what the run list shows after a reload and `job show` says of what was
+        ticked. Null with no sync, no library, or no registry. The recorded args are read defensively (an older or
+        hand-made record has none): a plan id that is no string is None, `selected` keeps its strings."""
+        registry_ = self._jobs.registry
+        if registry_ is None or self._bound is None:
+            return None
+        state = next((s for s in registry_.list(self._bound.root)
+                      if s.get("kind") == "sync" or s.get("method") == "start_sync"), None)  # a queued Terminal one: its method
+        if state is None:
+            return None
+        args = state.get("args") if isinstance(state.get("args"), dict) else {}
+        plan_id, selected = args.get("plan_id"), args.get("selected")
+        return {"job": state.get("id"),
+                "args": {"plan_id": plan_id if isinstance(plan_id, str) else None,
+                         "selected": [i for i in selected if isinstance(i, str)] if isinstance(selected, list) else []},
+                "ended": state.get("ended")}
 
     @bridge
     def library(self, view: str = "all", key: str | None = None, query: str = "", filter: str = "all",
@@ -1037,10 +1353,7 @@ class HubApi:
         folder name or the folder's path for the last two; sort None = the view's own order. An unknown playlist or
         folder is not an error: the answer says `empty: "gone"`."""
         state = self._state()
-        out = self._library_view(state, view, key, query, filter, sort)
-        # a row without a file (a playlist song that waits) is no track the page can act on
-        self._remember(state, select.library_ids(out))
-        return out
+        return self._library_view(state, view, key, query, filter, sort)
 
     def _library_view(self, state: dict, view: str, key: str | None, query: str, filter: str, sort: str | None) -> dict:
         """`library`'s answer for `state` (the arguments are checked here): what the window shows and `select_listing`
@@ -1052,8 +1365,8 @@ class HubApi:
         if filter not in views.LIBRARY_FILTERS:
             raise ValueError(f"filter must be one of {', '.join(views.LIBRARY_FILTERS)}")
         records, folders = self._records_and_folders()
-        prep = self._store.prep
-        return views.library(state, view, key, query, filter, sort, self._cover(self._images()),
+        prep = self._plan()
+        return views.library(state, view, key, query, filter, sort, self._cover(self._images(prep)),
                              self._away_by_root(folders), lines=pf.load(self._paths.playlists_file).rows,
                              records=records, watched=folders, fetched=prep.fetched if prep else [],
                              planned={k: t["aliases"] for k, t in (prep.state["tracks"] if prep else {}).items()
@@ -1064,7 +1377,7 @@ class HubApi:
     def track(self, track_id: str) -> dict:
         state = self._state()
         e = self._entry(state, track_id)
-        prep = self._store.prep
+        prep = self._plan()
         if prep is not None:  # the aliases the last read's linking added (a Qobuz track linked to this song) count too
             planned = (prep.state["tracks"].get(track_id) or {}).get("aliases") or []
             e = {**e, "aliases": list(dict.fromkeys([*(e.get("aliases") or []), *planned]))}
@@ -1077,11 +1390,10 @@ class HubApi:
         where = place_of(e["path"]) if e.get("path") else None
         rb = self._rekordbox_status()
         detail = views.track_detail(track_id, e, prep.fetched if prep else [], self._today(),
-                                    self._cover(self._images()), self._audio, self._away_by_root(folders), exists, where,
+                                    self._cover(self._images(prep)), self._audio, self._away_by_root(folders), exists, where,
                                     rb, self._auto_upgrade_on(), state, place_of)
         # what Convert and Rename would do for this file (null: no file, a download, a better version waiting)
         detail["aiff"] = plans.file_answer(self._paths, state, track_id, rb=rb, tags=self._tags) if exists else None
-        self._remember(state, [track_id])
         return {"track": detail}
 
     @bridge
@@ -1110,10 +1422,7 @@ class HubApi:
             raise BadId("usage", f"There is no to-do group called {filter}. The groups are "
                                       f"{', '.join(views.TODO_GROUP_KEYS)}.")
         state = self._state()
-        out = self._todo(state, filter, bool(show_hidden))
-        # a question or a duplicate group is not a track the page can act on (hide, upgrade, …): nothing to remember
-        self._remember(state, [i["track_id"] for g in out["groups"] for i in g["items"] if "pair" not in i])
-        return out
+        return self._todo(state, filter, bool(show_hidden))
 
     def _away_folders(self, rows: Sequence[WatchedFolder]) -> dict[int, str]:
         """Folder id -> why it is not there right now ("unmounted" or "missing", scanner.away_reason) for the import
@@ -1142,7 +1451,7 @@ class HubApi:
     @bridge
     def watched_folders(self) -> dict:
         """The watched folders (the Library first, then the import folders) with how far their import is, the files
-        it couldn't read, how many wait, and whether the user stopped the import this session (plan library stage 4
+        it couldn't read, how many wait, and whether the user stopped the import (kept in library.db until Continue import; plan library stage 4
         I11)."""
         paths = self._paths
         state = self._state()
@@ -1151,9 +1460,11 @@ class HubApi:
         if job is not None and job.kind == "import":
             phase = (job.last.get("ImportProgress") or {}).get("phase", "scan")
         with self._move_log() as conn:
+            stopped = False
             if conn is None:  # no library.db yet: only the Library, nothing imported; its files as "All tracks" counts
                 rows, counts, unreadable, waiting, overrides = [WatchedFolder(0, paths.library, "library")], {}, [], 0, {}
             else:
+                stopped = db.import_stopped_at(conn) is not None
                 overrides = db.crate_overrides(conn)
                 rows, counts = db.watched_folders(conn), db.import_counts(conn)
                 waiting = db.import_left(conn)
@@ -1164,7 +1475,7 @@ class HubApi:
         files = [e["path"] for e in views.tracks_with_file(state)]
         crates = views.crates(files, [str(f.path) for f in rows if f.kind == "import"], overrides)
         return views.watched_folders(rows, counts, self._away_folders(rows), views.listed_counts(files, rows), unreadable,
-                                     waiting, self._import_stopped, phase, crates)
+                                     waiting, stopped, phase, crates)
 
     def _brief_write(self, write: Callable[[sqlite3.Connection], None]) -> None:
         """A write to the records the hub keeps beside the library (Favourites, crate switches; plan library stage 5
@@ -1277,7 +1588,7 @@ class HubApi:
 
     @bridge
     def limits(self, service: str = "qobuz") -> dict:
-        return views.limits(self._service(service), self._shown_state(), self._settings(), self._store.prep, self._today())
+        return views.limits(self._service(service), self._shown_state(), self._settings(), self._plan(), self._today())
 
     @bridge
     def limits_what_if(self, service: str, limit: int, extra_today: int = 0) -> dict:
@@ -1285,7 +1596,7 @@ class HubApi:
         if not 1 <= limit <= MAX_DAILY_LIMIT or not 0 <= extra_today <= MAX_EXTRA:
             raise ValueError(f"The daily limit goes from 1 to {MAX_DAILY_LIMIT}, the extra for today from 0 to "
                              f"{MAX_EXTRA}.")
-        return views.limits_what_if(service, limit, extra_today, self._shown_state(), self._settings(), self._store.prep,
+        return views.limits_what_if(service, limit, extra_today, self._shown_state(), self._settings(), self._plan(),
                                     self._today())
 
     @bridge
@@ -1306,7 +1617,7 @@ class HubApi:
         if found is None:
             raise OpProblem("That run report is not there any more.", "refused")
         run_id = text
-        return {"run": views.run_detail(run_id, found, self._state(), cover=self._cover(self._images()),
+        return {"run": views.run_detail(run_id, found, self._state(), cover=self._cover(self._images(self._plan())),
                                         folder_order=self._folders())}
 
     @bridge
@@ -1318,15 +1629,6 @@ class HubApi:
         else:
             data = spec.spectrum(self._paths, self._file_of(track_id, which), decode=self._svc.decode)
         return {"spectrum": {**data, "which": which, "cutoff_hz": e.get("cutoff_hz") if which == "current" else None}}
-
-    @bridge
-    def media_url(self, track_id: str, which: str = "current") -> dict:
-        imported = self._imported(self._entry(self._state(), track_id), which)
-        rel = media_mod.file_address(imported[0]) if imported is not None else self._file_of(track_id, which)
-        url = self._media.url(rel) if self._media is not None else None
-        if url is None:
-            raise OpProblem("This file can't be played here.", "refused")
-        return {"url": url}
 
     @bridge
     def setup_status(self) -> dict:
@@ -1341,13 +1643,6 @@ class HubApi:
         qobuz_ok = setup_status(self._support, self._bound, self._music_status(), self._svc.which)["qobuz"]
         state = self._shown_state() if self._bound is not None else library.empty_state()
         return {"downloads": views.downloads(state, settings, qobuz_ok, names, self._today())}
-
-    @bridge
-    def select(self, track_id: str | None) -> dict:
-        """The to-do item the page shows, so a file dropped on the window goes to that track."""
-        with self._lock:
-            self._selected = track_id
-        return {}
 
     # --- other ---
 
@@ -1482,13 +1777,13 @@ class HubApi:
     # --- what the network reads and the write jobs share ---
 
     def _no_sync_running(self) -> None:
-        """Searches and previews would send unpaced requests next to a paced sync (the hub's or the console's)."""
-        job = self._jobs.running()
-        if (job is not None and job.kind == "sync") or self._jobs.console_running():
+        """Searches and previews would send requests next to a paced sync of this support folder (this window's, a
+        terminal's or the console's): `Jobs.sync_running`."""
+        if self._jobs.sync_running():
             raise Busy(SYNC_RUNNING, "sync_running")
 
     def _spotify_track(self, track_id: str, e: dict) -> SourceTrack:
-        prep = self._store.prep
+        prep = self._plan()
         ids = {track_id, *(e.get("aliases") or [])}
         for fp in prep.fetched if prep else []:
             for t in fp.tracks:
@@ -1503,48 +1798,26 @@ class HubApi:
             raise OpProblem(f"Could not log in to Qobuz: {login_problem(e)}", "failed") from None
 
     def _budget(self, state: dict) -> Budget:
-        """Today's Qobuz budget, carrying this session's failure streak."""
-        budget = Budget(state, lambda: library.save_state(self._paths, state), self._settings())
-        with self._lock:
-            for name, value in self._qobuz_streak.items():
-                setattr(budget, name, value)
-        return budget
-
-    def _keep_streak(self, budget: Budget) -> None:
-        with self._lock:
-            self._qobuz_streak = {name: getattr(budget, name) for name in self._qobuz_streak}
+        """Today's Qobuz budget (it carries the stored failure streak: a Qobuz that failed three times in a row, in any
+        process, stays paused until the next sync starts)."""
+        return Budget(state, lambda: library.save_state(self._paths, state), self._settings())
 
     def _account_budgets(self, state: dict) -> dict[str, Budget]:
-        """Today's budget of each account that is set up, carrying this session's failure streak (a paused account
-        stays paused for "Use this" until the next sync)."""
-        accounts = run.account_budgets(state, lambda: library.save_state(self._paths, state),
-                                       self._settings())
-        with self._lock:
-            for service, budget in accounts.items():
-                for name, value in self._account_streaks.get(service, {}).items():
-                    setattr(budget, name, value)
-        return accounts
+        """Today's budget of each account that is set up (a paused account stays paused until the next sync)."""
+        return run.account_budgets(state, lambda: library.save_state(self._paths, state), self._settings())
 
-    def _keep_account_streaks(self, accounts: dict[str, Budget]) -> None:
-        with self._lock:
-            for service, budget in accounts.items():
-                self._account_streaks[service] = {name: getattr(budget, name) for name in self._qobuz_streak}
-
-    def _single(self, kind: str, track_id: str, do) -> dict:
-        """A single operation as a write job (spec 6.7): recovery first, precondition (the entry as the page last
-        showed it), the change, not_lossless.md and the operations log."""
-        with self._lock:
-            expect = self._shown.get(track_id)
-
+    def _single(self, kind: str, track_id: str, do, expect: str | None = None) -> dict:
+        """A single operation as a write job (spec 6.7): recovery first, precondition (the record's `rev` is `expect`,
+        when one is given), the change, not_lossless.md and the operations log."""
         def work(ctx) -> dict:
             done = ops.run_single(self._paths, kind, track_id, expect, lambda state: do(state, ctx),
-                                  now=self._svc.now, check=self._check_shown)
+                                  now=self._svc.now)
             return {"track_id": track_id, "result": asdict(done.result),
                     "recovered": [[message, ok] for message, ok in done.recovered]}
 
         return {"job_id": self._jobs.start(kind, work, track_id=track_id).id}
 
-    def _replace_with(self, track_id: str, find: Callable) -> dict:
+    def _replace_with(self, track_id: str, find: Callable, expect: str | None = None) -> dict:
         """use_candidate / use_link: `find(qobuz, fallback)` gives the version, which is then downloaded and placed."""
         def do(state: dict, ctx):
             e = state["tracks"][track_id]
@@ -1557,55 +1830,62 @@ class HubApi:
             try:
                 fallback = self._svc.fallback(emit=ctx.emit, check=ctx.token.check,
                                               logins={s: (a.browser, a.profile) for s, a in self._settings().download_accounts.items()})
+                pacer = self._svc.pacer(self._paths.support, ctx.emit, ctx.token)
+                if find.needs_qobuz and find.cand is None and qobuz is not None:
+                    pacer.before_qobuz_search()  # a pasted Qobuz link: its track lookup is a Qobuz request
                 cand = find(qobuz, fallback)
                 return ops.use_candidate(self._paths, state, track_id, cand, qobuz=qobuz, fallback=fallback,
                                          budget=budget, track=self._spotify_track(track_id, e), emit=ctx.emit,
                                          token=ctx.token, process=self._svc.process, accounts=accounts,
-                                         now=self._svc.now)
+                                         now=self._svc.now, pacer=pacer)
             finally:
-                self._keep_streak(budget)
-                self._keep_account_streaks(accounts)
                 if qobuz is not None:
                     qobuz.close()
-        return self._single(find.kind, track_id, do)
+        return self._single(find.kind, track_id, do, expect)
 
     def _on_drop(self, event: dict) -> None:
-        """pywebview's drop handler on the page (app.py): remembers the file for the selected to-do item and tells the
-        page. Runs on a thread of its own; never raises."""
+        """pywebview's drop handler on the page (app.py): tells the page which file was dropped, remembering nothing
+        (the page passes the path back in `add_bought_file`). Runs on a thread of its own; never raises."""
         try:
             files = (event.get("dataTransfer") or {}).get("files") or []
             found = next((f for f in files if f.get("pywebviewFullPath")), None)
-            with self._lock:
-                track_id = self._selected
             if found is None:
-                self._emit(FileDropped(track_id, "", False, "Discjockey could not see where this file is. Drag it "
-                                                            "from a Finder window."))
+                self._emit(FileDropped("", None, False, "Discjockey could not see where this file is. Drag it "
+                                                        "from a Finder window."))
                 return
             path = Path(found["pywebviewFullPath"])
-            try:
-                with open(path, "rb"):
-                    readable = path.is_file()
-            except OSError:
-                readable = False
-            message = "" if readable else ops.NO_ACCESS
-            if readable and track_id is None:
-                readable, message = False, NOT_SELECTED
-            with self._lock:
-                self._dropped = {"track_id": track_id, "path": path} if readable else None
-            self._emit(FileDropped(track_id, path.name, readable, message))
+            problem = _file_problem(path)
+            self._emit(FileDropped(path.name, str(path), problem is None, problem or ""))
         except Exception:
             traceback.print_exc()
 
     # --- playlists (playlists.txt stays the source of truth) ---
 
+    def _clear_read_problem(self, service: str, kinds: frozenset[str] | None = None, message: str | None = None) -> None:
+        """A login for `service` was just made: the stored read's problem about it is out of date
+        (`db.clear_read_problem`), so every process stops showing it."""
+        if self._bound is not None:
+            run.clear_read_problem(self._bound, service, kinds, message)
+
+    def _stored_playlists(self) -> tuple[dict, dict]:
+        """(every stored record's tracks by playlist ref, every stored playlist info by ref): what the reads found,
+        the Sync page's and the Playlists page's own (library.db; empty before there is one)."""
+        with self._move_log() as conn:
+            return (db.stored_tracks(conn), db.stored_infos(conn)) if conn is not None else ({}, {})
+
     def _tracks_by_id(self) -> dict:
-        prep = self._store.prep
-        return {**self._extra_tracks, **{fp.line.ref: fp.tracks for fp in (prep.fetched if prep else [])}}
+        return self._stored_playlists()[0]
+
+    def _store_check(self, fetched: models.FetchedPlaylist, started: datetime) -> None:
+        """Keeps the tracks of one playlist read for the Playlists page (a pasted link, an edited line) as a check
+        read: it never prunes, and a newer read of the same playlist is kept over it."""
+        run.store_read(self._paths, models.StoredRead("check", started, [fetched]), keep=None)
 
     @bridge
     def playlists(self) -> dict:
-        return views.playlists(pf.load(self._paths.playlists_file), self._tracks_by_id(), dict(self._infos),
-                               self._state(), self._cover(self._images()),
+        tracks, infos = self._stored_playlists()
+        return views.playlists(pf.load(self._paths.playlists_file), tracks, infos,
+                               self._state(), self._cover(self._images(self._plan())),
                                liked_music_on=self._settings().reads_liked_music)
 
     @bridge
@@ -1627,6 +1907,7 @@ class HubApi:
         signs: list[tuple[str, str, str]] = []
         reader.on_signal = lambda *sign: signs.append(sign)
         reader.paused = self._paused_accounts()  # the reader refuses Liked music while paused (D6)
+        started = datetime.now()  # the clock the stored reads' order is by (run.prepare stamps its reads the same way)
         try:
             tracks, fetched = None, None
             if service in ONE_READ_SERVICES:  # their info always comes with a fetch: one read answers both
@@ -1638,11 +1919,11 @@ class HubApi:
                         reader.info(pid)  # the page's own words (fetch's are worded for playlists.txt); else this one
                     raise
             info = fetched.info if fetched is not None and fetched.info is not None else reader.info(pid)
-            self._infos[ref] = info
+            run.store_infos(self._paths, {ref: info}, self._svc.now())
             if fetched is None and info.readable:
                 fetched = reader.fetch(PlaylistLine(suggest_folder(info.name), pid, 0, service))
             if fetched is not None:
-                self._extra_tracks[ref] = fetched.tracks
+                self._store_check(fetched, started)
                 tracks = len(fetched.tracks)
         finally:
             self._close(reader)
@@ -1679,7 +1960,8 @@ class HubApi:
                             found = sources.recognise(r.link)
                             if found is None or (service == "soundcloud" and found[1] == SOUNDCLOUD_YOU):
                                 continue  # not a playlist; or your likes, whose read opens the browser login (Keychain)
-                            self._extra_tracks[r.ref] = reader.fetch(PlaylistLine("x", found[1], 0, service)).tracks
+                            started = datetime.now()  # before the fetch: reads are ordered by when they started
+                            self._store_check(reader.fetch(PlaylistLine("x", found[1], 0, service)), started)
                         except sources.SourceError:
                             continue
                 finally:
@@ -1697,7 +1979,7 @@ class HubApi:
         money = views.gate(views.moneys(state, self._settings(), self._today()))
         old = pf.load(self._paths.playlists_file).rows
         change = views.playlist_change(old, rows, tracks, state, state["files"], self._today(), money,
-                                       self._cover(self._images()), library_dirs=tidy.library_dirs(self._paths),
+                                       self._cover(self._images(self._plan())), library_dirs=tidy.library_dirs(self._paths),
                                        rename_offer=tidy.rename_offer, placement=pf.placement(rows, tracks, state),
                                        retargeted=pf.retargeted(old, rows, tracks, state))
         return {**change, "problem": problem}
@@ -1719,7 +2001,6 @@ class HubApi:
                 retargeted = pf.retargeted(before, rows, self._tracks_by_id(), self._state())
                 all_renames = pf.renames(before, rows)
             version = pf.save(self._paths.playlists_file, rows, loaded_version or "")
-            self._store.mark_stale()  # the plan was made for the old lines
             if choice is None:
                 return {"version": version, "batches": []}
             try:
@@ -1771,7 +2052,7 @@ class HubApi:
     def tidy_preview(self) -> dict:
         """The "Tidy up files" preview: every file the playlist order would put elsewhere (plan I5)."""
         state = self._state()
-        return views.tidy_preview(planner.tidy_rows(state), state, self._cover(self._images()))
+        return views.tidy_preview(planner.tidy_rows(state), state, self._cover(self._images(self._plan())))
 
     @bridge
     def move_batches(self) -> dict:
@@ -1847,19 +2128,25 @@ class HubApi:
     @bridge
     def search_candidates(self, track_id: str) -> dict:
         self._no_sync_running()
-        e = self._entry(self._state(), track_id)
+        state = self._state()
+        e = self._entry(state, track_id)
         track = self._spotify_track(track_id, e)
         notes = []
-        try:
-            qobuz = self._svc.open_qobuz(self._support)
-        except QobuzNotSetUp:
-            qobuz = None  # candidates.search says so itself
-        except QobuzError as err:
+        if streak_stopped(state):  # paused after failed requests in a row (any process's): not asked at all
             qobuz = None
-            notes.append(f"Qobuz was not searched: {login_problem(err)}")
+            notes.append(QOBUZ_PAUSED_NOTE)
+        else:
+            try:
+                qobuz = self._svc.open_qobuz(self._support)
+            except QobuzNotSetUp:
+                qobuz = None  # candidates.search says so itself
+            except QobuzError as err:
+                qobuz = None
+                notes.append(f"Qobuz was not searched: {login_problem(err)}")
         try:
+            pacer = self._svc.pacer(self._paths.support, no_emit, CancelToken())
             found, more = candidates.search(track, e, qobuz, self._svc.fallback(),
-                                            skip=candidates.protected(self._paths))
+                                            skip=candidates.protected(self._paths), pace=pacer.before_qobuz_search)
         finally:
             if qobuz is not None:
                 qobuz.close()
@@ -1890,23 +2177,37 @@ class HubApi:
     # --- write jobs (one at a time; each returns {"job_id"} at once, the outcome comes as JobFinished) ---
 
     @bridge
-    def start_sync(self, selected: list) -> dict:
-        ticked = set()
-        for key in selected or []:
-            if not (isinstance(key, (list, tuple)) and len(key) == 3 and all(isinstance(k, str) for k in key)):
-                raise ValueError("Each ticked action is [kind, track_id, to_dir].")
-            ticked.add(tuple(key))
-        job = self._jobs.start("sync", sync_work(self._paths, self._store, ticked, self._svc.now,
-                                                 self._rekordbox_services()))
-        with self._lock:  # the sync has its own auto-stop; "Use this" starts a new streak after it
-            self._qobuz_streak = {"failures_in_a_row": 0, "download_failed_in_row": False, "stopped": False}
-            self._account_streaks = {}
+    def start_sync(self, plan_id: str | None = None, selected: list | None = None) -> dict:
+        """Starts the sync of the plan `plan_id` (a Sync preview's, `_store_sync_plan`) that runs only the actions
+        `selected` (their ids in the plan); the rest of the plan is left out of the run, and what the run's fresh plan
+        has that the plan did not is `new_since_plan` in its result. No plan id: nothing was read yet. A plan that is
+        unknown or expired answers `bad_args` / `refused` (the window then reads a new preview)."""
+        if plan_id is None:
+            raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
+        plan = plan_store.load(self._support.support, plan_id, self._plan_root())
+        planned = self._planned_actions(plan)
+        if selected is not None and not isinstance(selected, (list, tuple)):
+            raise ValueError("`selected` is a list of action ids of the plan.")
+        chosen = list(selected or [])
+        for act in chosen:
+            if not isinstance(act, str) or act not in planned:
+                raise ValueError(f"{act!r} is not an action of the plan {plan_id}.")
+        job = self._jobs.start("sync", sync_work(self._paths, planned, chosen, self._svc.now,
+                                                 self._rekordbox_services(), pacer=self._svc.pacer))
         return {"job_id": job.id}
 
     @bridge
-    def stop(self) -> dict:
-        """Stop safely: the running write job (a sync, a download, a Spotify login) ends after its current step."""
-        return {"stopped": self._jobs.stop()}
+    def stop(self, job_id: str | None = None) -> dict:
+        """Stop safely: the running write job (a sync, a download, a Spotify login) ends after its current step. With a
+        `job_id` (any job of this support folder, the Terminal's too): writes that job's stop file, what `job stop` does,
+        when it is queued, running or stopping; `stopped` is false for one that has ended."""
+        if job_id is None:
+            return {"stopped": self._jobs.stop()}
+        files = registry.Registry(self._support.support).get(job_id)
+        if files.state().get("status") not in registry.ACTIVE:
+            return {"stopped": False}
+        files.request_stop()
+        return {"stopped": True}
 
     @bridge
     def save_limits(self, service: str, limit: int, extra_today: int = 0) -> dict:
@@ -1937,15 +2238,15 @@ class HubApi:
         return {"job_id": self._settings_job("mark_warnings_seen", work).id}
 
     @bridge
-    def hide(self, track_id: str, hidden: bool) -> dict:
+    def hide(self, track_id: str, hidden: bool, expect: str | None = None) -> dict:
         return self._single("hide" if hidden else "unhide", track_id,
-                            lambda state, ctx: ops.set_hidden(self._paths, state, track_id, bool(hidden)))
+                            lambda state, ctx: ops.set_hidden(self._paths, state, track_id, bool(hidden)), expect)
 
     @bridge
     def never_download(self, track_id: str, never: bool) -> dict:
         """"Never download" on the Sync page (or undo it): kept in state.json → never; the planner leaves the track
         out of every sync until undone. Nothing is downloaded or deleted. The preview moves the track at once."""
-        prep = self._store.prep
+        prep = self._plan(strict=True)  # a plan that can't be derived is not "not in the plan"
         a = next((a for a in [*(prep.plan.actions if prep else []), *(prep.plan.never if prep else [])]
                   if a.track_id == track_id), None)
         if never and a is None:
@@ -1974,14 +2275,10 @@ class HubApi:
     def rescan_library(self) -> dict:
         """The window opened, or came back to the front after a while (spec library §6.4): index Library/ against
         library.db, so files moved or replaced by hand are found. A write job (kind "scan"): busy/console as every
-        write method; the page ignores those answers, a running sync scans by itself. A scan that changed something
-        plans the stored preview again from its own Spotify read (run.replan, no new read), so Sync and To-do never
-        show the plan from before the scan."""
+        write method; the page ignores those answers, a running sync scans by itself. The plan is derived from the
+        records as they are (`_plan`), so Sync and To-do never show the plan from before the scan."""
         def work(ctx) -> dict:
             summary = library.scan_library(self._paths, ctx.emit)
-            prep = self._store.prep
-            if prep is not None and summary != library.ScanSummary():
-                preview_after_run(self._store, prep, self._store.read_at)
             return {"moved": summary.moved, "new": summary.new, "gone": summary.gone, "missing": summary.missing,
                     "back": summary.back, "changed": summary.replaced, "copies": summary.copies}
 
@@ -1999,8 +2296,8 @@ class HubApi:
 
     @bridge
     def start_import(self) -> dict:
-        """"Continue import": the import again, where it stopped (also after a Stop, which held the automatic start
-        for the session)."""
+        """"Continue import": the import again, where it stopped (also after a Stop, which holds the automatic start
+        back, in every window, until this is run)."""
         return {"job_id": self._start_import().id}
 
     @bridge
@@ -2013,7 +2310,7 @@ class HubApi:
             counts = folders_mod.remove(self._paths, folder.id, self._today(), emit=ctx.emit)
             return {"name": folder.path.name or str(folder.path), "files": counts.files, "redownload": counts.redownload}
 
-        return {"job_id": self._jobs.start("folders", replanned_work(self._store, change, self._svc.now)).id}
+        return {"job_id": self._jobs.start("folders", change).id}
 
     @bridge
     def answer_same_song(self, song_key: str, own_key: str, same: bool) -> dict:
@@ -2026,7 +2323,7 @@ class HubApi:
             folders_mod.answer_same_song(self._paths, song_key, own_key, same, self._svc.now())
             return {}
 
-        return {"job_id": self._jobs.start("answer", replanned_work(self._store, change, self._svc.now)).id}
+        return {"job_id": self._jobs.start("answer", change).id}
 
     @bridge
     def keep_duplicates(self, group_id: str, paths: list[str]) -> dict:
@@ -2040,55 +2337,70 @@ class HubApi:
             folders_mod.keep_both(self._paths, group_id, paths, self._svc.now())
             return {}
 
-        return {"job_id": self._jobs.start("answer", replanned_work(self._store, change, self._svc.now)).id}
+        return {"job_id": self._jobs.start("answer", change).id}
 
     @bridge
-    def supersede_duplicate(self, group_id: str, file_id: int, paths: list[str]) -> dict:
-        """Duplicates' "Move to Superseded" for one file of the group (a write job, kind "supersede"; nothing is
-        deleted). `paths`: the group's files' paths as the card showed them (`changed` when they are not the group's
-        any more, whatever its file ids say). The result is `{result, recovered}` as an operation's, without a
-        track."""
+    def keep_file(self, group_id: str, file_id: int, paths: list[str]) -> dict:
+        """Duplicates' "keep this file" (a write job, kind "supersede"; nothing is deleted): every other file of the
+        group goes to Superseded/, one engine job (`folders.keep_file`). `paths`: the group's files' paths as the card
+        showed them (`changed` when they are not the group's any more, whatever its file ids say, and the group stays as
+        it was). The result is `{results, recovered, kept_track}`: a report line per moved file, without a track's
+        row; a move that was refused (or any error) stops the job, the files moved before it stay moved and the
+        failed job's result lists them."""
         if (not isinstance(group_id, str) or isinstance(file_id, bool) or not isinstance(file_id, int)
                 or not _paths_list(paths)):
             raise ValueError(NOT_ANSWERABLE)
-        db.group_ids(group_id)
+        ids = db.group_ids(group_id)
 
         def change(ctx) -> dict:
-            key, e = next(((k, t) for k, t in self._state()["tracks"].items() if t.get("file_id") == file_id),
-                          (None, None))
-            dst = folders_mod.supersede(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now)
-            result = Result("replaced", (e or {}).get("folder") or "", (e or {}).get("artist") or "",
-                            (e or {}).get("title") or "", key, folders_mod.MOVED.format(dst=dst),
-                            (e or {}).get("status"), (e or {}).get("source"), (e or {}).get("cutoff_hz"), dst)
-            return {"result": asdict(result), "recovered": []}
+            tracks = self._state()["tracks"]
+            held = {t.get("file_id"): (k, t) for k, t in tracks.items() if t.get("file_id") in ids}
 
-        return {"job_id": self._jobs.start("supersede", replanned_work(self._store, change, self._svc.now)).id}
+            def body(kept: folders_mod.KeptFile) -> dict:
+                results = []
+                for moved_id, dst in kept.moved:
+                    key, e = held.get(moved_id, (None, {}))
+                    results.append(asdict(Result(
+                        "replaced", e.get("folder") or "", e.get("artist") or "", e.get("title") or "", key,
+                        folders_mod.MOVED.format(dst=dst), e.get("status"), e.get("source"), e.get("cutoff_hz"), dst)))
+                return {"results": results, "recovered": [], "kept_track": kept.kept_track}
+
+            done: list[tuple[int, str]] = []  # the moves made so far, whatever ends the call
+            try:
+                kept = folders_mod.keep_file(self._paths, group_id, file_id, paths, emit=ctx.emit, now=self._svc.now,
+                                             moved_out=done)
+            except BaseException as e:
+                if done or isinstance(e, folders_mod.KeepStopped):
+                    ctx.failed_result = body(folders_mod.KeptFile(list(done), None))
+                raise
+            ctx.message = kept.words()
+            return body(kept)
+
+        return {"job_id": self._jobs.start("supersede", change).id}
 
     @bridge
-    def add_bought_file(self, track_id: str) -> dict:
-        with self._lock:
-            dropped = self._dropped
-            if not dropped or dropped["track_id"] != track_id:
-                raise OpProblem(NO_DROP, "refused")
-        answer = self._single("add_bought_file", track_id, lambda state, ctx: ops.add_bought_file(
-            self._paths, state, track_id, dropped["path"], analyze=self._svc.analyze, now=self._svc.now))
-        with self._lock:  # only once the job runs: a refused job (busy) keeps the file for the next "Add"
-            if self._dropped is dropped:
-                self._dropped = None
-        return answer
+    def add_bought_file(self, track_id: str, path: str, expect: str | None = None) -> dict:
+        """Adds the file at `path` (the dropped file's, from `FileDropped`) as the bought version of the track
+        (a write job): the path must be absolute, of a file this process can read; refused before a job starts."""
+        if not isinstance(path, str) or not path:
+            raise ValueError(NO_PATH)
+        if (problem := _file_problem(path)) is not None:
+            raise OpProblem(problem, "refused")
+        return self._single("add_bought_file", track_id, lambda state, ctx: ops.add_bought_file(
+            self._paths, state, track_id, Path(path), analyze=self._svc.analyze, now=self._svc.now), expect)
 
     @bridge
-    def use_candidate(self, track_id: str, candidate: dict) -> dict:
+    def use_candidate(self, track_id: str, candidate: dict, expect: str | None = None) -> dict:
         cand = to_candidate(candidate)
 
         def find(qobuz, fallback):
             return cand
 
         find.kind, find.needs_qobuz, find.cand = "use_candidate", cand.source == "qobuz", cand
-        return self._replace_with(track_id, find)
+        return self._replace_with(track_id, find, expect)
 
     @bridge
-    def use_link(self, track_id: str, url: str) -> dict:
+    def use_link(self, track_id: str, url: str, expect: str | None = None) -> dict:
         source, _ = candidates.parse_link(url)  # a plain message at once for links Discjockey can't use
 
         def find(qobuz, fallback):
@@ -2098,12 +2410,13 @@ class HubApi:
                 raise OpProblem(str(e)) from None
 
         find.kind, find.needs_qobuz, find.cand = "use_link", source == "qobuz", None
-        return self._replace_with(track_id, find)
+        return self._replace_with(track_id, find, expect)
 
     @bridge
-    def reject_current(self, track_id: str) -> dict:
+    def reject_current(self, track_id: str, expect: str | None = None) -> dict:
         return self._single("reject_current", track_id,
-                            lambda state, ctx: ops.reject_current(self._paths, state, track_id, now=self._svc.now))
+                            lambda state, ctx: ops.reject_current(self._paths, state, track_id, now=self._svc.now),
+                            expect)
 
     # --- upgrades, batches and the rekordbox check (issue 33 stage B; every action takes a list) ---
 
@@ -2133,17 +2446,32 @@ class HubApi:
         return {"emit": ctx.emit, "token": ctx.token, "now": self._svc.now, "state": state,
                 "running": self._svc.rekordbox_running, "place": self._svc.rekordbox_place()}
 
+    def _check_rev(self, state: dict, track_id: str, expect: str | None, operation: str) -> None:
+        """A single-track write's precondition: the song is still there and, when `expect` (a `rev`) is given, its
+        record still has that rev; else `changed` (with its operations-log line, as `ops.run_single` writes it) and
+        nothing is done."""
+        e = state["tracks"].get(track_id)
+        if e is None or (expect is not None and models.rev(e) != expect):
+            ops.log_operation(self._paths, self._svc.now(), track_id, e, operation, "changed", ops.CHANGED)
+            if e is None:
+                raise OpProblem(ops.CHANGED, "changed")
+            raise ops.changed(track_id, e)
+
     def _batch_work(self, make: Callable[[], int] | None, resume: int | None, *, alone: bool,
-                    left: Sequence[batches.ItemResult] = (), extra: Mapping | None = None):
+                    left: Sequence[batches.ItemResult] = (), extra: Mapping | None = None,
+                    expect: tuple[str, str] | None = None):
         """A Same track batch as a write job: `make()` records a new batch of the chosen tracks (after recovery), or
         `resume` names a stopped one (a Convert batch too). The result is a BatchResult dict (+ `recovered`); a Stop,
         rekordbox opened (`rekordbox_open`), another window changing rekordbox (`busy`) and a batch with nothing to do
         (`refused`) end the job as a problem that still carries the batch (`JobFinished.result`), so the page can show
         where it stopped and Resume. `alone`: a batch of one track that meets rekordbox open or busy before anything
         ran is closed instead of left stopped (the track simply stays where it was; `batches.close_unrun`). `left`: songs
-        a plan left out of the batch (`_each_work`'s words: they end as skipped); `extra`: what else the result says."""
+        a plan left out of the batch (`_each_work`'s words: they end as skipped); `extra`: what else the result says.
+        `expect`: (song, rev) of a one-song batch whose record must still have that rev."""
         def work(ctx) -> dict:
             state, recovered = self._begin()
+            if expect is not None:
+                self._check_rev(state, *expect, batches.OPERATIONS["same_track"])
             if resume is not None and self._stopped_aiff(resume).state != "stopped":
                 # read under the library lock, after recovery: a batch a crash left `running` is stopped by now
                 raise OpProblem(NOT_STOPPED, "refused", reason="not_stopped")
@@ -2252,20 +2580,18 @@ class HubApi:
         return work
 
     def _each_work(self, ids: list[str], mode: str, *, left: Sequence[batches.ItemResult] = (),
-                   extra: Mapping | None = None):
+                   extra: Mapping | None = None, expect: str | None = None):
         """New track and Discard on a list (`mode` is the action each track runs: `add_new` | `discard`): one job, one
         track after the other (Stop between them, per-track results, no batch record, no Resume: each is quick and has
-        its own undo). One track keeps the old single-track behaviour: the entry as the page showed it is checked and a
-        failure ends the job with its own words. The result is BatchResult-shaped (`batch` null). `left`: songs a plan
+        its own undo). One track keeps the old single-track behaviour: the entry is checked against `expect` (its rev, when
+        given) and a failure ends the job with its own words. The result is BatchResult-shaped (`batch` null). `left`: songs a plan
         left out (they end as skipped); `extra`: what else the result says."""
-        with self._lock:
-            expect = self._shown.get(ids[0]) if len(ids) == 1 else None
         one = len(ids) == 1
 
         def work(ctx) -> dict:
             state, recovered = self._begin()
-            if one and ((e := state["tracks"].get(ids[0])) is None or (self._check_shown and snapshot(e) != expect)):
-                raise OpProblem(ops.CHANGED, "changed")
+            if one:
+                self._check_rev(state, ids[0], expect, f"upgrade_{mode}")
             results: list[batches.ItemResult] = []
             stopped = False
             for n, key in enumerate(ids):
@@ -2429,7 +2755,7 @@ class HubApi:
                 rep.write_not_lossless(self._paths, state)  # the removed songs leave that list
             return body
 
-        return {"job_id": self._jobs.start("missing_files", replanned_work(self._store, work, self._svc.now),
+        return {"job_id": self._jobs.start("missing_files", work,
                                            track_id=ids[0] if len(ids) == 1 else None).id}
 
     def _plan_run(self, plan_id: str, mode: str, ids: list[str], state: dict, typed: set[str] | None = None
@@ -2450,15 +2776,18 @@ class HubApi:
         return list(bound.run), left, {"new_since_plan": list(bound.new)} if bound.new else {}
 
     @bridge
-    def upgrade(self, track_ids: list[str], mode: str, plan_id: str | None = None) -> dict:
+    def upgrade(self, track_ids: list[str], mode: str, plan_id: str | None = None, expect: str | None = None) -> dict:
         """Replaces tracks with their better versions. `same_track` is Same track for any format and runs one AIFF batch
         (job kind "upgrade_batch", result a BatchResult); `new_track` and `discard` run the tracks one after the other
         (kinds "upgrade_add_new" / "upgrade_discard", a BatchResult-shaped result without a batch). One track is a list
         of one. Progress is a BatchProgress event for all three. `plan_id` (the command line's `--plan`; Same track and
-        New track only): runs only the songs of that plan that still stand (`_plan_run`); the others end as skipped."""
+        New track only): runs only the songs of that plan that still stand (`_plan_run`); the others end as skipped.
+        `expect` (the command line's `--if-rev`; one song only): the song's record must still have that rev."""
         if mode not in UPGRADE_MODES:
             raise ValueError(f"mode must be one of {', '.join(UPGRADE_MODES)}")
         ids = self._track_list(track_ids)
+        if expect is not None and len(ids) != 1:
+            raise BadId("usage", "--if-rev takes one song.")
         left: list[batches.ItemResult] = []
         extra: dict = {}
         if plan_id is not None:
@@ -2469,10 +2798,11 @@ class HubApi:
         if mode == "same_track":
             work = self._batch_work(lambda: batches.start(
                 self._paths, [(t, "same_track") for t in ids], started_by="user", scope="selection", via=self._via,
-                now=self._svc.now), None, alone=len(ids) == 1, left=left, extra=extra)
+                now=self._svc.now), None, alone=len(ids) == 1, left=left, extra=extra,
+                expect=(ids[0], expect) if expect is not None and len(ids) == 1 else None)
             return {"job_id": self._jobs.start("upgrade_batch", work, track_id=track, batch_kind="upgrade").id}
         action = NEW_TRACK_ACTION[mode]
-        return {"job_id": self._jobs.start(f"upgrade_{action}", self._each_work(ids, action, left=left, extra=extra),
+        return {"job_id": self._jobs.start(f"upgrade_{action}", self._each_work(ids, action, left=left, extra=extra, expect=expect),
                                            track_id=track, batch_kind="upgrade").id}
 
     def _upgrade_all_ids(self, state: dict) -> list[str]:
@@ -2648,7 +2978,7 @@ class HubApi:
             _, name = spotify.current_user(spotify.load_session(self._support))
             self._save_spotify_app(client_id, name)
             self._update_settings(lambda s: replace(s, spotify_skipped=False))
-            self._store.clear_service("spotify")  # a read problem about Spotify's login is out of date now
+            self._clear_read_problem("spotify")  # a read problem about Spotify's login is out of date now
             return {"user": name}
 
         return {"job_id": self._settings_job("setup_spotify_login", work).id}
@@ -2694,6 +3024,72 @@ class HubApi:
         return {"job_id": self._settings_job("set_auto_upgrade", work).id}
 
     @bridge
+    def sync_scope(self) -> dict:
+        """The Sync scope (issue 39 V2.5b; settings.json `sync_scope`): the playlists and folders left out of a sync
+        (`off`, each with its name) and the weekly kinds switched off (`weekly_off`, each with its label). The window and
+        an agent read the same value; nothing listed means everything is on. A settings.json that can't be read has
+        the defaults. Works with no music folder (the names then are the targets)."""
+        return self._scope_view(self._settings())
+
+    def _scope_view(self, settings: Settings) -> dict:
+        """A scope as `SyncScope` words it: a playlist target by its playlists.txt line's folder name, a folder target
+        by the last part of its path; one that no line or folder has any more keeps the target as its name (a folder on
+        a drive that is away comes back)."""
+        folders: dict[str, str] = {}
+        if self._bound is not None:
+            try:
+                folders = {f"playlist:{r.ref}": r.folder for r in pf.load(self._bound.playlists_file).rows if r.ref}
+            except (OSError, ValueError):  # not readable or not text (UnicodeDecodeError): the targets name themselves
+                folders = {}
+
+        def name(target: str) -> str:
+            if target in folders:
+                return folders[target]
+            last = target[len("folder:"):].rstrip("/").rsplit("/", 1)[-1] if target.startswith("folder:") else ""
+            return last or target
+
+        return {"off": [{"target": t, "name": name(t)} for t in settings.scope_off],
+                "weekly_off": [{"kind": k, "label": engine_words.SCOPE_KIND_LABELS[k]} for k in settings.weekly_off]}
+
+    @bridge
+    def set_sync_scope(self, on: list[str], off: list[str]) -> dict:
+        """Switches collections and weekly kinds in or out of the Sync scope (the browser column's and the Sync panel's
+        switches, `sync scope on|off`): `off` leaves each item out, `on` takes it back in; an item is a playlist or
+        folder target (`playlist:<ref>`, `folder:<path>`) or `kind:retry` / `kind:weekly`. A settings job (kind
+        `set_sync_scope`, no library lock for its run; the result is the `SyncScope` as saved). The order of what is
+        left out is kept, a new item goes last, none twice. A switch says the value wanted, so there is no `expect`:
+        the last write wins. Anything else, or an item in both lists, is `refused` before a job starts."""
+        ons, offs = self._scope_items(on, "on"), self._scope_items(off, "off")
+        both = next((i for i in ons if i in offs), None)
+        if both is not None:
+            raise OpProblem(f"{both} is in both lists: say on or off for it, not both.", "refused")
+
+        def work(ctx) -> dict:
+            def change(s: Settings) -> Settings:
+                targets = [t for t in offs if not t.startswith("kind:")]
+                kinds = [t[len("kind:"):] for t in offs if t.startswith("kind:")]
+                return replace(s, scope_off=tuple(dict.fromkeys([*(t for t in s.scope_off if t not in ons), *targets])),
+                               weekly_off=tuple(dict.fromkeys([*(k for k in s.weekly_off if f"kind:{k}" not in ons),
+                                                               *kinds])))
+
+            return self._scope_view(self._update_settings(change))
+
+        return {"job_id": self._settings_job("set_sync_scope", work).id}
+
+    @staticmethod
+    def _scope_items(items, which: str) -> list[str]:
+        """The items of one list of `set_sync_scope`, each a collection target or a weekly kind (`kind:retry` /
+        `kind:weekly`), repeats dropped; `refused` naming the first that is not."""
+        if not isinstance(items, list):
+            raise OpProblem(f"{which} must be a list of playlists, folders and kinds.", "refused")
+        for item in items:
+            if not isinstance(item, str) or not (is_scope_target(item) or (
+                    item.startswith("kind:") and item[len("kind:"):] in SCOPE_KINDS)):
+                raise OpProblem(f"{item!r} is not a playlist (playlist:<ref>), a folder (folder:<path>) or a weekly kind "
+                                f"(kind:retry, kind:weekly).", "refused")
+        return list(dict.fromkeys(items))
+
+    @bridge
     def add_liked_music(self) -> dict:
         """"Add Liked music to Playlists" (sources-round D8): appends `Liked_music = <its link>` to the end of
         playlists.txt (YouTube Music shares no link for it). Refused with `setting_off` while the choice is off and
@@ -2712,7 +3108,6 @@ class HubApi:
                 folder = f"{youtube_music.LIKED_MUSIC_FOLDER}_{n}"
             link = youtube_music.canonical_link(youtube_music.LIKED_MUSIC)
             pf.save(self._paths.playlists_file, [*loaded.rows, pf.Row(folder, link)], loaded.version)
-            self._store.mark_stale()  # the plan was made for the old lines
             return {"folder": folder}
 
         return {"job_id": self._jobs.start("add_liked_music", work).id}
@@ -2728,7 +3123,7 @@ class HubApi:
                 raise
             self._update_settings(lambda s: replace(s, qobuz_skipped=False).with_check(
                 "qobuz", self._check_record({"ok": True, "problem": None, "kbps": None})))
-            self._store.clear_service("qobuz")  # a read problem about Qobuz's login is out of date now
+            self._clear_read_problem("qobuz")  # a read problem about Qobuz's login is out of date now
             return {}
 
         return {"job_id": self._settings_job("setup_qobuz_login", work).id}
@@ -2744,15 +3139,15 @@ class HubApi:
         if browser is not None and browser not in BROWSERS:
             raise ValueError(f"browser must be one of {', '.join(BROWSERS)}")
 
-    def _update_settings(self, change: Callable[[Settings], Settings]) -> None:
+    def _update_settings(self, change: Callable[[Settings], Settings]) -> Settings:
         """The file as it is now, changed, saved: every settings write in the hub goes through here. One writer at a
         time (spec settings-setup §13). Lock order is support, library, rekordbox.lock: the support lock is taken
         first and keeps every other process's saves of settings.json from being lost; the library lock is taken inside
         it for the moment of the save (`lock_briefly`: a settings job holds none for its run, a sign-in's or a page
         check's save holds none at all) and raises Busy (busy / console) instead of waiting. The mutex keeps this
-        process's saves in order."""
+        process's saves in order. Returns what it saved."""
         with self._settings_mutex, library.support_lock(self._support.support), self._jobs.lock_briefly():
-            update_settings_held(self._support.settings_file, change)
+            return update_settings_held(self._support.settings_file, change)
 
     @bridge
     def setup_skip_qobuz(self) -> dict:
@@ -2779,7 +3174,8 @@ class HubApi:
         self._account(service, browser)
 
         def work(ctx) -> dict:
-            check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(service, browser, profile)
+            check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(
+                service, browser, profile, self._svc.pacer(self._support.support, ctx.emit, ctx.token))
             return self._account_result(service, browser, profile, check)
 
         return {"job_id": self._settings_job("setup_account", work).id}
@@ -2797,9 +3193,9 @@ class HubApi:
             return s
         self._update_settings(change)
         if saved and service == "soundcloud":  # a read problem about SoundCloud's login (a you/likes line) is out of date now
-            self._store.clear_service("soundcloud", frozenset({"login_expired"}))  # not offline
+            self._clear_read_problem("soundcloud", frozenset({"login_expired"}))  # not offline
             # only the likes hint (W8) is about the login: a private set's "doesn't show this playlist" stays
-            self._store.clear_service("soundcloud", frozenset({"playlist_unreadable"}), soundcloud.LIKES_HINT)
+            self._clear_read_problem("soundcloud", frozenset({"playlist_unreadable"}), soundcloud.LIKES_HINT)
         return {"service": service, "browser": browser, "profile": profile, "saved": saved,
                 "check": {**{k: check[k] for k in ("ok", "problem", "kbps")},
                           "message": check_message(service, browser, check)}}
@@ -2860,7 +3256,8 @@ class HubApi:
                 raise OpProblem("A sync started while you signed in. Check again after the sync.",
                                 "sync_running") from None
             ctx.emit(SignInPhase(service, "checking", browser, name))
-            check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(service, browser, found)
+            check = self._svc.fallback(emit=ctx.emit, check=ctx.token.check).check_account(
+                service, browser, found, self._svc.pacer(self._support.support, ctx.emit, ctx.token))
             try:
                 return self._account_result(service, browser, found, check)
             except Busy as e:  # a write job or the console holds the lock: the save would race it
@@ -2892,6 +3289,8 @@ class HubApi:
 
         def work(ctx) -> dict:
             source = None
+            # the check's two Qobuz requests (login, search) take their slot first: a pacer error is not "couldn't reach"
+            self._svc.pacer(self._support.support, ctx.emit, ctx.token).before_qobuz_search()
             try:
                 source = self._svc.open_qobuz(self._support)
                 found = bool(source.search("Daft Punk One More Time", limit=1))
@@ -2910,26 +3309,12 @@ class HubApi:
             self._update_settings(lambda s: s.with_check("qobuz", self._check_record(
                 {"ok": found, "problem": None if found else "search_failed", "kbps": None})))
             if found:
-                self._store.clear_service("qobuz")  # the saved login works: a stored Qobuz read problem is out of date
+                self._clear_read_problem("qobuz")  # the saved login works: a stored Qobuz read problem is out of date
             if not found:
                 raise OpProblem("Logged in to Qobuz, but a test search found nothing.", "failed")
             return {}
 
         return {"job_id": self._settings_job("qobuz_check_login", work).id}
-
-    @bridge
-    def setup_check_account(self, service: str) -> dict:
-        """The saved login checked again (the Download limits page and the setup step show the answer)."""
-        self._account(service)
-        self._no_sync_running()
-        account = self._settings().accounts.get(service)
-        if account is None:
-            raise OpProblem(f"{SERVICE_NAMES[service]} is not set up.", "refused")
-        check = self._svc.fallback().check_account(service, account.browser, account.profile)
-        record = self._check_record(check)
-        self._update_settings(lambda s: s.with_check(service, record) if service in s.accounts else s)
-        return {"service": service, "check": {**{k: check[k] for k in ("ok", "problem", "kbps")},
-                                              "message": check_message(service, account.browser, check)}}
 
     @bridge
     def setup_forget_account(self, service: str) -> dict:
@@ -2942,17 +3327,64 @@ class HubApi:
         return {"job_id": self._settings_job("setup_forget_account", work).id}
 
     def _library_job_elsewhere(self) -> dict | None:
-        """A write job of another process of this support folder, from the registry: a running job whose command holds
-        the library lock (the catalogue's `locks` column). `{job, via, command}`, or None. This process's own job (the
-        one a worker runs) never counts."""
-        own = self._jobs.inline.id if self._jobs.inline is not None else None
+        """A write job of another process of this support folder, from the registry: a running job that holds the
+        library lock (`catalog.holds_library`). `{job, via, command}`, or None. This process's own jobs (the one a worker
+        runs, the ones the window started: `Jobs.own_ids`) never count: their own `busy` is `Jobs.start`'s."""
+        own = self._jobs.own_ids
         for state in registry.Registry(self._support.support).list(all=True):
-            if state.get("status") not in registry.ACTIVE or state.get("id") == own:
+            if state.get("status") not in registry.HOLDING or state.get("id") in own:
                 continue
-            entries = catalog.by_method(state.get("method") or "")
-            if any("library" in e.locks for e in entries):
+            if catalog.holds_library(state):
                 return {"job": state["id"], "via": state.get("via"), "command": state.get("command")}
         return None
+
+    def _job_record(self) -> dict:
+        """What a job this window starts says about itself in the registry: `method` and `args` of the bridge call it
+        started in (`CALL`; none outside a call), the catalogue `command` of that method, no secret argument
+        (`catalog.public_args`), and the `roots` as the command line writes them (`cli/call.start_job`)."""
+        method, args = CALL.get() or (None, {})
+        entries = catalog.by_method(method) if method else []
+        public = catalog.public_args(method, args)
+        try:
+            place = self._svc.rekordbox_place()
+        except Exception:  # noqa: BLE001  rekordbox's folder is a fact of the record, never a reason not to start
+            place = None
+        return {"method": method, "command": " ".join(catalog.primary(entries).command) if entries else "",
+                "args": json.loads(json.dumps(public, default=str)),
+                "roots": {"music": str(self._bound.root) if self._bound is not None else None,
+                          "support": str(self._support.support),
+                          "rekordbox": str(place.db.parent) if place is not None else None,
+                          "rekordbox_share": str(place.share) if place is not None else None, "sandbox": None}}
+
+    def _registered_envelope(self, job: Job) -> dict:
+        """`result.json` of a job the window started: the envelope a worker writes for the same job."""
+        state = job.files.state() if job.files is not None else {}
+        return self._job_envelope(state.get("command") or "", state.get("method"), job, job.id)
+
+    def _job_envelope(self, command: str, method: str | None, job: Job, job_id: str) -> dict:
+        """The envelope of a job that ran (`JobFinished`), for the worker and the window's jobs alike: `result` is the
+        data of a success, or what a failed job left. A run whose items end in a state its entry counts
+        (`Entry.partial`) is `partial`; the words beside the result (`_result_words`: the batch's id, the steps for the
+        person, what to run next) are added."""
+        done = job.finished or {}
+        result = done.get("result") or {}
+        try:
+            words = self._result_words(method, result) if method and result else {}
+        except Exception:  # noqa: BLE001  words are an extra: a failure to find them leaves the answer as it is
+            log.warning("the words of %s could not be found", method, exc_info=True)
+            words = {}
+        entry = catalog.entry_of(method, command) if method else None
+        if done.get("ok"):
+            rows = (words.get("data") or {}).get("results", result.get("results"))  # the words' rows carry `state` where the engine's do not
+            outcome = words.get("outcome") or outcomes.run_outcome(rows, entry.partial if entry else ())  # words may say `ok`: nothing to do is no partial
+            return outcomes.envelope(command, outcome, message=done.get("message") or words.get("message") or None,
+                                     data={**result, **(words.get("data") or {})}, next=words.get("next") or (),
+                                     person_steps=words.get("person_steps") or (), job=job_id)
+        fields = outcomes.problem_fields(done.get("problem") or "crashed", job.error)
+        data = {**result, **(words.get("data") or {}), **(fields["data"] or {})} or None
+        return outcomes.envelope(command, fields["outcome"], reason=fields["reason"], message=done.get("message"),
+                                 data=data, next=[*fields["next"], *(words.get("next") or ())],
+                                 person_steps=[*fields["person_steps"], *(words.get("person_steps") or ())], job=job_id)
 
     def _settings_job(self, kind: str, work) -> Job:
         """A job whose work writes only the support folder (settings.json, the login files; Settings, Setup, Download
@@ -2971,6 +3403,190 @@ class HubApi:
             raise Busy("Another Discjockey job is working on your music folder. Wait until it has finished.", "busy",
                        reason="library_lock", data={"holder": holder})
         return self._jobs.start(kind, work, hold_library=False)
+
+    def _result_words(self, method: str, result: dict) -> dict:
+        """What the command line says beside a finished write's `result` (design §4.4, §8.3): `{message, data, next,
+        person_steps}`, each left out when there is nothing to add. Upgrade's results (Same track, New track, Discard,
+        Upgrade all) name their batch as `aiff:<n>`, give each done song the steps only a person can do in rekordbox
+        (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
+        for the whole run. An undo says how many tracks went back; "Done, checked" gives each track a row, `done` or
+        `skipped` (nothing to check; `outcome: "ok"` when no track had one), and says that the undo ended. Read only: it looks at the records after the job. A
+        method with no words says nothing. Download again and Remove from library (and their preview) give their one line
+        (`words`); their rows already carry theirs."""
+        if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
+            return self._upgrade_words(result)
+        if method == "batch_resume" and isinstance(result.get("results"), list):
+            return self._upgrade_words(result)
+        if method == "aiff_plan" and isinstance(result.get("plan"), dict):
+            plan = result["plan"]  # a dry run that has nothing to change and nothing waiting says so, as the window's panel does
+            clean = not (plan.get("total") or plan.get("waiting") or plan.get("skipped")) and "total" in plan
+            if clean:
+                return {"message": plans.NOTHING_TO_CHANGE}
+            if lossy := plan.get("lossy"):  # lossy files grow when they become AIFF (the console's old line)
+                return {"message": engine_words.LOSSY_NOTE.format(n=lossy, are="is" if lossy == 1 else "are")}
+            return {}
+        if method in ("missing_files", "missing_files_preview") and isinstance(result.get("words"), str):
+            return {"message": result["words"]}  # the rows already carry their words (`results[].words`, `items[].words`)
+        if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
+            return self._undo_words(result)
+        if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
+            return self._checked_words(result)
+        if method == "rekordbox_restore" and "saved_current" in result:
+            return self._restore_words(result)
+        if method == "auto_upgrade_run" and "auto_upgrade" in result:
+            return self._phase_words(result)
+        if method == "auto_upgrade_preview" and "auto_upgrade" in result:
+            return {"message": engine_words.AUTO_UPGRADE_OFF} if result["auto_upgrade"] is None else {}
+        if method == "set_auto_upgrade" and isinstance(result.get("auto_upgrade"), bool):
+            return {"message": engine_words.AUTO_UPGRADE_SET[result["auto_upgrade"]]}
+        if method == "removal_preview" and "files" in result:
+            return {"message": engine_words.removal_words(result["files"], result["redownload"])}
+        if method == "remove_watched_folder" and "files" in result:
+            return {"message": f"{engine_words.REMOVED.format(name=result['name'])} "
+                               f"{engine_words.removal_words(result['files'], result['redownload'])}"}
+        if method == "check_import_folder" and result.get("message"):  # a folder that cannot be watched says why
+            return {"message": result["message"]}
+        if method == "check_import_folder" and result.get("usable") and result.get("merge_hints"):
+            return {"message": " ".join(result["merge_hints"])}  # W5: the watched folders it would take over
+        if method == "fill_facts" and "total" in result:
+            return self._facts_words(result)
+        if method in ("convert", "rename", "make_aiff") and result.get("batch") is None and result.get("total") == 0 \
+                and result.get("state") == "done" \
+                and not result.get("new_since_plan"):
+            return {"message": plans.NOTHING_TO_CHANGE}  # a plan whose files are all clean AIFFs already
+        if method in ("convert", "rename", "make_aiff") and isinstance(result.get("results"), list) and result.get("total"):
+            return self._upgrade_words(result, aiff=True)
+        return {}
+
+    def _phase_words(self, result: dict) -> dict:
+        """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
+        (`report.auto_upgrade_line`), the run's outcome (`partial` or `failed` by the tracks that failed only: a track
+        that waits or was refused is not a failure), its batch (`batch_id`), the steps only a person can do in rekordbox
+        (the upgrade batch's own words, `_upgrade_words`) and the report to read."""
+        block = result["auto_upgrade"]
+        if block is None:
+            return {"message": engine_words.AUTO_UPGRADE_OFF}
+        rows = block["results"]
+        out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
+                     "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
+        batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
+                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"],
+                                                         "action": r.get("action", "same_track")}
+                                                        for r in rows if r["state"] in ("done", "failed")]}
+        words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
+        if "batch_id" in (words.get("data") or {}):
+            out["data"] = {"batch_id": words["data"]["batch_id"]}
+        out["next"] = [*(words.get("next") or ())]
+        if result.get("report"):
+            out["next"].append({"run": f"report show {result['report']}", "why": "what this run did, track by track"})
+        if words.get("person_steps"):
+            out["person_steps"] = words["person_steps"]
+        return out
+
+    @staticmethod
+    def _facts_words(result: dict) -> dict:
+        """`library facts`: how many files were read, how many could not be."""
+        total, filled = result["total"], result["filled"]
+        if not total:
+            return {"message": engine_words.FACTS_NONE}
+        message = engine_words.FACTS_READ.format(n=filled, s="" if filled == 1 else "s")
+        if filled < total:
+            left = total - filled
+            message += " " + engine_words.FACTS_UNREADABLE.format(n=left, s="" if left == 1 else "s",
+                                                                 stay="stays" if left == 1 else "stay")
+        return {"message": message}
+
+    def _restore_words(self, result: dict) -> dict:
+        """`rekordbox restore`: what was put back, where the library as it was is saved, and (when some tracks now point
+        at files Discjockey moved to `Superseded/`) the batches to undo first."""
+        out: dict = {"message": engine_words.RESTORED.format(backup=result["restored"], saved=result["saved_current"])}
+        if result["missing_after"]:
+            out["message"] += " " + engine_words.MISSING_AFTER.format(n=len(result["missing_after"]))
+            out["next"] = [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
+        return out
+
+    def _upgrade_words(self, result: dict, aiff: bool = False) -> dict:
+        """The words of an upgrade's batch, a resumed one and (`aiff`) a Convert, Rename or Make all lossless files AIFF
+        run: its `batch_id`, what to run next, the steps for the person and the one line that says what was done (an
+        AIFF run says it in its own words; it points at `check list` only when a step is left in rekordbox)."""
+        out: dict = {}
+        results = result["results"]
+        if isinstance(result.get("batch"), int):
+            batch = f"aiff:{result['batch']}"
+            out["data"] = {"batch_id": batch}
+            if result.get("state") == "stopped" and result.get("stop_reason") == "busy":
+                out["next"] = [{"run": f"batch resume {batch}",
+                                "why": "carries on where it stopped, once the other Discjockey is done"}]
+            if result.get("done"):
+                out["next"] = [*out.get("next", ()), {"run": f"batch show {batch}", "why": "every song of this batch"},
+                               *([] if aiff else [{"run": "check list", "why": "what is left to do in rekordbox"}])]
+        if aiff:
+            out["message"] = engine_words.aiff_summary(results, result["done"], result["skipped"] + result["failed"])
+        else:
+            parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
+            parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed")))
+                      if n]
+            out["message"] = ", ".join(parts) + "."
+        tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
+            r.get("state") == "done" and r.get("action") != "discard" for r in results) else {}
+        steps, grouped, rows = [], {"reload_tag": [], "look": []}, []
+        for r in results:
+            mine = []
+            if r.get("state") == "done" and r.get("action") != "discard":  # a discard changes no file, so nothing to check
+                its = r.get("path") or (tracks.get(r["track"]) or {}).get("path")  # a placement's row carries none: the song's file now
+                new_file = str(self._paths.root / its) if r.get("action") in ("add_new", "place") and its else None
+                mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
+                for step in mine:
+                    (steps if step["id"] == "step:relocate_new" else grouped[step["id"].removeprefix("step:")]).append(step)
+            rows.append({**r, "person_steps": mine})
+        for name, group in grouped.items():  # one step per kind: reload the tags of these, have a look at those
+            if group:
+                keys = " ".join(step["then"].removeprefix("check done ") for step in group)
+                then = f"check done --batch aiff:{result['batch']}" if isinstance(result.get("batch"), int) else f"check done {keys}"
+                steps.append({**outcomes.person_step(name, tracks=keys), "then": then})
+        out["data"] = {**out.get("data", {}), "results": rows}
+        if steps:
+            out["person_steps"] = steps
+            if aiff and isinstance(result.get("batch"), int) and result.get("done"):
+                out["next"] = [*out.get("next", ()), {"run": "check list", "why": "what is left to do in rekordbox"}]
+        return out
+
+    def _undo_words(self, result: dict) -> dict:
+        """`track undo`: how many tracks went back; each track that now has its better version waiting again is
+        `upgrade list`'s."""
+        undone = [r["track"] for r in result["results"] if r.get("state") == "undone"]
+        total = len(result["results"])
+        out: dict = {"message": f"{len(undone)} of {total} {'track' if total == 1 else 'tracks'} undone."}
+        tracks = library.load_state(self._paths)["tracks"] if self._paths and undone else {}
+        if any((tracks.get(t) or {}).get("upgrade") for t in undone):
+            out["next"] = [{"run": "upgrade list", "why": "the better versions wait there again"}]
+        return out
+
+    def _checked_words(self, result: dict) -> dict:
+        """`check done`: a row per track (`done`, or `skipped` when it had nothing to check), what the answer says:
+        the reminder and the undo of these tracks are over."""
+        notes = {r["track_id"]: r.get("note") for r in result.get("results") or ()}
+        rows = [{"track": t, "action": "check", "state": "done", "reason": None, "message": notes.get(t)}
+                for t in result["checked"]]
+        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "nothing_to_check",
+                  "message": NOTHING_TO_CHECK_ONE} for t in result.get("not_checked") or ()]
+        newer = result.get("newer") or {}
+        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "newer_batch",
+                  "message": NEWER_CHECK.format(later=b) if b else NEWER_CHECK_STEP.format(track=t)}
+                 for t, b in newer.items()]
+        checked, skipped = len(result["checked"]), len(result.get("not_checked") or ()) + len(newer)
+        if not checked:  # nothing to check is no error (an `--all` with none open, or only such tracks named): ok, total 0
+            return {"message": NOTHING_TO_CHECK, "outcome": "ok",
+                    "data": {"results": rows, "total": 0, "done": 0, "skipped": skipped, "failed": 0}}
+        message = f"{checked} of {len(rows)} tracks checked in rekordbox." if skipped else \
+            f"{checked} {'track' if checked == 1 else 'tracks'} checked in rekordbox."
+        message += CHECK_ENDS_UNDO
+        if skipped:
+            message += f" {skipped - len(newer)} had nothing to check." if skipped > len(newer) else ""
+            if newer:
+                message += f" {len(newer)} belong{'s' if len(newer) == 1 else ''} to a later change."
+        return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
+                                             "failed": 0}}
 
     @bridge
     def update_tools(self) -> dict:
@@ -3202,187 +3818,9 @@ class CliApi(HubApi):
     @cli_first
     def result_words(self, method: str, result: dict) -> dict:
         """What the command line says beside a finished write's `result` (design §4.4, §8.3): `{message, data, next,
-        person_steps}`, each left out when there is nothing to add. Upgrade's results (Same track, New track, Discard,
-        Upgrade all) name their batch as `aiff:<n>`, give each done song the steps only a person can do in rekordbox
-        (`results[].person_steps`: a New track's file to relocate to, a Same track's tag to reload) and say them once
-        for the whole run. An undo says how many tracks went back; "Done, checked" gives each track a row, `done` or
-        `skipped` (nothing to check; `outcome: "ok"` when no track had one), and says that the undo ended. Read only: it looks at the records after the job. A
-        method with no words says nothing. Download again and Remove from library (and their preview) give their one line
-        (`words`); their rows already carry theirs."""
-        if method in ("upgrade", "upgrade_all") and isinstance(result.get("results"), list):
-            return self._upgrade_words(result)
-        if method == "batch_resume" and isinstance(result.get("results"), list):
-            return self._upgrade_words(result)
-        if method == "aiff_plan" and isinstance(result.get("plan"), dict):
-            plan = result["plan"]  # a dry run that has nothing to change and nothing waiting says so, as the window's panel does
-            clean = not (plan.get("total") or plan.get("waiting") or plan.get("skipped")) and "total" in plan
-            if clean:
-                return {"message": plans.NOTHING_TO_CHANGE}
-            if lossy := plan.get("lossy"):  # lossy files grow when they become AIFF (the console's old line)
-                return {"message": engine_words.LOSSY_NOTE.format(n=lossy, are="is" if lossy == 1 else "are")}
-            return {}
-        if method in ("missing_files", "missing_files_preview") and isinstance(result.get("words"), str):
-            return {"message": result["words"]}  # the rows already carry their words (`results[].words`, `items[].words`)
-        if method in ("undo_upgrade", "batch_undo") and isinstance(result.get("results"), list):
-            return self._undo_words(result)
-        if method == "rekordbox_checked" and isinstance(result.get("checked"), list):
-            return self._checked_words(result)
-        if method == "rekordbox_restore" and "saved_current" in result:
-            return self._restore_words(result)
-        if method == "auto_upgrade_run" and "auto_upgrade" in result:
-            return self._phase_words(result)
-        if method == "auto_upgrade_preview" and "auto_upgrade" in result:
-            return {"message": engine_words.AUTO_UPGRADE_OFF} if result["auto_upgrade"] is None else {}
-        if method == "set_auto_upgrade" and isinstance(result.get("auto_upgrade"), bool):
-            return {"message": engine_words.AUTO_UPGRADE_SET[result["auto_upgrade"]]}
-        if method == "removal_preview" and "files" in result:
-            return {"message": engine_words.removal_words(result["files"], result["redownload"])}
-        if method == "remove_watched_folder" and "files" in result:
-            return {"message": f"{engine_words.REMOVED.format(name=result['name'])} "
-                               f"{engine_words.removal_words(result['files'], result['redownload'])}"}
-        if method == "check_import_folder" and result.get("message"):  # a folder that cannot be watched says why
-            return {"message": result["message"]}
-        if method == "check_import_folder" and result.get("usable") and result.get("merge_hints"):
-            return {"message": " ".join(result["merge_hints"])}  # W5: the watched folders it would take over
-        if method == "fill_facts" and "total" in result:
-            return self._facts_words(result)
-        if method in ("convert", "rename", "make_aiff") and result.get("batch") is None and result.get("total") == 0 \
-                and result.get("state") == "done" \
-                and not result.get("new_since_plan"):
-            return {"message": plans.NOTHING_TO_CHANGE}  # a plan whose files are all clean AIFFs already
-        if method in ("convert", "rename", "make_aiff") and isinstance(result.get("results"), list) and result.get("total"):
-            return self._upgrade_words(result, aiff=True)
-        return {}
-
-    def _phase_words(self, result: dict) -> dict:
-        """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
-        (`report.auto_upgrade_line`), the run's outcome (`partial` or `failed` by the tracks that failed only: a track
-        that waits or was refused is not a failure), its batch (`batch_id`), the steps only a person can do in rekordbox
-        (the upgrade batch's own words, `_upgrade_words`) and the report to read."""
-        block = result["auto_upgrade"]
-        if block is None:
-            return {"message": engine_words.AUTO_UPGRADE_OFF}
-        rows = block["results"]
-        out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
-                     "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
-        batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
-                 "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"],
-                                                         "action": r.get("action", "same_track")}
-                                                        for r in rows if r["state"] in ("done", "failed")]}
-        words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
-        if "batch_id" in (words.get("data") or {}):
-            out["data"] = {"batch_id": words["data"]["batch_id"]}
-        out["next"] = [*(words.get("next") or ())]
-        if result.get("report"):
-            out["next"].append({"run": f"report show {result['report']}", "why": "what this run did, track by track"})
-        if words.get("person_steps"):
-            out["person_steps"] = words["person_steps"]
-        return out
-
-    @staticmethod
-    def _facts_words(result: dict) -> dict:
-        """`library facts`: how many files were read, how many could not be."""
-        total, filled = result["total"], result["filled"]
-        if not total:
-            return {"message": engine_words.FACTS_NONE}
-        message = engine_words.FACTS_READ.format(n=filled, s="" if filled == 1 else "s")
-        if filled < total:
-            left = total - filled
-            message += " " + engine_words.FACTS_UNREADABLE.format(n=left, s="" if left == 1 else "s",
-                                                                 stay="stays" if left == 1 else "stay")
-        return {"message": message}
-
-    def _restore_words(self, result: dict) -> dict:
-        """`rekordbox restore`: what was put back, where the library as it was is saved, and (when some tracks now point
-        at files Discjockey moved to `Superseded/`) the batches to undo first."""
-        out: dict = {"message": engine_words.RESTORED.format(backup=result["restored"], saved=result["saved_current"])}
-        if result["missing_after"]:
-            out["message"] += " " + engine_words.MISSING_AFTER.format(n=len(result["missing_after"]))
-            out["next"] = [{"run": "batch list", "why": "the batches to undo so these tracks find their files again"}]
-        return out
-
-    def _upgrade_words(self, result: dict, aiff: bool = False) -> dict:
-        """The words of an upgrade's batch, a resumed one and (`aiff`) a Convert, Rename or Make all lossless files AIFF
-        run: its `batch_id`, what to run next, the steps for the person and the one line that says what was done (an
-        AIFF run says it in its own words; it points at `check list` only when a step is left in rekordbox)."""
-        out: dict = {}
-        results = result["results"]
-        if isinstance(result.get("batch"), int):
-            batch = f"aiff:{result['batch']}"
-            out["data"] = {"batch_id": batch}
-            if result.get("state") == "stopped" and result.get("stop_reason") == "busy":
-                out["next"] = [{"run": f"batch resume {batch}",
-                                "why": "carries on where it stopped, once the other Discjockey is done"}]
-            if result.get("done"):
-                out["next"] = [*out.get("next", ()), {"run": f"batch show {batch}", "why": "every song of this batch"},
-                               *([] if aiff else [{"run": "check list", "why": "what is left to do in rekordbox"}])]
-        if aiff:
-            out["message"] = engine_words.aiff_summary(results, result["done"], result["skipped"] + result["failed"])
-        else:
-            parts = [f"{result['done']} of {result['total']} {'song' if result['total'] == 1 else 'songs'} done"]
-            parts += [f"{n} {word}" for word, n in (("skipped", result.get("skipped")), ("failed", result.get("failed")))
-                      if n]
-            out["message"] = ", ".join(parts) + "."
-        tracks = library.load_state(self._paths)["tracks"] if self._paths and any(
-            r.get("state") == "done" and r.get("action") != "discard" for r in results) else {}
-        steps, grouped, rows = [], {"reload_tag": [], "look": []}, []
-        for r in results:
-            mine = []
-            if r.get("state") == "done" and r.get("action") != "discard":  # a discard changes no file, so nothing to check
-                its = r.get("path") or (tracks.get(r["track"]) or {}).get("path")  # a placement's row carries none: the song's file now
-                new_file = str(self._paths.root / its) if r.get("action") in ("add_new", "place") and its else None
-                mine = engine_words.person_steps(r["track"], (tracks.get(r["track"]) or {}).get("rekordbox_check"), new_file)
-                for step in mine:
-                    (steps if step["id"] == "step:relocate_new" else grouped[step["id"].removeprefix("step:")]).append(step)
-            rows.append({**r, "person_steps": mine})
-        for name, group in grouped.items():  # one step per kind: reload the tags of these, have a look at those
-            if group:
-                keys = " ".join(step["then"].removeprefix("check done ") for step in group)
-                then = f"check done --batch aiff:{result['batch']}" if isinstance(result.get("batch"), int) else f"check done {keys}"
-                steps.append({**outcomes.person_step(name, tracks=keys), "then": then})
-        out["data"] = {**out.get("data", {}), "results": rows}
-        if steps:
-            out["person_steps"] = steps
-            if aiff and isinstance(result.get("batch"), int) and result.get("done"):
-                out["next"] = [*out.get("next", ()), {"run": "check list", "why": "what is left to do in rekordbox"}]
-        return out
-
-    def _undo_words(self, result: dict) -> dict:
-        """`track undo`: how many tracks went back; each track that now has its better version waiting again is
-        `upgrade list`'s."""
-        undone = [r["track"] for r in result["results"] if r.get("state") == "undone"]
-        total = len(result["results"])
-        out: dict = {"message": f"{len(undone)} of {total} {'track' if total == 1 else 'tracks'} undone."}
-        tracks = library.load_state(self._paths)["tracks"] if self._paths and undone else {}
-        if any((tracks.get(t) or {}).get("upgrade") for t in undone):
-            out["next"] = [{"run": "upgrade list", "why": "the better versions wait there again"}]
-        return out
-
-    def _checked_words(self, result: dict) -> dict:
-        """`check done`: a row per track (`done`, or `skipped` when it had nothing to check), what the answer says:
-        the reminder and the undo of these tracks are over."""
-        notes = {r["track_id"]: r.get("note") for r in result.get("results") or ()}
-        rows = [{"track": t, "action": "check", "state": "done", "reason": None, "message": notes.get(t)}
-                for t in result["checked"]]
-        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "nothing_to_check",
-                  "message": NOTHING_TO_CHECK_ONE} for t in result.get("not_checked") or ()]
-        newer = result.get("newer") or {}
-        rows += [{"track": t, "action": "check", "state": "skipped", "reason": "newer_batch",
-                  "message": NEWER_CHECK.format(later=b) if b else NEWER_CHECK_STEP.format(track=t)}
-                 for t, b in newer.items()]
-        checked, skipped = len(result["checked"]), len(result.get("not_checked") or ()) + len(newer)
-        if not checked:  # nothing to check is no error (an `--all` with none open, or only such tracks named): ok, total 0
-            return {"message": NOTHING_TO_CHECK, "outcome": "ok",
-                    "data": {"results": rows, "total": 0, "done": 0, "skipped": skipped, "failed": 0}}
-        message = f"{checked} of {len(rows)} tracks checked in rekordbox." if skipped else \
-            f"{checked} {'track' if checked == 1 else 'tracks'} checked in rekordbox."
-        message += CHECK_ENDS_UNDO
-        if skipped:
-            message += f" {skipped - len(newer)} had nothing to check." if skipped > len(newer) else ""
-            if newer:
-                message += f" {len(newer)} belong{'s' if len(newer) == 1 else ''} to a later change."
-        return {"message": message, "data": {"results": rows, "total": len(rows), "done": checked, "skipped": skipped,
-                                             "failed": 0}}
+        person_steps}`, each left out when there is nothing to add. `HubApi._result_words` finds them (the window's jobs
+        write the same words into their `result.json`); read only: it looks at the records after the job."""
+        return self._result_words(method, result)
 
     @cli_first
     def auto_upgrade_preview(self) -> dict:

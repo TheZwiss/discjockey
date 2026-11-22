@@ -7,7 +7,7 @@ import { installEventSink } from '$lib/bridge/events';
 import { api, bridgeReady } from '$lib/bridge/client';
 import { hubNow, markBooted, refreshHub } from '$lib/stores/hub';
 import { seedRun } from '$lib/stores/run';
-import { catchDrops } from '$lib/stores/drag';
+import { catchDrops, dropTarget } from '$lib/stores/drag';
 import { go, onRouteChange } from '$lib/router';
 import { watchRescan } from '$lib/stores/rescan';
 
@@ -36,7 +36,7 @@ async function boot(): Promise<void> {
     void api.open_external(a.getAttribute('href') ?? '');
   });
   // A dropped file never lands on a track the user doesn't see: only To-do selects.
-  onRouteChange((r) => { if (r.name !== 'todo') void api.select(null); });
+  onRouteChange((r) => { if (r.name !== 'todo') dropTarget.set(null); });
   const catcher = document.getElementById('drop-catcher');
   if (catcher) catchDrops(document, catcher);
 

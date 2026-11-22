@@ -1,7 +1,10 @@
 import inspect
 import json
+import os
+import re
 import threading
 import time
+from datetime import datetime, timedelta
 
 import pytest
 from hub_helpers import (ID1, LOSSLESS, LOSSY, PLAYLISTS, QOBUZ_LINK, fake_qobuz, fake_spotify, make_api, make_root,
@@ -17,7 +20,7 @@ from discjockey.sources import qobuz as qobuz_source, spotify
 CONTRACT = {
     "dashboard", "sidebar", "sync_preview", "refresh", "stop_refresh", "job_status", "library", "track", "todo",
     "playlists", "limits", "limits_what_if", "save_limits", "mark_warnings_seen", "runs", "run", "spectrum",
-    "media_url", "setup_status", "select",
+    "setup_status",
     "search_candidates", "preview", "add_playlist", "preview_playlist_change",
     "start_sync", "stop", "save_playlists", "hide", "never_download", "add_bought_file", "use_candidate",
     "use_link", "reject_current", "upgrade", "upgrade_all", "undo_upgrade", "batch_resume", "batch_undo",
@@ -25,14 +28,14 @@ CONTRACT = {
     "show_in_finder", "reveal", "open_report", "open_external", "app_update",
     "setup_check_tools", "setup_save_client_id", "setup_spotify_login", "setup_qobuz_login",
     "open_licenses", "update_tools", "rollback_tools", "quit",
-    "setup_skip_qobuz", "setup_skip_spotify", "setup_account", "setup_check_account", "setup_forget_account", "downloads_view",
+    "setup_skip_qobuz", "setup_skip_spotify", "setup_account", "setup_forget_account", "downloads_view",
     "find_logins", "account_sign_in", "stop_sign_in", "open_privacy_settings", "qobuz_check_login", "spotify_sign_out",
     "pick_folder", "check_music_folder", "set_music_folder", "retry_music_folder",
     "tidy_preview", "move_batches", "undo_preview", "tidy_up", "undo_moves",
     "watched_folders", "check_import_folder", "removal_preview", "add_watched_folder", "remove_watched_folder",
-    "start_import", "answer_same_song", "keep_duplicates", "supersede_duplicate", "setup_skip_import",
+    "start_import", "answer_same_song", "keep_duplicates", "keep_file", "setup_skip_import",
     "set_favourites", "set_crate_shown", "set_crates_shown", "set_read_liked_music", "add_liked_music",
-    "set_auto_upgrade", "rekordbox_status", "missing_files_preview", "missing_files",
+    "set_auto_upgrade", "rekordbox_status", "job_events", "missing_files_preview", "missing_files", "sync_scope", "set_sync_scope",
 }
 READ_ONLY = ["dashboard", "sidebar", "sync_preview", "job_status", "library", "todo", "limits",
              "runs", "setup_status", "playlists", "downloads_view", "tidy_preview", "move_batches", "watched_folders"]
@@ -104,23 +107,76 @@ def test_dashboard_after_reading_spotify(root):
     assert api.dashboard()["ready"] is None
     refreshed(api, rec)
     d = api.dashboard()
-    assert d["ready"]["counts"]["new"] == 2 and d["read_status"]["read_at"] == "2026-10-20T21:47:00"
+    assert d["ready"]["counts"]["new"] == 2 and d["read_status"]["read_at"] is not None  # when the read was stored
     assert d["needs_you"]["upgrades"] == 1 and d["tiles"]["lossless"]["total"] == 3
 
 
-def test_sync_preview_lists_the_actions_with_keys(root):
+def test_sync_preview_lists_the_actions_with_ids(root):
     api, rec = make_api(root)
     assert api.sync_preview()["empty"] == "no_preview"
     refreshed(api, rec)
     p = api.sync_preview()
     assert [g["key"] for g in p["groups"]] == ["acquire:new"]
-    assert [a["key"] for a in p["groups"][0]["actions"]] == [["acquire", "t4", "Library/Hard_Bounce"],
-                                                             ["acquire", "t5", "Library/Powertrance"]]
+    rows = p["groups"][0]["actions"]
+    assert [a["id"] for a in rows] == ["act:acquire:t4:1", "act:acquire:t5:2"] and not any("key" in a for a in rows)
     assert p["groups"][0]["actions"][0]["cover_url"] == "https://i.scdn.co/image/t4"  # not downloaded yet: Spotify's
     # issue 37: each row names the playlists it is in, by the browser column's keys, and the preview names them
     ins = [a["in"] for a in p["groups"][0]["actions"]]
     assert all(len(i) == 1 and i[0].startswith("playlist:") for i in ins) and ins[0] != ins[1]
     assert [p["collections"][i[0]] for i in ins] == ["Hard_Bounce", "Powertrance"]
+
+
+def plan_file(root, plan_id):
+    return root.support / "plans" / f"{plan_id.removeprefix('plan:')}.json"
+
+
+def test_sync_preview_gives_every_action_an_id_and_stores_its_plan(root):
+    api, rec = make_api(root)
+    before = api.sync_preview()
+    assert (before["plan_id"], before["presets"], before["default_how_many"]) == (None, [], None)
+    assert not (root.support / "plans").exists()  # no plan: nothing to store
+    refreshed(api, rec)
+    p = api.sync_preview()
+    actions = p["groups"][0]["actions"]
+    assert [a["id"] for a in actions] == ["act:acquire:t4:1", "act:acquire:t5:2"]  # n: the folder's place in playlists.txt
+    assert re.fullmatch(r"plan:[0-9a-f]{12}", p["plan_id"])
+    body = json.loads(plan_file(root, p["plan_id"]).read_text())
+    assert body["items"] == {"act:acquire:t4:1": {"kind": "acquire", "track_id": "t4", "to_dir": "Library/Hard_Bounce"},
+                             "act:acquire:t5:2": {"kind": "acquire", "track_id": "t5", "to_dir": "Library/Powertrance"}}
+    assert body["kind"] == "sync" and body["root"] == str(root.root) and body["extra"]["read_id"] == "read:1"
+    assert isinstance(body["extra"]["generation"], int) and "command" not in body["extra"]
+    assert [(x["key"], x["downloads"], x["selected"]) for x in p["presets"]] == [
+        ("all", 2, ["act:acquire:t4:1", "act:acquire:t5:2"])] and p["default_how_many"] == "all"
+
+
+def test_a_sync_preview_that_changed_nothing_saves_nothing_new_until_an_hour_passed(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    first = api.sync_preview()["plan_id"]
+    file = plan_file(root, first)
+    os.utime(file, ns=(1_000_000_000, 1_000_000_000))  # a mark to see a second save by
+    assert api.sync_preview()["plan_id"] == first
+    assert file.stat().st_mtime_ns == 1_000_000_000  # same plan, saved a moment ago: left alone
+    api._saved_plan = (first, api._saved_plan[1], datetime.now() - timedelta(hours=2))
+    api.sync_preview()
+    assert file.stat().st_mtime_ns != 1_000_000_000  # over an hour: saved again, the 24 hours start over
+    assert wait_job(api, rec, api.never_download("t4", True)).ok  # another plan: another id and file
+    second = api.sync_preview()["plan_id"]
+    assert second != first and plan_file(root, second).is_file()
+    assert {f.name for f in (root.support / "plans").iterdir()} == {f"{first[5:]}.json", f"{second[5:]}.json"}
+
+
+def test_a_target_that_changed_under_the_same_plan_id_is_saved_at_once(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    first = api.sync_preview()["plan_id"]
+    root.playlists_file.write_text(root.playlists_file.read_text().replace("Powertrance =", "Powertrance2 ="))
+    refreshed(api, rec)
+    p = api.sync_preview()
+    assert p["plan_id"] == first  # the id hashes the action ids only
+    assert [a["to_dir"] for a in p["groups"][0]["actions"]] == ["Library/Hard_Bounce", "Library/Powertrance2"]
+    items = json.loads(plan_file(root, first).read_text())["items"]
+    assert items["act:acquire:t5:2"]["to_dir"] == "Library/Powertrance2"  # the stored plan follows what was shown
 
 
 def test_never_download_and_back(root):
@@ -227,6 +283,10 @@ def test_a_stopped_first_automatic_read_is_not_repeated_by_itself(root, monkeypa
     release = threading.Event()
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: release.wait(10) and None)
     answer = api.refresh(auto=True)
+    deadline = time.monotonic() + 3
+    while len(started_reads(rec)) != 1 and time.monotonic() < deadline:  # the thread sends JobStarted a moment after
+        time.sleep(0.01)
+    assert len(started_reads(rec)) == 1
     assert api.stop_refresh()["stopped"] is True
     assert wait_job(api, rec, answer, timeout=2).problem == "stopped"
     assert api.refresh(auto=True)["ok"] is False and len(started_reads(rec)) == 1
@@ -337,23 +397,14 @@ def test_runs_and_one_run(root):
     assert api.run("../../etc/passwd")["kind"] == "refused"
 
 
-def test_spectrum_and_media_need_a_file(root):
+def test_spectrum_needs_a_file(root):
     import numpy as np
     api, _ = make_api(root, decode=lambda p: (np.zeros(44100, dtype=np.float32), 44100))
     s = api.spectrum("t2")["spectrum"]
     assert s["cols"] == 400 and s["cutoff_hz"] == 16000 and s["which"] == "current"
     assert api.spectrum("t2", "upgrade")["spectrum"]["cutoff_hz"] is None
     assert api.spectrum("t3")["kind"] == "refused"  # not found: no file
-    assert api.media_url("t2")["kind"] == "refused"  # no media server in this test
     assert api.spectrum("t2", "elsewhere")["kind"] == "refused"
-
-
-def test_media_url_through_the_server(root):
-    from discjockey.hub.media import MediaServer
-    api, _ = make_api(root)
-    api._media = MediaServer(root)
-    url = api.media_url("t2", "upgrade")["url"]
-    assert url.startswith(f"http://127.0.0.1:{api._media.port}/{api._media.token}/Upgrades%20ready/")
 
 
 def test_show_in_finder_reveal_and_links(root):
@@ -393,9 +444,9 @@ def test_setup_status_names_the_downloads_step(root):
     assert s["next_step"] == "downloads" and not s["complete"]
 
 
-def test_select_remembers_the_shown_track(root):
+def test_the_window_s_selection_is_not_a_bridge_method(root):
     api, _ = make_api(root)
-    assert api.select("t2") == {"ok": True} and api._selected == "t2"
+    assert not hasattr(api, "select") and not hasattr(api, "_selected")
 
 
 def test_a_skipped_spotify_is_no_problem_until_playlists_txt_has_a_spotify_line(root, monkeypatch):

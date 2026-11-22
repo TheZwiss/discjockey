@@ -61,6 +61,12 @@ describe('reduceHub', () => {
     expect(reduceHub(s, { type: 'JobFinished', job_id: 'job:00000002', kind: 'refresh', ok: true, problem: null, message: '',
       result: null }).read_stopped).toBe(false);
   });
+  it('a terminal read that ended stopped leaves the window\'s own read flags alone', () => {
+    const ended = { type: 'JobFinished', job_id: 'job:00000009', kind: 'refresh', ok: false, problem: 'stopped',
+      message: 'Stopped.', result: null } as const;
+    expect(reduceHub({ ...EMPTY_HUB, refresh_running: false }, ended).read_stopped).toBe(false);
+    expect(reduceHub({ ...EMPTY_HUB, refresh_running: true }, ended).read_stopped).toBe(true);
+  });
   it('keeps which playlist is being read until the read ends', () => {
     let s = reduceHub(EMPTY_HUB, { type: 'JobStarted', job_id: 'job:00000001', kind: 'refresh', track_id: null, batch_kind: null });
     s = reduceHub(s, { type: 'ReadingPlaylist', index: 3, total: 7, folder: 'Powertrance' });
@@ -100,8 +106,26 @@ describe('reduceHub', () => {
     expect(reduceHub(t, { type: 'JobFinished', job_id: 'job:00000005', kind: 'download_track', ok: true, problem: null, message: '',
       result: null }).read_progress).not.toBeNull();
   });
-  it('follows the console', () => {
-    expect(reduceHub(EMPTY_HUB, { type: 'ConsoleBusy', running: true }).console_running).toBe(true);
+  it('follows the console: the engine\'s words and what they name, until the holder ends', () => {
+    const busy = { type: 'ConsoleBusy' as const, running: true, job: 'job:00000007', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60', where: 'In the Terminal' };
+    const held = reduceHub(EMPTY_HUB, busy);
+    expect(held.console_running).toBe(true);
+    expect(held.console).toEqual({ job: 'job:00000007', kind: 'sync', line: '4 of 60', text: 'Sync running in the Terminal · 4 of 60',
+      where: 'In the Terminal' });
+    // another window's job is told as such (the live view says "In another window", not "In the Terminal")
+    expect(reduceHub(EMPTY_HUB, { ...busy, text: 'Sync running in another window · 4 of 60', where: 'In another window' }).console?.where)
+      .toBe('In another window');
+    const ended = reduceHub(held, { type: 'ConsoleBusy', running: false, job: null, kind: null, line: null, text: null, where: null });
+    expect([ended.console_running, ended.console]).toEqual([false, null]);
+    // a changed line is a new event: the words follow it
+    expect(reduceHub(held, { ...busy, line: '5 of 60', text: 'Sync running in the Terminal · 5 of 60' }).console?.text)
+      .toBe('Sync running in the Terminal · 5 of 60');
+    // a holder with no registry entry (an older Discjockey) names nothing but still has its sentence
+    const unnamed = reduceHub(EMPTY_HUB, { type: 'ConsoleBusy', running: true, job: null, kind: null, line: null,
+      text: 'A Discjockey command is running in the Terminal', where: null });
+    expect([unnamed.console_running, unnamed.console]).toEqual([true, { job: null, kind: null, line: null,
+      text: 'A Discjockey command is running in the Terminal', where: null }]);
   });
   it('AppUpdate replaces the update answer', () => {
     const url = 'https://github.com/TheZwiss/discjockey/releases/tag/v1.1.0';
@@ -116,7 +140,7 @@ describe('readBlockIn: the read is blocked only by a service playlists.txt uses 
   const both = (spotify: boolean, qobuz: boolean): ReadStatus['services'] => [
     { service: 'spotify', name: 'Spotify', connected: spotify }, { service: 'qobuz', name: 'Qobuz', connected: qobuz }];
   const ok: ReadStatus = { read_at: '2026-10-21T10:00:00Z', minutes_ago: 2, problem: null, problem_service: null,
-    message: '', services: both(true, true), stale: false, reading: false, offline: false, auto_read: false };
+    message: '', services: both(true, true), lines_changed: false, reading: false, offline: false, auto_read: false };
   it('is null while nothing is known yet and while every used service is connected', () => {
     expect(readBlockIn(null)).toBeNull();
     expect(readBlockIn(ok)).toBeNull();
@@ -224,6 +248,108 @@ describe('an AppUpdate event that arrives while a refresh runs', () => {
   });
 });
 
+describe('the last sync in job_status', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it('starts as none and is copied from the engine on every refresh', async () => {
+    expect(EMPTY_HUB.last_sync).toBeNull();
+    (globalThis as any).window = new EventTarget();
+    let last: unknown = { job: 'job:0000000a', args: { plan_id: 'plan:0123456789ab', selected: ['act:acquire:t4:1'] }, ended: null };
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
+        last_sync: last, sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+    await refreshHub();
+    expect(get(hub).last_sync).toEqual(last);
+    last = null;
+    await refreshHub();
+    expect(get(hub).last_sync).toBeNull();
+  });
+});
+
+describe('the console state while the hub is read (B2, B4)', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  const JOB = 'job:00000c0d';
+  const busy = (job: string | null, line: string | null) => ({ type: 'ConsoleBusy' as const, running: true, job, kind: 'sync', line,
+    text: `Sync running in the Terminal${line ? ` · ${line}` : ''}`, where: 'In the Terminal' });
+  const none = { ok: true, job: null, refresh_running: false, console_running: false, console: null, read_status: null, sign_in: null };
+  function bridge(jobStatus: () => Promise<unknown>) {
+    (globalThis as any).window = new EventTarget();
+    installBridge({
+      job_status: jobStatus,
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+  }
+  const settle = async () => { await refreshHub(); };
+  const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
+  it('a ConsoleBusy naming a new job reads job_status again, so last_sync names it', async () => {
+    let reads = 0;
+    let named: string | null = null;
+    bridge(async () => { reads++; return named ? { ...none, console_running: true, last_sync: { job: named, args: { plan_id: 'plan:1', selected: [] }, ended: null },
+      console: { job: named, via: 'registry', kind: 'sync', line: null, text: 'Sync running in the Terminal', where: 'In the Terminal' } } : none; });
+    await settle();
+    reads = 0;
+    named = JOB;
+    dispatch(busy(JOB, null));
+    await flush();
+    expect(reads).toBe(1);
+    expect(get(hub).last_sync?.job).toBe(JOB);
+    named = 'job:00000c0e';   // the next Terminal sync
+    dispatch(busy('job:00000c0e', null));
+    await flush();
+    expect(reads).toBe(2);
+    expect(get(hub).last_sync?.job).toBe('job:00000c0e');
+  });
+  it('a ConsoleBusy of the job the state already holds reads nothing', async () => {
+    let reads = 0;
+    const named = { job: JOB, via: 'registry', kind: 'sync', line: null, text: 'Sync running in the Terminal', where: 'In the Terminal' };
+    bridge(async () => { reads++; return { ...none, console_running: true, console: named }; });
+    dispatch(busy(JOB, null));
+    await flush();
+    expect(get(hub).console?.job).toBe(JOB);
+    reads = 0;
+    dispatch(busy(JOB, '4 of 60'));
+    dispatch(busy(JOB, '5 of 60'));
+    await flush();
+    expect(reads).toBe(0);
+    expect(get(hub).console?.line).toBe('5 of 60');
+    dispatch(busy(null, null));   // a holder nobody can name has no job to look up
+    await flush();
+    expect(reads).toBe(0);
+  });
+
+  it('a ConsoleBusy during refreshHub\'s calls beats its older job_status answer', async () => {
+    let answer: unknown = { ...none, console_running: true,
+      console: { job: JOB, via: 'registry', kind: 'sync', line: null, text: 'Sync running in the Terminal', where: 'In the Terminal' } };
+    let gate: Promise<void> = Promise.resolve();
+    bridge(async () => { await gate; return answer; });
+    dispatch(busy(JOB, null));
+    await settle();
+    expect(get(hub).console).toMatchObject({ job: JOB, line: null });
+    // the Terminal's progress line arrives while job_status (read before it) is still on its way
+    let release: () => void = () => {};
+    gate = new Promise<void>((r) => { release = r; });
+    const read = answer;
+    const refresh = refreshHub();
+    dispatch(busy(JOB, '5 of 60'));
+    release();
+    await refresh;
+    expect(read).toBe(answer);
+    expect(get(hub).console).toMatchObject({ job: JOB, line: '5 of 60' });
+    expect(get(hub).console_running).toBe(true);
+    gate = Promise.resolve();
+    answer = none;
+    await refreshHub();   // nothing newer arrived during this one: its answer is taken again
+    expect(get(hub).console).toBeNull();
+    expect(get(hub).console_running).toBe(false);
+  });
+});
+
 describe('a scan job in job_status', () => {
   afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
   const snap = (kind: string) => ({ id: 'job:00000009', kind, track_id: null, started: '2026-10-24T10:00:00', running: true,
@@ -252,7 +378,7 @@ describe('a scan job in job_status', () => {
 
 describe('readNeedsSetupIn: a not_set_up without a service is a missing playlists.txt (first-run Dashboard, §5a)', () => {
   const ok: ReadStatus = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
-    message: '', services: [], stale: false, reading: false, offline: false, auto_read: false };
+    message: '', services: [], lines_changed: false, reading: false, offline: false, auto_read: false };
   const setup = (playlists: boolean) => ({ playlists }) as unknown as SetupStatus;
   it('is true for the missing playlists.txt, which is no login block', () => {
     expect(readNeedsSetupIn(ok, null)).toBe(true);
@@ -267,6 +393,24 @@ describe('readNeedsSetupIn: a not_set_up without a service is a missing playlist
     expect(readNeedsSetupIn({ ...ok, problem: null }, null)).toBe(false);
     expect(readNeedsSetupIn({ ...ok, problem_service: 'qobuz' }, null)).toBe(false);
     expect(readNeedsSetupIn({ ...ok, services: [{ service: 'qobuz', name: 'Qobuz', connected: false }] }, null)).toBe(false);
+  });
+});
+
+describe('a JobFinished of another process', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it("for a job this window never saw makes the pages read again", async () => {
+    (globalThis as any).window = new EventTarget();
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: false, read_status: null,
+        sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: true, todo: 2, all_tracks: 5, folders: [], not_in_playlist: 3, limits_warning: false }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+    const before = get(dataVersion);
+    dispatch({ type: 'JobFinished', job_id: 'job:0000ffff', kind: 'sync', ok: true, problem: null, message: '', result: null });
+    expect(get(dataVersion)).toBe(before + 1);
+    await refreshHub();
   });
 });
 
@@ -445,5 +589,27 @@ describe('the sidebar is read again (plan library stage 5, B2.4 and D15)', () =>
     expect(r).toMatchObject({ ok: true });
     expect(get(hub).sidebar?.favourites.map((f) => f.key)).toEqual(['playlist:b']);
     expect(hung.sidebars).toBeGreaterThan(0);
+  });
+});
+
+describe('a reloaded window while another process holds the library', () => {
+  afterEach(() => { _resetBridge(); delete (globalThis as any).window; });
+  it("learns the holder's words from job_status at once, and drops them when it has ended", async () => {
+    (globalThis as any).window = new EventTarget();
+    let holder: unknown = { job: 'job:00000007', via: 'terminal', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60' };
+    installBridge({
+      job_status: async () => ({ ok: true, job: null, refresh_running: false, console_running: holder !== null, console: holder,
+        read_status: null, sign_in: null }),
+      setup_status: async () => ({ ok: true, music: { state: 'ok', path: '/Volumes/DJ', suggested: '/x' } }),
+      sidebar: async () => ({ ok: false, kind: 'no_library', message: 'Gone.' }),
+      app_update: async () => ({ ok: true, state: 'unknown', current: '1.0.0', latest: null, url: null }),
+    });
+    await refreshHub();
+    expect([get(hub).console_running, get(hub).console]).toEqual([true, { job: 'job:00000007', kind: 'sync', line: '4 of 60',
+      text: 'Sync running in the Terminal · 4 of 60' }]);
+    holder = null;
+    await refreshHub();
+    expect([get(hub).console_running, get(hub).console]).toEqual([false, null]);
   });
 });

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import type { ActionKey, EstimateAccount, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
+import type { EstimateAccount, PlaylistService, PreviewAction, SyncAccount, SyncPreset, SyncPreview } from '$lib/bridge/types';
 import {
-  chosenOf, everyOff, folderSwitch, memberOn, resolveLegacy, sectionOf,
-  FULL_SCOPE, type Scope, dayBarInput, defaultHowMany, downloadsInScope, inScope, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindShares, weeklyItems, planCounts, switchTip, dayBarEmpty, leftOutBody, stripLine,
-  kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetTicks, presets, readHowMany, readScope, runCount,
+  chosenOf, everyOff, folderSwitch, memberOn, sectionOf,
+  FULL_SCOPE, type Scope, dayBarInput, downloadsInScope, inScope, folderLabel, foldText, howManyOptions, inRunOrder, isKindKey, kindShares, weeklyItems, planCounts, switchTip, dayBarEmpty, leftOutBody, stripLine,
+  choiceFor, kindOf, matches, mayWaitToday, nextSyncSet, presetN, presetSelected, enginePresets, howManyOfKey, readHowMany, runCount,
   minutesFor, runsNothingToday, runTime, runTotals, scopeSet, sectionCounts, sections, sectionSummary, serviceRows, shouldAutoRead, shownPreset,
   readBlockLine, leftOutTitle, startLabel, tagOf, whyOf, toggleScope, waitsWhole, whyColumn,
   DOWNLOAD_AGAIN, DOWNLOAD_AGAIN_LABEL, KINDS, KIND_SHARE, WHY,
-  WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine, startNote, rekordboxOpenLine, autoPlanLine, NOTHING_TODAY, CONSOLE_RUNNING,
+  WAITING_ANSWERS_HREF, deferredChecksLine, waitingAnswersLine, startNote, rekordboxOpenLine, autoPlanLine, NOTHING_TODAY,
 } from './planModel';
 
 // the engine's words for the Download again kind are the report's plan label (discjockey/report.py PLAN_LABELS)
@@ -40,15 +40,14 @@ describe('the import hints (W9)', () => {
       + "today's Qobuz allowance isn't used up.");
   });
 });
-import { keyId } from './selection';
 
 const act = (kind: string, id: string, folder = 'Hard_Bounce', more: Partial<PreviewAction> = {}): PreviewAction => ({
-  key: [kind, id, `Library/${folder}`] as ActionKey, kind, reason: kind === 'acquire' ? 'new' : null, track_id: id,
+  id: `act:${kind}:${id}:1`, kind, reason: kind === 'acquire' ? 'new' : null, track_id: id,
   artist: `Artist ${id}`, title: `Title ${id}`, folder, to_dir: `Library/${folder}`,
   to_not_lossless: false, src: null, cover_url: null, in: [P(folder)], ...more });
 /** a playlist's target; in these tests a playlist's ref is its name */
 const P = (name: string) => `playlist:${name}`;
-const ids = (s: Set<string>) => [...s].map((k) => JSON.parse(k)[1]).sort();
+const ids = (s: Set<string>) => [...s].map((k) => k.split(':')[2]).sort();
 
 describe('kinds and tags', () => {
   it('names every kind', () => {
@@ -147,14 +146,6 @@ describe('scope and sections', () => {
     expect(s).toEqual({ off: [P('Ohne')], kinds: ['weekly'] });
     expect(toggleScope(s, 'off', P('Ohne')).off).toEqual([]);
   });
-  it('reads a stored scope safely', () => {
-    expect(readScope(null)).toEqual(FULL_SCOPE);
-    // only the weekly checks switch as kinds now (issue 36): an older left-out kind is dropped, never kept unseen
-    expect(readScope({ off: ['playlist:x', 'folder:/m/T', 'junk', 3], kinds: ['new', 'bogus', 'retry'] }))
-      .toEqual({ off: ['playlist:x', 'folder:/m/T'], kinds: ['retry'] });
-    // before issue 37 the playlists switched off were stored by name: kept until the sidebar names their targets
-    expect(readScope({ folders: ['A', 3], kinds: [] })).toEqual({ off: [], kinds: [], legacy: ['A'] });
-  });
   it('sections follow playlists.txt and keep the given order inside', () => {
     expect(sections(all, ['Voller', 'Ohne']).map((s) => [s.folder, s.rows.map((r) => r.track_id)]))
       .toEqual([['Voller', ['b', 'c', 'd']], ['Ohne', ['a']], ['Elsewhere', ['e']]]);
@@ -162,27 +153,60 @@ describe('scope and sections', () => {
 });
 
 describe('how many', () => {
-  it('offers the round numbers below the total, what fits today and all', () => {
-    expect(presets(195, 10).map((p) => p.label)).toEqual(['5', '10 · fits today', '25', '50', 'All 195']);
-    expect(presets(30, 0).map((p) => p.label)).toEqual(['5', '10', '25', 'All 30']);
-    expect(presets(8, 60).map((p) => p.label)).toEqual(['5', 'All 8']);
-    expect(presets(3, 2).map((p) => p.label)).toEqual(['2 · fits today', 'All 3']);
-    expect(presets(0, 10)).toEqual([]);
+  // the engine's answers (views.how_many), as `sync_preview` carries them
+  const engine = (rows: [SyncPreset['key'], string, number, string[]][]): SyncPreset[] =>
+    rows.map(([key, label, downloads, selected]) => ({ key, label, downloads, selected }));
+  const few = engine([['5', '5', 5, ['m', 'a', 'b', 'c', 'd', 'e']], ['all', 'All 8', 8, ['m', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']]]);
+  const tight = engine([['5', '5', 5, ['a']], ['fits', '10 · fits today', 10, ['b']], ['25', '25', 25, ['c']], ['all', 'All 195', 195, ['d']]]);
+  it('maps the engine\'s choices to the page\'s chips: keys, counts and words', () => {
+    expect(enginePresets(tight)).toEqual([{ value: 5, n: 5, label: '5' }, { value: 'fits', n: 10, label: '10 · fits today' },
+      { value: 25, n: 25, label: '25' }, { value: 'all', n: 195, label: 'All 195' }]);
+    expect(enginePresets([])).toEqual([]);
   });
-  it('starts with what fits today, or all when everything fits', () => {
-    expect(defaultHowMany(195, 10)).toBe('fits');
-    expect(defaultHowMany(8, 60)).toBe('all');
-    expect(defaultHowMany(8, 0)).toBe('all');
+  it('reads the engine\'s first choice, none when there is none', () => {
+    expect(howManyOfKey('fits')).toBe('fits');
+    expect(howManyOfKey('all')).toBe('all');
+    expect(howManyOfKey('25')).toBe(25);
+    expect(howManyOfKey(null)).toBeNull();
+    expect(howManyOfKey('x')).toBeNull();
+  });
+  it('a choice ticks the ids of the engine\'s preset of that value', () => {
+    expect(presetSelected(tight, 'fits', 195, 10)).toEqual(['b']);
+    expect(presetSelected(tight, 25, 195, 10)).toEqual(['c']);
+    expect(presetSelected(tight, 'all', 195, 10)).toEqual(['d']);
+  });
+  it('a remembered choice the plan does not offer ticks the preset with the same number of downloads', () => {
+    expect(presetSelected(few, 25, 8, 60)).toEqual(few[1].selected);   // 25 with 8 downloads is "All 8"
+    expect(presetSelected(few, 'fits', 8, 60)).toEqual(few[1].selected);
+  });
+  it('a choice no preset matches changes nothing', () => {
+    expect(presetSelected(few, 10, 20, 60)).toBeNull();   // 10 downloads: not offered, none has 10
+    expect(presetSelected([], 'all', 0, 10)).toBeNull();
+  });
+  it('knows how many downloads a choice means', () => {
     expect(presetN('fits', 195, 10)).toBe(10);
     expect(presetN(25, 8, 60)).toBe(8);
   });
   it('lights the chip that gives the same number', () => {
-    const list = presets(8, 60);
+    const list = enginePresets(few);
     expect(shownPreset(25, list, 8, 60)).toBe('all');
     expect(shownPreset('fits', list, 8, 60)).toBe('all');
     expect(shownPreset(5, list, 8, 60)).toBe(5);
     expect(shownPreset('custom', list, 8, 60)).toBe('custom');
-    expect(shownPreset(10, presets(195, 10), 195, 10)).toBe('fits');
+    expect(shownPreset(10, enginePresets(tight), 195, 10)).toBe('fits');
+  });
+  it('keeps the held choice while it ticks something, takes the engine\'s first choice when none is held', () => {
+    expect(choiceFor(null, few, 'all', 8, 60)).toBe('all');
+    expect(choiceFor(null, [], null, 0, 60)).toBeNull();
+    expect(choiceFor(25, few, 'all', 8, 60)).toBe(25);          // 25 with 8 downloads still ticks "All 8"
+    expect(choiceFor('fits', tight, '5', 195, 10)).toBe('fits');
+    expect(choiceFor('custom', few, 'all', 8, 60)).toBe('custom');
+  });
+  it('falls back to the engine\'s first choice when the held one ticks nothing now (fits today with nothing left today)', () => {
+    const none = engine([['all', 'All 5', 5, ['a', 'b', 'c', 'd', 'e']]]);
+    expect(choiceFor('fits', none, 'all', 5, 0)).toBe('all');
+    expect(choiceFor('fits', [], null, 5, 0)).toBe('fits');       // no choice offered: nothing to follow
+    expect(choiceFor('fits', none, null, 5, 0)).toBe('fits');
   });
   it('reads a stored choice safely', () => {
     expect(readHowMany('fits')).toBe('fits');
@@ -190,23 +214,16 @@ describe('how many', () => {
     expect(readHowMany(-1)).toBeNull();
     expect(readHowMany('x')).toBeNull();
   });
-  it('a preset ticks all bought files in scope and the first n downloads in run order', () => {
-    const ordered = [act('adopt_bought', 'm', 'Voller'), act('acquire', 'a', 'Voller'), act('acquire', 'b', 'Ohne'),
-      act('acquire', 'c', 'Voller'), act('upgrade', 'u', 'Voller')];
-    expect(ids(presetTicks(ordered, FULL_SCOPE, 2))).toEqual(['a', 'b', 'm']);
-    expect(ids(presetTicks(ordered, { off: [P('Ohne')], kinds: [] }, 2))).toEqual(['a', 'c', 'm']);
-    expect(ids(presetTicks(ordered, { off: [], kinds: ['bought'] }, 9))).toEqual(['a', 'b', 'c', 'u']);
-  });
 });
 
 describe('next sync and the summary', () => {
   const ordered = [act('adopt_bought', 'm'), act('acquire', 'a'), act('acquire', 'b'), act('acquire', 'c'), act('upgrade', 'u')];
-  const all = new Set(ordered.map((a) => keyId(a.key)));
+  const all = new Set(ordered.map((a) => a.id));
   it('ticked downloads after the first L in run order wait for the next sync', () => {
     expect(ids(nextSyncSet(ordered, all, FULL_SCOPE, 2))).toEqual(['c', 'u']);
     expect(ids(nextSyncSet(ordered, all, FULL_SCOPE, 0))).toEqual(['a', 'b', 'c', 'u']);
     expect(ids(nextSyncSet(ordered, all, FULL_SCOPE, 10))).toEqual([]);
-    const noA = new Set([...all].filter((k) => JSON.parse(k)[1] !== 'a'));
+    const noA = new Set([...all].filter((k) => k.split(':')[2] !== 'a'));
     expect(ids(nextSyncSet(ordered, noA, FULL_SCOPE, 2))).toEqual(['u']);
   });
   // the engine's table (views.minutes_by_downloads): the page never repeats the formula, it looks the count up
@@ -237,7 +254,7 @@ describe('next sync and the summary', () => {
     const chosen = plan.filter((a) => inScope(a, scope));
     const t = runTotals(chosen, downloadsInScope(plan, scope), 2, 60, table);
     expect(t).toMatchObject({ uses: 2, after: 1, days: 1 });
-    expect(t.uses + t.after).toBe(presets(downloadsInScope(plan, scope), 2).at(-1)!.n);   // "All 3"
+    expect(t.uses + t.after).toBe(downloadsInScope(plan, scope));   // "All 3": what is done today and what follows
     // nothing in scope: no Later, the switched-off tracks are only the plan's "left out" note
     expect(runTotals([], downloadsInScope(plan, { off: [P('Hard_Bounce'), P('Off_List')], kinds: [] }), 2, 60, table))
       .toMatchObject({ after: 0, days: 0 });
@@ -314,7 +331,7 @@ describe('service rows', () => {
 });
 describe('the automatic Spotify read', () => {
   const sp = (more: Partial<SyncPreview['read_status']> = {}): SyncPreview['read_status'] => ({ read_at: null, minutes_ago: null,
-    problem: null, message: '', stale: false, reading: false, offline: false, auto_read: false, problem_service: null, services: [], ...more });
+    problem: null, message: '', lines_changed: false, reading: false, offline: false, auto_read: false, problem_service: null, services: [], ...more });
   const pv = (read_status = sp(), empty: SyncPreview['empty'] = null) => ({ read_status, empty });
   const idle = { refreshRunning: false, syncRunning: false };
   it('reads once per session: only while the hub has not read by itself yet', () => {
@@ -386,7 +403,7 @@ describe('next sync in a section (N1)', () => {
   it('says it once when every ticked download waits', () => expect(waitsWhole(3, 3)).toBe(true));
   it('counts a ticked bought file as ticked, never as a download that waits', () => {
     const rows = [act('acquire', '1'), act('acquire', '2'), act('adopt_bought', '3')];
-    const ids = rows.map((a) => keyId(a.key));
+    const ids = rows.map((a) => a.id);
     const c = sectionCounts(rows, new Set(ids), new Set(ids.slice(0, 2)));
     expect(c).toEqual({ total: 3, ticked: 3, waiting: 2, downloads: 2 });
     expect(waitsWhole(c.waiting, c.downloads)).toBe(true);   // every ticked download waits: the head says it once
@@ -423,7 +440,9 @@ describe('run panel (9B)', () => {
     expect(s).toEqual({ off: [P('A')], kinds: [] });   // the input is not changed
   });
   it('marks the amount that fits today with ✦', () => {
-    expect(howManyOptions(presets(195, 64)).map((o) => [o.key, o.label])).toEqual([
+    const list = enginePresets([['5', 5], ['10', 10], ['25', 25], ['50', 50], ['fits', 64], ['all', 195]].map(([key, n]) => ({
+      key: key as SyncPreset['key'], label: key === 'all' ? 'All 195' : String(key), downloads: n as number, selected: [] })));
+    expect(howManyOptions(list).map((o) => [o.key, o.label])).toEqual([
       ['5', '5'], ['10', '10'], ['25', '25'], ['50', '50'], ['fits', '64 ✦'], ['all', 'All 195']]);
   });
   const acc = (o: object) => ({ service: 'qobuz', name: 'Qobuz', uses: 10, left: 10, limit: 60, about: false, ...o }) as never;
@@ -527,9 +546,9 @@ describe('playlists and folders in and out of the sync (issue 37)', () => {
   });
   it('Start sends only ticked rows in scope', () => {
     const plan = [two, mixed, own, lib];
-    const ticked = new Set(plan.map((a) => keyId(a.key)));
+    const ticked = new Set(plan.map((a) => a.id));
     expect(chosenOf(plan, ticked, off(W, L)).map((a) => a.track_id)).toEqual(['two', 'mixed']);
-    expect(chosenOf(plan, new Set([keyId(own.key)]), off(C)).map((a) => a.track_id)).toEqual([]);
+    expect(chosenOf(plan, new Set([own.id]), off(C)).map((a) => a.track_id)).toEqual([]);
     expect(everyOff(plan, off(P('A'), P('B'), W, L))).toBe(true);
     expect(everyOff(plan, off(P('A'), W, L))).toBe(false);
   });
@@ -563,16 +582,10 @@ describe('playlists and folders in and out of the sync (issue 37)', () => {
     expect(switchTip('2019', { enabled: true, on: true, n: 3, running: false, follows: 'Techno' }))
       .toBe('2019 · not in the sidebar, so it goes with Techno');
   });
-  it('turns the playlists an older version stored by name into targets, dropping names no playlist has', () => {
-    const s = readScope({ folders: ['A', 'Gone'], kinds: ['weekly'] });
-    expect(resolveLegacy(s, [{ name: 'A', ref: 'ra' }, { name: 'A', ref: 'ra2' }, { name: 'B', ref: 'rb' }]))
-      .toEqual({ off: ['playlist:ra', 'playlist:ra2'], kinds: ['weekly'] });
-    expect(resolveLegacy(FULL_SCOPE, [])).toBe(FULL_SCOPE);
-  });
 });
 
 describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
-  const idle = { consoleRunning: false, nothingToday: false, auto: { on: true, ready: 4, places: 0, place_notes: null }, rekordboxRunning: true };
+  const idle = { consoleText: null, nothingToday: false, auto: { on: true, ready: 4, places: 0, place_notes: null }, rekordboxRunning: true };
   it('says the sync would put the ready upgrades in place at its end, in rekordbox\'s words (singular for 1)', () => {
     expect(rekordboxOpenLine(4)).toBe('rekordbox is open: quit it before the sync ends, so the sync can put 4 upgrades in place.');
     expect(rekordboxOpenLine(1)).toBe('rekordbox is open: quit it before the sync ends, so the sync can put 1 upgrade in place.');
@@ -592,9 +605,12 @@ describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
     expect(startNote({ ...idle, rekordboxRunning: false, auto: { on: true, ready: 1, places: 0, place_notes: null } })?.text).toBe(autoPlanLine(1));
   });
   it('comes after the console-running and nothing-today notes, which are the start\'s own', () => {
-    expect(startNote({ ...idle, consoleRunning: true, nothingToday: true })).toEqual({ kind: 'console', text: CONSOLE_RUNNING, place: null });
+    const holder = 'Sync running in the Terminal · 4 of 60';
+    expect(startNote({ ...idle, consoleText: holder, nothingToday: true })).toEqual({ kind: 'console', text: holder, place: null });
     expect(startNote({ ...idle, nothingToday: true })).toEqual({ kind: 'nothing-today', text: NOTHING_TODAY, place: null });
-    expect(startNote({ ...idle, consoleRunning: true, rekordboxRunning: false })?.kind).toBe('console');
+    // the words are the engine's, whatever job holds the library: the note says them as they came
+    expect(startNote({ ...idle, consoleText: 'Tidy-up running in another window · 12 of 80' })?.text).toBe('Tidy-up running in another window · 12 of 80');
+    expect(startNote({ ...idle, consoleText: 'Tidy-up running in the Terminal', rekordboxRunning: false })?.kind).toBe('console');
     expect(startNote({ ...idle, nothingToday: true, rekordboxRunning: false })?.kind).toBe('nothing-today');
   });
 });
@@ -602,7 +618,7 @@ describe('the note under Start sync (Auto-upgrade, plan stage C §6.4)', () => {
 describe('the placement line under Start sync (issue 43 §7.4a: the engine\'s sentence, verbatim)', () => {
   const notes = { closed: '2 missing songs get their better version at the end of the sync.',
     open: '2 missing songs get their better version at the end of the sync, once rekordbox is closed.' };
-  const base = { consoleRunning: false, nothingToday: false, rekordboxRunning: false as boolean | null };
+  const base = { consoleText: null, nothingToday: false, rekordboxRunning: false as boolean | null };
   const auto = (over: Partial<NonNullable<Parameters<typeof startNote>[0]['auto']>> = {}) =>
     ({ on: true, ready: 0, places: 2, place_notes: notes, ...over });
 
@@ -624,7 +640,7 @@ describe('the placement line under Start sync (issue 43 §7.4a: the engine\'s se
     expect(startNote({ ...base, auto: auto({ places: 0, place_notes: null }) })).toBeNull();
     expect(startNote({ ...base, auto: auto({ places: 2, place_notes: null }) })).toBeNull();
     expect(startNote({ ...base, auto: null })).toBeNull();
-    expect(startNote({ ...base, consoleRunning: true, auto: auto() })).toMatchObject({ kind: 'console', place: null });
+    expect(startNote({ ...base, consoleText: 'A Discjockey command is running in the Terminal', auto: auto() })).toMatchObject({ kind: 'console', place: null });
     expect(startNote({ ...base, nothingToday: true, auto: auto() })).toMatchObject({ kind: 'nothing-today', place: null });
   });
   it('the fake\'s preview carries the sentences the engine wrote (scenario missing_files)', async () => {

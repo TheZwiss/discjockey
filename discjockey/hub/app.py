@@ -13,6 +13,7 @@ from pathlib import Path
 from ..library import Resolved, SupportPaths
 from .api import HubApi
 from .jobs import HubEvents
+from . import windows
 from .media import MediaServer
 from .window_port import window_port
 
@@ -143,6 +144,7 @@ def main(resolved: Resolved, webview=None) -> int:
     events = HubEvents(lambda: holder.get("window"))
     media = MediaServer()
     api = HubApi(resolved.support, events, media=media)
+    window_file = windows.register(resolved.support, resolved.paths.root if resolved.paths is not None else resolved.music_folder)
     window = webview.create_window(TITLE, url=page_url(), js_api=api, width=SIZE[0], height=SIZE[1],
                                    min_size=MIN_SIZE, background_color=BACKGROUND, localization=DIALOG_BUTTONS,
                                    hidden=True)
@@ -158,6 +160,7 @@ def main(resolved: Resolved, webview=None) -> int:
     window.events.loaded += lambda: register_drop(window, api, handler_class)
 
     def closed() -> None:
+        window_file.close()
         holder.pop("window", None)
         events.stop()
         api._jobs.close()
@@ -179,4 +182,5 @@ def main(resolved: Resolved, webview=None) -> int:
         api._jobs.wait()  # the close flow only lets the window go once the job has ended
     finally:
         port.release()
+        window_file.close()
     return 0

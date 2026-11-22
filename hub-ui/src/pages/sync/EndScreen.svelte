@@ -20,29 +20,32 @@
   import { ColumnFrame } from '$lib/frames';
   import { api } from '$lib/bridge/client';
   import type { Result, RunDetail } from '$lib/bridge/types';
-  import { run } from '$lib/stores/run';
+  import type { Readable } from 'svelte/store';
+  import type { RunState } from '$lib/stores/run';
   import { markReady } from '$lib/ready';
   import { go } from '$lib/router';
-  import { artistTitle, noteParts, plural, runIdFromReport } from '$lib/format';
-  import { dismissedJob } from './view';
+  import { artistTitle, noteParts, plural } from '$lib/format';
+  import { dismissJob, endRunId } from './view';
   import { fixHref, rowBadge } from './results';
   import { endModel, endTitle, otherDetail } from './endModel';
 
-  let { run_id }: { run_id: string | null } = $props();
+  // `run`: the sync whose end this may be (the window's own or the Terminal's, liveSource.ts); its live facts (a failure,
+  // the plan's new songs) count only when `run_id` is its report: a past run opened by its id is the report alone
+  let { run_id, run }: { run_id: string | null; run: Readable<RunState> } = $props();
   let detail = $state<RunDetail | null>(null);
   let loadError = $state<string | null>(null);
 
-  const mine = $derived($run.job_kind === 'sync' && ($run.phase === 'finished' || $run.phase === 'failed'));
+  const mine = $derived($run.job_kind === 'sync' && ($run.phase === 'finished' || $run.phase === 'failed')
+    && endRunId($run) === run_id);
   const failed = $derived(mine && $run.phase === 'failed' && !!$run.job_finished);
-  const jobResult = $derived(($run.job_finished?.result ?? null) as { report?: string; new_since_preview?: number } | null);
-  const newSince = $derived(mine && run_id && runIdFromReport(jobResult?.report) === run_id
-    ? jobResult?.new_since_preview ?? null : null);
+  const jobResult = $derived(($run.job_finished?.result ?? null) as { report?: string; new_since_plan?: string[] } | null);
+  const newSince = $derived(mine && run_id ? jobResult?.new_since_plan?.length ?? null : null);
   const m = $derived(detail ? endModel(detail, newSince) : null);
   // the Auto-upgrade parts in one list (Upgraded, Still waiting, Couldn't go in); the placed ones have a card of their own
   const autoMain = $derived(m?.auto.filter((p) => p.key !== 'placed') ?? []);
   const autoPlaced = $derived(m?.auto.find((p) => p.key === 'placed') ?? null);
   // a failed sync names its outcome like every other end title; the card under it says why
-  const title = $derived(failed ? "Sync didn't finish" : m?.title ?? endTitle($run.run_finished?.exit_code));
+  const title = $derived(failed ? "Sync didn't finish" : m?.title ?? endTitle(mine ? $run.run_finished?.exit_code : null));
   const problem = $derived($run.job_finished?.problem ?? 'crashed');
   const REVIEW = '#/todo?filter=upgrade_ready';
   const COLS = '--row-cols: 40px minmax(0, 1fr) auto';
@@ -59,7 +62,7 @@
     })();
   });
 
-  function dismiss() { if ($run.job_id !== null) dismissedJob.set($run.job_id); }
+  function dismiss() { if ($run.job_id !== null) dismissJob($run.job_id); }
   function back() { dismiss(); void go('/sync'); }
   function done() { dismiss(); void go('/'); }
 </script>

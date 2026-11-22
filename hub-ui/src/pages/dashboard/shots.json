@@ -161,5 +161,21 @@
     "sleep": 300
    }
   ]
+ },
+ {
+  "name": "dashboard-terminal-sync",
+  "route": "#/",
+  "scenario": "console:sync-running",
+  "steps": [
+   {
+    "wait": "[data-test=activity-bar]"
+   },
+   {
+    "eval": "const bar = document.querySelector('[data-test=activity-bar]').textContent; if (!/Sync running · \\d+ of \\d+/.test(bar)) throw new Error('the foot says the Terminal sync runs: ' + bar); if (!document.querySelector('[data-test=nav-sync] [data-test=sync-ring]')) throw new Error('the sidebar\\'s Sync row carries the Terminal sync\\'s ring')"
+   },
+   {
+    "sleep": 300
+   }
+  ]
  }
 ]

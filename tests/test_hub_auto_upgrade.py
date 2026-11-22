@@ -12,14 +12,14 @@ import pytest
 
 from batch_helpers import make_lib, needs_ffmpeg, prepared
 from convert_helpers import EXACT
-from discjockey import auto_upgrade, batches, library, report
+from discjockey import auto_upgrade, batches, library, report, run
 from discjockey.events import BatchProgress
 from discjockey.hub import views
 from discjockey.library import load_state, save_state
 from discjockey.models import Question, SourceTrack
 from discjockey.rekordbox.locate import Place
 from discjockey.settings import Settings, load_settings, save_settings
-from hub_helpers import window, fake_spotify, make_api, make_root, make_unbound_api, wait_job
+from hub_helpers import window, fake_spotify, make_api, make_root, make_unbound_api, store_sync_read, wait_job
 
 NOW = datetime(2026, 11, 9, 21, 4)
 
@@ -61,9 +61,12 @@ def mark(lib, i, **fields):
 
 
 def preview(api, lib, questions=()):
-    """The Sync page has a preview: the library's records as the plan state, without a playlist read."""
-    api._store.ready(prepared(lib, questions=questions), NOW)
-    return api.sync_preview()
+    """The Sync page has a plan: a stored read of no playlist, and the plan derived from it is the library's records as
+    the plan state (`prepared`: with `questions`, which the planner makes from files only a real import has)."""
+    store_sync_read(lib.paths)
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(run, "prepared_from_read", lambda paths, loaded: prepared(lib, questions=questions))
+        return api.sync_preview()
 
 
 # --- the switch ---
@@ -201,7 +204,9 @@ def test_the_preview_is_null_when_the_switch_is_off_or_there_is_no_preview(hub):
     save_settings(lib.paths.settings_file, Settings(auto_upgrade=False))
     assert api.sync_preview()["auto_upgrade"] is None
     lib.paths.settings_file.write_text('{"auto_upgrade": 7}')          # a file the sync would refuse
-    assert api.sync_preview()["auto_upgrade"] is None
+    refused = api.sync_preview()  # the plan is derived with the settings: a read's own SettingsError, as a sync's
+    assert refused["ok"] is False and "settings.json" in refused["message"]
+    assert api._auto_upgrade_on() is False
 
 
 @needs_ffmpeg
@@ -417,7 +422,7 @@ def synced(tmp_path, monkeypatch):
 def test_a_hub_sync_with_rekordbox_open_upgrades_nothing_and_marks_the_waits(synced):
     lib, rb, api, rec = synced(["mp3", "aiff"], running=True)
     before = (lib.music(), lib.dump())
-    f = wait_job(api, rec, api.start_sync([]))
+    f = wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))
     assert f.ok and f.result["exit_code"] == 0
     assert (lib.music(), lib.dump()) == before
     block = json.loads(open(f.result["report"].replace(".md", ".json")).read())["auto_upgrade"]
@@ -430,7 +435,7 @@ def test_a_hub_sync_with_rekordbox_open_upgrades_nothing_and_marks_the_waits(syn
 @needs_ffmpeg
 def test_a_hub_sync_with_rekordbox_closed_upgrades_as_one_batch_with_progress(synced):
     lib, rb, api, rec = synced(["mp3", "aiff"])
-    f = wait_job(api, rec, api.start_sync([]))
+    f = wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))
     assert f.ok and f.result["exit_code"] == 0
     block = json.loads(open(f.result["report"].replace(".md", ".json")).read())["auto_upgrade"]
     assert (block["done"], block["waiting"]) == (2, 0) and lib.batch(block["batch"]).started_by == "auto_upgrade"
@@ -442,7 +447,7 @@ def test_a_hub_sync_with_rekordbox_closed_upgrades_as_one_batch_with_progress(sy
 def test_stop_reaches_the_phase_of_a_sync_that_had_nothing_else_to_do(synced):
     stops = []
     lib, rb, api, rec = synced(["mp3", "mp3"], compare=lambda a, b: stops.append(api.stop()) or EXACT)
-    f = wait_job(api, rec, api.start_sync([]))
+    f = wait_job(api, rec, api.start_sync(api.sync_preview()["plan_id"], []))
     assert f.ok and f.result["exit_code"] == 130                                    # a Stop ends the sync as stopped
     block = json.loads(open(f.result["report"].replace(".md", ".json")).read())["auto_upgrade"]
     assert (block["done"], block["waiting"], block["stopped"]) == (1, 1, True)
@@ -461,3 +466,29 @@ def test_the_checks_of_a_download_again_batch_are_the_syncs_too(hub):
     item = next(i for i in group(api, "rekordbox_check")["items"] if i.get("batch"))
     assert (item["batch"]["started_by"], item["batch"]["from_sync"]) == ("download_again", True)
     assert item["detail"].endswith(" · Upgraded during your sync")
+
+
+# --- one check of rekordbox's process per read ---
+
+@pytest.fixture
+def asked(hub):
+    """A hub of two songs whose `rekordbox_running` counts its calls: (lib, api, calls)."""
+    lib, rb, api, rec = hub(["mp3", "aiff"])
+    calls = []
+    api._svc.rekordbox_running = lambda: calls.append(1) or rb.running
+    return lib, api, calls
+
+
+@needs_ffmpeg
+def test_a_sync_preview_asks_whether_rekordbox_runs_once(asked):
+    """`ps` costs ~40 ms: a read answer asks it once and shares the value between its parts."""
+    lib, api, calls = asked
+    preview(api, lib)
+    assert len(calls) == 1
+
+
+@needs_ffmpeg
+def test_a_dashboard_asks_whether_rekordbox_runs_at_most_once(asked):
+    lib, api, calls = asked
+    api.dashboard()
+    assert len(calls) <= 1

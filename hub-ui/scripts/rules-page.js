@@ -83,7 +83,7 @@
       for (const f of document.querySelectorAll('[data-panel-foot]')) { if (catalogued(f)) continue; const r = f.getBoundingClientRect();
         if (r.bottom > innerHeight + 1 || r.top < 0) add('clipped', f, 'panel foot not fully visible'); } }
     // 5 loose text
-    const SHELTER = `[data-surface], [data-note], [data-infotip], ${CATALOGUE}, ${DIALOG}`;
+    const SHELTER = `[data-surface], [data-note], [data-banner], [data-infotip], ${CATALOGUE}, ${DIALOG}`;
     const looseText = (el) => Array.from(el.childNodes).map((n) => n.nodeType === 3 ? n.textContent
       : n.nodeType === 1 && !n.matches(SHELTER) ? looseText(n) : '').join('');
     for (const el of all) {

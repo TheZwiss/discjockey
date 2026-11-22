@@ -449,6 +449,9 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
   and how many wait for later, with the days that takes.
 - **Weekly checks** on the right switch the two weekly checks on or off: songs not found last time, and files that
   aren't lossless yet.
+- **The switches are saved**, so they are the same the next time you open Discjockey and in the Terminal: `sync scope show`
+  says what is left out, `sync scope off <playlist:ref | folder:path | kind:retry | kind:weekly>…` leaves them out and
+  `sync scope on …` takes them back (the program path from [When something breaks](#when-something-breaks) in front).
 - Discjockey reads your playlists by itself once each time you open it and whenever `playlists.txt` changes;
   **Read playlists** at the top reads them again.
 
@@ -456,6 +459,8 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
   The Mac stays awake while it runs.
 - **Stopping:** **Stop safely** stops after the current track. Nothing is left half done, and the next sync
   continues where this one stopped.
+- **A sync started in the Terminal** (by you or an agent) shows on the Sync page as one started here does, track by
+  track, marked "In the Terminal", and ends on its results. **Stop safely** stops it from the window too.
 
 **Qobuz limit.** Discjockey downloads at most 60 tracks a day from Qobuz. Up to a third of
 yesterday's unused amount is added on top. The **Download limits** page changes the daily limit and can allow some

@@ -5,7 +5,7 @@ import { folderLine, groupByMonth, healthCard, needsRows, nextSync, runLine, run
 // the contract example (docs/hub-bridge-contract.md, dashboard())
 const EX: Dashboard = {
   greeting: 'Good evening',
-  read_status: { read_at: '2026-10-20T21:47:00', minutes_ago: 0, problem: null, message: '', stale: false, reading: false,
+  read_status: { read_at: '2026-10-20T21:47:00', minutes_ago: 0, problem: null, message: '', lines_changed: false, reading: false,
     offline: false, auto_read: true, problem_service: null, services: [] },
   tiles: {
     lossless: { share: 0.3333, lossless: 1, total: 3,
@@ -22,7 +22,7 @@ const EX: Dashboard = {
   folders: [],
   last_runs: [], has_more_runs: false, next_checks: 0, empty: 'not_set_up',
 };
-const run = (over: Partial<RunSummary> = {}): RunSummary => ({ run_id: '2026-10-19_214700',
+const run = (over: Partial<RunSummary> = {}): RunSummary => ({ run_id: '2026-10-19_214700', id: 'report:2026-10-19_214700',
   started: '2026-10-19T21:47:00', finished: '2026-10-19T22:11:00', duration_s: 1440, exit_code: 0,
   counts: { lossless: 9, lossy: 2, problems: 0, moved: 3 }, stopped_after: null, auto_upgrade: null, kind: 'sync', ...over });
 

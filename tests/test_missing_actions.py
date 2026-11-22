@@ -3,7 +3,6 @@ run (`missing.preview`) and the hub's `missing_files` job and `missing_files_pre
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +10,7 @@ import pytest
 from hub_helpers import entry, fake_spotify, make_api, make_root, refreshed, wait_job, write, write_state
 
 from discjockey import db, missing
+from discjockey.hub import shapes
 from discjockey.library import load_state
 
 SINCE = "2026-11-12T09:30:00"
@@ -398,26 +398,18 @@ def test_the_job_plans_the_sync_again_so_the_download_shows_at_once(lib):
     # t2 has a parked better version: the planner plans no download for it (D12; the sync's last phase places it, E4b)
 
 
-# --- the contract: the window's types name what the hub sends ---
+# --- the contract: the shapes name what the hub sends ---
 
-TYPES_TS = Path(__file__).resolve().parents[1] / "hub-ui" / "src" / "lib" / "bridge" / "types.ts"
 CONTRACT = Path(__file__).resolve().parents[1] / "docs" / "hub-bridge-contract.md"
 
 
-def ts_type(name):
-    return re.search(rf"export type {name} =(.*?);\n(?=\n|/\*\*|export |type |//)", TYPES_TS.read_text(encoding="utf-8"),
-                     re.S).group(1)
-
-
-def test_types_ts_names_the_fields_of_the_preview_and_the_result(lib):
+def test_the_preview_and_the_result_fit_their_shapes(lib):
     api, rec, paths = lib
-    fields = lambda body: re.findall(r"(\w+)\??:", body)
     out = api.missing_files_preview(["t1"], "download_again")
-    assert fields(ts_type("MissingPreview")) == [k for k in out if k != "ok"]
-    assert fields(ts_type("MissingPreviewItem")) == list(out["items"][0])
+    assert shapes.validate({k: v for k, v in out.items() if k != "ok"}, "MissingPreview") == []
     f = wait_job(api, rec, api.missing_files(["t1"], "download_again"))
-    assert fields(ts_type("MissingResult")) == list(f.result)
-    assert fields(ts_type("MissingItemResult")) == list(f.result["results"][0])
+    assert shapes.validate(f.result, "MissingResult") == []
+    assert shapes.validate(f.result["results"][0], "MissingItemResult") == []
 
 
 def test_the_contract_doc_names_the_methods_their_problems_and_the_result():

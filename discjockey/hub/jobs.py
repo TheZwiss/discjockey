@@ -9,10 +9,11 @@ import fcntl
 import json
 import logging
 import os
+import shutil
 import threading
 import traceback
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -20,14 +21,15 @@ from pathlib import Path
 from typing import Callable
 
 from .. import (batches, config, db, events as ev, folders, importer, library, playlists_file, qobuz, report as rep,
-                run, settings, sources, upgrades)
+                run, settings, sources, upgrades, words)
 from ..rekordbox import session as rbsession
 from ..events import Cancelled, CancelToken, Emit
 from ..library import LockHeld, Paths
-from ..models import SERVICE_NAMES, Protected
+from ..models import SERVICE_NAMES, Protected, StoredRead
 from ..ops import OpProblem
+from ..pacing import SharedPacer
 from ..problem import Problem
-from . import registry
+from . import catalog, outcomes, registry, shapes
 
 log = logging.getLogger(__name__)
 
@@ -53,17 +55,27 @@ class JobFinished:
 
 @dataclass(frozen=True)
 class ConsoleBusy:
-    """A Discjockey run in the terminal holds the lock (the window goes read-only), or has finished."""
+    """Another process's job holds the library lock (the window goes read-only), or has finished. `job`, `kind` and
+    `line` name the job from the registry (its id, its kind, its progress line); all None for a holder that has no
+    registry entry (an older Discjockey: the lock probe) and when nothing runs. `text` is what the banner says
+    (`words.holder_text`; for a holder with no registry entry the sentence for one nobody can name); None when nothing
+    runs. `where` is where it runs as the Sync page's live view says it (`words.holder_where`: "In the Terminal", "In
+    another window"); None for a holder with no registry entry and when nothing runs."""
     running: bool
+    job: str | None = None
+    kind: str | None = None
+    line: str | None = None
+    text: str | None = None
+    where: str | None = None
 
 
 @dataclass(frozen=True)
 class FileDropped:
-    """A file was dropped on the window. readable: Discjockey may read it (then add_bought_file can use it)."""
-    track_id: str | None  # the to-do item selected when it was dropped
+    """A file was dropped on the window. readable: Discjockey may read it (then add_bought_file can take its `path`)."""
     name: str
+    path: str | None  # the full path the window gave (also when it can't be read); None when it gave none
     readable: bool
-    message: str  # why it can't be used, else ""
+    message: str  # why it can't be read, else ""
 
 
 @dataclass(frozen=True)
@@ -103,6 +115,25 @@ def event_dict(event: object) -> dict:
 def event_json(event: object) -> str:
     """JSON that can be put into JavaScript source as it is (ASCII only, no "</")."""
     return json.dumps(event_dict(event), ensure_ascii=True).replace("</", "<\\/")
+
+
+def finished_of(job_id: str, kind: str, files: registry.JobFiles | None) -> JobFinished:
+    """The `JobFinished` of a job that has ended in another process, built from its `result.json` (the window's own end
+    for a foreign job: `HubEvents._foreign_ended`, and `HubApi.job_events`' `finished`). No `result.json` (the worker
+    died: state `lost`; or the job's folder is gone, `files` None) is `worker_lost`, `failed`."""
+    envelope = None
+    if files is not None:
+        try:
+            envelope = files.result()
+        except OSError:
+            envelope = None
+    if envelope is None:  # lost without a word, or its folder is gone (pruned)
+        reason = outcomes.REASONS["worker_lost"]
+        return JobFinished(job_id, kind, False, "failed", reason.text, None)
+    ok = envelope.get("outcome") in ("ok", "partial")
+    reason = outcomes.REASONS.get(envelope.get("reason") or "")
+    message = envelope.get("message") or (reason.text if reason is not None else "")
+    return JobFinished(job_id, kind, ok, outcomes.finished_problem(envelope), message, envelope.get("data"))
 
 
 def _same_slot(a: object, b: object) -> bool:
@@ -319,6 +350,9 @@ class Job:
     finished: dict | None = None  # the JobFinished event
     finishing: threading.Lock = field(default_factory=threading.Lock)  # the worker and Stop never both finish it
     error: BaseException | None = None  # what the work raised (a worker process reads its `Problem` fields off it)
+    files: registry.JobFiles | None = None  # the registry record of a job the window started (`Jobs.registry`), else None
+    writer: registry.EventsWriter | None = None  # its `events.jsonl` writer
+    reducer: registry.ProgressReducer | None = None  # its `progress`
 
     def record(self, event: object) -> None:
         data = event_dict(event)
@@ -337,11 +371,16 @@ class Job:
 
 class Jobs:
     def __init__(self, lock: Path | None, emit: Emit, *, keep_awake=keep_awake,
-                 now: Callable[[], datetime] = datetime.now, inline: registry.JobFiles | None = None):
+                 now: Callable[[], datetime] = datetime.now, inline: registry.JobFiles | None = None,
+                 registry: registry.Registry | None = None):
         """`lock`: the library's .lock; None while no music folder is bound (Setup's first steps): then a write job
         only waits for the hub's other jobs, as there is no library to share with a terminal run. `inline`: the job
-        folder of a worker process (`adopt`)."""
+        folder of a worker process (`adopt`). `registry`: where the jobs this window starts are recorded
+        (`via: window`, design §6.3: `job list`, `job show` and `job stop` reach them); none: nothing is recorded. A
+        worker's inline job is already in it and is not created again."""
         self.lock, self.emit, self.keep_awake, self.now = lock, emit, keep_awake, now
+        self.registry = registry
+        self.own_ids: set[str] = set()  # the ids of this process's own jobs: the ones it started and the adopted one
         self.inline: registry.JobFiles | None = None
         self.inline_token: CancelToken | None = None  # the adopted job's token: Ctrl-C and its `stop` file cancel it
         if inline is not None:
@@ -354,15 +393,23 @@ class Jobs:
         self._closed = threading.Event()
         self._holder = threading.local()  # .on: this thread is a write job's and holds the engine lock
         self.on_locked: Callable[[], None] | None = None  # called in a write job's thread once it holds the lock
+        self.record_of: Callable[[], Mapping] | None = None  # `{method, command, args, roots}` of the call that starts a job (HubApi)
+        self.on_finished: Callable[[Job], Mapping] | None = None  # the envelope of a registered job at its end (HubApi)
         self._brief = False  # lock_briefly or a scan holds (or is about to take) the engine lock: no terminal run
         self._scanning = False  # scan_lock holds the engine lock (without the mutex): writers answer busy
         self._briefs = 0  # how many times lock_briefly has taken it (a probe that overlapped one doesn't count)
+        self._holder_seen: dict | None = None  # the foreign holder of the registry watch's last look (None: none)
+        self._looked = False  # the registry watch has looked once
+        self._told: tuple = (False, None, None, None)  # the last `ConsoleBusy` the watch sent
+        self._foreign: dict[str, dict] = {}  # the foreign jobs seen active at the last look, by id
+        self._settled: set[str] = set()  # foreign jobs seen done or lost: final, so the watch no longer reads them
 
     def adopt(self, files: registry.JobFiles) -> None:
         """A worker process (`job _worker`) runs exactly one job, the one `files` is: `start` takes that job's id, runs
         the work on the calling (main) thread, which gets the signals and holds the locks, and returns after the
         job's `JobFinished`. Its token also watches the job's `stop` file."""
         self.inline, self.inline_token = files, CancelToken(files.dir / "stop")
+        self.own_ids.add(files.id)
 
     def bind(self, lock: Path) -> None:
         """The library's lock, once a music folder is bound (at start or when it is first chosen)."""
@@ -381,13 +428,90 @@ class Jobs:
             return Busy(BUSY_WORDS.get(job.kind, BUSY_TEXT), "busy")
         return Busy(SCANNING_TEXT, "busy") if self._scanning else None
 
-    def console_running(self) -> bool:
-        """A terminal run holds the lock (our own job, or our own brief save, holding it does not count)."""
+    def _music(self) -> Path | None:
+        """The music folder of the bound library (its lock is `<music>/.discjockey/.lock`)."""
+        return self.lock.parent.parent if self.lock is not None else None
+
+    def _foreign_states(self) -> list[dict]:
+        """The registry's jobs of this music folder (and those with none) that are not this process's, newest first."""
+        if self.registry is None or self.lock is None:
+            return []
+        return [s for s in self.registry.list(self._music(), skip=self._settled) if s.get("id") not in self.own_ids]
+
+    @staticmethod
+    def _holder_of(states: Iterable[Mapping]) -> dict | None:
+        """The newest running job among `states` (a queued one is still waiting for the lock) that holds the library lock,
+        as `{job, via, kind, line, text, where}` (`text`: what the window says of it, `words.holder_text`; `where`:
+        `words.holder_where`)."""
+        for state in states:
+            if state.get("status") in registry.HOLDING and catalog.holds_library(state):
+                via, kind, line = state.get("via"), state.get("kind"), (state.get("progress") or {}).get("line")
+                return {"job": state.get("id"), "via": via, "kind": kind, "line": line,
+                        "text": words.holder_text(kind, via, line), "where": words.holder_where(via)}
+        return None
+
+    def _foreign_holder(self) -> dict | None:
+        """The foreign job that holds the library lock: the registry watch's last look (checked again, one state read,
+        so a job that has just ended no longer counts), before its first look a direct read of the registry."""
+        try:
+            if not self._looked:
+                return self._holder_of(self._foreign_states())
+            seen = self._holder_seen
+            if seen is None:
+                return None
+            return self._holder_of([registry.JobFiles(self.registry.root / seen["job"]).state()])
+        except Exception:  # noqa: BLE001  the registry only informs; the lock is the arbiter
+            return None
+
+    def _console_probe(self) -> bool:
+        """The library lock is held by someone that is neither this process's job nor its brief save."""
         if self.running() is not None or self._brief:
             return False
         briefs = self._briefs
         lock = self.lock
         return lock is not None and not lock_free(lock) and not self._brief and briefs == self._briefs
+
+    def console_holder(self) -> dict | None:
+        """Who holds the library lock besides this process, as `{job, via, kind, line, text, where}`: a foreign job of the
+        registry that does, else (a holder with no registry entry: an older Discjockey) the lock itself held by none of
+        this process's own job or brief save, whose fields are all None but its `text`. None when nothing else holds it."""
+        return self._foreign_holder() or (self._unnamed_holder() if self._console_probe() else None)
+
+    @staticmethod
+    def _unnamed_holder() -> dict:
+        return {"job": None, "via": None, "kind": None, "line": None, "text": words.holder_text(None, None, None),
+                "where": None}
+
+    def console_running(self) -> bool:
+        """Another process's job holds the library lock (`console_holder`)."""
+        return self.console_holder() is not None
+
+    def sync_running(self) -> bool:
+        """Whether a sync of this support folder runs in any process (its accounts are the support folder's, whatever music
+        folder the sync is for): this process's own running job is one, or the registry has a `sync` job that is queued,
+        running or stopping (a queued one is about to send paced downloads: unlike the library holder this counts it; a
+        terminal job's registry kind is its method name until it runs, so `start_sync` counts too), or the library lock
+        is held by a process the registry knows nothing of (an older Discjockey's or the legacy console's sync). What a
+        search or a preview asks before it sends anything; it only refuses, nothing waits on it."""
+        job = self.running()
+        if job is not None and job.kind == "sync":
+            return True
+        if self.registry is not None:
+            try:
+                if any(state.get("status") in registry.ACTIVE and
+                       (state.get("kind") == "sync" or state.get("method") == "start_sync")
+                       for state in self.registry.list(all=True)):
+                    return True
+            except Exception:  # noqa: BLE001  the registry only informs; the library lock is looked at next
+                log.warning("the registry could not be read for a running sync", exc_info=True)
+        return self._foreign_holder() is None and self._console_probe()
+
+    def _console_busy(self) -> Busy | None:
+        """The `console` Busy for a foreign holder (`data.holder` names it, when the registry knows it), else None."""
+        holder = self._foreign_holder()
+        if holder is not None:
+            return Busy(CONSOLE_TEXT, "console", data={"holder": holder})
+        return Busy(CONSOLE_TEXT, "console") if self._console_probe() else None
 
     @contextmanager
     def lock_briefly(self):
@@ -408,7 +532,8 @@ class Jobs:
                 if self.lock is not None:
                     stack.enter_context(library.run_lock(self.lock))
             except LockHeld:
-                raise Busy(CONSOLE_TEXT, "console") from None
+                holder = self._foreign_holder()
+                raise Busy(CONSOLE_TEXT, "console", data={"holder": holder} if holder else None) from None
             yield
 
     @contextmanager
@@ -439,10 +564,37 @@ class Jobs:
         with self._mutex:
             self._scanning = self._brief = False
 
-    def _new(self, kind: str, track_id: str | None, batch_kind: str | None = None) -> Job:
+    def _new(self, kind: str, track_id: str | None, batch_kind: str | None = None, *, library_lock: bool = False) -> Job:
+        """The job's record in memory, and (when this `Jobs` has a registry and is no worker) its record on disk: the
+        folder with its `state.json` as `queued`, the `alive` lock claimed, and its files' writers. A registry that
+        cannot be written leaves the job as it was before the registry existed: it runs, unrecorded."""
         files = self.inline
-        job_id, token = (files.id, self.inline_token) if files is not None else (registry.new_job_id(), CancelToken())
-        return Job(job_id, kind, track_id, token, self.now().isoformat(timespec="seconds"), batch_kind)
+        if files is not None:
+            return Job(files.id, kind, track_id, self.inline_token, self.now().isoformat(timespec="seconds"), batch_kind)
+        started = self.now().isoformat(timespec="seconds")
+        if self.registry is not None:
+            job_id = registry.new_job_id()
+            self.own_ids.add(job_id)  # before the folder exists: a look of the watch must never see it as foreign
+            files = None
+            try:
+                record = self.record_of() if self.record_of is not None else {}
+                files = self.registry.create(kind, record.get("command") or "", record.get("args") or {}, "window",
+                                             record.get("roots") or {}, job_id=job_id)
+                files.update(method=record.get("method"), library_lock=library_lock)
+                files.flush()
+                writer = files.events()
+            except Exception:  # noqa: BLE001
+                log.warning("a job of the window could not be recorded in the registry", exc_info=True)
+                self.own_ids.discard(job_id)
+                if files is not None:
+                    files.release_claim()
+                    shutil.rmtree(files.dir, ignore_errors=True)
+            else:
+                token = CancelToken(files.dir / "stop",  # a stop shows as `stopping` in `job show` too (design §6.2)
+                                    on_cancel=lambda f=files: f.update_if(("queued", "running"), status="stopping"))
+                return Job(files.id, kind, track_id, token, started, batch_kind, files=files,
+                           writer=writer, reducer=registry.ProgressReducer(files))
+        return Job(registry.new_job_id(), kind, track_id, CancelToken(), started, batch_kind)
 
     def start(self, kind: str, work: Callable[[JobContext], dict | None], track_id: str | None = None,
               batch_kind: str | None = None, *, hold_library: bool = True) -> Job:
@@ -457,9 +609,14 @@ class Jobs:
         with self._mutex:
             if (busy := self._busy()) is not None:
                 raise busy
-            if self.console_running():
-                raise Busy(CONSOLE_TEXT, "console")
-            job = self.current = self._new(kind, track_id, batch_kind)
+            if (console := self._console_busy()) is not None:
+                raise console
+            if self.registry is not None and self.inline is None:
+                try:
+                    self.registry.prune(self.now())  # as every terminal job does: `start` only, never the minute's read
+                except Exception:  # noqa: BLE001  a clean-up step never stops a write from starting
+                    log.warning("the registry could not be pruned", exc_info=True)
+            job = self.current = self._new(kind, track_id, batch_kind, library_lock=hold_library and self.lock is not None)
             if self.inline is None:
                 threading.Thread(target=self._run, args=(job, work, True, hold_library), name=f"hub-job-{job.id}",
                                  daemon=True).start()
@@ -522,10 +679,11 @@ class Jobs:
 
     def status(self) -> dict:
         job, refresh, sign_in = self.current, self.refresh, self.sign_in
+        holder = self.console_holder()  # one look: `console_running` and `console` never disagree
         return {"job": job.snapshot() if job else None,
                 "sign_in": sign_in.snapshot() if sign_in else None,
                 "refresh_running": refresh is not None and not refresh.done.is_set(),
-                "console_running": self.console_running()}
+                "console_running": holder is not None, "console": holder}
 
     def _job_emit(self, job: Job) -> Emit:
         def emit(event: object) -> None:  # like HubEvents.emit: never raises into the engine
@@ -535,6 +693,12 @@ class Jobs:
                 job.record(event)
             except Exception:
                 return
+            if job.writer is not None:  # the job's own files (a registered job); neither raises into the engine
+                job.writer.emit(event)
+                try:
+                    job.reducer(event)
+                except Exception:  # noqa: BLE001
+                    pass
             self.emit(event)
         return emit
 
@@ -548,6 +712,15 @@ class Jobs:
                 log.warning("the hook at the start of a write job failed", exc_info=True)
 
     def _run(self, job: Job, work, write: bool, hold_library: bool = True) -> None:
+        """The job's thread (the worker's main thread): a registered job holds its `alive` lock from here to the end, which
+        is after its `result.json` and `status: done` (`_finish`)."""
+        if job.files is None:
+            self._work(job, work, write, hold_library)
+        else:
+            with job.files.alive():
+                self._work(job, work, write, hold_library)
+
+    def _work(self, job: Job, work, write: bool, hold_library: bool) -> None:
         emit = self._job_emit(job)
         emit(JobStarted(job.id, job.kind, job.track_id, job.batch_kind))
         ok, problem, message, result, service = True, None, "", None, None
@@ -558,14 +731,16 @@ class Jobs:
                 with lock, self.keep_awake("Discjockey is changing your library"):
                     self._holder.on, self._holder.job = hold_library, job
                     try:
-                        if self.inline is not None:  # the worker has the library: the registry says so
-                            self.inline.update(status="running", kind=job.kind)
+                        if (files := self.inline or job.files) is not None:  # it has the library: the registry says so
+                            files.update(status="running", kind=job.kind)
                         if hold_library:
                             self._at_lock()
                         result = work(ctx)
                     finally:
                         self._holder.on, self._holder.job = False, None
             else:
+                if job.files is not None:
+                    job.files.update(status="running")
                 result = work(ctx)
             message = ctx.message
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
@@ -590,23 +765,82 @@ class Jobs:
             except Exception:
                 finished = JobFinished(job.id, job.kind, ok, problem, message, None, service)
                 job.finished = event_dict(finished)
+            if job.files is not None:
+                self._end_files(job, finished)  # before `done`: whoever sees the job ended finds its files complete
+            shapes.note_result(job.kind, finished.result)  # test mode only (also a not-ok end's result must fit); before `done`, so it is never late
             job.done.set()
         self.emit(finished)
         return True
 
-    # --- console detection (spec 6.2): poll the lock every few seconds ---
+    def _end_files(self, job: Job, finished: JobFinished) -> None:
+        """The end of a registered job, in the registry's order (design §6.3 step 5): the events file is closed, then
+        `result.json`, then `status: done`; the `alive` lock is let go when the job's thread leaves `_run`. Never
+        fails the job."""
+        files = job.files
+        try:
+            job.writer.emit(finished)
+            job.writer.close()
+            files.write_result(self._envelope_of(job, finished))
+            files.update(status="done", ended=self.now().astimezone().isoformat(timespec="seconds"))
+        except Exception:  # noqa: BLE001
+            log.warning("the end of a job could not be written to the registry", exc_info=True)
 
-    def watch_console(self, interval: float = 3.0) -> None:
+    def _envelope_of(self, job: Job, finished: JobFinished) -> Mapping:
+        if self.on_finished is not None:
+            return self.on_finished(job)
+        command = (job.files.state().get("command") or "") if job.files is not None else ""
+        if finished.ok:  # a `Jobs` without a `HubApi` around it: the plain envelope
+            return outcomes.envelope(command, "ok", message=finished.message or None, data=finished.result, job=job.id)
+        fields = outcomes.problem_fields(finished.problem or "crashed", job.error)
+        return outcomes.envelope(command, fields["outcome"], reason=fields["reason"], message=finished.message,
+                                 data={**(finished.result or {}), **(fields["data"] or {})} or None, next=fields["next"],
+                                 person_steps=fields["person_steps"], job=job.id)
+
+    # --- other processes' jobs (design §6.6): the registry, once a second; the lock probe for a holder it doesn't know ---
+
+    def watch_registry(self, interval: float = 1.0) -> None:
         def loop() -> None:
-            last = False
-            while not self._closed.wait(interval):
-                now = self.console_running()
-                if now != last:
-                    last = now
-                    self.emit(ConsoleBusy(now))
+            while True:
+                try:
+                    self._look()
+                except Exception:  # noqa: BLE001  a look that fails is the next look's to do again
+                    log.warning("the registry watch could not look", exc_info=True)
+                if self._closed.wait(interval):
+                    return
 
-        self._watch = threading.Thread(target=loop, name="hub-console-watch", daemon=True)
+        self._watch = threading.Thread(target=loop, name="hub-registry-watch", daemon=True)
         self._watch.start()
+
+    def _look(self) -> None:
+        """One look at the registry: the foreign holder of the library lock (`ConsoleBusy` when what it says changed)
+        and the foreign jobs that ended since the last look (`JobFinished`, as for the window's own jobs)."""
+        states = self._foreign_states()
+        holder = self._holder_of(states)
+        shown = holder or (self._unnamed_holder() if self._console_probe() else {})  # {}: nothing holds the library
+        tell = (bool(shown), shown.get("job"), shown.get("kind"), shown.get("line"))  # `text` follows from these
+        self._holder_seen, self._looked = holder, True
+        by_id = {s["id"]: s for s in states if s.get("id")}
+        ended = [(before, by_id.get(job_id)) for job_id, before in self._foreign.items()
+                 if job_id not in self.own_ids and (by_id.get(job_id) is None or by_id[job_id].get("status") not in registry.ACTIVE)]
+        self._foreign = {job_id: s for job_id, s in by_id.items() if s.get("status") in registry.ACTIVE}
+        self._settled.update(job_id for job_id, s in by_id.items() if s.get("status") not in registry.ACTIVE)
+        for before, now in ended:
+            self._foreign_ended(before, now)
+        if tell != self._told:
+            self._told = tell
+            self.emit(ConsoleBusy(*tell, shown.get("text"), shown.get("where")))
+
+    def _foreign_ended(self, before: Mapping, now: Mapping | None) -> None:
+        """A foreign job seen active at the last look is done, lost or gone: the window's `JobFinished` for it, built
+        from its `result.json`. A `refresh` ending while this process's own refresh runs says nothing (the window's
+        reader is not told by job id: its own end re-reads)."""
+        kind = before.get("kind") or ""
+        if kind == "refresh" and self.refresh is not None and not self.refresh.done.is_set():
+            return
+        job_id = before["id"]
+        files = registry.JobFiles(self.registry.root / job_id) if now is not None else None
+        event = finished_of(job_id, kind, files)
+        self.emit(event)
 
     @property
     def closed(self) -> threading.Event:
@@ -614,6 +848,11 @@ class Jobs:
         return self._closed
 
     def close(self) -> None:
+        self.stop_refresh()  # a read or a sign-in still running ends as `stopped`, not as `lost` (its lock goes with us)
+        sign_in = self.sign_in
+        if sign_in is not None and not sign_in.done.is_set():
+            sign_in.token.cancel()
+            self._finish(sign_in, False, *problem_of(Cancelled()), None)
         self._closed.set()
         if self._watch is not None:
             self._watch.join(2)
@@ -621,92 +860,37 @@ class Jobs:
 
 # --- the preview and the sync (spec 6.3) ---
 
-def _generation_of(prep: run.Prepared | None) -> int | None:
-    """The generation of the records `prep` was planned on (None: no plan, or a state that carries none)."""
-    state = getattr(prep, "state", None)
-    gen = state.get("generation") if isinstance(state, dict) else None
-    return gen if isinstance(gen, int) else None
-
-
 class PreviewStore:
-    """The last read-only plan (what the Sync screen shows and the user ticks). Keeps the last good one when a later
-    read fails (e.g. offline), with the problem next to it."""
+    """What only the window remembers of the playlists' reads: that it has started its one automatic read of this
+    session (claim_auto_read; `HubApi._auto_lock` guards it). The read itself, its problem and the plan live in
+    library.db (the stored read) and in `HubApi._plan`'s derivation of it."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self.prep: run.Prepared | None = None
-        self.read_at: datetime | None = None
-        self.problem: str | None = None
-        self.problem_service: str | None = None  # the playlist service `problem` is about (None: not a service's)
-        self.message = ""
-        self.stale = False  # a sync ran since: the plan is out of date
-        self.auto_read = False  # the hub has started its one automatic read of this session (claim_auto_read)
-        self._reopened = False  # the records were rebuilt or reopened: the stored plan's generation no longer counts
-
-    def records_reopened(self) -> None:
-        """The hub learned that its records are another database (a library was bound: _attach): a new one counts
-        its generation from 0 again, so the stored plan's generation says nothing about the next read; the next
-        plan is stored whatever its generation, and the stored one's counts again from then on."""
-        with self._lock:
-            self._reopened = True
-
-    def ready(self, prep: run.Prepared, at: datetime, token: CancelToken | None = None) -> None:
-        """`token`: a read that was stopped meanwhile (its request answered late) stores nothing. A plan carries the
-        records' generation it was planned on (`prep.state["generation"]`): one older than the stored plan's was
-        slow to finish (the window's opening read, while an import linked and planned again) and is dropped, so it
-        never overwrites the fresher preview (unless the records were reopened since: records_reopened)."""
-        with self._lock:
-            if token is not None and token.cancelled:
-                return
-            new, old = _generation_of(prep), None if self._reopened else _generation_of(self.prep)
-            if new is not None and old is not None and new < old:
-                return
-            self.prep, self.read_at, self.problem, self.problem_service, self.message, self.stale = (
-                prep, at, None, None, "", False)
-            self._reopened = False
-
-    def failed(self, problem: str, message: str, service: str | None = None,
-               token: CancelToken | None = None) -> None:
-        """`service`: the playlist service the problem is about (SetupProblem.service), if it is one's."""
-        with self._lock:
-            if token is not None and token.cancelled:
-                return
-            self.problem, self.message, self.problem_service = problem, message, service
-
-    def clear_service(self, service: str, kinds: frozenset[str] | None = None, message: str | None = None) -> None:
-        """A login for `service` was just made: a stored read problem that is about it (not set up, login failed...)
-        is out of date, so the page stops waiting for a restart. Other problems, and the plan, stay. `kinds`: clear
-        only a problem of one of these kinds (a login cannot cure an offline service). `message`: clear only a problem
-        that says exactly this (a login cures SoundCloud's likes hint, not a private set's "doesn't show this
-        playlist")."""
-        with self._lock:
-            if self.problem is not None and self.problem_service == service and (kinds is None or self.problem in kinds) \
-                    and (message is None or self.message == message):
-                self.problem, self.problem_service, self.message = None, None, ""
-
-    def mark_stale(self) -> None:
-        with self._lock:
-            self.stale = True
-
-    def keys(self) -> set[tuple[str, str, str]]:
-        with self._lock:
-            return {run.action_key(a) for a in self.prep.plan.actions} if self.prep else set()
+        self.auto_read = False  # the hub has started its one automatic read of this session
 
 
-def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now,
+def refresh_work(paths: Paths, now: Callable[[], datetime] = datetime.now,
                  infos: dict | None = None, lock: Callable[[], AbstractContextManager[bool]] = run.lock_held):
     """A dry run: run.prepare(dry_run=True). Changes no music file, report or download; it scans Library/ into
-    library.db first when `lock()` gets the library lock (Jobs.scan_lock), else it plans on the last scan. With
-    `infos`, also reads each playlist's name, owner and cover for the playlist page (a failure there is not a
-    problem)."""
+    library.db first when `lock()` gets the library lock (Jobs.scan_lock), else it plans on the last scan. The read
+    stores itself (`run.prepare`); one that fails with a SetupProblem stores its problem too, beside the last good
+    tracks (a stopped one stores nothing). With `infos` (a dict the read fills), also reads each playlist's name,
+    owner and cover for the playlist page and stores what it found (a failure there is not a problem). The result
+    names the stored read (`read_id`, `read:<n>`). A read that could not be stored (library.db busy or not there yet)
+    ends `failed`: the plan is derived from the stored read, so without it the page would show no preview."""
     def work(ctx: JobContext) -> dict:
+        started = datetime.now()  # the clock `prepare` stamps its reads with: the stored reads' order is by start
         try:
             prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock,
                                want_info=infos is not None, scan=True)
         except run.SetupProblem as e:
-            store.failed(e.kind, hub_message(e.kind, str(e), e.service), e.service, ctx.token)
+            message = hub_message(e.kind, str(e), e.service)
+            if not ctx.token.cancelled:
+                run.store_read(paths, StoredRead("sync", started, [], None, [], e.kind, e.service, message), keep=None)
             raise
-        store.ready(prep, now(), ctx.token)
+        if prep.read_id is None:  # the plan lives in the stored read: one that could not be stored leaves no plan
+            raise OpProblem("Your playlists were read, but the read could not be saved just now (the library was busy). "
+                            "Read them again.", "failed")
         ctx.token.check()
         if infos is not None:
             # a source that learned the playlist's page while reading its tracks (Qobuz) has told us already: asking
@@ -714,50 +898,58 @@ def refresh_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] 
             known = {fp.line.ref: fp.info for fp in prep.fetched if fp.info is not None}
             infos.update(known)
             signs: list[tuple[str, str, str]] = []  # a warning sign met by a Liked music read (recorded as a download's)
+            gone: set[str] = set()  # playlists that turned unreadable: what was stored of them goes too
             try:
                 read_infos(paths, [line.ref for line in prep.lines if line.ref not in known], infos, ctx.token,
-                           run.paused_now(paths, prep.state, date.today()), lambda *sign: signs.append(sign))
-            finally:
+                           run.paused_now(paths, prep.state, date.today()), lambda *sign: signs.append(sign), gone)
+            finally:  # what was found stands, also when the read of the rest was stopped or failed
+                run.store_infos(paths, infos, now(), drop=gone)
                 if signs:
                     run.record_signs(paths, prep.state, signs, lock, True)
-        return {"actions": len(prep.plan.actions)}
+        return {"actions": len(prep.plan.actions), "read_id": db.read_label(prep.read_id)}
     return work
 
 
 def read_infos(paths: Paths, refs: list[str], infos: dict, token: CancelToken,
                paused: frozenset[str] = frozenset(),
-               on_signal: Callable[[str, str, str], None] | None = None) -> None:
-    """Fills `infos` (playlist ref -> PlaylistInfo) through each service's reader (sources.read_infos)."""
-    sources.read_infos(paths, refs, infos, token, paused, on_signal)
+               on_signal: Callable[[str, str, str], None] | None = None, dropped: set[str] | None = None) -> None:
+    """Fills `infos` (playlist ref -> PlaylistInfo) through each service's reader (sources.read_infos); `dropped`
+    gets the refs of playlists the service now says it can't show."""
+    sources.read_infos(paths, refs, infos, token, paused, on_signal, dropped)
 
 
-def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str]],
-              now: Callable[[], datetime] = datetime.now, rekordbox: dict | None = None):
-    """A sync from the preview: a fresh plan (recovery, .tmp cleanup, new Spotify read), only the actions the user saw
-    and left ticked, filtered before open_qobuz; nothing left -> finish_quietly. Afterwards the preview is the plan
-    worked out again from that read and the library as the run left it (run.replan), so the Sync page shows what is
-    really left without reading Spotify again.
+def sync_work(paths: Paths, planned: Mapping[str, tuple[str, str, str]], selected: Sequence[str],
+              now: Callable[[], datetime] = datetime.now, rekordbox: dict | None = None, *,
+              pacer: Callable = SharedPacer):
+    """A sync from a plan (issue 39 phase 2): a fresh plan (recovery, .tmp cleanup, new Spotify read), only the actions
+    of the plan the user chose, filtered before open_qobuz; nothing left -> finish_quietly. `planned`: the plan's actions
+    by their ids (`run.action_ids`) as `(kind, track_id, to_dir)` (`run.action_key`), the plan the person saw
+    (`plan_store`); `selected`: the ids of those the sync runs, each one of `planned`. An action the fresh plan has that
+    the plan did not is left for the next sync and listed by its id in the fresh plan (`new_since_plan`). Nothing is
+    planned again afterwards: the run's own read stored itself (`run.prepare`), so the next plan is derived from it and
+    the library as the run left it, and the Sync page shows what is really left without reading Spotify again.
 
     Auto-upgrade (issue 33 stage C): both ways a sync ends (`execute` after the actions, `finish_quietly` when there
     were none) get the job's Stop token and `rekordbox`, the hub's services for the phase (`running`, `place`,
     `compare`, `now`: HubApi._rekordbox_services; None: the real ones), so Stop reaches a quiet sync's phase too and a
-    test's fake rekordbox is the one the phase asks."""
+    test's fake rekordbox is the one the phase asks. `pacer`: `(support, emit, token)` -> the run's pacer (HubApi's
+    `Services.pacer`: tests give one that never waits)."""
+    previewed = set(planned.values())
+    ticked = {planned[act] for act in selected}
+
     def work(ctx: JobContext) -> dict:
-        previewed = store.keys()
-        if not previewed and store.prep is None:
-            raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
         started = now()
-        prep, read_at, new_since = None, started, 0
+        prep, new_since = None, []
         step = "reading your playlists and working out the plan"
 
         def outcome(code: int, report: Path) -> dict:
             return {"exit_code": code, "report": str(report), "actions": len(prep.plan.actions) if prep else 0,
-                    "new_since_preview": new_since}
+                    "new_since_plan": new_since}
 
         try:
             prep = run.prepare(paths, emit=ctx.emit, token=ctx.token)
-            read_at = now()
-            new_since = sum(1 for a in prep.plan.actions if run.action_key(a) not in previewed)
+            fresh = run.action_ids(prep)
+            new_since = [fresh[key] for a in prep.plan.actions if (key := run.action_key(a)) not in previewed]
             where = run.folder_names(prep)
             run.select_actions(prep, previewed, ticked, where)
             if not prep.plan.actions:
@@ -769,7 +961,7 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
                 step = "signing in to Qobuz"
                 qobuz_source = run.open_qobuz(prep)
                 code, report = run.execute(prep, qobuz_source, emit=ctx.emit, token=ctx.token, where=where,
-                                           rekordbox=rekordbox)
+                                           rekordbox=rekordbox, pacer=pacer(paths.support, ctx.emit, ctx.token))
         except run.RunCrashed as e:  # execute filed the run with its crash note and sent RunFinished
             ctx.failed_result = outcome(1, e.report)
             raise
@@ -783,57 +975,31 @@ def sync_work(paths: Paths, store: PreviewStore, ticked: set[tuple[str, str, str
             ctx.emit(ev.RunFinished(1, str(report)))
             ctx.failed_result = outcome(1, report)
             raise run.RunCrashed(e, report) from e
-        finally:
-            if prep is not None:
-                preview_after_run(store, prep, read_at)
         return outcome(code, report)
     return work
 
 
-def preview_after_run(store: PreviewStore, prep: run.Prepared, read_at: datetime) -> None:
-    """The preview once a sync has ended (finished, stopped or not): the run's Spotify read planned again against
-    the library it left. If state.json or settings.json can't be read now, the old preview stays, marked stale."""
-    try:
-        store.ready(run.replan(prep), read_at)
-    except (library.StateError, settings.SettingsError):
-        store.mark_stale()
-
-
 # --- the import of the user's own music, and the answers to its questions (plan library stage 4, D4, D6, D14) ---
 
-def import_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] = datetime.now, *,
+def import_work(paths: Paths, plan: Callable[[], run.Prepared | None], now: Callable[[], datetime] = datetime.now, *,
                 folder: Path | str | None = None, on_stopped: Callable[[], None] | None = None):
     """The import as a write job (kind "import"): `folder` is watched first (Add folder: folders.add; it was checked
     by the caller and db refuses it again if it changed), then importer.run_import works through every file waiting.
-    Its last phase links the playlists (D6) from the preview's last read, or from a read of its own when there is
-    none yet; the preview is then planned again on the linked library (the To-do questions and the Sync counts are
-    right at once). A Stop ends it ImportStopped: JobFinished.result is the import as far as it went, `stopped` true,
-    and `on_stopped` tells the hub that the import must not start by itself again this session (D14). The result of
+    Its last phase links the playlists (D6) from the plan derived from the stored read (`plan`), or from a read of its
+    own when there is none yet; the next plan is derived on the linked library (the To-do questions and the Sync counts
+    are right at once). A Stop ends it ImportStopped: JobFinished.result is the import as far as it went, `stopped` true,
+    and `on_stopped` tells the hub that the import must not start by itself again (the stop is kept in library.db until Continue import, D14). The result of
     a finished one is ImportResult as a dict; JobFinished.message is W6's line ("Imported 3 files.")."""
     def work(ctx: JobContext) -> dict:
         if folder is not None:
             folders.add(paths, folder, now())
 
         def link() -> str | None:
-            prep, read_at = store.prep, store.read_at or now()
-            if prep is None:
-                try:
-                    prep, read_at = run.prepare(paths, emit=ctx.emit, token=ctx.token), now()
-                except (run.SetupProblem, library.StateError, settings.SettingsError):
-                    prep = None  # link_playlists tries once more and words why it couldn't (W11)
-            note = importer.link_playlists(paths, prep, emit=ctx.emit, token=ctx.token)
-            if prep is not None:
-                preview_after_run(store, prep, read_at)
-            return note
-
-        def replan() -> None:
-            """The preview from its last read on the library as the import left it (also after a stop or a failure:
-            files it linked or imported before must show in To-do and Sync). Never hides what ended the import."""
-            if store.prep is not None:
-                try:
-                    preview_after_run(store, store.prep, store.read_at or now())
-                except Exception:  # noqa: BLE001
-                    log.warning("planning the preview again after the import failed", exc_info=True)
+            try:
+                prep = plan() or run.prepare(paths, emit=ctx.emit, token=ctx.token)
+            except (run.SetupProblem, library.StateError, settings.SettingsError):
+                prep = None  # link_playlists tries once more and words why it couldn't (W11)
+            return importer.link_playlists(paths, prep, emit=ctx.emit, token=ctx.token)
 
         try:
             result = importer.run_import(paths, emit=ctx.emit, token=ctx.token, link=link)
@@ -841,25 +1007,7 @@ def import_work(paths: Paths, store: PreviewStore, now: Callable[[], datetime] =
             ctx.failed_result = asdict(stopped.result)
             if on_stopped is not None:
                 on_stopped()
-            replan()
-            raise
-        except BaseException:
-            replan()
             raise
         ctx.message = importer.result_words(result)
         return asdict(result)
-    return work
-
-
-def replanned_work(store: PreviewStore, change: Callable[[JobContext], dict | None],
-                   now: Callable[[], datetime] = datetime.now):
-    """A write job that changes the records the plan is made from (an answer on To-do, a folder removed, a duplicate
-    moved to Superseded/), then plans the preview again from its last read (run.replan, no new read) so Sync and
-    To-do show what is true now. `change(ctx)` returns the job's result."""
-    def work(ctx: JobContext) -> dict:
-        result = change(ctx) or {}
-        prep = store.prep
-        if prep is not None:
-            preview_after_run(store, prep, store.read_at or now())
-        return result
     return work

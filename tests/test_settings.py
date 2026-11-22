@@ -273,3 +273,42 @@ def test_a_free_youtube_login_stays_out_of_downloads_through_checks_that_say_not
 def test_a_soundcloud_check_never_marks_the_login_liked_only():
     s = Settings(accounts={"soundcloud": Account("chrome", 30)}).with_check("soundcloud", FREE)
     assert not s.accounts["soundcloud"].liked_only and list(s.download_accounts) == ["soundcloud"]
+
+
+def test_the_sync_scope_round_trips_and_an_absent_key_is_everything_on(tmp_path):
+    path = tmp_path / "settings.json"
+    assert load_settings(path).scope_off == () and load_settings(path).weekly_off == ()      # no file
+    path.write_text('{"daily_qobuz_limit": 60}')                                              # a file without the key
+    s = load_settings(path)
+    assert (s.scope_off, s.weekly_off) == ((), ())
+    save_settings(path, Settings(scope_off=("playlist:spotify:x", "folder:Library/Hard_Bounce"), weekly_off=("weekly",)))
+    s = load_settings(path)
+    assert s.scope_off == ("playlist:spotify:x", "folder:Library/Hard_Bounce") and s.weekly_off == ("weekly",)
+    assert json.loads(path.read_text())["sync_scope"] == {
+        "off": ["playlist:spotify:x", "folder:Library/Hard_Bounce"], "weekly_off": ["weekly"]}
+    save_settings(path, Settings())
+    assert json.loads(path.read_text())["sync_scope"] == {"off": [], "weekly_off": []}
+
+
+def test_a_sync_scope_item_that_is_not_a_target_or_kind_is_dropped_and_repeats_are_not_kept(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"sync_scope": {
+        "off": ["playlist:a", 3, "bogus", "folder:", "playlist:", "folder:/x", "playlist:a", None, "kind:weekly"],
+        "weekly_off": ["weekly", "new", 7, "retry", "weekly"]}}))
+    s = load_settings(path)
+    assert s.scope_off == ("playlist:a", "folder:/x") and s.weekly_off == ("weekly", "retry")
+    path.write_text('{"sync_scope": {"off": null}}')
+    assert load_settings(path).scope_off == ()
+    for bad in ('"off"', "[]", '{"off": "playlist:a"}', '{"weekly_off": {"a": 1}}'):
+        path.write_text('{"sync_scope": %s}' % bad)
+        with pytest.raises(SettingsError, match="sync_scope"):
+            load_settings(path)
+
+
+def test_a_scope_write_keeps_the_other_settings(tmp_path):
+    path = tmp_path / "settings.json"
+    save_settings(path, Settings(40, qobuz_skipped=True, auto_upgrade=False))
+    from dataclasses import replace
+    save_settings(path, replace(load_settings(path), weekly_off=("retry",)))
+    s = load_settings(path)
+    assert (s.daily_qobuz_limit, s.qobuz_skipped, s.auto_upgrade, s.weekly_off) == (40, True, False, ("retry",))

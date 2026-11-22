@@ -10,7 +10,7 @@ import { canSwap, decisionFor, nowLabel, nowTip } from './decisionModel';
 const item = (id: string, extra: Partial<TodoItem> = {}): TodoItem => ({
   track_id: id, artist: 'A', title: id, folder: 'Hard_Bounce', duration_s: 200, status: 'not_lossless', quality: 'weak',
   quality_label: '16.0 kHz', cutoff_hz: 16000, source: 'youtube', source_name: 'YouTube', in_playlists: true, own: false,
-  hidden: false, upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null,
+  hidden: false, upgrade_ready: false, path: `Library/Hard_Bounce/A - ${id}.aiff`, added: null, cover_url: null, rev: null,
   group: 'weak', detail: '', free: false, file_state: 'here', ...extra });
 const side = (file_id: number, song_key: string | null, path: string): FileSide => ({ file_id, song_key, path, artist: 'A',
   title: 'x', duration_s: 200, quality: 'lossless', quality_label: 'LOSSLESS', online: true, audio_url: null,
@@ -96,7 +96,7 @@ describe('the fake backend answers the decisions made from the Library', () => {
   it('replace → the check with its undo → undo → the upgrade again', async () => {
     const { evs, f } = fake('todo:upgrade-aiff-same');
     expect((await at(f, 't2')).d).toEqual({ kind: 'upgrade' });
-    await job(evs, f.upgrade(['t2'], 'same_track'));
+    await job(evs, f.upgrade(['t2'], 'same_track', null));
     const after = await at(f, 't2');
     expect(after.t.upgrade).toBeNull();
     expect(after.d?.kind).toBe('check');
@@ -113,8 +113,8 @@ describe('the fake backend answers the decisions made from the Library', () => {
     expect(before.d?.kind).toBe('duplicate');
     if (before.d?.kind !== 'duplicate') return;
     const g = before.d.item.pair;
-    const other = g.files.find((x) => x.song_key !== id)!;
-    await job(evs, f.supersede_duplicate(g.group_id, other.file_id, g.files.map((x) => x.path)));
+    const mine = g.files.find((x) => x.song_key === id)!;
+    await job(evs, f.keep_file(g.group_id, mine.file_id, g.files.map((x) => x.path)));
     expect((await at(f, id)).d).toBeNull();
   });
   it("keeping the other file: the file of the user's own takes the playlist song over (the engine's heir)", async () => {
@@ -123,9 +123,8 @@ describe('the fake backend answers the decisions made from the Library', () => {
     const before = await at(f, id);
     if (before.d?.kind !== 'duplicate') throw new Error('no group');
     const g = before.d.item.pair;
-    const mine = g.files.find((x) => x.song_key === id)!;
     const kept = g.files.find((x) => x.song_key !== id)!;
-    await job(evs, f.supersede_duplicate(g.group_id, mine.file_id, g.files.map((x) => x.path)));
+    await job(evs, f.keep_file(g.group_id, kept.file_id, g.files.map((x) => x.path)));
     const read = await f.track(id);
     if (!read.ok) throw new Error('read failed');
     const after = read.track;

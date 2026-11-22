@@ -16,7 +16,7 @@ import pytest
 import hub_helpers
 from hub_helpers import wait_job
 from discjockey import library
-from discjockey.hub import catalog
+from discjockey.hub import catalog, registry
 from discjockey.hub.api import CliApi
 from discjockey.rekordbox import lock as rb_lock
 
@@ -200,7 +200,6 @@ def _after_new_track(api, rec):
     """A song whose upgrade was added as a new track (library lock only), then the recorder cleared: what follows is
     only the call a driver measures."""
     from discjockey.align import Alignment
-    api._check_shown = False
     hub_helpers.make_root(api._paths.root, upgrade=True)
     api._svc.compare = lambda cur, new: Alignment("exact", 0, 0.0, 0.0, "matches exactly")
     assert wait_job(api, rec, api.upgrade(["t2"], "new_track")).ok
@@ -218,7 +217,6 @@ def _checked(api, rec):
 
 
 def _discard(api, rec):
-    api._check_shown = False  # the command line has no page whose picture of the track could be out of date
     hub_helpers.make_root(api._paths.root, upgrade=True)
     assert wait_job(api, rec, api.upgrade(["t2"], "discard")).ok
 
@@ -288,6 +286,12 @@ def _watched_id(api, rec) -> int:
     return next(r["id"] for r in api.watched_folders()["folders"] if r["kind"] == "import")
 
 
+def _a_job(api) -> str:
+    """The id of a job in the registry (a read of its events is the driver of `job_events`)."""
+    roots = {"music": None, "support": None, "rekordbox": None, "rekordbox_share": None, "sandbox": None}
+    return registry.Registry(api._support.support).create("sync", "sync run", {}, "terminal", roots).id
+
+
 DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
@@ -296,6 +300,7 @@ DRIVERS = {
     "run": lambda api, rec: api.run("last"),
     "rekordbox_status": lambda api, rec: api.rekordbox_status(),
     "job_status": lambda api, rec: api.job_status(),
+    "job_events": lambda api, rec: api.job_events(_a_job(api)),
     "stop_refresh": lambda api, rec: api.stop_refresh(),
     "stop": lambda api, rec: api.stop(),
     "stop_sign_in": lambda api, rec: api.stop_sign_in(),
@@ -329,6 +334,8 @@ DRIVERS = {
     "make_aiff": _aiff_run("make_aiff"),
     "settings_view": lambda api, rec: api.settings_view(),  # a read of the support folder's file: no lock
     "set_auto_upgrade": lambda api, rec: wait_job(api, rec, api.set_auto_upgrade(False)),
+    "sync_scope": lambda api, rec: api.sync_scope(),  # a read of the support folder's file: no lock
+    "set_sync_scope": lambda api, rec: wait_job(api, rec, api.set_sync_scope([], ["kind:weekly"])),  # `sync scope on|off`
     "add_watched_folder": lambda api, rec: _watch(api, rec),
     "removal_preview": lambda api, rec: api.removal_preview(_watched_id(api, rec)),
     "missing_files": lambda api, rec: wait_job(api, rec, api.missing_files(["t3"], "download_again")),  # a skipped song: the job still takes its lock

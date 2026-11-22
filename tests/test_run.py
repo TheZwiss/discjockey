@@ -19,7 +19,8 @@ from discjockey.events import (
     ActionFinished, BatchProgress, Cancelled, CancelToken, Message, ReadingPlaylist, Result, RunFinished,
 )
 from discjockey.library import Paths, empty_state, save_state
-from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack
+from discjockey.pacing import SharedPacer
+from discjockey.models import FetchedPlaylist, Plan, PlannedMove, PlaylistLine, SourceTrack, StoredRead
 from discjockey.report import RunLog
 from discjockey.settings import Account, Settings, save_settings
 
@@ -473,6 +474,51 @@ def test_a_free_youtube_login_is_not_handed_to_downloads(paths, monkeypatch):
     assert [line.split(" today")[0] for line in run.budget_text(prep).splitlines()] == ["Qobuz", "SoundCloud Go+"]
 
 
+STOPPED = {"failures_in_a_row": 3, "download_failed_in_row": True, "stopped": True}
+
+
+def stop_services(paths):
+    """Qobuz and YouTube stored as paused by the auto-stop (a failed run, in any process)."""
+    state = library.open_state(paths)
+    for service in ("qobuz", "youtube"):
+        state[f"{service}_usage"] = {"days": {}, "signals": [], "streak": dict(STOPPED)}
+    library.save_state(paths, state)
+
+
+def test_execute_ends_the_pause_of_an_earlier_run_before_any_download(paths, monkeypatch):
+    save_settings(paths.settings_file, Settings(accounts={"youtube": Account("chrome", 30)}))
+    stop_services(paths)
+    seen = {}
+
+    def acquirer(qobuz, fallback, budget, pacer, *a, **kw):
+        seen.update(qobuz=budget.stopped, youtube=kw["accounts"]["youtube"].stopped, pacer=pacer)
+        return FakeAcquirer()
+
+    monkeypatch.setattr(run, "Acquirer", acquirer)
+    run.execute(run.prepare(paths), None)
+    assert seen["qobuz"] is False and seen["youtube"] is False
+    state = library.load_state(paths)
+    assert "streak" not in state["qobuz_usage"] and "streak" not in state["youtube_usage"]
+
+
+def test_execute_builds_this_macs_pacer_unless_given_one(paths, monkeypatch):
+    seen = []
+    monkeypatch.setattr(run, "Acquirer", lambda qobuz, fallback, budget, pacer, *a, **kw: seen.append(pacer) or FakeAcquirer())
+    run.execute(run.prepare(paths), None)
+    given = object()
+    run.execute(run.prepare(paths), None, pacer=given)
+    assert isinstance(seen[0], SharedPacer) and seen[0].support == paths.support and seen[1] is given
+
+
+def test_finish_quietly_ends_the_pause_too(paths, monkeypatch):
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, [], []))
+    stop_services(paths)
+    run.finish_quietly(run.prepare(paths))
+    state = library.load_state(paths)
+    assert "streak" not in state["qobuz_usage"] and "streak" not in state["youtube_usage"]
+    assert state["qobuz_usage"]["signals"] == []  # the warning signs themselves stay
+
+
 # --- the scan before planning (plan library stage 1, task 3.3) ---
 
 def placed(paths, key="t1", rel="Library/Hard_Bounce/Artist - Song 1.aiff"):
@@ -759,6 +805,84 @@ def test_a_sync_keeps_what_it_read_as_the_playlists_records(paths):
         (3, "t3", "Artist", "Song 3", 180000)]
 
 
+def stored_read(paths):
+    with db.connect(paths.db_file, read_only=True) as conn:
+        return db.load_read(conn)
+
+
+def test_prepare_stores_a_sync_read_with_its_lines_and_unread_and_says_its_id(paths):
+    prep = run.prepare(paths)
+    assert prep.read_id == 1
+    loaded = stored_read(paths)
+    assert loaded.id == 1 and loaded.lines == prep.lines and loaded.unread == []
+    assert [fp.tracks for fp in loaded.fetched] == [fp.tracks for fp in prep.fetched]
+    dry = run.prepare(paths, dry_run=True)  # a dry run stores one too
+    assert dry.read_id == stored_read(paths).id == 2
+
+
+def test_a_read_that_could_not_be_stored_has_no_read_id(tmp_path, monkeypatch):
+    bare = Paths(tmp_path, support=tmp_path / ".support")  # no library.db: nothing is stored, never created
+    assert run.store_read(bare, StoredRead("sync", datetime.now(), []), keep=None) is None
+    assert not bare.db_file.exists()
+
+
+def assert_derived_equals_replanned(prep):
+    """The plan worked out again from the stored read is the plan worked out again from the read in memory."""
+    derived = run.prepared_from_read(prep.paths, stored_read(prep.paths))
+    again = run.replan(prep)
+    assert [run.action_key(a) for a in derived.plan.actions] == [run.action_key(a) for a in again.plan.actions]
+    for name in ("questions", "dropped", "ambiguous", "notes"):
+        assert getattr(derived.plan, name) == getattr(again.plan, name), name
+    assert derived.unread_folders == again.unread_folders and derived.unread_members == again.unread_members
+    assert derived.lines == again.lines and derived.read_id == prep.read_id
+    return derived, again
+
+
+def test_the_plan_derived_from_the_stored_read_is_the_replanned_one(paths):
+    prep = run.prepare(paths)
+    derived, again = assert_derived_equals_replanned(prep)
+    assert len(derived.plan.actions) == 3 and [fp.tracks for fp in derived.fetched] == [fp.tracks for fp in again.fetched]
+
+
+def test_the_derived_plan_holds_for_a_paused_liked_music_line(liked):
+    from discjockey import pacing
+
+    set_liked(liked)
+    run.prepare(liked)  # Liked music read once: its record exists
+    state = library.load_state(liked)
+    pacing.record_signal(state, "auto_stop", "3 requests failed", datetime.now(), "youtube")
+    save_state(liked, state)
+    prep = run.prepare(liked)
+    assert prep.unread_folders == {"Liked_music"}
+    assert stored_read(liked).unread == ["youtube_music:LM"]
+    derived, _ = assert_derived_equals_replanned(prep)
+    assert LM_KEY in derived.unread_members["Liked_music"] and len(derived.unread_members["Liked_music"]) == 3
+
+
+def test_the_derived_plan_holds_for_a_liked_music_line_switched_off_in_settings(liked):
+    set_liked(liked)
+    run.prepare(liked)  # an older record of Liked music is stored
+    set_liked(liked, on=False)
+    prep = run.prepare(liked)
+    loaded = stored_read(liked)
+    assert [fp.line.folder for fp in loaded.fetched] == ["Hard_Bounce"] and loaded.unread == []  # left out, not unread
+    assert "youtube_music:LM" in loaded.checked  # its old record stays
+    assert_derived_equals_replanned(prep)
+
+
+def test_the_derived_plan_holds_with_a_private_soundcloud_track_and_its_token_is_not_stored(paths, monkeypatch):
+    private = SourceTrack("900", "Private One", ("Artist",), "", None, 1000, None, "soundcloud",
+                          "https://soundcloud.com/example/private-one/s-s3cr3t", secret_token="s-s3cr3t")
+    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, [private, *TRACKS], []))
+    prep = run.prepare(paths)
+    assert prep.fetched[0].tracks[0].secret() == "s-s3cr3t"  # this run's own read keeps it for the download
+    derived, _ = assert_derived_equals_replanned(prep)
+    assert derived.fetched[0].tracks[0].secret() is None
+    with db.connect(paths.db_file) as conn:
+        assert "s3cr3t" not in "".join(str(row) for t in ("playlist_tracks", "reads", "playlist_infos")
+                                       for row in conn.execute(f"SELECT * FROM {t}"))
+
+
 def test_a_dry_run_keeps_its_read_too_with_or_without_the_lock(paths, monkeypatch):
     save_state(paths, empty_state())  # a library with library.db
     run.prepare(paths, dry_run=True)
@@ -800,7 +924,7 @@ def test_a_failing_record_never_fails_the_read(paths, monkeypatch, caplog):
 
     def locked(*a, **kw):
         raise sqlite3.OperationalError("database is locked")
-    monkeypatch.setattr(db, "record_reads", locked)
+    monkeypatch.setattr(db, "store_read", locked)
     prep = run.prepare(paths, dry_run=True)
     assert [a.kind for a in prep.plan.actions] == ["acquire"] * 3
     [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
@@ -812,7 +936,7 @@ def test_records_of_another_version_are_one_warning_line(paths, caplog):
     fetched = run.prepare(paths, dry_run=True).fetched  # (prepare itself then refuses the records before reading)
     with db.connect(paths.db_file) as conn:
         conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(db.SCHEMA_VERSION + 1),))
-    run.record_reads(paths, fetched, datetime.now())
+    assert run.store_read(paths, StoredRead("sync", datetime.now(), fetched), keep=None) is None
     [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
     assert warning.exc_info is None and warning.getMessage() == (
         f"couldn't keep the playlists' read records: {db.NEWER}")
@@ -1007,7 +1131,8 @@ def test_a_paused_liked_music_keeps_a_song_that_left_its_higher_playlist_by_the_
     song = SourceTrack("EXAMPLEalb01", "Example Song One", ("Example Artist",), "Example Album", None, 200000, None,
                        service="youtube_music")
     with db.connect(liked.db_file) as conn:
-        db.record_reads(conn, [FetchedPlaylist(lm_line, [song], [])], datetime.now(), {"youtube_music:LM"})
+        db.store_read(conn, StoredRead("sync", datetime.now(), [FetchedPlaylist(lm_line, [song], [])], [lm_line]),
+                      {"youtube_music:LM"})
     prep = run.prepare(liked)
     assert LikedYDL.requested == [] and prep.unread_members == {"Liked_music": (LM_KEY,)}
     assert_kept_like_a_failed_read(prep)
@@ -1412,3 +1537,51 @@ def test_fill_kbps_does_not_look_up_a_missing_or_offline_file():
     assert run.fill_kbps(state, fb, lambda e: None) == 1
     assert fb.asked == ["a"]
     assert not state["tracks"]["m"].get("source_kbps") and not state["tracks"]["o"].get("source_kbps")
+
+
+# --- the ids of a Sync plan's actions (issue 39 phase 2) ---
+
+def _track(tid):
+    return SourceTrack(tid, f"Song {tid}", ("Artist",), "Al", None, 180000, None)
+
+
+def _ided(folders, actions, never=()):
+    """A plan over playlists.txt folders `folders` (in file order) with `actions` as (kind, track id, folder)."""
+    lines = [PlaylistLine(f, f"id{i}", i) for i, f in enumerate(folders, 1)]
+    make = lambda kind, tid, folder: run.Action(kind, tid, folder, _track(tid), (0, 0))  # noqa: E731
+    plan = Plan({}, [make(*a) for a in actions], [], [], never=[make(*a) for a in never])
+    return SimpleNamespace(lines=lines, plan=plan)
+
+
+def test_action_ids_number_the_folder_by_its_place_in_playlists_txt():
+    prep = _ided(["Hard_Bounce", "Powertrance", "Techno"],
+                 [("acquire", "t1", "Techno"), ("acquire", "t2", "Hard_Bounce"), ("upgrade", "t3", "Techno")])
+    assert run.action_ids(prep) == {("acquire", "t1", "Library/Techno"): "act:acquire:t1:3",
+                                    ("acquire", "t2", "Library/Hard_Bounce"): "act:acquire:t2:1",
+                                    ("upgrade", "t3", "Library/Techno"): "act:upgrade:t3:3"}
+    assert run.action_ids(prep) == run.action_ids(prep)  # the same plan twice: the same ids
+    assert len(set(run.action_ids(prep).values())) == 3
+
+
+def test_a_song_added_to_an_earlier_folder_leaves_every_other_id_alone():
+    before = run.action_ids(_ided(["A", "B", "C"], [("acquire", "t1", "B"), ("acquire", "t2", "C")]))
+    after = run.action_ids(_ided(["A", "B", "C"], [("acquire", "t0", "A"), ("acquire", "t1", "B"), ("acquire", "t2", "C")]))
+    assert {k: v for k, v in after.items() if k in before} == before
+    assert after[("acquire", "t0", "Library/A")] == "act:acquire:t0:1"
+    gone = run.action_ids(_ided(["A", "B", "C"], [("acquire", "t2", "C")]))  # B lost its only action
+    assert gone[("acquire", "t2", "Library/C")] == before[("acquire", "t2", "Library/C")] == "act:acquire:t2:3"
+
+
+def test_a_never_row_has_an_id_and_a_target_outside_the_folders_is_numbered_after_them():
+    prep = _ided(["A", "B"], [("acquire", "t1", "A")], never=[("acquire", "t9", "B")])
+    stray = run.Action("adopt_bought", "t5", "A", _track("t5"), (0, 0), dest_dir="Library/Elsewhere")
+    prep.plan.actions.append(stray)
+    ids = run.action_ids(prep)
+    assert ids[("acquire", "t9", "Library/B")] == "act:acquire:t9:2"
+    assert ids[("adopt_bought", "t5", "Library/Elsewhere")] == "act:adopt_bought:t5:3"
+
+
+def test_an_own_songs_weekly_check_keeps_its_id_when_a_folder_is_added():
+    one = run.action_ids(_ided(["A"], [("upgrade", "local:1", "")]))
+    two = run.action_ids(_ided(["A", "B"], [("upgrade", "local:1", "")]))
+    assert list(one.values()) == list(two.values()) == ["act:upgrade:local:1:0"]  # no folder: a fixed place

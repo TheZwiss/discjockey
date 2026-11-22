@@ -207,23 +207,27 @@ describe('fake To-do of the import', () => {
     expect(after.chips.duplicate).toBe(1);
   });
 
-  it('moves one duplicate to Superseded: the group goes when one file is left', async () => {
+  it('keeps one file of a duplicate group: the others go to Superseded in one job, the group goes with them', async () => {
     const { f, evs } = fake('todo_duplicates');
     const pair = (items(must(await f.todo('all', false)), 'duplicate') as DuplicateItem[])
       .find((d) => d.pair.why === 'same_song')!.pair;
+    const song = pair.files.find((x) => x.in_playlist)!;
     const own = pair.files.find((x) => !x.in_playlist)!;
     const shown = pair.files.map((x) => x.path);
-    const other = must(await f.supersede_duplicate(pair.group_id, own.file_id, [shown[0], '/x/else.aiff']));
+    const other = must(await f.keep_file(pair.group_id, song.file_id, [shown[0], '/x/else.aiff']));
     expect(await finished(evs, other.job_id)).toMatchObject({ ok: false, problem: 'changed' });
-    const start = must(await f.supersede_duplicate(pair.group_id, own.file_id, shown));
+    const outside = must(await f.keep_file(pair.group_id, 99999, shown));
+    expect(await finished(evs, outside.job_id)).toMatchObject({ ok: false, problem: 'changed' });
+    const start = must(await f.keep_file(pair.group_id, song.file_id, shown));
     const done = await finished(evs, start.job_id);
-    expect(done).toMatchObject({ kind: 'supersede', ok: true });
-    expect((done.result as { result: { section: string; path: string } }).result)
-      .toMatchObject({ section: 'replaced', path: `Superseded/Music/${own.artist} - ${own.title}.aiff` });
+    expect(done).toMatchObject({ kind: 'supersede', ok: true, message: `Moved to Superseded/Music/${own.artist} - ${own.title}.aiff.` });
+    expect((done.result as { results: { section: string; path: string }[] }).results)
+      .toMatchObject([{ section: 'replaced', path: `Superseded/Music/${own.artist} - ${own.title}.aiff` }]);
     expect(must(await f.todo('all', false)).chips.duplicate).toBe(1);
-    const again = must(await f.supersede_duplicate(pair.group_id, own.file_id, shown));
+    const again = must(await f.keep_file(pair.group_id, song.file_id, shown));
     expect(await finished(evs, again.job_id)).toMatchObject({ ok: false, problem: 'changed' });
     expect(await f.keep_duplicates('nope', [])).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.keep_file('nope', 1, [])).toMatchObject({ ok: false, kind: 'refused' });
   });
 
   it('a duplicate\'s Keep that hands the song to the kept file: the song is counted in To-do, once', async () => {
@@ -231,7 +235,8 @@ describe('fake To-do of the import', () => {
     const pair = (items(must(await f.todo('all', false)), 'duplicate') as DuplicateItem[])
       .find((d) => d.pair.why === 'same_song')!.pair;
     const song = pair.files.find((x) => x.in_playlist)!;
-    const start = must(await f.supersede_duplicate(pair.group_id, song.file_id, pair.files.map((x) => x.path)));
+    const own = pair.files.find((x) => !x.in_playlist)!;
+    const start = must(await f.keep_file(pair.group_id, own.file_id, pair.files.map((x) => x.path)));
     await finished(evs, start.job_id);
     const lib = must(await f.library('all', null, '', 'all', 'artist'));
     const todo = must(await f.todo('all', false));

@@ -2,7 +2,7 @@
 import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
-  BatchResult, Candidate, ChangePreview, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, ProblemKind, Res, Result,
+  BatchResult, Candidate, ChangePreview, CliFail, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, PreviewGroupKey, ProblemKind, Res, Result,
   AccountCheck, Browser, MissingAction, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, Todo, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
@@ -14,6 +14,8 @@ import {
 import { BAD_CRATE, BAD_FAVOURITES, BRIEF_WRITE_FAILED, fakeLink, libraryOf, membersOf, mergedFavourites, playlistRows, sidebarOf, trackPlace } from './library';
 import { batchWords, progressWords, autoDetail, autoOn, autoPreview, autoBlock, backupId, placeTracks, markRefused, markWaiting, phaseEvents, phaseResults,
   planPhase, readyTracks, rekordboxStatus, REKORDBOX_STATE_TEXT, sameTrackReasonOf, stopRows, withPhase, AUTO_REFUSED_WORDS, type PhasePlan } from './auto';
+import { SCOPE_KIND_ITEMS, isScopeTarget, scopeOf } from './scope';
+import { numberPlan } from './plan';
 import { LIKED_FOLDER, LIKED_LINK, LIKED_LISTED, LIKED_NEEDS_LOGIN, LIKED_OFF, LIKED_SETTING, isLikedLink, likedOn,
   likedScenarios, likedStatus } from './liked';
 import { JobRecord, Replay, STREAMS, SYNC_LINES, SYNC_START_LINE, lineOf, rewrite } from './replay';
@@ -24,6 +26,8 @@ import { toneUrl } from './audio';
 import { BROWSER_NAMES, defaultBrowsers } from './browsers';
 import { CRASHED_MESSAGE } from '../../copy';
 import { downloads } from './downloads';
+import { JOB as TERMINAL_JOB, TERMINAL_SCENARIOS, consoleHolder, consoleScenarios } from './console';
+import { TerminalJob } from './terminalJob';
 import { BAD_MISSING_ACTION, MISSING_ACTIONS, itemDetail, missingAll, missingDetail, missingScenarios, missingView, previewMissing,
   runMissing } from './missingFiles';
 import {
@@ -36,7 +40,7 @@ import { NONE_CHANGEABLE, NOTHING_TO_CHANGE, SKIP_WORDS as AIFF_SKIP_WORDS, appl
 import { SERVICES, NAMES, RECOMMENDED, serviceOf, limits as limitsOf, whatIf as whatIfOf, gate, syncSplit, cards } from './limits';
 import {
   IMPORTING_BUSY, NO_FOLDER, answerSameSong, checkImportFolder, duplicateItems, folderOf, keepDuplicates, questionItems,
-  removalPreview, removeFolder, runImport, seedImport, supersedeDuplicate, watchedFolders, type ImportRun,
+  removalPreview, removeFolder, runImport, seedImport, keepFile, watchedFolders, type ImportRun,
 } from './folders';
 
 /** library.FOLDER_PROBLEMS verbatim: what a refused folder says */
@@ -75,6 +79,11 @@ export type FakeContext = {
   networkBlock(): Fail | null;
   fail(kind: ProblemKind, message: string, service?: PlaylistService): Fail;
   later<T>(ms: number, value: () => T): Promise<T>;
+  /** the plan a scenario's own `sync_preview` shows: the only one `start_sync` then knows (as the engine's stored plan) */
+  knowPlan(id: string, actionIds: string[]): void;
+  /** the Terminal's sync as a job the window can follow, in the registry from the moment its ConsoleBusy goes out (the engine
+   *  has the job before the watch sees it): `last_sync` names it, `job_events` serves it. A scenario's own console already has it. */
+  startTerminal(): void;
   /** a login check's outcome saved / recorded as the engine does it (HubApi._account_result) */
   accountResult(service: 'youtube' | 'soundcloud', browser: Browser, profile: string | null, check: AccountCheck):
     { service: 'youtube' | 'soundcloud'; browser: Browser; profile: string | null; saved: boolean; check: AccountCheck };
@@ -105,7 +114,7 @@ const DOWNLOAD_KINDS = ['sync', 'use_candidate', 'use_link'];
 /** Page extensions: src/pages/<page>/fake.ts may add scenarios and override handlers. */
 const pageFakes = import.meta.glob<PageFake>('/src/pages/*/fake.ts', { eager: true });
 export function pageScenarios(): Record<string, (s: FakeState) => void> {
-  const out: Record<string, (s: FakeState) => void> = { ...likedScenarios, ...missingScenarios };
+  const out: Record<string, (s: FakeState) => void> = { ...likedScenarios, ...missingScenarios, ...consoleScenarios };
   for (const [path, mod] of Object.entries(pageFakes)) {
     const page = path.split('/').at(-2)!;
     for (const [name, fn] of Object.entries(mod.scenarios ?? {})) out[`${page}:${name}`] = fn;
@@ -133,10 +142,34 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   const speed = opts.speed ?? 1;
   const emitRaw = opts.emit ?? (() => {});
   let nextJob = 1;
+  let lastRead = s.previewRead ? 1 : 0;        // the newest stored read (`read:<n>`): a refresh and a sync's own read raise it
+  const readId = (): string | null => (s.previewRead ? `read:${lastRead}` : null);
   const newJobId = (): string => `job:${(nextJob++).toString(16).padStart(8, '0')}`; // the same form the engine's ids have
   let job: JobRecord | null = null;
+  /** The plan the last `sync_preview` showed (its id and its action ids): the only one `start_sync` knows, as the engine's stored plan */
+  let shownPlan: { id: string; ids: Set<string> } | null = null;
+  /** What the last `start_sync` was given, as the registry's record of the job (`job_status().last_sync`); `ended` once seen over */
+  let lastSync: { job: string; args: { plan_id: string; selected: string[] }; ended: string | null } | null = null;
   let refreshJob: { id: string; timer: ReturnType<typeof setTimeout> } | null = null;
   let replay: Replay | null = null;
+  /** The Terminal's sync as a job the window follows (`job_events`): made by its console scenario, else at the first call */
+  let terminal: TerminalJob | null = null;
+  const terminalJob = (mode: 'live' | 'reading' | 'running' | 'ended' = 'live'): TerminalJob => {
+    if (terminal) return terminal;
+    const started = new Date(), rid = runId(started);
+    // its run goes into the reports as the window's own sync's does (afterSync), from the job's file
+    const onEnded = (lines: readonly HubEvent[]) => {
+      const rec = new JobRecord(TERMINAL_JOB, 'sync', null, isoLocal(started));
+      for (const e of lines) rec.record(e);
+      afterSync(rid, rec);
+    };
+    terminal = new TerminalJob({ s, speed, emit, mode, reportPath: reportPath(rid), onEnded });
+    // the newest sync of the folder is now the Terminal's, as the registry has it (any `via`): the plan it ran, every row ticked
+    const p = preview();
+    const plan = numberPlan(p, s.scope);
+    lastSync = { job: TERMINAL_JOB, args: { plan_id: plan.plan_id!, selected: p.groups.flatMap((g) => g.actions).map((a) => a.id) }, ended: null };
+    return terminal;
+  };
   let pendingFinish: Finish | null = null;   // a job that only ends by itself or with stop() (Spotify login)
   let signIn: JobRecord | null = null;         // the sign-in slot (beside the write jobs, as Jobs.start_sign_in)
   let signInStop: (() => void) | null = null;
@@ -153,9 +186,17 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
   };
   const fail = (kind: ProblemKind, message: string, service?: PlaylistService, setting?: SettingKey): Fail =>
     ({ ok: false, kind, message, ...(service ? { service } : {}), ...(setting ? { setting } : {}) });
-  /** The engine's answer for a word only the command line sends (api.py: `kind` and `outcome` `bad_args`, `reason` `usage`);
-   *  `ProblemKind` has no such kind (the window never sends one), so the answer is typed as the `Fail` it is. */
-  const badArgs = (message: string): Fail => ({ ok: false, kind: 'bad_args', message, outcome: 'bad_args', reason: 'usage' } as unknown as Fail);
+  /** The engine's answer for a word only the command line sends (api.py: `kind` and `outcome` `bad_args`, `reason` `usage`):
+   *  a `CliFail`. The window's `Res` has no `bad_args` kind (it never sends one), so it is typed as the `Fail` it stands for. */
+  const badArgs = (message: string): Fail => {
+    const answer: CliFail = { ok: false, kind: 'bad_args', message, outcome: 'bad_args', reason: 'usage' };
+    return answer as unknown as Fail;
+  };
+  /** `bad_args`, reason `unknown_id`: a job the registry has no folder for (a `CliFail`, as `badArgs`) */
+  const noSuchJob = (id: string): Fail => {
+    const answer: CliFail = { ok: false, kind: 'bad_args', message: `There is no job ${id} here.`, outcome: 'bad_args', reason: 'unknown_id' };
+    return answer as unknown as Fail;
+  };
   const later = <T>(ms: number, value: () => T) => new Promise<T>((r) => setTimeout(() => r(value()), ms / speed));
   const ok = <T extends object>(v: T) => ({ ok: true as const, ...v });
   const syncRunning = () => (job?.running && job.kind === 'sync') || s.console_running;
@@ -222,7 +263,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     }, 0);
     return { ok: true, job_id: id };
   }
-  const ctx: FakeContext = { s, speed, emit, startJob, networkBlock, fail, later, accountResult };
+  const knowPlan = (id: string, ids: string[]) => { shownPlan = { id, ids: new Set(ids) }; };
+  const ctx: FakeContext = { s, speed, emit, startJob, networkBlock, fail, later, accountResult, knowPlan,
+    startTerminal() { terminalJob(); } };
 
   /** The import as a write job (kind "import"): `adding` is a folder just watched, `resume`/`hold` start it mid-way and
    *  keep it there until Stop (scenario folders_importing). */
@@ -255,9 +298,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     folder: 'Techno' }, true, '/Volumes/Example Drive/Music/Techno/Dub Chord - Night Drive.mp3', null)];
   function preview() {
     type Row = ReturnType<typeof previewAction>;
-    const groups: { key: string; label: string; actions: Row[] }[] = [];
+    const groups: { key: PreviewGroupKey; label: string; actions: Row[] }[] = [];
     const never: Row[] = [];
-    const add = (key: string, label: string, actions: Row[]) => {
+    const add = (key: PreviewGroupKey, label: string, actions: Row[]) => {
       const keep = actions.filter((a) => a.kind !== 'acquire' || !s.never.includes(a.track_id));
       never.push(...actions.filter((a) => !keep.includes(a)));
       if (keep.length) groups.push({ key, label, actions: keep });
@@ -589,13 +632,35 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     rp.start();
     return { ok: true, job_id: id };
   }
-  /** After a replayed sync: its run is in the reports, and the plan is worked out again from the sync's own read
-   *  and what the run left (like jobs.preview_after_run, issue 20), so what the run did is not offered again. */
+  /** What a sync does once its plan and ticks are checked: the fake's scenarios (errors, a missing Qobuz login, nothing ticked). */
+  function startedSync(selected: string[]): JobStart {
+    if (s.errors) {
+      s.syncStarts++;
+      if (s.syncStarts % 2 === 1) {
+        return startJob('sync', null, (finish) => setTimeout(() => finish(false, null, 'login_expired',
+          'Your Spotify login has expired. Log in again in setup.'), 600 / speed));
+      }
+      return startReplay(SYNC_START_LINE, { crashAfter: SYNC_LINES.crash });
+    }
+    if (s.syncNeedsQobuz) {
+      // a Qobuz line, no Qobuz login: the sync is refused at its start and says which service (JobFinished.service)
+      return startJob('sync', null, (finish) => setTimeout(() => finish(false, null, 'not_set_up',
+        'Connect Qobuz first.', 'qobuz'), 600 / speed));
+    }
+    if (!selected.length) {
+      return startJob('sync', null, (finish) => setTimeout(() => finish(true, { exit_code: 0, report: '',
+        actions: 0, new_since_plan: [] }), 300 / speed));
+    }
+    return startReplay(SYNC_START_LINE, autoSync());
+  }
+  /** After a replayed sync: its run is in the reports, and the plan is derived from the sync's own stored read and
+   *  what the run left (`HubApi._plan`), so what the run did is not offered again. */
   function afterSync(rid: string, rec: JobRecord, plan: PhasePlan | null = null, phaseReached = false) {
     const results = rec.results.map((e) => e.result as Result);
     const done = new Set(results.filter((r) => r.track_id && r.section !== 'queued' && r.section !== 'errors')
       .map((r) => r.track_id));
-    s.read_status = { ...s.read_status, stale: false, read_at: rec.started, minutes_ago: 0 };
+    s.read_status = { ...s.read_status, lines_changed: false, read_at: rec.started, minutes_ago: 0 };
+    lastRead += 1;
     s.newTracks = s.newTracks.filter((t) => t.track_id === 't5' || !done.has(t.track_id));
     const run = rec.last.RunFinished;
     if (!run) return;
@@ -762,16 +827,19 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const p = preview();
       if (!s.previewRead) return ok({ read_status: readStatus(s), counts: null, groups: [], estimate: null, never: [],
         folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [], waiting_answers: 0, deferred_checks: 0,
-        empty: 'no_preview' as const, collections: {}, auto_upgrade: null });  // like views.sync_preview: never not_set_up
+        empty: 'no_preview' as const, collections: {}, auto_upgrade: null, read_id: null, plan_id: null, presets: [],
+        default_how_many: null });  // like views.sync_preview: never not_set_up
       // each row's collections, as views._members gives them (issue 37)
       const m = membersOf(s, sidebarOf(s, 0, false));
       for (const a of [...p.groups.flatMap((g) => g.actions), ...p.never]) a.in = m.of(a);
+      const plan = numberPlan(p, s.scope);   // the ids, the plan's id and the "how many" presets, as the engine gives them
+      knowPlan(plan.plan_id!, p.groups.flatMap((g) => g.actions).map((a) => a.id));
       return ok({ read_status: readStatus(s), counts: p.counts, groups: p.groups, estimate: p.estimate, never: p.never,
-        collections: m.names,
+        collections: m.names, ...plan,
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
         auto_upgrade: autoPreview(s, autoReady(), placeTracks(s)),
-        empty: p.actions ? null : 'up_to_date' as const });
+        empty: p.actions ? null : 'up_to_date' as const, read_id: readId() });
     },
     async refresh(auto = false) {
       if (auto && s.read_status.auto_read) {
@@ -803,8 +871,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           return;
         }
         s.read_status = { ...readOk(0), auto_read: s.read_status.auto_read }; s.previewRead = true;
+        lastRead += 1;
         emit({ type: 'JobFinished', job_id: id, kind: 'refresh', ok: true, problem: null, message: '',
-          result: { actions: preview().actions }, service: null });
+          result: { actions: preview().actions, read_id: `read:${lastRead}` }, service: null });
       }, 2500 / speed) };
       return ok({ job_id: id });
     },
@@ -819,8 +888,22 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return ok({ stopped: true });
     },
     async job_status() {
+      if (!lastSync && s.lastSyncRows) {   // the scenario's started sync (the running job): its ticked rows by the plan's ids, as the registry has them
+        const p = preview();
+        const plan = numberPlan(p, s.scope);
+        const rows = p.groups.flatMap((g) => g.actions).filter((a) => s.lastSyncRows!.some((r) => r.kind === a.kind && r.track_id === a.track_id));
+        lastSync = { job: job?.id ?? 'job:00000000', args: { plan_id: plan.plan_id!, selected: rows.map((a) => a.id) }, ended: null };
+      }
+      const last = lastSync && { job: lastSync.job, args: lastSync.args,
+        ended: (lastSync.job === TERMINAL_JOB ? terminal?.status !== 'done' : job?.id === lastSync.job && job.running)
+          ? null : (lastSync.ended ??= isoLocal(new Date())) };
       return ok({ job: job ? job.snapshot() : null, refresh_running: !!refreshJob, console_running: s.console_running,
-        read_status: readStatus(s), sign_in: signIn ? signIn.snapshot() : null });
+        console: consoleHolder(s),
+        read_status: readStatus(s), last_sync: last ?? null, sign_in: signIn ? signIn.snapshot() : null });
+    },
+    async job_events(job_id: string, after = 0) {
+      if (job_id !== TERMINAL_JOB) return noSuchJob(job_id);
+      return ok(terminalJob().read(Math.max(0, after)));
     },
     async library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null) {
       const r = libraryOf(s, view, key, query, filter, sort);
@@ -881,8 +964,10 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     },
     async runs() { return ok({ runs: s.runs.map(summary) }); },
     async run(run_id: string) {
-      const r = s.runs.find((x) => x.run_id === run_id);
-      if (!r) return fail('refused', 'This report is not there any more.');
+      // like the hub: `report:<stamp>` is the stamp, `last` the newest report
+      const stamp = run_id.startsWith('report:') ? run_id.slice('report:'.length) : run_id;
+      const r = stamp === 'last' ? [...s.runs].sort((x, y) => (x.run_id < y.run_id ? 1 : -1))[0] : s.runs.find((x) => x.run_id === stamp);
+      if (!r) return fail('refused', stamp === 'last' ? 'There is no run report yet.' : 'This report is not there any more.');
       // like the hub: each row shown one by one gets its cover; the playlist folders in their order
       const withCover = (x: Result) => x.track_id && x.section !== 'queued'
         ? { ...x, cover_url: coverUri(track(x.track_id)?.cover ?? null) } : x;
@@ -898,11 +983,6 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return later(350, () => ok({ spectrum: fakeSpectrum(which === 'upgrade' ? null : t.cutoff_hz,
         Math.abs(hash(t.track_id)), t.duration_s, which) }));
     },
-    async media_url(track_id: string, which: Which) {
-      const t = track(track_id);
-      if (!t || t.status === 'missing') return fail('refused', 'This track has no file yet.');
-      return ok({ url: media(t, which) });
-    },
     async setup_status() {
       const status = (a: FakeAccount | null) => a && { browser: a.browser, browser_name: BROWSER_NAMES[a.browser],
         daily_limit: a.limit, profile: a.profile ?? null, profile_name: a.profileName ?? null,
@@ -915,7 +995,6 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         accounts: { youtube: status(s.accounts.youtube), soundcloud: status(s.accounts.soundcloud) },
         youtube_music: likedStatus(s) });
     },
-    async select(track_id: string | null) { s.selected = track_id; return ok({}); },
     async rekordbox_status() {
       const st = rekordboxStatus(s);
       return ok({ ...st, state_text: REKORDBOX_STATE_TEXT[st.state], problem: null, problem_text: null, version: null,
@@ -1028,28 +1107,21 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return later(300, () => ok(changePreview(lines)));
     },
 
-    async start_sync(selected) {
+    async start_sync(plan_id, selected) {
+      if (plan_id === null) return fail('refused', 'Read your playlists first (↻), so you can check the plan before it starts.');
+      if (plan_id !== shownPlan?.id) return badArgs(`There is no plan ${plan_id}. A dry run makes one: its answer says its id.`);
       if (!Array.isArray(selected)) return fail('refused', 'Pick at least one thing to do.');
-      if (s.errors) {
-        s.syncStarts++;
-        if (s.syncStarts % 2 === 1) {
-          return startJob('sync', null, (finish) => setTimeout(() => finish(false, null, 'login_expired',
-            'Your Spotify login has expired. Log in again in setup.'), 600 / speed));
-        }
-        return startReplay(SYNC_START_LINE, { crashAfter: SYNC_LINES.crash });
-      }
-      if (s.syncNeedsQobuz) {
-        // a Qobuz line, no Qobuz login: the sync is refused at its start and says which service (JobFinished.service)
-        return startJob('sync', null, (finish) => setTimeout(() => finish(false, null, 'not_set_up',
-          'Connect Qobuz first.', 'qobuz'), 600 / speed));
-      }
-      if (!selected.length) {
-        return startJob('sync', null, (finish) => setTimeout(() => finish(true, { exit_code: 0, report: '',
-          actions: 0, new_since_preview: 0 }), 300 / speed));
-      }
-      return startReplay(SYNC_START_LINE, autoSync());
+      const wrong = selected.find((id) => !shownPlan!.ids.has(id));
+      if (wrong !== undefined) return fail('refused', `${JSON.stringify(wrong)} is not an action of the plan ${plan_id}.`);
+      const started = startedSync(selected);
+      if (started.ok) lastSync = { job: started.job_id, args: { plan_id, selected: [...selected] }, ended: null };
+      return started;
     },
-    async stop() {
+    async stop(job_id?: string) {
+      if (job_id !== undefined) {   // Stop safely for the Terminal's job (the fake has only that one)
+        if (job_id !== TERMINAL_JOB) return noSuchJob(job_id);
+        return ok({ stopped: terminalJob().stop() });
+      }
       if (importRun && job?.running) { job.stopping = true; importRun.stopped = true; return ok({ stopped: true }); }
       if (batchStop && job?.running) { job.stopping = true; batchStop.stopped = true; return ok({ stopped: true }); }
       if (moveRun && job?.running) { job.stopping = true; moveRun.stopped = true; return ok({ stopped: true }); }
@@ -1084,7 +1156,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
           s.version++;
           // as the real setup_status, which reads playlists.txt: a saved list counts as "playlists added"
           s.setup = { ...s.setup, playlists: s.playlists.length > 0 };
-          s.read_status = { ...s.read_status, stale: true };
+          s.read_status = { ...s.read_status, lines_changed: true };
           if (!choice) return finish(true, { version: versionHash(), batches: [] });
           // the songs get their new folder; their files stay until moved, and a file left in place is the user's own
           for (const t of s.tracks) {
@@ -1191,8 +1263,8 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return answerSameSong(ctx, song_key, own_key, same);
     },
     async keep_duplicates(group_id: string, paths: string[]) { return keepDuplicates(ctx, group_id, paths); },
-    async supersede_duplicate(group_id: string, file_id: number, paths: string[]) {
-      return supersedeDuplicate(ctx, group_id, file_id, paths);
+    async keep_file(group_id: string, file_id: number, paths: string[]) {
+      return keepFile(ctx, group_id, file_id, paths);
     },
     async setup_skip_import() {
       if (s.console_running) return fail('console', MSG.console);
@@ -1245,7 +1317,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { service, seen_until: f.seen });
       }, 300 / speed));
     },
-    async hide(track_id: string, hidden: boolean) {
+    async hide(track_id: string, hidden: boolean, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       return startJob(hidden ? 'hide' : 'unhide', track_id, (finish) => setTimeout(() => {
@@ -1268,19 +1340,18 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { moved: 0, new: 0, gone: 0, missing: 0, back: 0, changed: 0, copies: 0 });
       }, 50 / speed));
     },
-    async add_bought_file(track_id: string) {
+    async add_bought_file(track_id: string, path: string, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
-      if (s.dropped?.track_id !== track_id) return fail('refused', 'Drop the bought file on this track first.');
+      if (typeof path !== 'string' || !path.startsWith('/')) return fail('refused', `There is no file at ${path}.`);
       return startJob('add_bought_file', track_id, (finish) => setTimeout(() => {
-        const name = s.dropped?.name ?? '';
-        s.dropped = null;
+        const name = path.slice(path.lastIndexOf('/') + 1);
         Object.assign(t, { status: 'lossless', cutoff_hz: null, source: 'manual', codec: 'wav', upgrade: null });
         if (t.missing) { t.missing = undefined; t.fileGone = false; }  // the dropped file is the song's file: it leaves Missing files
         finish(true, opResult(t, 'bought', `bought file ${name}`));
       }, 1500 / speed));
     },
-    async use_candidate(track_id: string, candidate: Candidate) {
+    async use_candidate(track_id: string, candidate: Candidate, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       if (!candidate || typeof candidate !== 'object' || !candidate.id) return fail('refused', 'That is not a version from the list.');
@@ -1288,7 +1359,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startJob('use_candidate', track_id, (finish) => syntheticDownload(t, String(candidate.source), candidate.title,
         () => finishReplace(t, String(candidate.source), finish)));
     },
-    async use_link(track_id: string, url: string) {
+    async use_link(track_id: string, url: string, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       const source = /qobuz\.com/.test(url) ? 'qobuz' : /music\.youtube/.test(url) ? 'youtube_music'
@@ -1297,7 +1368,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startJob('use_link', track_id, (finish) => syntheticDownload(t, source, t.title,
         () => finishReplace(t, source, finish)));
     },
-    async reject_current(track_id: string) {
+    async reject_current(track_id: string, _expect?: string | null) {
       const t = track(track_id);
       if (!t) return fail('refused', 'This track is not in your library any more.');
       return startJob('reject_current', track_id, (finish) => setTimeout(() => {
@@ -1322,7 +1393,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { results, checked: have, not_checked: ids.filter((id) => !have.includes(id)), recovered: [] });
       }, 300 / speed));
     },
-    async upgrade(track_ids: string[], way: 'same_track' | 'new_track' | 'discard') {
+    async upgrade(track_ids: string[], way: 'same_track' | 'new_track' | 'discard', _plan_id?: string | null, _expect?: string | null) {
       const ids = listOf(track_ids);
       if (!ids) return fail('refused', 'No tracks were chosen.');
       if (!['same_track', 'new_track', 'discard'].includes(way)) return fail('refused', 'Pick Same track, New track or discard.');
@@ -1502,6 +1573,27 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         finish(true, { auto_upgrade: on });
       }, 300 / speed));
     },
+    async sync_scope() {
+      return ok(scopeOf(s));
+    },
+    async set_sync_scope(on: string[], off: string[]) {
+      const bad = [...(Array.isArray(on) ? on : []), ...(Array.isArray(off) ? off : [])]
+        .find((i) => typeof i !== 'string' || !(isScopeTarget(i) || SCOPE_KIND_ITEMS.includes(i)));
+      if (!Array.isArray(on) || !Array.isArray(off) || bad !== undefined) {
+        return fail('refused', `${JSON.stringify(bad)} is not a playlist (playlist:<ref>), a folder (folder:<path>) or a weekly kind (kind:retry, kind:weekly).`);
+      }
+      const both = on.find((i) => off.includes(i));
+      if (both !== undefined) return fail('refused', `${both} is in both lists: say on or off for it, not both.`);
+      return startJob('set_sync_scope', null, (finish) => setTimeout(() => {
+        const kinds = (items: string[]) => items.filter((i) => i.startsWith('kind:')).map((i) => i.slice(5) as 'retry' | 'weekly');
+        const keep = (cur: string[], gone: string[], more: string[]) => [...new Set([...cur.filter((x) => !gone.includes(x)), ...more])];
+        s.scope = {
+          off: keep(s.scope.off, on, off.filter(isScopeTarget)),
+          weekly_off: keep(s.scope.weekly_off, kinds(on), kinds(off)) as ('retry' | 'weekly')[],
+        };
+        finish(true, scopeOf(s));
+      }, 150 / speed));
+    },
     async add_liked_music() {
       return startJob('add_liked_music', null, (finish) => setTimeout(() => {
         if (!likedOn(s)) return finish(false, null, 'setting_off', LIKED_OFF);
@@ -1513,7 +1605,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             image_url: null, track_count: 312, hint: hintOf('youtube_music') } }];
         s.version++;
         s.setup = { ...s.setup, playlists: true };
-        s.read_status = { ...s.read_status, stale: true };
+        s.read_status = { ...s.read_status, lines_changed: true };
         finish(true, { folder });
       }, 300 / speed));
     },
@@ -1523,16 +1615,6 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return startJob('setup_account', null, (finish) => setTimeout(() => {
         finish(true, accountResult(service, browser, profile, accountCheck(service, browser)));
       }, 600 / speed));
-    },
-    async setup_check_account(service: 'youtube' | 'soundcloud') {
-      const a = s.accounts[service];
-      if (!a) return fail('refused', `${NAMES[service]} is not set up.`);
-      if (syncRunning()) return fail('sync_running', MSG.sync_running);
-      if (s.console_running) return fail('console', MSG.console);
-      if (job?.running) return fail('busy', MSG.busy);  // the save takes the lock, as in the engine
-      const check = accountCheck(service, a.browser);
-      s.accounts[service] = { ...a, lastCheck: checkRecord(check) };
-      return ok({ service, check });
     },
     async setup_forget_account(service: 'youtube' | 'soundcloud') {
       return startJob('setup_forget_account', null, (finish) => setTimeout(() => {
@@ -1634,7 +1716,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
             const kind = record?.kind ?? (tracks.some((x) => ['converted', 'renamed'].includes(x.check!.reason)) ? 'convert' : 'upgrade');
             const from_sync = started_by === 'auto_upgrade' || started_by === 'download_again';   // views.SYNC_STARTERS
             const w = batchWords(tracks.map((x) => x.check!), kind, from_sync, started, s.now);
-            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, detail: `${started ?? ''} · ${w.how}`,
+            items.rekordbox_check.unshift({ ...tracks[0], track_id: key, key, rev: null, detail: `${started ?? ''} · ${w.how}`,
               batch: { id, aiff_id: `aiff:${id}`, size: group.length, started, started_by, from_sync, kind, tracks,
                 row_name: w.row_name, row_sub: w.row_sub, list_title: w.list_title, card_summary: w.card_summary,
                 placed_summary: w.placed_summary } });
@@ -1808,6 +1890,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (job) job.stopping = true;
     });
   }
+  if (TERMINAL_SCENARIOS[scenario]) at(() => terminalJob(TERMINAL_SCENARIOS[scenario]));
   if (scenario === 'sync:auto-running') {
     // the sync is in its last phase, frozen with 3 of the batch's tracks done (the 4th is in work)
     at(() => {

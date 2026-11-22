@@ -22,7 +22,7 @@ from hub_helpers import cmd
 
 from batch_helpers import make_lib, needs_ffmpeg, use
 from convert_helpers import EXACT
-from discjockey import batches, db, library, upgrades
+from discjockey import batches, db, library, models, upgrades
 from discjockey.cli import bind, call, worker
 import discjockey.cli as cli
 from discjockey.hub import api as api_words, catalog, ids, select
@@ -707,3 +707,26 @@ def test_check_done_batch_leaves_a_song_a_later_batch_changed_again(lib, capsys)
     assert [r["track"] for r in env["data"]["results"]] == [found.tracks[0]] and code == OK
     assert found.entry(0)["rekordbox_check"] is None
 
+
+
+# --- `--if-rev` (issue 39 phase 2, V2.4) ---
+
+def test_a_stale_if_rev_is_refused_rev_changed_and_the_right_one_runs(lib, capsys):
+    found = lib(["mp3", "aiff"])
+    a = found.tracks[0]
+    code, env = run_json(["upgrade", "apply", a, *NEW, "--if-rev", "0000000000"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (REFUSED, "refused", "rev_changed"), env
+    current = env["data"]["rev"]
+    assert current == models.rev(found.entry(0)) != "0000000000"
+    assert env["next"][0]["run"] == cmd(f"track show {a}") and found.entry(0)["upgrade"]  # nothing was done
+    code, env = run_json(["upgrade", "apply", a, *NEW, "--if-rev", current], capsys)
+    assert (code, env["outcome"]) == (OK, "ok") and not found.entry(0)["upgrade"]
+
+
+def test_if_rev_with_more_than_one_song_is_bad_args_and_help_lists_the_flag(lib, capsys):
+    found = lib(["mp3", "aiff"])
+    code, env = run_json(["upgrade", "apply", *found.tracks, *NEW, "--if-rev", "0000000000"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", "usage") and "one song" in env["message"]
+    assert all(found.entry(i)["upgrade"] for i in (0, 1))
+    code, env = run_json(["help", "upgrade", "apply"], capsys)
+    assert code == OK and "--if-rev" in json.dumps(env["data"])

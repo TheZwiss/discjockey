@@ -29,6 +29,7 @@ from __future__ import annotations
 import ctypes
 import ctypes.util
 import fcntl
+import itertools
 import json
 import logging
 import os
@@ -37,14 +38,14 @@ import shutil
 import threading
 import time
 from collections import deque
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from .. import events as ev
+from .. import events as ev, words
 from ..library import write_json_atomic
 from ..problem import Problem
 from . import ids
@@ -53,9 +54,13 @@ log = logging.getLogger(__name__)
 
 KEEP_JOBS, KEEP_DAYS = 100, 30  # the newest 100 jobs stay, and every job of the last 30 days
 HEAD_EVENTS, TAIL_EVENTS = 2000, 10000  # events.jsonl keeps the first 2 000; events.tail.jsonl the last 10 000
+# The events that give a run its structure (what a late follower counts its bars and lists from): the tail keeps them
+# beyond its cap, in order, and drops only the other lines that fell out of it.
+KEPT_TYPES = frozenset({"JobStarted", "RunStarted", "ActionStarted", "ActionFinished", "RunFinished", "JobFinished"})
 SLOT_FLUSH_S = 0.5  # a Progress or Waiting slot is written at most twice a second
 STATE_WRITE_S = 1.0  # state.json changes other than a new status are written at most once a second
 ACTIVE = ("queued", "running", "stopping")
+HOLDING = ("running", "stopping")  # a job that has the lock (a queued one is still waiting for it)
 STATUSES = (*ACTIVE, "done", "lost")
 
 
@@ -120,15 +125,21 @@ def _slot(event: object) -> tuple | None:
     return None
 
 
+def _is_structure(event: object) -> bool:
+    """An event the tail keeps beyond its cap (`KEPT_TYPES`)."""
+    return type(event).__name__ in KEPT_TYPES
+
+
 class EventsWriter:
     """The one writer thread of a job's `events.jsonl`. `emit` only puts the event on a queue: it never blocks (beyond a
     very short lock) and never raises, because the engine calls it inside download callbacks and error handlers.
 
     `Progress` and `Waiting` are coalesced by slot (the latest of each slot) and written at most twice a second per
     slot. The file keeps the first `head` events; after those, the events go to `events.tail.jsonl`, which keeps
-    (at least while running, exactly once closed) the last `tail`; what fell out of both is named by a `Truncated`
+    (at least while running, exactly once closed) the last `tail` and, beyond them, the run's structure lines
+    (`KEPT_TYPES`: a late follower still finds every `ActionFinished`); what fell out of both is named by a `Truncated`
     marker as the last line of `events.jsonl`: `{"type": "Truncated", "event": "Truncated", "skipped": n}` (`type`
-    is the key every event line has; `event` the one the design's decision names)."""
+    is the key every event line has; `event` the one the design's decision names; `n` counts the lines dropped)."""
 
     def __init__(self, directory: Path, *, head: int = HEAD_EVENTS, tail: int = TAIL_EVENTS,
                  clock: Callable[[], float] = time.monotonic):
@@ -139,8 +150,9 @@ class EventsWriter:
         self._cond = threading.Condition()
         self._closing = False
         self._head_lines: list[str] = []
-        self._tail_lines: deque[str] = deque()  # what events.tail.jsonl holds now (before a compaction)
-        self._after_head = 0  # events after the head, written so far
+        self._tail_lines: deque[tuple[str, bool]] = deque()  # what events.tail.jsonl holds now: (line, kept)
+        self._compact_at = 2 * tail  # the tail's length that asks for the next compaction
+        self._dropped = 0  # lines that fell out of the tail and are in no file any more
         self._marked = 0  # the skipped count the marker on disk says
         self._last_slot: dict[tuple, float] = {}
         self._pending: dict[tuple, object] = {}
@@ -204,11 +216,11 @@ class EventsWriter:
         slot = _slot(event)
         if slot is None:
             self._flush_due(final=True)  # keep the order: the newest slot values first
-            self._write(event_line(event))
+            self._write(event_line(event), _is_structure(event))
         elif self.clock() - self._last_slot.get(slot, float("-inf")) >= SLOT_FLUSH_S:
             self._pending.pop(slot, None)
             self._last_slot[slot] = self.clock()
-            self._write(event_line(event))
+            self._write(event_line(event), _is_structure(event))
         else:
             self._pending[slot] = event
 
@@ -217,9 +229,9 @@ class EventsWriter:
             if final or self.clock() - self._last_slot.get(slot, float("-inf")) >= SLOT_FLUSH_S:
                 del self._pending[slot]
                 self._last_slot[slot] = self.clock()
-                self._write(event_line(event))
+                self._write(event_line(event), _is_structure(event))
 
-    def _write(self, line: str) -> None:
+    def _write(self, line: str, kept: bool = False) -> None:
         if len(self._head_lines) < self.head_limit:
             self._head_lines.append(line)
             self._head_file.write(line + "\n")
@@ -227,29 +239,30 @@ class EventsWriter:
         if self._tail_file is None:
             self._head_file.flush()  # a follower relies on it: a line in the tail means the head is complete on disk
             self._tail_file = open(self.tail_path, "a", encoding="utf-8")
-        self._after_head += 1
-        self._tail_lines.append(line)
+        self._tail_lines.append((line, kept))
         self._tail_file.write(line + "\n")
-        if len(self._tail_lines) >= 2 * self.tail_limit:  # keeps the file from growing without end
+        if len(self._tail_lines) >= self._compact_at:  # keeps the file from growing without end
             self._compact()
 
-    def _skipped(self) -> int:
-        return max(0, self._after_head - self.tail_limit)
-
     def _compact(self) -> None:
-        while len(self._tail_lines) > self.tail_limit:
-            self._tail_lines.popleft()
+        """Drops the lines older than the last `tail` that are not structure lines (`KEPT_TYPES`); those stay."""
+        older = len(self._tail_lines) - self.tail_limit
+        if older > 0:
+            kept = [item for item in itertools.islice(self._tail_lines, older) if item[1]]
+            self._dropped += older - len(kept)
+            self._tail_lines = deque([*kept, *itertools.islice(self._tail_lines, older, None)])
+        self._compact_at = len(self._tail_lines) + self.tail_limit  # the structure lines kept do not count to the next
         if self._tail_file is not None:
             self._tail_file.close()
         tmp = self.tail_path.with_name(self.tail_path.name + ".tmp")
-        tmp.write_text("".join(line + "\n" for line in self._tail_lines), encoding="utf-8")
+        tmp.write_text("".join(line + "\n" for line, _ in self._tail_lines), encoding="utf-8")
         os.replace(tmp, self.tail_path)
         self._tail_file = open(self.tail_path, "a", encoding="utf-8")
         self._mark()
 
     def _mark(self) -> None:
         """Rewrites events.jsonl as the head and its marker when the count of skipped events changed."""
-        skipped = self._skipped()
+        skipped = self._dropped
         if skipped == self._marked:
             return
         self._marked = skipped
@@ -261,12 +274,10 @@ class EventsWriter:
         self._head_file = open(self.head_path, "a", encoding="utf-8")
 
     def _sync_files(self) -> None:
-        """What the batch wrote reaches the files (a follower reads them), and the marker follows the count."""
+        """What the batch wrote reaches the files (a follower reads them); the marker follows each compaction."""
         self._head_file.flush()
         if self._tail_file is not None:
             self._tail_file.flush()
-        if self._skipped() and self._skipped() != self._marked and self._skipped() - self._marked >= self.tail_limit:
-            self._mark()
 
     def _finish(self) -> None:
         try:
@@ -277,6 +288,139 @@ class EventsWriter:
             self._head_file.close()
         except Exception:  # noqa: BLE001
             pass
+
+
+def _is_marker(line: str) -> bool:
+    """The registry's `Truncated` marker: the last line of `events.jsonl`, rewritten as events are skipped."""
+    return '"Truncated"' in line and line.startswith("{") and _type_of(line) == "Truncated"
+
+
+def _type_of(line: str) -> str | None:
+    try:
+        return json.loads(line).get("type")
+    except (ValueError, AttributeError):
+        return None
+
+
+class EventReader:
+    """The new events of one job since the last `read`, in order: the head file by byte offset (it only grows, except
+    that the registry rewrites it with a `Truncated` marker as its last line, which is never consumed), then the
+    rolling tail (rewritten when it is compacted: found again by the last line seen).
+
+    The writer flushes the head before the tail file exists, so a tail line on disk means the head is complete. That is
+    why `read` takes its look at the tail first and at the head second: a head read first could miss lines the writer
+    flushes before the tail read, and those would then come out after the tail's."""
+
+    def __init__(self, directory: Path, *, from_end: bool = False):
+        self.head, self.tail = directory / "events.jsonl", directory / "events.tail.jsonl"
+        self._offset = 0
+        self._tail_offset, self._last_tail = 0, b""  # where the tail's last line seen ends; that line with its newline
+        if from_end:
+            self.read()
+
+    @staticmethod
+    def _complete(blob: bytes) -> bytes:
+        return blob[:blob.rfind(b"\n") + 1]
+
+    @staticmethod
+    def _decode(blob: bytes) -> list[str]:  # by newline only: `splitlines` would also cut at a raw U+2028 in a line
+        return blob.decode("utf-8", "replace").split("\n")[:-1]
+
+    def read(self) -> list[str]:
+        tail = self._read_tail()
+        out: list[str] = []
+        try:
+            with open(self.head, "rb") as f:
+                f.seek(self._offset)
+                blob = self._complete(f.read())
+        except OSError:
+            blob = b""
+        for raw in blob.split(b"\n")[:-1]:
+            line = raw.decode("utf-8", "replace")
+            if _is_marker(line):
+                break
+            out.append(line)
+            self._offset += len(raw) + 1
+        return out + tail
+
+    def _read_tail(self) -> list[str]:
+        """The new lines of the tail, from one look at one file (a path read twice could be two files, the compaction
+        replaces it). It goes on where it stopped when the last line seen still ends there; else the file was replaced
+        and the lines after the last one seen are the new ones (all of it when that line is gone: the writer outran us)."""
+        try:
+            with open(self.tail, "rb") as f:
+                start = self._tail_offset - len(self._last_tail)
+                if self._last_tail and start >= 0:
+                    f.seek(start)
+                    if f.read(len(self._last_tail)) == self._last_tail:
+                        return self._take(f.read(), self._tail_offset)
+                f.seek(0)
+                everything = f.read()
+        except OSError:
+            return []
+        done = self._complete(everything)
+        lines = self._decode(done)
+        if self._last_tail:
+            seen = self._last_tail[:-1].decode("utf-8", "replace")
+            at = len(lines) - 1 - lines[::-1].index(seen) if seen in lines else -1
+            lines = lines[at + 1:]
+            self._tail_offset = len(done)
+            if lines:
+                self._last_tail = lines[-1].encode("utf-8") + b"\n"
+            return lines
+        return self._take(everything, 0)
+
+    def _take(self, blob: bytes, offset: int) -> list[str]:
+        done = self._complete(blob)
+        self._tail_offset = offset + len(done)
+        lines = self._decode(done)
+        if lines:
+            self._last_tail = lines[-1].encode("utf-8") + b"\n"
+        return lines
+
+
+class ProgressReducer:
+    """The events of a job reduced to `state.json`'s `progress`: the step now running, how many of how many are done, the
+    item in work, the last message and `line`, the one line the window's foot shows (`words.job_line`). Only what
+    changed is handed to `JobFiles.update`, which rate-limits the write. The worker's job and the window's jobs both
+    use it."""
+
+    def __init__(self, files: "JobFiles"):
+        self.files = files
+        self.fields: dict = {"step": None, "done": None, "total": None, "item": None, "message": None, "line": None}
+        self._lock = threading.Lock()
+
+    def __call__(self, event: object) -> None:
+        with self._lock:
+            before = dict(self.fields)
+            self._take(event)
+            self.fields["line"] = words.job_line(self.fields)
+            changed = self.fields != before
+            now = dict(self.fields)
+        if changed:
+            self.files.update(progress=now)
+
+    def _take(self, event: object) -> None:
+        f = self.fields
+        if isinstance(event, ev.RunStarted):
+            f.update(done=0, total=event.total)
+        elif isinstance(event, ev.ActionStarted):
+            track = event.action.track
+            f.update(done=event.index - 1, total=event.total, item=f"{', '.join(track.artists)} - {track.title}")
+        elif isinstance(event, ev.ActionFinished):
+            f["done"] = (f["done"] or 0) + 1
+        elif isinstance(event, ev.StepChanged):
+            f["step"] = event.step
+        elif isinstance(event, ev.ReadingPlaylist):
+            f.update(step="reading playlists", done=event.index - 1, total=event.total, item=event.folder)
+        elif isinstance(event, (ev.MovesProgress, ev.BatchProgress)):
+            f.update(done=event.done, total=event.total)
+            if isinstance(event, ev.BatchProgress):
+                f["item"] = event.name
+        elif isinstance(event, ev.ImportProgress):
+            f.update(step=event.phase, done=event.done, total=event.total)
+        elif isinstance(event, ev.Message):
+            f["message"] = event.text
 
 
 class JobFiles:
@@ -331,6 +475,18 @@ class JobFiles:
             self._dirty = True
             if status_changed or "person_steps" in fields or time.monotonic() - self._written >= STATE_WRITE_S:
                 self._write_locked()
+
+    def update_if(self, statuses: tuple, **fields) -> bool:
+        """Like `update`, but only while the status is one of `statuses` (loaded as `update` loads it); written at once.
+        So a late `stopping` can never overwrite `done`. True when it wrote."""
+        with self._lock:
+            if self._mine is None:
+                self._mine = _read_json(self.state_path) or {"id": self.id}
+            if self._mine.get("status") not in statuses:
+                return False
+            self._mine.update(fields)
+            self._write_locked()
+            return True
 
     def flush(self) -> None:
         with self._lock:
@@ -440,7 +596,8 @@ class Registry:
     def __init__(self, support: Path):
         self.root = Path(support) / "jobs"
 
-    def create(self, kind: str, command: str, args: Mapping | None, via: str, roots: Mapping) -> JobFiles:
+    def create(self, kind: str, command: str, args: Mapping | None, via: str, roots: Mapping, *,
+               job_id: str | None = None) -> JobFiles:
         """A new job's folder with its `state.json` as `queued`, and the `alive` lock already taken by the caller (the
         claim, see the handoff in the module's words): `files.release_claim()` once the worker has the lock, or
         `with files.alive():` to run the job in this process. `roots`: `{music, support, rekordbox, sandbox}`
@@ -448,18 +605,26 @@ class Registry:
         if via not in ("window", "terminal"):
             raise ValueError(f"via is window or terminal, not {via!r}")
         self.root.mkdir(parents=True, exist_ok=True)
-        while True:
-            job_id = new_job_id()
-            try:
-                (self.root / job_id).mkdir()
-                break
-            except FileExistsError:
-                continue
+        if job_id is not None:
+            (self.root / job_id).mkdir()
+        else:
+            while True:
+                job_id = new_job_id()
+                try:
+                    (self.root / job_id).mkdir()
+                    break
+                except FileExistsError:
+                    continue
         files = JobFiles(self.root / job_id)
         files.claim()  # before state.json exists: a reader that sees the job sees it alive
-        files.update(id=job_id, kind=kind, command=command, args=dict(args or {}), via=via,
-                     roots={"music": None, "support": None, "rekordbox": None, "rekordbox_share": None, "sandbox": None, **roots},
-                     pid=None, pid_started=None, status="queued", started=_now(), ended=None, person_steps=[])
+        try:
+            files.update(id=job_id, kind=kind, command=command, args=dict(args or {}), via=via,
+                         roots={"music": None, "support": None, "rekordbox": None, "rekordbox_share": None, "sandbox": None, **roots},
+                         pid=None, pid_started=None, status="queued", started=_now(), ended=None, person_steps=[])
+        except BaseException:
+            files.release_claim()
+            shutil.rmtree(files.dir, ignore_errors=True)
+            raise
         return files
 
     def get(self, job_id: str) -> JobFiles:
@@ -478,10 +643,13 @@ class Registry:
         except OSError:
             return []
 
-    def list(self, music: Path | str | None = None, all: bool = False) -> list[dict]:
-        """The states of the jobs of the music folder `music` and of those with none (unless `all`), newest first."""
+    def list(self, music: Path | str | None = None, all: bool = False, skip: Collection[str] = ()) -> list[dict]:
+        """The states of the jobs of the music folder `music` and of those with none (unless `all`), newest first.
+        Folders named in `skip` are not read at all (the watch's settled jobs)."""
         found = []
         for directory in self._folders():
+            if directory.name in skip:
+                continue
             state = JobFiles(directory).state()
             if "kind" not in state:
                 continue

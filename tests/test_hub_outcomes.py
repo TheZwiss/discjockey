@@ -1,26 +1,21 @@
 """T8, the engine half (issue 39): the outcome table, the closed list of reasons, the precedence, and what the bridge
 decorator adds to a problem."""
 import itertools
-import re
-from pathlib import Path
 
 import pytest
 
 from discjockey import library
-from discjockey.hub import outcomes
+from discjockey.hub import outcomes, shapes
 from discjockey.hub.api import bridge
 from discjockey.hub.jobs import Busy
 from discjockey.ops import OpProblem
 from discjockey.rekordbox import eligible
 from discjockey.rekordbox import lock as rb_lock
 
-TYPES_TS = Path(__file__).resolve().parents[1] / "hub-ui" / "src" / "lib" / "bridge" / "types.ts"
-
 
 def problem_kinds_of_the_window() -> list[str]:
-    text = TYPES_TS.read_text(encoding="utf-8")
-    body = re.search(r"export const PROBLEM_KINDS[^=]*=\s*\[(.*?)\];", text, re.S).group(1)
-    return re.findall(r"'([a-z_]+)'", body)
+    """The kinds of the `ProblemKind` alias: the window's `PROBLEM_KINDS` is generated from it (hub/shapes/common.py)."""
+    return list(shapes.values("ProblemKind"))
 
 
 def test_every_problem_kind_of_the_window_has_an_outcome():
@@ -218,3 +213,15 @@ def test_a_run_that_did_nothing_and_failed_is_failed_and_a_run_that_did_some_is_
     assert outcomes.run_outcome([row("skipped")], partial) == "partial"  # nothing failed: not everything went through
     assert outcomes.run_outcome([row("undone"), row("failed")], ("refused", "failed")) == "partial"
     assert outcomes.run_outcome([row("refused"), row("failed")], ("refused", "failed")) == "failed"
+
+
+@pytest.mark.parametrize("outcome, reason, problem", [
+    ("ok", None, None), ("partial", None, None),  # a job that went through has no problem
+    ("failed", "offline", "offline"), ("refused", "setting_off", "setting_off"), ("needs_person", "rekordbox_open", "rekordbox_open"),
+    ("busy", "library_lock", "busy"), ("busy", "console", "console"), ("busy", "import_running", "busy"),
+    ("stopped", "stop", "stopped"), ("stopped", "stop_now", "stopped"), ("stopped", None, "stopped"),
+    ("failed", "worker_lost", "failed"), ("failed", None, "failed"), ("refused", "unknown_thing", "refused"),
+    ("needs_person", "away", "refused"), ("bad_args", "usage", "refused"), ("busy", None, "busy"),
+])
+def test_finished_problem_is_the_problem_kind_the_window_would_have_said(outcome, reason, problem):
+    assert outcomes.finished_problem({"outcome": outcome, "reason": reason}) == problem

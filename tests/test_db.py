@@ -61,7 +61,7 @@ def test_a_fresh_database_has_the_current_version(tmp_path, library):
         db.check(conn)
         version = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
         created = conn.execute("SELECT value FROM meta WHERE key = 'created'").fetchone()[0]
-    assert int(version) == db.SCHEMA_VERSION == 11
+    assert int(version) == db.SCHEMA_VERSION == 13
     assert created == "2026-10-23T12:00:00"
 
 
@@ -1289,6 +1289,7 @@ def test_a_writer_upgrades_a_version_9_database_and_keeps_every_old_batch(tmp_pa
     path = version_9(tmp_path, library, monkeypatch, v1_state(), fake_facts({"Library/House/A - One.mp3"}))
     old_batches(path)
     before = everything(path)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 11)  # steps 9 -> 11 alone; 11 -> 12 has its own test
     with db.connect(path) as conn:
         for table in ("aiff_batches", "move_batches"):
             assert "via" not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
@@ -1359,6 +1360,7 @@ def test_a_writer_upgrades_a_version_10_database_and_leaves_a_held_row_for_the_n
         assert "missing_since" not in {r[1] for r in conn.execute("PRAGMA table_info(files)")}
         conn.execute("UPDATE files SET held = 1 WHERE path = 'House/A - One.mp3'")  # v1.2.1: missing, move not ruled out
     before = everything(path)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 11)  # this step alone; 11 -> 12 has its own test
     with db.connect(path) as conn:
         db.check(conn, upgrade=True)
     after = everything(path)
@@ -1387,6 +1389,50 @@ def test_fresh_and_v10_upgraded_databases_have_the_same_schema(tmp_path, library
 
 def test_a_reader_refuses_a_version_10_database(tmp_path, library, monkeypatch):
     path = version_10(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
+
+
+# --- issue 39 phase 2 (V2.2a): the schema step 11 -> 12 (the stored read) ---
+
+def version_11(tmp_path, library, monkeypatch, state=None, facts=no_facts):
+    """A database as before the stored read: version 11, the records without the planner's facts."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 11)
+        m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in range(1, 11)})
+        return fresh(tmp_path, library, state, facts)
+
+
+def test_a_writer_upgrades_a_version_11_database_and_keeps_its_records(tmp_path, library, monkeypatch):
+    path = version_11(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn:
+        assert "reads" not in {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+        conn.execute("INSERT INTO playlist_reads (playlist, service, read_at) VALUES ('abc', 'spotify', '2026-11-01T10:00:00')")
+        conn.execute("INSERT INTO playlist_tracks (playlist, position, token, artist, title, duration_ms) "
+                     "VALUES ('abc', 1, 'tok1', 'Example Artist', 'Old Song', 1000)")
+        before = db.playlist_records(conn)
+        assert before
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == str(db.SCHEMA_VERSION)
+        assert db.playlist_records(conn) == before  # the Library page's answers are the old columns
+        assert db.load_read(conn) is None and db.read_head(conn) is None  # no stored read yet
+        assert db.stored_tracks(conn) == {} and db.stored_infos(conn) == {}  # the old row lacks the planner's facts
+        assert conn.execute("SELECT read_id, started FROM playlist_reads").fetchone() == (None, None)
+
+
+def test_fresh_and_v11_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_11(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
+
+
+def test_a_reader_refuses_a_version_11_database(tmp_path, library, monkeypatch):
+    path = version_11(tmp_path, library, monkeypatch)
     with db.connect(path) as conn, pytest.raises(StateError) as e:
         db.check(conn)
     assert str(e.value) == db.OLDER
@@ -1425,3 +1471,59 @@ def test_a_quality_change_of_an_offline_song_keeps_its_key(tmp_path, library):
         db.save(conn, snap, library=library, facts=no_facts, now=NOW)
         after = conn.execute(_ROW).fetchone()
     assert after == (*before[:5], 128)
+
+
+# --- issue 39 phase 2 (V2.5b): the schema step 12 -> 13 (import state) ---
+
+def version_12(tmp_path, library, monkeypatch):
+    """A database as before the import state: version 12."""
+    with monkeypatch.context() as m:
+        m.setattr(db, "SCHEMA_VERSION", 12)
+        m.setattr(db, "UPGRADES", {k: db.UPGRADES[k] for k in range(1, 12)})
+        return fresh(tmp_path, library)
+
+
+def test_a_writer_upgrades_a_version_12_database_and_keeps_its_reads(tmp_path, library, monkeypatch):
+    path = version_12(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn:
+        assert "import_state" not in {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+        conn.execute("INSERT INTO playlist_reads (playlist, service, read_at) VALUES ('abc', 'spotify', '2026-11-01T10:00:00')")
+        favourites = db.favourites(conn)
+        records = db.playlist_records(conn)
+    with db.connect(path) as conn:
+        db.check(conn, upgrade=True)
+        assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "13"
+        assert db.playlist_records(conn) == records and db.favourites(conn) == favourites
+        assert db.import_stopped_at(conn) is None  # nothing stopped yet
+
+
+def test_fresh_and_v12_upgraded_databases_have_the_same_schema(tmp_path, library, monkeypatch):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    upgraded = version_12(tmp_path / "a", library, monkeypatch)
+    with db.connect(upgraded) as conn:
+        db.check(conn, upgrade=True)
+    assert schema(upgraded) == schema(fresh(tmp_path / "b", library))
+
+
+def test_a_reader_refuses_a_version_12_database(tmp_path, library, monkeypatch):
+    path = version_12(tmp_path, library, monkeypatch)
+    with db.connect(path) as conn, pytest.raises(StateError) as e:
+        db.check(conn)
+    assert str(e.value) == db.OLDER
+
+
+def test_the_import_stopped_time_is_kept_cleared_and_never_bumps_the_generation(tmp_path, library):
+    path = fresh(tmp_path, library)
+    with db.connect(path) as conn:
+        assert db.import_stopped_at(conn) is None
+        generation = conn.execute("SELECT value FROM meta WHERE key = 'generation'").fetchone()[0]
+        db.set_import_stopped(conn, NOW)
+        first = db.import_stopped_at(conn)
+        assert first is not None and first.startswith("2026-10-23")
+        db.set_import_stopped(conn, datetime(2026, 10, 24, 8, 0, 0))  # a second stop replaces the first
+        assert db.import_stopped_at(conn) != first
+        assert conn.execute("SELECT COUNT(*) FROM import_state").fetchone()[0] == 1
+        db.set_import_stopped(conn, None)
+        assert db.import_stopped_at(conn) is None
+        assert conn.execute("SELECT value FROM meta WHERE key = 'generation'").fetchone()[0] == generation

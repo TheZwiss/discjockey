@@ -15,6 +15,8 @@ from discjockey.hub.api import HubApi, Services
 from discjockey.library import Paths, empty_state, save_state
 from discjockey.models import FetchedPlaylist, PlaylistInfo, SourceTrack
 from discjockey.planner import ENTRY_KEYS
+from pace_helpers import fast_pacer
+
 
 def cmd(text: str) -> str:
     """A command as the command line prints it in `next[].run` and `person_steps[].then`: behind the program's path."""
@@ -55,6 +57,28 @@ def choose_music(root: Path, monkeypatch) -> Paths:
     monkeypatch.setenv(library.SUPPORT_ENV, str(paths.support))
     library.write_music_folder(paths.support, root)
     return paths
+
+
+def stored(paths):
+    """(the tracks by playlist ref, the playlist infos by ref) the reads stored in library.db: what the Playlists page
+    shows, and all that is left of the window's memory when it closes."""
+    with db.connect(paths.db_file, read_only=True) as conn:
+        return db.stored_tracks(conn), db.stored_infos(conn)
+
+
+def store_sync_read(paths, fetched=(), lines=None, failed=None, when=None):
+    """Stores a sync read in library.db as a real one leaves it (`db.store_read`), without reading any playlist:
+    `fetched` (FetchedPlaylist list) with `lines` (default: their lines), or a failed read, `failed` = (problem kind,
+    service, words), which carries no lines. Returns the stored read's id."""
+    from datetime import datetime
+    from discjockey.models import StoredRead
+    when = when or datetime.now()
+    with db.connect(paths.db_file) as conn:
+        if failed is not None:
+            problem, service, message = failed
+            return db.store_read(conn, StoredRead("sync", when, [], None, [], problem, service, message), None, now=when)
+        lines = lines if lines is not None else [fp.line for fp in fetched]
+        return db.store_read(conn, StoredRead("sync", when, list(fetched), lines, []), None, now=when)
 
 
 def make_root(tmp_path, upgrade=False):
@@ -192,6 +216,7 @@ def services(**kw):
                  reveal=calls["reveal"].append, which=lambda tool: f"/opt/homebrew/bin/{tool}",
                  now=lambda: __import__("datetime").datetime(2026, 10, 20, 21, 47),
                  home=Path("/nonexistent-home"),  # never the real browsers
+                 pacer=fast_pacer,  # the pacing logic on a clock that only moves when it waits
                  open_in=lambda browser, url, profile=None: calls["open_in"].append((browser, url, profile)))
     for k, v in kw.items():
         setattr(s, k, v)
@@ -250,6 +275,12 @@ def wait_job(api, rec, answer, timeout=30):
             return f
         time.sleep(0.01)
     raise AssertionError("the job did not finish")
+
+
+def sync_plan(api):
+    """What the window's Start sends: the id of the plan `sync_preview` shows and the ids of all its actions."""
+    preview = api.sync_preview()
+    return preview["plan_id"], [a["id"] for g in preview["groups"] for a in g["actions"]]
 
 
 def refreshed(api, rec):

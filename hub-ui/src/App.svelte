@@ -3,9 +3,11 @@
   // and under both the frame's foot (the player bar and/or the sync). Sidebar and foot are one L-shaped frame in one
   // material, painted here once; the page sits inside it on the black background.
   import type { Component } from 'svelte';
+  import { get } from 'svelte/store';
   import { route, go } from '$lib/router';
   import { pageFor, type PageProps } from './pages/registry';
-  import { hubSyncRunning, hub } from '$lib/stores/hub';
+  import { hub } from '$lib/stores/hub';
+  import { shownSync } from '$lib/stores/follow';
   import { musicGate } from '$lib/musicFolder';
   import { attachAudio, player } from '$lib/stores/player';
   import { footShape, keyTarget, playerKey } from '$lib/shell/footModel';
@@ -14,6 +16,8 @@
     from '$lib/stores/chrome';
   import { onEvent } from '$lib/bridge/events';
   import { toasts } from '$lib/stores/toasts';
+  import { dropTarget } from '$lib/stores/drag';
+  import { DROP_NO_TRACK } from '$lib/copy';
   import { clearReady } from '$lib/ready';
   import Sidebar from '$lib/shell/Sidebar.svelte';
   import Foot from '$lib/shell/Foot.svelte';
@@ -48,7 +52,8 @@
     }
   });
   const chrome = $derived(entry.chrome === 'app' && gate !== 'missing');
-  const syncInFoot = $derived(chrome && $hubSyncRunning && $route.name !== 'sync');
+  // the own sync, or the Terminal's while it runs (`shownSync`); the Sync page shows it itself
+  const syncInFoot = $derived(chrome && $shownSync !== null && $route.name !== 'sync');
   // the chrome's whole width (plan library stage 5, I6): set here on the app root, so the page's edge, the foot's line
   // and the rule checker read one value; without the chrome the token's default stands
   const sidebarW = $derived(chrome ? `${$chromeLayout.sidebarW}px` : undefined);
@@ -97,8 +102,9 @@
   // A dropped file that no track on screen can take: say so (the To-do page shows its own drops inline).
   $effect(() => onEvent((e) => {
     if (e.type !== 'FileDropped') return;
-    if (e.track_id === null || (!e.readable && $route.name !== 'todo')) {
-      toasts.show({ tone: 'problem', title: e.readable ? 'Select a track first.' : "Can't read this file.", body: e.message });
+    if (get(dropTarget) === null || (!e.readable && $route.name !== 'todo')) {
+      toasts.show({ tone: 'problem', title: e.readable ? 'Select a track first.' : "Can't read this file.",
+        body: e.readable ? DROP_NO_TRACK : e.message });
     }
   }));
 
@@ -129,7 +135,7 @@
       <ToastHost />
     </div>
   </div>
-  {#if chrome}<Foot p={$player} sync={syncInFoot} />{/if}
+  {#if chrome}<Foot p={$player} sync={syncInFoot} run={$shownSync ?? undefined} />{/if}
   {#if FakeToolbar}<FakeToolbar />{/if}
 </div>
 <svelte:window onkeydown={onKey} />

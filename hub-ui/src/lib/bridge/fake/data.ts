@@ -149,7 +149,7 @@ export type FakeImport = {
   folders: FakeFolder[]; nextId: number;
   /** the files the import couldn't read, with their reason's words */
   unreadable: UnreadableFile[];
-  /** the user stopped an import this session */
+  /** the user stopped an import (kept in library.db until Continue import) */
   stopped: boolean;
   /** Setup's "Your existing music" was skipped */
   skipped: boolean;
@@ -210,6 +210,11 @@ export type FakeState = {
   licensesMissing?: boolean;
   read_status: ReadStatus;
   console_running: boolean;
+  /** what the Terminal's job is (`console_running` true): its kind and progress line; null means a sync at "4 of 60", '' a job that has not said how far it is */
+  console_kind: string | null;
+  console_line: string | null;
+  /** the holder is one the registry knows nothing of (an older Discjockey): no job, the unnamed sentence */
+  console_unnamed: boolean;
   /** the fake rekordbox is open: Same track on a file that isn't AIFF stops with `rekordbox_open` */
   rekordbox_running?: boolean;
   /** the fake rekordbox library: `none` (no rekordbox on this Mac) or `unreadable`; unset is `ready` */
@@ -220,6 +225,8 @@ export type FakeState = {
   batchSkip?: Record<string, string>;
   /** the sync's Auto-upgrade phase: the fake rekordbox is opened after this many tracks of the batch (the rest wait) */
   autoOpensAfter?: number;
+  /** a sync a scenario shows already started: the plan rows (kind, track) it was ticked with, as `job_status().last_sync` names them by id */
+  lastSyncRows?: { kind: string; track_id: string }[];
   /** who started a scenario's AIFF batch (batch id -> `aiff_batches.started_by`); unset: the user */
   batchStartedBy?: Record<number, 'user' | 'upgrade_all' | 'auto_upgrade' | 'download_again'>;
   /** stage D: the room per drive (a folder on it, as `AiffPlan.space` says it) in bytes; a drive not listed has 400 GB */
@@ -232,8 +239,6 @@ export type FakeState = {
   /** app_update(): the update check's answer (scenario update_available: a newer version) */
   appUpdate: AppUpdate;
   previewRead: boolean;          // false → sync_preview empty 'no_preview'
-  selected: string | null;
-  dropped: { track_id: string; name: string } | null;
   errors: boolean;               // every write ends with a problem
   errorTurn: number;
   syncStarts: number;
@@ -250,6 +255,8 @@ export type FakeState = {
   emptyRead: string[];
   /** hook: the brief saves (`set_favourites`, `set_crate_shown`) answer `busy`, as when a running job's write holds library.db */
   briefBusy: boolean;
+  /** settings.json's `sync_scope` (issue 39 V2.5b): the collection targets left out and the weekly kinds switched off */
+  scope: { off: string[]; weekly_off: ('retry' | 'weekly')[] };
 };
 
 // ---------- helpers ----------
@@ -303,12 +310,24 @@ export function todoFileState(t: FakeTrack): 'here' | 'offline' | 'folder_missin
 }
 /** Whether the file can be played: its drive is there and it isn't marked missing (views: `state == "here"`). */
 export const fileThere = (t: FakeTrack): boolean => !t.away && !t.missing;
+/** models.rev's stand-in: 10 hex of an FNV-1a over the record's status, path and parked file (the fake has no second
+ *  writer, so its rev only has to be stable and change with those three). */
+export function recordRev(status: string, path: string | null, upgradeFile: string | null): string {
+  let h = 0x811c9dc5;
+  for (const c of JSON.stringify([status, path, upgradeFile])) {
+    h = Math.imul(h ^ c.charCodeAt(0), 0x01000193) >>> 0;
+  }
+  let h2 = h ^ 0x9e3779b9;
+  for (const c of JSON.stringify([upgradeFile, path, status])) h2 = Math.imul(h2 ^ c.charCodeAt(0), 0x01000193) >>> 0;
+  return (h.toString(16).padStart(8, '0') + h2.toString(16).padStart(8, '0')).slice(0, 10);
+}
 export function trackRow(t: FakeTrack): TrackRow {
   return {
     track_id: t.track_id, artist: t.artist, title: t.title, folder: t.folder, duration_s: t.duration_s,
     status: t.status, quality: qualityOf(t), quality_label: qualityLabel(t), cutoff_hz: t.cutoff_hz,
     source: t.source, source_name: t.own ? OWN_SHORT : t.source ? SOURCE_NAMES[t.source] : null, in_playlists: t.in_playlists,
     own: !!t.own, hidden: t.hidden, upgrade_ready: !!t.upgrade, path: pathOf(t), added: t.added, cover_url: coverUri(t.cover),
+    rev: recordRev(t.status, pathOf(t), t.upgrade?.file ?? null),
   };
 }
 export function qualityLine(t: FakeTrack): string {
@@ -747,11 +766,19 @@ export function newTracks(n = 10) {
   return out;
 }
 
+/** `act:<kind>:<track>:<n>` (`run.action_ids`): n the place of the action's folder in the plan's folder list, a folder that is
+ *  none of them numbered after them. A row's own id has no list to go by (place 1); `numberPlan` numbers an assembled
+ *  preview's rows by its folders. */
+export const actionId = (a: Pick<PreviewAction, 'kind' | 'track_id' | 'folder'>, folders: string[] = []): string => {
+  const at = folders.indexOf(a.folder);
+  return `act:${a.kind}:${a.track_id}:${at < 0 ? folders.length + 1 : at + 1}`;
+};
+
 export function previewAction(kind: string, reason: string | null, t: { track_id: string; artist: string;
   title: string; folder: string }, to_not_lossless = false, src: string | null = null,
   cover: number | null = null): PreviewAction {
   const to_dir = `Library/${t.folder}${to_not_lossless ? '/not_lossless' : ''}`;
-  return { key: [kind, t.track_id, to_dir], kind, reason, track_id: t.track_id, artist: t.artist, title: t.title,
+  return { id: actionId({ kind, track_id: t.track_id, folder: t.folder }), kind, reason, track_id: t.track_id, artist: t.artist, title: t.title,
     folder: t.folder, to_dir, to_not_lossless, src, cover_url: coverUri(cover), in: [] };
 }
 
@@ -777,7 +804,7 @@ export function runDetail(id: string, started: Date, duration_s: number, exit_co
   const newFiles = results.filter((r) => NEW_FILE_SECTIONS.includes(r.section) && r.path).map((r) => r.path!);
   const count = (...ss: string[]) => results.filter((r) => ss.includes(r.section)).length;
   return {
-    run_id: id, kind: 'sync', started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
+    run_id: id, id: `report:${id}`, kind: 'sync', started: iso(started), finished: iso(new Date(started.getTime() + duration_s * 1000)), duration_s,
     exit_code, counts: { lossless: count('new_lossless', 'swapped', 'redownloaded', 'upgraded', 'placed_missing'),
       lossy: count('new_not_lossless', 'fake'), problems: count(...PROBLEM_SECTIONS), moved: count('moved') },
     stopped_after, sections, needs_you: results.filter((r) => PROBLEM_SECTIONS.includes(r.section) && r.track_id),
@@ -852,7 +879,7 @@ export function setupComplete(): SetupStatus {
   return { music: { state: 'ok', path: FAKE_MUSIC, suggested: FAKE_MUSIC }, tools: { ffmpeg: true, ffprobe: true, deno: true }, spotify_app: true, spotify_login: true, qobuz: true,
     playlists: true, complete: true, next_step: null, version: '1.0.0', qobuz_skipped: false,
     spotify_skipped: false, existing: false, import_folders: 0, import_skipped: false,
-    accounts: { youtube: null, soundcloud: null },
+    qobuz_last_check: null, spotify_user: null, accounts: { youtube: null, soundcloud: null },
     youtube_music: { liked_music: false, can_turn_on: false, listed: false }, auto_upgrade: true };
 }
 export function nextStep(s: SetupStatus): SetupStatus {
@@ -876,7 +903,7 @@ export function readStatus(s: FakeState): ReadStatus {
 }
 export function readOk(minutes = 2, now = new Date()): ReadStatus {
   return { read_at: iso(new Date(now.getTime() - minutes * 60000)), minutes_ago: minutes, problem: null,
-    problem_service: null, services: readServices(), message: '', stale: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
+    problem_service: null, services: readServices(), message: '', lines_changed: false, reading: false, offline: false, auto_read: true };  // as after the hub's read when it opens
 }
 
 export function makeState(scenario: string, now = new Date()): FakeState {
@@ -920,10 +947,10 @@ export function makeState(scenario: string, now = new Date()): FakeState {
       signals: [{ time: iso(daysAgo(now, 3, 22, 12)), kind: 'search_failed', message: 'Qobuz search did not answer twice' },
         { time: iso(daysAgo(now, 6, 21, 58)), kind: 'duration_mismatch', message: 'Length 3:12 vs Spotify 4:28' }],
       last_download: iso(daysAgo(now, 0, 21, 47)) },
-    setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, offline: false, previewRead: true,
+    setup: setupComplete(), downloadTools: builtInTools(), read_status: readOk(2, now), console_running: false, console_kind: null, console_line: null, console_unnamed: false, offline: false, previewRead: true,
     appUpdate: { state: 'up_to_date', current: '1.0.0', latest: null, url: null },
-    selected: null, dropped: null, errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
-    favourites: [], crateShown: {}, unread: [], emptyRead: [], briefBusy: false,
+    errors: scenario === 'errors', errorTurn: 0, syncStarts: 0, never: [], tidy: emptyTidy(), imp: emptyImport(),
+    favourites: [], crateShown: {}, unread: [], emptyRead: [], briefBusy: false, scope: { off: [], weekly_off: [] },
     accounts: { youtube: null, soundcloud: null }, qobuzSkipped: false,  // the user's own setup: Qobuz only
   };
   if (scenario === 'first_run' || scenario === 'no_music' || scenario.startsWith('setup_existing')) {
@@ -932,7 +959,7 @@ export function makeState(scenario: string, now = new Date()): FakeState {
     s.setup = nextStep({ ...setupComplete(), spotify_login: false, qobuz: false, playlists: false });
     s.read_status = { read_at: null, minutes_ago: null, problem: 'not_set_up', problem_service: null,
       services: [], message: 'Spotify is not set up yet.',
-      stale: false, reading: false, offline: false, auto_read: false };
+      lines_changed: false, reading: false, offline: false, auto_read: false };
   }
   if (scenario === 'no_music') {
     s.setup = nextStep({ ...s.setup, music: { state: 'not_chosen', path: null, suggested: FAKE_MUSIC } });

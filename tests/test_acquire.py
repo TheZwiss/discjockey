@@ -6,7 +6,7 @@ import pytest
 from mutagen.aiff import AIFF
 
 from discjockey.acquire import Acquirer, AcquireResult, Ready, make_ready
-from discjockey.events import AccountUsage, CancelToken, Checked, SourceChosen, StepChanged, Tracker
+from discjockey.events import AccountUsage, Cancelled, CancelToken, Checked, SourceChosen, StepChanged, Tracker
 from discjockey.models import Candidate, SourceTrack
 from discjockey.pacing import Budget, NoPacer
 from discjockey.qobuz import QobuzPreviewOnly
@@ -309,15 +309,52 @@ class SpyPacer(NoPacer):
     def between_qobuz_downloads(self):
         self.calls.append("between")
 
+    def downloaded(self, service):
+        self.calls.append(f"downloaded {service}")
 
-def test_protection_pause_only_between_two_qobuz_downloads(tmp_path):
+
+def test_every_qobuz_download_asks_the_pacer_and_tells_it_when_it_ended(tmp_path):
     pacer = SpyPacer()
     q = FakeQobuz({ISRC_Q: [qc("1")]})
     a, _ = acquirer(q, pacer=pacer)
     a.acquire(T, set(), tmp_path, lossless_only=False)
-    assert pacer.calls == []  # nothing to wait for before the first download of the run
+    assert pacer.calls == ["between", "downloaded qobuz"]  # the pacer decides whether there is anything to wait for
     a.acquire(T, set(), tmp_path, lossless_only=False)
-    assert pacer.calls == ["between"]
+    assert pacer.calls == ["between", "downloaded qobuz"] * 2
+
+
+def test_a_failed_qobuz_download_ends_its_claim_too(tmp_path):
+    pacer = SpyPacer()
+    a, _ = acquirer(FakeQobuz({ISRC_Q: [qc("1")]}, fail_download={"1"}), pacer=pacer)
+    a.acquire(T, set(), tmp_path, lossless_only=False)
+    assert pacer.calls == ["between", "downloaded qobuz"]
+
+
+def test_a_qobuz_wait_that_is_stopped_leaves_no_claim_to_end(tmp_path):
+    class Stopped(SpyPacer):
+        def between_qobuz_downloads(self):
+            raise Cancelled()
+
+    pacer = Stopped()
+    a, _ = acquirer(FakeQobuz({ISRC_Q: [qc("1")]}), pacer=pacer)
+    with pytest.raises(Cancelled):
+        a.acquire(T, set(), tmp_path, lossless_only=False)
+    assert pacer.calls == []
+
+
+def test_a_pacer_that_cannot_write_is_not_a_failed_qobuz_search(tmp_path):
+    class Broken(NoPacer):
+        def before_qobuz_search(self):
+            raise OSError("pace.json is locked")
+
+    q = FakeQobuz({ISRC_Q: [qc("1")]})
+    searched = []
+    q.search = lambda *a, **k: searched.append(a) or []
+    a, state = acquirer(q, pacer=Broken())
+    with pytest.raises(OSError):
+        a.acquire(T, set(), tmp_path, lossless_only=False)
+    assert a.budget.failures_in_a_row == 0 and searched == []
+    assert state["qobuz_usage"]["signals"] == []
 
 
 def test_steps_are_reported(tmp_path):
@@ -335,13 +372,13 @@ def test_auto_stop_after_three_failed_qobuz_downloads(tmp_path):
     a.emit = events.append
     first = a.acquire(T, set(), tmp_path, lossless_only=False)  # 2 failures; Qobuz had trouble -> no YouTube copy
     assert first.kind == "errored" and fb.downloads == []
-    second = a.acquire(T, set(), tmp_path, lossless_only=False)  # 3rd failure -> Qobuz paused for this run
+    second = a.acquire(T, set(), tmp_path, lossless_only=False)  # 3rd failure -> Qobuz paused until the next sync
     assert second.kind == "errored" and a.budget.stopped  # its own download failed; no name search after that
     third = a.acquire(T, set(), tmp_path, lossless_only=False)
     assert third.kind == "queued" and "paused" in third.note
     assert [s["kind"] for s in state["qobuz_usage"]["signals"]][-1] == "auto_stop"
     warnings = [e for e in events if getattr(e, "level", "") == "warning"]
-    assert len(warnings) == 1 and "paused" in warnings[0].text
+    assert len(warnings) == 1 and "until the next sync starts" in warnings[0].text
 
 
 def test_qobuz_trouble_does_not_fill_the_library_from_youtube(tmp_path):
@@ -598,8 +635,6 @@ def test_the_source_is_known_before_the_protection_pause(tmp_path):
     events = []
     tracker = Tracker(events.append, CancelToken(), "t1", min_interval=0)
     a, _ = acquirer(FakeQobuz({ISRC_Q: [qc("1")]}), pacer=OrderPacer(events))
-    a.acquire(T, set(), tmp_path, False, tracker)
-    events.clear()
     a.acquire(T, set(), tmp_path, False, tracker)
     names = [e if isinstance(e, str) else type(e).__name__ for e in events]
     assert names.index("SourceChosen") < names.index("between") < names.index("StepChanged", names.index("between"))

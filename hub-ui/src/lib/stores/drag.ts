@@ -1,5 +1,5 @@
 // True while a file is dragged over the window (document-level counter; plan 64.5). Never an HTML5 drag source.
-import { readable } from 'svelte/store';
+import { readable, writable } from 'svelte/store';
 
 /** Calls `set(true)` while a file (not text from the page) is dragged over `target`, `set(false)` once it leaves or
  *  is dropped. Returns the clean-up. */
@@ -28,6 +28,10 @@ export const dragging = readable(false, (set) => {
   if (typeof document === 'undefined') return;
   return watchFileDrags(document, set);
 });
+
+/** The to-do item whose drop zone a dropped file goes to: the track To-do shows in its panel, null anywhere else (the
+ *  engine knows no selection; a drop's path comes back in `add_bought_file(track_id, path)`). */
+export const dropTarget = writable<string | null>(null);
 
 /** The drop catcher (#drop-catcher in index.html): an empty element over the whole window that pywebview's drop
  *  handler sits on. pywebview sends the whole event to Python, the element it sits on included with everything inside

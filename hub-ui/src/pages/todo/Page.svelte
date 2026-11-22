@@ -29,6 +29,7 @@
   import { hub, writeBlockedReason } from '$lib/stores/hub';
   import type { AiffScope, Fail, Todo, TodoFilter, TodoGroupKey, TodoItem, TrackDetail } from '$lib/bridge/types';
   import { filesVersion } from '$lib/stores/hub';
+  import { dropTarget } from '$lib/stores/drag';
   import {
     NO_SELECTION, clickSelect, dropSelected, escapeSelection, isSelected, keepSelected, moveSelected, onlySelected,
     selectAll, selectOne, type Selection,
@@ -283,12 +284,11 @@
   let tseq = 0;
   // the import's items have their panel from the item itself: no track() for them, and no track to select
   const selId = $derived(selected && !selected.pair && !isBatch(selected) ? selected.track_id : null);
-  let lastSelected: string | null | undefined = undefined;
   $effect(() => {
     const id = selId;
     void $filesVersion;
     untrack(() => {
-      if (id !== lastSelected) { lastSelected = id; void api.select(id); }
+      dropTarget.set(id);  // a file dropped on the window goes to this track
       void loadTrack(id);
     });
   });

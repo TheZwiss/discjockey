@@ -60,6 +60,10 @@ class Settings:
     # to end with one AIFF batch of the upgrades that need no decision (`auto_upgrade.py`). On by default; a settings
     # file without the key reads as on
     auto_upgrade: bool = True
+    # The Sync page's scope switches (issue 39 V2.5b): the collections left out of a sync (`playlist:<ref>` /
+    # `folder:<path>` targets) and the weekly kinds switched off (`SCOPE_KINDS`). Nothing listed: everything is on
+    scope_off: tuple[str, ...] = ()
+    weekly_off: tuple[str, ...] = ()
 
     @property
     def reads_liked_music(self) -> bool:
@@ -149,6 +153,31 @@ def _last_check(path: Path, raw: object) -> dict | None:
     return dict(raw)
 
 
+SCOPE_KINDS = ("retry", "weekly")  # the weekly kinds the Sync page switches (`planModel.WEEKLY_KINDS`)
+SCOPE_TARGET_PREFIXES = ("playlist:", "folder:")
+
+
+def is_scope_target(item: str) -> bool:
+    """Whether `item` names a collection the scope can leave out: `playlist:<ref>` or `folder:<path>`."""
+    return item.startswith(SCOPE_TARGET_PREFIXES) and item.split(":", 1)[1] != ""
+
+
+def _scope(path: Path, raw) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """settings.json's `sync_scope` as (off, weekly_off): absent is everything on; items that are not a known target
+    or kind are dropped; repeats are dropped (the first keeps its place)."""
+    if raw is None:
+        return (), ()
+    if not isinstance(raw, dict):
+        raise SettingsError(f"{path.name}: sync_scope must have off and weekly_off.")
+
+    def kept(key: str, ok: Callable[[str], bool]) -> tuple[str, ...]:
+        items = raw.get(key) or []
+        if not isinstance(items, list):
+            raise SettingsError(f"{path.name}: sync_scope.{key} must be a list.")
+        return tuple(dict.fromkeys(i for i in items if isinstance(i, str) and ok(i)))
+    return kept("off", is_scope_target), kept("weekly_off", SCOPE_KINDS.__contains__)
+
+
 def load_settings(path: Path) -> Settings:
     if not path.exists():
         return Settings()
@@ -182,12 +211,13 @@ def load_settings(path: Path) -> Settings:
         auto_upgrade = data.get("auto_upgrade", True)
         if not isinstance(auto_upgrade, bool):
             raise SettingsError(f"{path.name}: auto_upgrade must be true or false.")
+        scope_off, weekly_off = _scope(path, data.get("sync_scope"))
         seen = data.get("warnings_seen") or {}
         if not isinstance(seen, dict) or not all(isinstance(v, str) for v in seen.values()):
             raise SettingsError(f"{path.name}: warnings_seen must map services to times.")
         s = Settings(limit, day, amount, accounts, skipped, {str(k): v for k, v in seen.items()},
                      _last_check(path, data.get("qobuz_last_check")), spotify_skipped, import_skipped,
-                     read_liked_music, auto_upgrade)
+                     read_liked_music, auto_upgrade, scope_off, weekly_off)
     except SettingsError:
         raise
     except (ValueError, TypeError, AttributeError, KeyError) as e:
@@ -213,6 +243,7 @@ def save_settings(path: Path, s: Settings) -> None:
             "qobuz_skipped": s.qobuz_skipped, "spotify_skipped": s.spotify_skipped,
             "import_skipped": s.import_skipped, "read_liked_music": s.read_liked_music,
             "auto_upgrade": s.auto_upgrade,
+            "sync_scope": {"off": list(s.scope_off), "weekly_off": list(s.weekly_off)},
             "warnings_seen": dict(s.warnings_seen),
             "qobuz_last_check": dict(s.qobuz_last_check) if s.qobuz_last_check else None,
             "accounts": {k: {"browser": a.browser, "profile": a.profile, "daily_limit": a.daily_limit,

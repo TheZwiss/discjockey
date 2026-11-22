@@ -3,7 +3,7 @@ payload's `quality_line` and `quality_label`), the cutoff sentence (`cutoff_text
 highs end), then the current file's facts under the window's own labels, and, for a song whose file waits as missing,
 the engine's lines about it (`missing.line`, `hint`, `will`, `words`). Nothing is worded here: the page prints what
 the payload carries. `generic.rest` prints every other field under "More"; the raw facts that the words above stand
-for (`cutoff_hz`, `quality`, `status`, `source`) come back with `--verbose`."""
+for (`cutoff_hz`, `quality`, `status`, `source`) and the record's `rev` come back with `--verbose`."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -13,7 +13,7 @@ from .layout import Page, Row, Section
 
 WORDED = {"track_id", "artist", "title", "quality_label", "quality_line", "cutoff_text", "format_line", "source_full",
           "source_format_line", "source_how", "playlists", "added", "path", "place", "file_state"}
-RAW = {"cutoff_hz", "quality", "status", "source", "source_name"}  # facts the words above stand for: `--verbose`
+RAW = {"cutoff_hz", "quality", "status", "source", "source_name", "rev"}  # facts the words above stand for: `--verbose`
 
 
 def _rows(t: Mapping, labels: tuple[tuple[str, str], ...]) -> list[Row]:

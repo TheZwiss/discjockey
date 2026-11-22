@@ -36,8 +36,10 @@ export type HubEvent =
   | { type: 'JobStarted'; job_id: string; kind: string; track_id: string | null; batch_kind: 'upgrade' | 'convert' | 'mixed' | null }
   | { type: 'JobFinished'; job_id: string; kind: string; ok: boolean; problem: ProblemKind | null; message: string;
       result: any | null; service?: PlaylistService | null }
-  | { type: 'ConsoleBusy'; running: boolean }
-  | { type: 'FileDropped'; track_id: string | null; name: string; readable: boolean; message: string }
+  /** another process's job holds the library (`job`, `kind` and `line` name it from the registry; all null for a holder with no registry entry, and when `running` is false); `text` is what the banner says of it (the engine's words: "Sync running in the Terminal · 4 of 60"), null when `running` is false */
+  | { type: 'ConsoleBusy'; running: boolean; job: string | null; kind: string | null; line: string | null; text: string | null;
+      where: string | null }
+  | { type: 'FileDropped'; name: string; path: string | null; readable: boolean; message: string }
   | { type: 'SignInPhase'; service: 'youtube' | 'soundcloud'; phase: 'waiting' | 'checking'; browser: Browser;
       browser_name: string }
   | { type: 'AppUpdate'; state: AppUpdate['state']; current: string; latest: string | null; url: string | null }
@@ -69,8 +71,8 @@ export const EVENT_FIELDS: { [T in HubEvent['type']]: readonly (keyof EventOf<T>
   ImportProgress: ['type', 'phase', 'done', 'total', 'unreadable'],
   JobStarted: ['type', 'job_id', 'kind', 'track_id', 'batch_kind'],
   JobFinished: ['type', 'job_id', 'kind', 'ok', 'problem', 'message', 'result', 'service'],
-  ConsoleBusy: ['type', 'running'],
-  FileDropped: ['type', 'track_id', 'name', 'readable', 'message'],
+  ConsoleBusy: ['type', 'running', 'job', 'kind', 'line', 'text', 'where'],
+  FileDropped: ['type', 'name', 'path', 'readable', 'message'],
   SignInPhase: ['type', 'service', 'phase', 'browser', 'browser_name'],
   AppUpdate: ['type', 'state', 'current', 'latest', 'url'],
   DrivesChanged: ['type', 'away'],

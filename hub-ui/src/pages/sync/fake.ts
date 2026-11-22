@@ -12,7 +12,8 @@
 //   sync:crashed           a sync already running crashes; its crash note is filed as the run's report
 //   sync:stop-refused  a sync already running (as sync:converting) whose Stop safely fails
 //   sync:no-qobuz    the long plan for a colleague without Qobuz: YouTube Premium 30/day (26 used), SoundCloud Go+ 60/day
-//   sync:up-to-date-console  up to date while a sync runs in the terminal: no Start, so the shell's banner says it
+//   sync:up-to-date-console  up to date while a tidy-up runs in the Terminal: no Start, so the shell's banner says it (a
+//                    Terminal sync shows its live view instead: console:sync-*)
 //   sync:up-to-date-wait  up to date, and the last run's details take a minute to come (the panel's waiting state)
 //   sync:up-to-date-answers  up to date, with 2 songs that wait for an answer to "Is this the same song?" (issue 27)
 //   sync:qobuz-backup the long plan with Qobuz (10 left today) plus two limited backups behind it: YouTube Premium
@@ -33,13 +34,13 @@
 import type { Bridge } from '$lib/bridge/client';
 import type { FakeContext, PageFake } from '$lib/bridge/fake/bridge';
 import type { FakeState } from '$lib/bridge/fake/data';
+import { numberPlan } from '$lib/bridge/fake/plan';
 import { FAKE_MUSIC, SPOTIFY_HINT, coverUri, previewAction, runId, samplePlaylists } from '$lib/bridge/fake/data';
 import { addPastAutoRun, readyTracks, seedUpgrades } from '$lib/bridge/fake/auto';
 import { sampleQuestions } from '$lib/bridge/fake/folders';
+import { setConsole } from '$lib/bridge/fake/console';
 import { STREAMS, SYNC_LINES, SYNC_START_LINE } from '$lib/bridge/fake/replay';
-import { setPref } from '$lib/prefs';
 import type { SyncPreview } from '$lib/bridge/types';
-import { PREF_LAST_SELECTION, type Picked } from './selection';
 import { DOWNLOAD_AGAIN_LABEL } from './planModel';
 
 const ARTISTS = ['Pegassi', 'Vatoz Locoz', 'torbentorben', 'Armin Hermann', 'DJ TALLBOY', 'Nina Kraviz', 'Kölsch',
@@ -166,10 +167,8 @@ export const scenarios: PageFake['scenarios'] = {
   'downloading-upload': (s) => { s.scenario = 'sync:downloading-upload'; },
   'own-cover'(s) {
     s.scenario = 'sync:own-cover';
-    // what Start saves: the plan's cover link of "non stop" (t5), the artwork of its file (the run's own events have none)
-    const picked: Picked[] = [{ key: ['acquire', 't5', 'Library/Hard_Bounce'], kind: 'acquire', track_id: 't5',
-      title: 'non stop', artist: 'torbentorben', folder: 'Hard_Bounce', cover_url: coverUri(3) }];
-    setPref(PREF_LAST_SELECTION, picked);
+    // what Start was given: "non stop" (t5), whose plan row carries the artwork link the run's own events have none of
+    s.lastSyncRows = [{ kind: 'acquire', track_id: 't5' }];
   },
   'auto-done'(s) {
     addPastAutoRun(s);
@@ -180,7 +179,7 @@ export const scenarios: PageFake['scenarios'] = {
   'auto-rekordbox-open'(s) { seedUpgrades(s, 3); s.rekordbox_running = true; },
   'auto-running'(s) { seedUpgrades(s, 7); },
   'up-to-date': (s) => { s.scenario = 'sync:up-to-date'; },
-  'up-to-date-console': (s) => { s.scenario = 'sync:up-to-date'; s.console_running = true; },
+  'up-to-date-console': (s) => { s.scenario = 'sync:up-to-date'; setConsole(s, true, 'tidy'); },
   'up-to-date-wait': (s) => { s.scenario = 'sync:up-to-date-wait'; },
   'up-to-date-answers': (s) => { s.scenario = 'sync:up-to-date'; s.imp.questions = sampleQuestions().slice(0, 2); },
   'crashed': (s) => { s.scenario = 'sync:crashed'; },
@@ -190,14 +189,14 @@ export const scenarios: PageFake['scenarios'] = {
 export const overrides: PageFake['overrides'] = {
   // the real run(run_id) is a pywebview round trip plus a report parse; this one takes a minute
   // Stop safely fails (the foot's red alert line); every other scenario stops as the base does
-  stop: (ctx, base) => async () => ctx.s.scenario === 'sync:stop-refused'
+  stop: (ctx, base) => async (job_id) => ctx.s.scenario === 'sync:stop-refused'
     ? { ok: false as const, kind: 'refused' as const, message: "The sync didn't answer. It is still running; try again in a moment." }
-    : base(),
+    : base(job_id),
   run: (ctx, base) => async (run_id) => {
     if (ctx.s.scenario === 'sync:up-to-date-wait') await new Promise((r) => setTimeout(r, 60_000));
     return base(run_id);
   },
-  sync_preview: (ctx, base) => async () => fillMembers(await syncPreview(ctx, base)),
+  sync_preview: (ctx, base) => async () => numbered(ctx, fillMembers(await syncPreview(ctx, base))),
   job_status: (ctx, base) => {
     // a sync that already runs when the window opens, frozen in the conversion of "non stop"
     if (ctx.s.scenario === 'sync:converting' || ctx.s.scenario === 'sync:stop-refused' || ctx.s.scenario === 'sync:own-cover') {
@@ -221,7 +220,7 @@ export const overrides: PageFake['overrides'] = {
         const report = `${FAKE_MUSIC}/.discjockey/reports/${runId(new Date())}.md`;
         setTimeout(() => {
           ctx.emit({ type: 'RunFinished', exit_code: 1, report_path: report });
-          finish(false, { exit_code: 1, report, actions: 9, new_since_preview: 0 }, 'crashed',
+          finish(false, { exit_code: 1, report, actions: 9, new_since_plan: [] }, 'crashed',
             "The sync stopped unexpectedly. Everything done up to then is saved, and the next sync carries on from there.");
         }, 800 / ctx.speed);
       });
@@ -262,6 +261,14 @@ async function syncPreview(ctx: FakeContext, base: Bridge['sync_preview']): Prom
       return { ...r, groups: [], counts: { new: 0, retries: 0, redownloads: 0, bought: 0, weekly_checks: 0 }, never, empty: 'up_to_date' as const };
     }
     return r;
+}
+/** The scenario's rows get their ids and the preview its plan id and presets (the fake bridge numbered only its own rows),
+ *  and that plan is the one a Start is checked against. */
+function numbered(ctx: FakeContext, r: Preview): Preview {
+  if (!r.ok) return r;
+  const plan = numberPlan(r, ctx.s.scope);
+  ctx.knowPlan(plan.plan_id!, r.groups.flatMap((g) => g.actions).map((a) => a.id));
+  return { ...r, ...plan };
 }
 /** Rows a scenario added go by their folder's collection (the fake bridge fills its own rows' `in`, issue 37). */
 function fillMembers(r: Preview): Preview {

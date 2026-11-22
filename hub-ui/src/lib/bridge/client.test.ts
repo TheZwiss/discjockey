@@ -57,6 +57,14 @@ describe('runJob', () => {
     fakeWindow({ hide: async () => { dispatch(finished('job:00000008')); return { ok: true, job_id: 'job:00000008' }; } });
     expect(await runJob(api.hide('t2', true))).toMatchObject({ ok: true, job_id: 'job:00000008' });
   });
+  it('hands the engine\'s own line of a job that ends well to the caller, which may toast it', async () => {
+    fakeWindow({ keep_file: async () => ({ ok: true, job_id: 'job:0000000c' }) });
+    const p = runJob(api.keep_file('dup:1-2-3', 2, ['/a', '/b', '/c']), { success: false });
+    await new Promise((r) => setTimeout(r, 0));
+    dispatch(finished('job:0000000c', { kind: 'supersede', message: 'Moved 2 files to Superseded/.' }));
+    expect(await p).toMatchObject({ ok: true, message: 'Moved 2 files to Superseded/.' });
+    expect(get(toasts)).toEqual([]);  // `success: false`: the flow shows the line itself
+  });
   it('resolves an immediate refusal at once with job_id null', async () => {
     fakeWindow({ hide: async () => ({ ok: false, kind: 'busy', message: 'Wait.' }) });
     const out = await runJob(api.hide('t2', true));

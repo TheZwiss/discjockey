@@ -277,7 +277,7 @@ def test_a_follower_reads_the_head_then_the_rolling_tail_through_a_compaction(tm
     folder = tmp_path / "job"
     folder.mkdir()
     writer = registry.EventsWriter(folder, head=3, tail=5)
-    reader = follow.EventReader(folder)
+    reader = registry.EventReader(folder)
     seen = []
 
     def emit_and_read(first, last):
@@ -304,7 +304,7 @@ def test_the_head_is_read_after_the_tail_so_a_line_flushed_in_between_keeps_its_
     folder = tmp_path / "job"
     folder.mkdir()
     (folder / "events.jsonl").write_text("")
-    reader = follow.EventReader(folder)
+    reader = registry.EventReader(folder)
     opened = []
     real_open = open
 
@@ -315,7 +315,7 @@ def test_the_head_is_read_after_the_tail_so_a_line_flushed_in_between_keeps_its_
             (folder / "events.tail.jsonl").write_text("".join(_line(n) for n in range(3, 6)))
         return real_open(path, *args, **kwargs)
 
-    monkeypatch.setattr(follow, "open", flush_before_the_second_file, raising=False)
+    monkeypatch.setattr(registry, "open", flush_before_the_second_file, raising=False)
     first = [json.loads(line)["text"] for line in reader.read()]
     monkeypatch.undo()
     second = [json.loads(line)["text"] for line in reader.read()]
@@ -344,7 +344,7 @@ def test_a_compacted_tail_that_is_longer_than_before_is_not_read_from_the_old_of
     folder.mkdir()
     tail = folder / "events.tail.jsonl"
     tail.write_text("".join(_line(n) for n in range(3, 6)))
-    reader = follow.EventReader(folder)
+    reader = registry.EventReader(folder)
     assert [json.loads(line)["text"] for line in reader.read()] == ["m3", "m4", "m5"]
     with open(tail, "r+") as f:  # the same file, rewritten in place: m5 is in it, not where the reader stopped
         f.write("".join(_line(n) for n in range(5, 12)))

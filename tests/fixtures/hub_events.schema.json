@@ -576,11 +576,46 @@
         },
         "running": {
           "type": "boolean"
+        },
+        "job": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "line": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "where": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "type",
-        "running"
+        "running",
+        "job",
+        "kind",
+        "line",
+        "text",
+        "where"
       ],
       "additionalProperties": false
     },
@@ -590,14 +625,14 @@
         "type": {
           "const": "FileDropped"
         },
-        "track_id": {
+        "name": {
+          "type": "string"
+        },
+        "path": {
           "type": [
             "string",
             "null"
           ]
-        },
-        "name": {
-          "type": "string"
         },
         "readable": {
           "type": "boolean"
@@ -608,8 +643,8 @@
       },
       "required": [
         "type",
-        "track_id",
         "name",
+        "path",
         "readable",
         "message"
       ],

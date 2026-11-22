@@ -481,22 +481,30 @@ export function filedAs(bought_name: string): string {
 
 // ---------- bought file (part B) ----------
 /** The FileDropped event as the page sees it. */
-export type DroppedFile = { track_id: string | null; name: string; readable: boolean; message: string };
+export type DroppedFile = { name: string; path: string | null; readable: boolean; message: string };
 export type DropDecision = { do: 'add' } | { do: 'message'; text: string } | { do: 'toast' } | { do: 'ignore' };
 
-/** What the drop zone of `selectedId` does with a FileDropped event (plan Task 67, §6.6).
- *  'toast' = nothing selected: the shell (App.svelte) already shows the event's message as a toast. */
-export function dropDecision(e: DroppedFile, selectedId: string | null): DropDecision {
-  if (e.track_id === null) return { do: 'toast' };
-  if (e.track_id !== selectedId) return { do: 'ignore' };
+/** What the drop zone of `selectedId` does with a FileDropped event (plan Task 67, §6.6). `target` is the to-do item
+ *  the window had open when the file came (the `dropTarget` store; callers pass `get(dropTarget)`).
+ *  'toast' = nothing selected: the shell (App.svelte) shows the toast. */
+export function dropDecision(e: DroppedFile, target: string | null, selectedId: string | null): DropDecision {
+  if (target === null) return { do: 'toast' };
+  if (target !== selectedId) return { do: 'ignore' };
   if (!e.readable) return { do: 'message', text: e.message };
   return { do: 'add' };
+}
+
+/** Whether a refused add can be tried again with the same file: only the answers that came before any job and say
+ *  "not now" (another job is running, the console is busy). The permanent refusals ("There is no file at …", macOS's
+ *  no access) would give the same answer again. */
+export function canRetryAdd(o: { job_id: string | null; kind: string }): boolean {
+  return o.job_id === null && (o.kind === 'busy' || o.kind === 'console');
 }
 
 // ---------- the decisions (shared with the Library, lib/decisions) ----------
 export {
   KEPT_FILE, QUIT_REKORDBOX, SUPERSEDED_NOT_DELETED, canSwap, checkCard, editLine, fileFormat, fileName, fileQueue,
-  fileQueueId, fileState, fileWords, groupIdOf, keepLabel, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
+  fileQueueId, fileState, fileWords, keepLabel, keepWords, lastFolder, localDay, replaceLabel, replacedCard,
   sinceText, upgradeWays,
 } from '$lib/decisions/decisionModel';
 export type {

@@ -5,6 +5,7 @@ import { minutesByDownloads } from './minutes';
 import { checkText, playlistRef } from './data';
 import { LIBRARY_METHODS } from '../contract';
 import type { HubEvent } from '../events';
+import type { SyncPreview } from '../types';
 
 const until = (evs: HubEvent[], pred: (e: HubEvent) => boolean, ms = 3000) => new Promise<HubEvent>((resolve, reject) => {
   const t0 = Date.now();
@@ -346,13 +347,43 @@ describe('fake backend', () => {
     expect(js.job.last.Progress).toMatchObject({ step: 'download' });   // mid-download, as the scenario says
     expect(await f.search_candidates('t2')).toMatchObject({ ok: false, kind: 'sync_running' });
   });
+  it('gives the plan an identity: ids by folder, a plan id, the presets, and a Start that runs only that plan', async () => {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });
+    const p = (await f.sync_preview()) as SyncPreview & { ok: true };
+    const rows = p.groups.flatMap((g) => g.actions);
+    expect(rows.every((a) => /^act:(acquire|upgrade|adopt_bought):[^:]+:\d+$/.test(a.id))).toBe(true);
+    expect(new Set(rows.map((a) => a.id)).size).toBe(rows.length);
+    expect(p.plan_id).toMatch(/^plan:[0-9a-f]{12}$/);
+    expect(p.presets.length).toBeGreaterThan(0);
+    expect(p.presets.some((x) => x.key === p.default_how_many)).toBe(true);
+    expect((await f.sync_preview() as SyncPreview & { ok: true }).plan_id).toBe(p.plan_id);   // the same plan twice: the same id
+    expect(await f.start_sync(null, [])).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.start_sync('plan:000000000000', [])).toMatchObject({ ok: false, kind: 'bad_args' });
+    expect(await f.start_sync(p.plan_id, ['act:acquire:nope:1'])).toMatchObject({ ok: false, kind: 'refused' });
+    expect(((await f.job_status()) as { last_sync: unknown }).last_sync).toBeNull();
+    const start = await f.start_sync(p.plan_id, [rows[0].id]);
+    if (!start.ok) throw new Error();
+    expect(((await f.job_status()) as { last_sync: unknown }).last_sync).toEqual({ job: start.job_id,
+      args: { plan_id: p.plan_id, selected: [rows[0].id] }, ended: null });
+    await until(evs, (e) => e.type === 'JobFinished');
+  });
+  it('a scenario that shows a started sync names its ticked rows by id in last_sync, in the plan Start would check', async () => {
+    const f = createFakeBridge('sync:own-cover');
+    const p = (await f.sync_preview()) as SyncPreview & { ok: true };
+    const t5 = p.groups.flatMap((g) => g.actions).find((a) => a.track_id === 't5')!;
+    expect(((await f.job_status()) as { last_sync: unknown }).last_sync).toMatchObject({
+      args: { plan_id: p.plan_id, selected: [t5.id] }, ended: null });
+    expect(((await createFakeBridge('normal').job_status()) as { last_sync: unknown }).last_sync).toBeNull();
+  });
   it('stop ends a replayed sync with exit 130', async () => {
     const evs: HubEvent[] = [];
     const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });
-    const start = await f.start_sync([]);
+    const shown = (await f.sync_preview()) as SyncPreview & { ok: true };
+    const start = await f.start_sync(shown.plan_id, []);
     if (!start.ok) throw new Error();
     await until(evs, (e) => e.type === 'JobFinished');
-    const s2 = await f.start_sync([['acquire', 't4', 'Library/Hard_Bounce']]);
+    const s2 = await f.start_sync(shown.plan_id, [shown.groups[0].actions[0].id]);
     if (!s2.ok) throw new Error();
     await until(evs, (e) => e.type === 'ActionStarted' && e.index === 2);
     expect(await f.stop()).toMatchObject({ ok: true, stopped: true });
@@ -779,5 +810,30 @@ describe('fake backend: Qobuz playlists (stage 3)', () => {
     if (!after.ok) throw new Error();
     expect(after.spotify_skipped).toBe(true);
     expect(after.next_step).not.toBe('spotify');
+  });
+});
+
+describe('fake Sync scope (issue 39 V2.5b)', () => {
+  it('a switch persists through sync_scope(): off adds in order with names and labels, on takes it back', async () => {
+    const evs: HubEvent[] = [];
+    const f = createFakeBridge('normal', { speed: 50, emit: (e) => evs.push(e) });
+    expect(await f.sync_scope()).toEqual({ ok: true, off: [], weekly_off: [] });
+    const first = await f.set_sync_scope([], ['playlist:0DiscjockeyExampleList', 'kind:weekly', 'folder:Library/Hard_Bounce']);
+    if (!first.ok) throw new Error();
+    const done = await until(evs, (e) => e.type === 'JobFinished' && e.job_id === first.job_id);
+    expect(done).toMatchObject({ kind: 'set_sync_scope', ok: true });
+    const want = { off: [{ target: 'playlist:0DiscjockeyExampleList', name: expect.any(String) },
+      { target: 'folder:Library/Hard_Bounce', name: 'Hard_Bounce' }], weekly_off: [{ kind: 'weekly', label: 'Weekly checks' }] };
+    expect(await f.sync_scope()).toMatchObject(want);
+    const second = await f.set_sync_scope(['kind:weekly', 'playlist:0DiscjockeyExampleList'], []);
+    if (!second.ok) throw new Error();
+    await until(evs, (e) => e.type === 'JobFinished' && e.job_id === second.job_id);
+    expect(await f.sync_scope()).toEqual({ ok: true, off: [{ target: 'folder:Library/Hard_Bounce', name: 'Hard_Bounce' }], weekly_off: [] });
+  });
+  it('refuses an item that is neither a target nor a weekly kind, and one in both lists, before a job', async () => {
+    const f = createFakeBridge('normal', { speed: 50, emit: () => {} });
+    expect(await f.set_sync_scope([], ['bogus'])).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.set_sync_scope(['kind:new'], [])).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.set_sync_scope(['kind:weekly'], ['kind:weekly'])).toMatchObject({ ok: false, kind: 'refused' });
   });
 });

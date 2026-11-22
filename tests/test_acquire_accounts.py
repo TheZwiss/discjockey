@@ -45,8 +45,14 @@ def process(kbps=None):
 
 
 class RecordingPacer(NoPacer):
+    """`calls`: the pauses asked for, in order ("fallback" or the account service); `ended`: the services whose claim
+    was ended with `downloaded`."""
     def __init__(self):
         self.calls = []
+        self.ended = []
+
+    def downloaded(self, service):
+        self.ended.append(service)
 
     def between_fallback_downloads(self):
         self.calls.append("fallback")
@@ -178,7 +184,8 @@ def test_three_failed_account_downloads_pause_it_and_say_so(tmp_path):
     run(a, tmp_path)
     assert a.accounts["youtube"].stopped
     assert [s["kind"] for s in state["youtube_usage"]["signals"]] == ["refused"] * 3 + ["auto_stop"]
-    assert any(isinstance(e, Message) and e.level == "warning" and "YouTube Premium" in e.text for e in events)
+    assert any(isinstance(e, Message) and e.level == "warning" and "YouTube Premium" in e.text
+               and "until the next sync starts" in e.text for e in events)
 
 
 def test_a_low_bitrate_artist_original_waits_behind_an_account_stream(tmp_path):
@@ -205,7 +212,8 @@ def test_protection_pause_between_downloads_of_the_same_account(tmp_path):
     run(a, tmp_path)
     (tmp_path / "2").mkdir()
     run(a, tmp_path / "2")
-    assert pacer.calls == ["youtube"]
+    assert pacer.calls == ["youtube", "youtube"]  # every download asks: the pacer knows whether anything is recent
+    assert pacer.ended == ["youtube", "youtube"]  # and is told when each ended
 
 
 def test_upgrade_checks_never_use_an_account(tmp_path):
@@ -250,7 +258,8 @@ def test_logged_in_format_listings_are_paced(tmp_path):
     fb.kbps = {}  # the next track has no premium stream: the listing alone is a logged-in request
     (tmp_path / "2").mkdir()
     run(a, tmp_path / "2")
-    assert pacer.calls == ["youtube"] and fb.downloads == ["account:m1", "m1"]
+    assert pacer.calls == ["youtube", "youtube"] and fb.downloads == ["account:m1", "m1"]
+    assert pacer.ended == ["youtube", "youtube"]  # the second listing found no stream: its claim ended at once
 
 
 def test_soundcloud_is_no_longer_asked_after_many_tracks_without_go_plus(tmp_path):
@@ -351,7 +360,7 @@ def test_upgrade_check_listings_are_paced(tmp_path):
     a, _, _ = setup(fb, limits={"youtube": 30}, pacer=pacer)
     check(a, tmp_path, 128)
     check(a, tmp_path, 128)
-    assert pacer.calls == ["youtube"] and len(fb.probes) == 2
+    assert pacer.calls == ["youtube", "youtube"] and pacer.ended == ["youtube", "youtube"] and len(fb.probes) == 2
 
 
 def test_upgrade_check_searches_soundcloud_once(tmp_path):
@@ -370,7 +379,7 @@ def test_upgrade_check_pauses_between_an_artist_original_and_the_first_listing(t
     a, _, _ = setup(fb, limits={"youtube": 30}, pacer=pacer)
     r = check(a, tmp_path, 128)  # the original is a 128 kbps MP3: not lossless, so the account is asked
     assert r.kind == "ready" and fb.downloads == ["direct:s1", "account:m1"]
-    assert pacer.calls == ["fallback"]
+    assert pacer.calls == ["fallback", "youtube"] and pacer.ended == ["youtube"]
 
 
 def test_upgrade_check_without_the_originals_searches_only_for_the_account_streams(tmp_path):

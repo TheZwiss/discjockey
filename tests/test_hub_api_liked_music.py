@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import yt_dlp
-from hub_helpers import fake_spotify, make_api, make_root, refreshed, wait_job, window
+from hub_helpers import fake_spotify, make_api, make_root, refreshed, stored, wait_job, window
 
 from discjockey import library, pacing, pending_signs
 from discjockey.library import Resolved
@@ -190,7 +190,7 @@ def test_pasting_liked_music_while_it_is_off_answers_a_needs_a_setting_form(root
         assert window(api.add_playlist(LM_LINK)) == {
             "ok": False, "kind": "setting_off", "setting": "read_liked_music", "service": "youtube_music",
             "message": SETTING_OFF}
-    assert LikedYDL.created[:0] == [] and LikedYDL.requested == [] and api._infos == {} and api._extra_tracks == {}
+    assert LikedYDL.created[:0] == [] and LikedYDL.requested == [] and stored(root) == ({}, {})
 
 
 def test_pasting_liked_music_while_it_is_on_reads_it_with_the_login(root):
@@ -256,7 +256,7 @@ def test_a_refresh_with_liked_music_listed_and_the_account_paused_makes_no_reque
     pause_youtube(root)
     refreshed(api, rec)
     assert LikedYDL.requested == [] and not any("cookiesfrombrowser" in o for o in LikedYDL.created)
-    assert "youtube_music:LM" not in api._infos
+    assert "youtube_music:LM" not in stored(root)[1]
 
 
 def test_a_bot_check_met_by_the_refreshs_info_read_is_recorded(root):

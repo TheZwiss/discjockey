@@ -205,7 +205,7 @@ def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
         if words.get("ok") and words.get("message"):
             env["message"] = words["message"]
         env["next"] += [n for n in api.scan_next() if n not in env["next"]]
-    return env
+    return envelope.noted(env, entry.dry_run, dry=True)
 
 
 def _needs_yes(entry: Entry, command: str, kwargs: Mapping | None = None, api=None) -> dict:
@@ -243,8 +243,7 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     if entry.planned:
         return envelope.usage(command, NOT_BUILT.format(command=command))
     if entry.kind == "J-control":
-        return envelope.usage(command, f"{entry.method} only reaches a job of the process that runs it: "
-                                       "use `job stop <job>`.")
+        return envelope.usage(command, f"{entry.method} is the window's Stop safely: use `job stop <job>`.")
     if flags.dry_run and not entry.dry_run:
         return envelope.usage(command, f"{command} has no --dry-run: it does not change anything or it cannot be tried first.")
     if not flags.dry_run and entry.kind not in ("R", "B", "J", "RJ"):
@@ -284,7 +283,8 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     if (refused := refuse_job_flags(flags, command)) is not None:  # an R or B method answers at once
         return refused
     answer = getattr(api, entry.method)(**kwargs)
-    return envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None)
+    return envelope.noted(envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None),
+                          entry.method)
 
 
 def worker_argv(job_id: str) -> list[str]:
@@ -338,7 +338,7 @@ def start_job(entry: Entry, kwargs: Mapping, command: str, flags: Flags, *,
     reg = registry.Registry(here.support)
     reg.prune(datetime.now())
     files = reg.create(entry.method, command, dict(kwargs), "terminal", roots)
-    files.update(method=entry.method, wait_busy=flags.wait_busy)
+    files.update(method=entry.method, wait_busy=flags.wait_busy, library_lock="library" in entry.locks)
     files.flush()
     print(follow.first_line(files.id), file=sys.stderr, flush=True)  # before anything else: a killed call keeps the id
     try:

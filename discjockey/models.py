@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -48,6 +51,27 @@ OWN_PREFIX = "local:"  # the key of a song of the user's own: a file imported fr
 def is_own(key: str) -> bool:
     """A song of the user's own (`local:<n>`): made by the import from one of their files, in no playlist."""
     return key.startswith(OWN_PREFIX)
+
+
+def snapshot(entry: dict | None) -> dict | None:
+    """What a read shows of an entry's record; its `rev` is made from it: the status, which file stands (path, and the
+    source it came from) and which better version waits (its file, source and when it was found)."""
+    if entry is None:
+        return None
+    up = entry.get("upgrade") or {}
+    return {"status": entry.get("status"), "path": entry.get("path"),
+            "source": entry.get("source"), "source_id": entry.get("source_id"),
+            "upgrade_file": up.get("file"), "upgrade_source": up.get("source"),
+            "upgrade_source_id": up.get("source_id"), "upgrade_found": up.get("found")}
+
+
+def rev(entry: dict | None) -> str | None:
+    """The record's revision: 10 hex characters of its `snapshot`, changing with every change of the record. A
+    single-track write that is given it (`expect`, `--if-rev`) refuses when the record's `rev` differs."""
+    snap = snapshot(entry)
+    if snap is None:
+        return None
+    return hashlib.sha256(json.dumps(snap, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:10]
 
 
 def track_of(track_id: str, e: dict) -> SourceTrack:
@@ -156,6 +180,59 @@ class FetchedPlaylist:
     # What the page shows for the playlist, when reading its tracks already told the source (Qobuz's first page does):
     # the hub then needs no second login to ask. Not part of what two reads of the same tracks compare by.
     info: PlaylistInfo | None = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class StoredRead:
+    """One playlists read as library.db keeps it (`db.store_read`): `kind` "sync" (the Sync page's and a run's read of
+    every playlists.txt line) or "check" (one pasted playlist, read for the Playlists page); when it started; the
+    playlists it fetched, in fetch order; the lines it was asked to read (None for a check read and a failed read);
+    the refs of the lines it did not read because of a pause (`sources.read`'s `unread`); and the problem a failed
+    read ended in. A failed read is a StoredRead with `fetched=[]`, `lines=None` and a `problem` (a SetupProblem's
+    kind, `message` the words the page shows). Not a secret's place: see `db.store_read`."""
+    kind: str
+    started: datetime
+    fetched: list[FetchedPlaylist]
+    lines: list[PlaylistLine] | None = None
+    unread: list[str] = field(default_factory=list)
+    problem: str | None = None
+    problem_service: str | None = None
+    message: str = ""
+
+
+@dataclass(frozen=True)
+class ReadHead:
+    """The newest stored reads at a glance (`db.read_head`), one query and no track rebuilt: `current` the newest
+    read's id (any kind); `sync_id` the newest sync read that has lines (None: no good read yet); `read_at` when it
+    was stored; `problem`, `problem_service` and `message` are the newest sync read's, failed or not; `lines` the
+    good read's lines as (folder, ref) pairs (None with no good read)."""
+    current: int
+    sync_id: int | None
+    read_at: datetime | None
+    problem: str | None
+    problem_service: str | None
+    message: str
+    lines: tuple[tuple[str, str], ...] | None = None
+
+
+@dataclass(frozen=True)
+class LoadedRead:
+    """The newest good sync read as `db.load_read` rebuilds it, whole enough to plan from: `id`; `lines`; `fetched`
+    (one per ref the read fetched, in order, tracks as the planner reads them; a playlist whose stored tracks lack
+    the planner's facts is left out and named in `unread` instead); `unread` (refs); `read_at` (when it was stored);
+    the newest sync read's `problem`, `problem_service` and `message` (a failed read keeps the last good tracks and
+    stores its problem beside them); `checked` every stored record's tracks by ref (check reads included), `infos`
+    every stored playlist info by ref."""
+    id: int
+    lines: list[PlaylistLine]
+    fetched: list[FetchedPlaylist]
+    unread: list[str]
+    read_at: datetime
+    problem: str | None
+    problem_service: str | None
+    message: str
+    checked: dict[str, tuple[SourceTrack, ...]]
+    infos: dict[str, PlaylistInfo]
 
 
 @dataclass(frozen=True)

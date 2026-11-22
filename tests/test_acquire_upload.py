@@ -278,7 +278,8 @@ def test_a_go_plus_only_upload_with_only_a_128_stream_is_taken_when_nothing_bett
     assert fb.probes == [(SC_KEY, True)]  # the first listing is reused: no second logged-in request
     assert fb.searched == [None] and r.rejected == []  # the upload step came first, the search ran, nothing was found
     assert state["soundcloud_usage"]["days"]["2026-10-20"] == 1  # counts against the account limit
-    assert pacer.calls == ["soundcloud"]  # and gets the account pause
+    assert pacer.calls == ["soundcloud", "soundcloud"]  # the listing and the kept download each get the account pause
+    assert pacer.ended == ["soundcloud", "soundcloud"]  # and each claim ends: the listing at once, the download after it
     assert [e.query_kind for e in events if isinstance(e, SourceChosen)] == ["upload"]
 
 

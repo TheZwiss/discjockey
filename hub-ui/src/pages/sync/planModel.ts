@@ -1,15 +1,13 @@
 // The Sync page's plan before the start (docs/archive/pre-public/hub-ui-pages/sync-REDESIGN.md): kinds and tags of the rows, the scope (playlists and kinds
 // in this run), the "how many" presets, the "next sync" tags and the "This run" summary. Pure, so it is tested.
 import type { SegOption } from '$lib/components/segmentedModel';
-import type { PlaylistRow, PlaylistService, PreviewAction, SyncAccount, SyncPreview } from '$lib/bridge/types';
+import type { PlaylistRow, PlaylistService, PreviewAction, SyncAccount, SyncPreset, SyncPreview } from '$lib/bridge/types';
 import { daysToLoad } from '$lib/days';
 import type { DayBarInput } from '$lib/components/dayBarModel';
 import type { ToggleItem } from '$lib/components/toggleModel';
 import { estimate, foldText, plural, serviceName } from '$lib/format';
 import { PLAYLIST_SERVICE_NAMES } from '$lib/copy';
-import { allActions, keyId } from './selection';
-
-export const PREF_SCOPE = 'sync.scope';
+import { allActions } from './selection';
 
 /** Spotify is read by itself once per app session: only while the hub has not started its automatic read
  * (`read_status.auto_read`, kept in Python so a window reload doesn't read again), never while a read or a sync runs and
@@ -91,11 +89,11 @@ export const inRunOrder = (p: SyncPreview | null): PreviewAction[] => allActions
 
 // ---------- scope: which playlists, folders and kinds are in this run ----------
 /** Left out: the playlists and folders switched off in the browser column (`off`, by their targets: `playlist:<ref>`,
- *  `folder:<path>`, issue 37) and the weekly checks switched off in the panel (remembered, so new ones come in
+ *  `folder:<path>`, issue 37) and the weekly checks switched off in the panel (kept, so new ones come in
  *  switched on). Only the two weekly checks switch as kinds (issue 36): new songs, downloads again and bought files are
- *  left out row by row or per section with the plan's ticks. `legacy`: playlists switched off before issue 37, by
- *  name, until `resolveLegacy` turns them into targets. */
-export type Scope = { off: string[]; kinds: KindKey[]; legacy?: string[] };
+ *  left out row by row or per section with the plan's ticks. The value lives in settings.json (`sync_scope`, issue 39
+ *  V2.5b) and is read and written through the `syncScope` store. */
+export type Scope = { off: string[]; kinds: KindKey[] };
 export const FULL_SCOPE: Scope = { off: [], kinds: [] };
 export const isPlaylistTarget = (t: string): boolean => t.startsWith('playlist:');
 export const isFolderTarget = (t: string): boolean => t.startsWith('folder:');
@@ -123,7 +121,7 @@ export const inScope = (a: PreviewAction, s: Scope) => memberOn(a, s) && !s.kind
 /** What Start sends: the ticked rows in scope, nothing else (a row ticked before its collections were switched off
  *  stays out). */
 export const chosenOf = (ordered: PreviewAction[], ticked: ReadonlySet<string>, s: Scope): PreviewAction[] =>
-  ordered.filter((a) => inScope(a, s) && ticked.has(keyId(a.key)));
+  ordered.filter((a) => inScope(a, s) && ticked.has(a.id));
 /** Every row is left out by the column's switches (not by the weekly checks). */
 export const everyOff = (ordered: PreviewAction[], s: Scope): boolean =>
   ordered.length > 0 && ordered.every((a) => !memberOn(a, s));
@@ -131,28 +129,6 @@ export const everyOff = (ordered: PreviewAction[], s: Scope): boolean =>
 export function toggleScope(s: Scope, what: 'off' | 'kinds', v: string): Scope {
   const list = s[what] as string[];
   return { ...s, [what]: list.includes(v) ? list.filter((x) => x !== v) : [...list, v] };
-}
-export function readScope(v: unknown): Scope {
-  const o = (v && typeof v === 'object' ? v : {}) as Partial<Scope> & { folders?: unknown };
-  const strings = (x: unknown) => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string') : []);
-  // a kind left out before issue 36 that no longer has a switch is dropped, so nothing stays out unseen
-  const out: Scope = { off: strings(o.off).filter((t) => isPlaylistTarget(t) || isFolderTarget(t)),
-    kinds: strings(o.kinds).filter((k): k is KindKey => isWeeklyKind(k)) };
-  // before issue 37 the scope held the names of the playlists switched off (`folders`)
-  const legacy = [...strings(o.folders), ...strings(o.legacy)];
-  return legacy.length ? { ...out, legacy } : out;
-}
-/** The playlists switched off before issue 37 (by name) as targets, once the playlists are known: every line with
- *  that name; a name no playlist has any more is dropped (it has no switch). */
-export function resolveLegacy(s: Scope, playlists: readonly { name: string; ref: string }[]): Scope {
-  if (!s.legacy?.length) return s;
-  const names = new Set(s.legacy);
-  const off = [...s.off];
-  for (const p of playlists) {
-    const t = `playlist:${p.ref}`;
-    if (names.has(p.name) && !off.includes(t)) off.push(t);
-  }
-  return { off, kinds: s.kinds };
 }
 
 /** The section a row is listed under: its `folder`, as before, while the collection of that name is on; else the
@@ -279,17 +255,30 @@ export function dayBarEmpty(inScope: number, ticked: number): string {
 export type HowMany = number | 'fits' | 'all';
 export type Preset = { value: HowMany; n: number; label: string };
 
-/** 5, 10, 25, 50 (only below the total), "L · fits today" (when 0 < L < total), "All N". */
-export function presets(total: number, left: number): Preset[] {
-  if (total <= 0) return [];
-  const fits = left > 0 && left < total;
-  const out: Preset[] = [5, 10, 25, 50].filter((n) => n < total && !(fits && n === left))
-    .map((n) => ({ value: n, n, label: String(n) }));
-  if (fits) out.push({ value: 'fits', n: left, label: `${left} · fits today` });
-  out.push({ value: 'all', n: total, label: `All ${total}` });
-  return out.sort((a, b) => a.n - b.n);
+/** The engine's "how many" choices (`SyncPreview.presets`) as the page's chips: `value` is the key as the page holds a
+ *  choice (a number for 5 · 10 · 25 · 50), `n` the downloads it ticks. */
+export const enginePresets = (list: SyncPreset[]): Preset[] => list.map((p) => ({
+  value: p.key === 'fits' || p.key === 'all' ? p.key : Number(p.key), n: p.downloads, label: p.label }));
+/** The first choice, the engine's `default_how_many`, as the page holds it; null when the plan offers no choice. */
+export const howManyOfKey = (key: string | null): HowMany | null =>
+  key === null ? null : key === 'fits' || key === 'all' ? key : readHowMany(Number(key));
+/** The ids a choice ticks (the engine's `selected`): the preset of that value, else the one with the same number of
+ *  downloads (a remembered 25 with 8 downloads ticks "All 8"); null when none matches (nothing changes). */
+export function presetSelected(list: SyncPreset[], h: HowMany, total: number, left: number): string[] | null {
+  const key = String(h);
+  const n = presetN(h, total, left);
+  return (list.find((p) => p.key === key) ?? list.find((p) => p.downloads === n))?.selected ?? null;
 }
-export const defaultHowMany = (total: number, left: number): HowMany => (left > 0 && left < total ? 'fits' : 'all');
+/** The choice the page holds after a preview (`load`): the one held stays when it ticks something or is the person's
+ *  own ('custom'), the engine's `default_how_many` is the first choice, and a held preset the plan no longer gives
+ *  ticks (a remembered "fits today" once nothing is left today) falls back to the engine's default, so the chip and
+ *  the ticks follow it instead of keeping the previous preview's ticks under a "custom" chip. */
+export function choiceFor(held: HowMany | 'custom' | null, list: SyncPreset[], defaultKey: string | null,
+  total: number, left: number): HowMany | 'custom' | null {
+  if (held === null) return howManyOfKey(defaultKey);
+  if (held === 'custom' || list.length === 0) return held;
+  return presetSelected(list, held, total, left) === null ? howManyOfKey(defaultKey) ?? held : held;
+}
 export function presetN(h: HowMany, total: number, left: number): number {
   return h === 'all' ? total : h === 'fits' ? Math.min(Math.max(left, 0), total) : Math.min(h, total);
 }
@@ -303,26 +292,13 @@ export function readHowMany(v: unknown): HowMany | null {
   return v === 'fits' || v === 'all' ? v : typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : null;
 }
 
-/** A preset's ticks: every non-download action in scope plus the first n downloads in scope, in run order. */
-export function presetTicks(ordered: PreviewAction[], scope: Scope, n: number): Set<string> {
-  const out = new Set<string>();
-  let dl = 0;
-  for (const a of ordered) {
-    if (!inScope(a, scope)) continue;
-    if (!isDownload(a)) out.add(keyId(a.key));
-    else if (dl < n) { out.add(keyId(a.key)); dl++; }
-  }
-  return out;
-}
-
 /** Ticked downloads in scope that come after the first `left` in run order: they wait for the next sync. */
 export function nextSyncSet(ordered: PreviewAction[], ticked: Set<string>, scope: Scope, left: number): Set<string> {
   const out = new Set<string>();
   let dl = 0;
   for (const a of ordered) {
-    const id = keyId(a.key);
-    if (!isDownload(a) || !inScope(a, scope) || !ticked.has(id)) continue;
-    if (dl >= Math.max(left, 0)) out.add(id);
+    if (!isDownload(a) || !inScope(a, scope) || !ticked.has(a.id)) continue;
+    if (dl >= Math.max(left, 0)) out.add(a.id);
     dl++;
   }
   return out;
@@ -403,9 +379,6 @@ export function runsNothingToday(chosen: number, downloads: number, uses: number
 }
 /** The reason beside the switched-off Start. */
 export const NOTHING_TODAY = 'Nothing to run today · downloads start tomorrow';
-/** The note beside Start while a sync runs in the terminal. */
-export const CONSOLE_RUNNING = 'A sync is running in the terminal';
-
 /** Auto-upgrade's line before a start (plan stage C §3, as auto_upgrade.before_start_line): rekordbox is open, so the
  *  upgrades the sync would put in place at its end would wait. `n` is `sync_preview().auto_upgrade.ready`. */
 export const rekordboxOpenLine = (n: number): string =>
@@ -416,8 +389,9 @@ export const rekordboxOpenLine = (n: number): string =>
  *  cut in the 280 px the panel's text has at 1100, so the same promise is said in 40. */
 export const autoPlanLine = (n: number): string => `${n} ${n === 1 ? 'upgrade goes' : 'upgrades go'} in at the end; cues stay.`;
 
-/** The one note of Start sync (plan stage C §6.4, amended by the stage review B7; issue 43 §7.4a). `console` and
- *  `nothing-today` come first when they apply, as Hints under Start. With the Auto-upgrade switch on and at least one
+/** The one note of Start sync (plan stage C §6.4, amended by the stage review B7; issue 43 §7.4a). `console` (`consoleText`: the engine's
+ *  words for the job that holds the library, `HubState.console.text`; null while none does) and `nothing-today` come first
+ *  when they apply, as Hints under Start. With the Auto-upgrade switch on and at least one
  *  upgrade ready, the page says what the sync will do: `rekordbox-open` (rekordbox runs now: a warn NoteCard above
  *  Start, so the button does not jump when rekordbox quits) or `auto-plan` (rekordbox is closed: a Hint under Start).
  *  `place`: the engine's sentence for the missing songs that get their parked better version at the end of the sync
@@ -427,9 +401,9 @@ export const autoPlanLine = (n: number): string => `${n} ${n === 1 ? 'upgrade go
  *  (the sentence for rekordbox closed names no state). */
 export type StartNote = { kind: 'console' | 'nothing-today' | 'rekordbox-open' | 'auto-plan' | 'place' | 'place-open';
   text: string; place: string | null };
-export function startNote(o: { consoleRunning: boolean; nothingToday: boolean; auto: SyncPreview['auto_upgrade'];
+export function startNote(o: { consoleText: string | null; nothingToday: boolean; auto: SyncPreview['auto_upgrade'];
   rekordboxRunning: boolean | null }): StartNote | null {
-  if (o.consoleRunning) return { kind: 'console', text: CONSOLE_RUNNING, place: null };
+  if (o.consoleText) return { kind: 'console', text: o.consoleText, place: null };
   if (o.nothingToday) return { kind: 'nothing-today', text: NOTHING_TODAY, place: null };
   const place = o.auto && o.auto.places >= 1 && o.auto.place_notes
     ? (o.rekordboxRunning === true ? o.auto.place_notes.open : o.auto.place_notes.closed) : null;
@@ -474,11 +448,11 @@ export type Section = { folder: string; rows: PreviewAction[]; total: number; ti
   downloads: number };
 
 /** A section's counts among `rows`, all its rows in scope: total, ticked, the ticked downloads that wait for the next
- *  sync (`nextSync`), and the ticked downloads (bought files and weekly checks are ticked but never wait). Sets hold keyIds. */
+ *  sync (`nextSync`), and the ticked downloads (bought files and weekly checks are ticked but never wait). Sets hold action ids. */
 export function sectionCounts(rows: PreviewAction[], ticked: ReadonlySet<string>, nextSync: ReadonlySet<string>)
   : Pick<Section, 'total' | 'ticked' | 'waiting' | 'downloads'> {
-  const on = rows.filter((a) => ticked.has(keyId(a.key)));
-  return { total: rows.length, ticked: on.length, waiting: on.filter((a) => nextSync.has(keyId(a.key))).length,
+  const on = rows.filter((a) => ticked.has(a.id));
+  return { total: rows.length, ticked: on.length, waiting: on.filter((a) => nextSync.has(a.id)).length,
     downloads: on.filter(isDownload).length };
 }
 

@@ -11,6 +11,7 @@
   import { Banner, Button, PageHeader, ProblemCard, Skeleton, StepStrip, WatchedFoldersFlow } from '$lib/components';
   import { ColumnFrame } from '$lib/frames';
   import { dataVersion, hub } from '$lib/stores/hub';
+  import { BANNER, consoleBanner } from '$lib/copy';
   import { go } from '$lib/router';
   import { markReady } from '$lib/ready';
   import StepDownloads from './StepDownloads.svelte';
@@ -112,8 +113,8 @@
   {#if status && step}
     <StepStrip steps={stripSteps(step, status)} onpick={pickStep} label="Setup steps" test="setup-steps" />
   {/if}
-  {#if $hub.console_running}
-    <Banner tone="warn" text="A Discjockey run in the terminal is busy. You can go on with setup when it has finished." />
+  {#if $hub.console}
+    <Banner tone="warn" text={consoleBanner($hub.console.text, BANNER.console_tail_setup)} />
   {/if}
   <div class="step" data-test="setup-step" data-step={step}>
     {#if loadError && !status}
