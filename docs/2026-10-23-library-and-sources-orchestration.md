@@ -1453,6 +1453,14 @@ Results:
         User asked why the gate error (my prompt format, twice: told + memory) and the approval prompt (above).
         Now: `npm run verify` (background, cli3-reads-pass worktree at c3ebc31e) + CI watch; both green → merge into
         main, push. No release.
+      - Phase 4 detailing wave A (Opus) STOPPED by me at 382k (81 calls, cache 18.7M, fresh in 382k, out 91k, advisor 0k)
+        after the user asked "how big is the planning agent gonna be hes already at 380k". My error: I dispatched it
+        expecting 380k, against dispatch checklist line 3 (split anything over ~250k BEFORE dispatch; agents overshoot
+        ~100k); after the compact I had read only the 2k preview of the persisted post-compact instructions, not the
+        checklist in them. Written and kept: phase4-plan.md (all of phase 4: order, sizes, interface decisions;
+        total est. 7.1M) and briefs V4.1a, V4.1b. Still to write: briefs V4.2a, V4.2b, V4.3, V4.4, rehearsal and review
+        files, dispatch table, carry-waveB. Proposal to the user: small fresh Opus runs (each ≤ ~200k), brief check split
+        per group.
       - **RESUME HERE (LATEST, 2026-11-22, phase 4 detailing wave A running):** user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
