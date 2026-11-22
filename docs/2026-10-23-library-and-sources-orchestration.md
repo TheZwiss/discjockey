@@ -1508,7 +1508,7 @@ Results:
         words, `--limit/--offset` offered when a dry run pages; tidy plan stores how it chose (may split V4.3's
         `_bind_plan`: load before bind); `--with-yours` needs `--all`. Nothing handed back. Checklist line 3 record now
         material + ~185-215k (material > ~35k → split first). Phase 4 so far: 1 314k.
-      - **RESUME HERE (LATEST, 2026-11-22, phase 4 wave A briefs done):** all wave A briefs written in
+      - RESUME HERE (superseded, 2026-11-22, phase 4 wave A briefs done): all wave A briefs written in
         `.claude/issue39/phase4/`: phase4-plan.md, V4.1a, V4.1b, V4.2a, V4.2b (238k), V4.3 (212k), V4.4 (264k). Next, one
         at a time: phase4-dispatch.md by me (rows from the briefs' size lines; the plan's Opus estimates are low: wave B
         detailing one brief per run, material + ~185-215k; brief checks per group); one Sonnet run for
@@ -1516,6 +1516,16 @@ Results:
         numbering on the code); V4.3+V4.4), fresh Opus each, measured < ~250k else split; then `feat/cli-4-writes` from
         main and the builds by the dispatch table. Every prompt carries checklist rules 12 + 14. Phase 4 so far 1 314k.
         No release.
+      - phase4-dispatch.md written by me (24 rows; order change: the three brief checks BEFORE the review/rehearsal-file
+        run, so those files come from checked briefs). Records: check ≈ 70k + material + ~43k per brief (phase 3: 370k,
+        7 briefs, 70k) → each group check ~215k. Phase 4 re-estimated: wave A ≈ 5.27M (1 314k done), wave B ≈ 5.9M →
+        **≈ 11.2M** (plan said 7.1M: its Opus rows were below the records). `brief-check.md` (one group per run) written.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 brief checks):** run `.claude/issue39/phase4/phase4-dispatch.md` rows
+        in order, one at a time. Row 1 (brief check V4.1, Opus, `brief-check.md`) running. On its notice: ps, agent-cost
+        (advisor 0k), log, a hand-back → one warm-cache question at once; recalibrate rows 2-3 by its real size
+        (measured < ~250k else split); row 2 also decides the `place` numbering. Then row 4 (Sonnet, review + rehearsal
+        files), then `feat/cli-4-writes` from main and the builds. Every prompt carries checklist rules 12 + 14. Phase 4
+        so far 1 314k. No release.
       - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
