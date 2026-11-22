@@ -1418,6 +1418,9 @@ Results:
         names a refused `--limit`; path-column goldens depend on the temp path length), 8 Minor + 2 DECIDE I decided
         (open-scope: undo note "You can undo this afterwards.", `checked` → `ran_check`; D3 no change). Saved
         `phase3/review/findings-part1.md`. Part 2 dispatched.
+      - Review part 2 done (Sonnet): logged **181k** (exp. 220k); 0 Critical, 3 Important (history offers a move undo with
+        nothing left; an undone step reads "files changed"; AIFF batch words differ from the window's `_batch_how`:
+        fix = ONE shared rule, not a copy), 6 Minor. Saved `phase3/review/findings-part2.md`. Part 3 dispatched.
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
