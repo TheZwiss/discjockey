@@ -1414,6 +1414,10 @@ Results:
         80k line → three parts as planned (+~290k): part 1 V3.1a+b (45k), part 2 V3.1c+V3.3a (44k), part 3
         V3.3b+V3.2a+b (46k). Briefs `phase3/review/common.md` + part1-3.md; carries `phase3/carry-review.md`.
         Read-only worktree `.claude/worktrees/cli3-review` detached at f60d586f. Part 1 dispatched (Sonnet, exp. 150k).
+      - Review part 1 done (Sonnet): logged **237k** (exp. 150k, 1.58x); 0 Critical, 2 Important (batch undo's count line
+        names a refused `--limit`; path-column goldens depend on the temp path length), 8 Minor + 2 DECIDE I decided
+        (open-scope: undo note "You can undo this afterwards.", `checked` → `ran_check`; D3 no change). Saved
+        `phase3/review/findings-part1.md`. Part 2 dispatched.
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
