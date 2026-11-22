@@ -59,6 +59,7 @@ from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, 
 from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, SettingsError, extra_json, is_scope_target,
                         load_settings, update_settings_held)
 from ..setup_cmd import TOOL_HINTS
+from ..words import MISSING, NOT_CHOSEN  # the gate's words (`doctor` says them too)
 from ..sources.spotify import REDIRECT_URI
 from . import catalog, history as history_mod, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
@@ -116,8 +117,6 @@ NO_RECORDS = "Discjockey has no records of your library yet, so it can't save th
 # short transactions, short enough that a click never seems to hang (the binding 5 s would)
 BRIEF_WRITE_WAIT_MS = 1500
 NOT_ANSWERABLE = "Each answer needs the song or group it is about."
-NOT_CHOSEN = "Choose your music folder first: it is the first step of Setup."
-MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or choose another folder."
 # Bridge methods that need a bound music folder: unbound, they answer no_library before anything runs. Every other
 # method works with the support folder alone (Setup and Settings before a folder is chosen). Pinned by
 # tests/test_hub_api_music.py and, against contract.ts, by hub-ui's contract test (keep the one-name-per-string form).

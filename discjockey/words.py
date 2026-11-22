@@ -13,6 +13,7 @@ the USB step where the check has one: `report.usb_step`). The track's name is it
 command."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 
 from . import convert, rbstep, report
@@ -59,6 +60,7 @@ NOUN_WORDS = {
     "app": "This app: open its window, its version and whether a newer one is out.",
     "open": "Show a song, a folder or a report in the Finder, or open a web page.",
     "history": "What changed, newest first, and how to undo it.",
+    "doctor": "Everything that is wrong, and what to do about it.",
 }
 
 NO_PLAYLIST = "No playlist called “{name}”."
@@ -361,6 +363,58 @@ def superseded_text(files: int, size: int, held: int | None) -> str:
         return SUPERSEDED_BLIND.format(files=count, size=convert.size_text(size))
     return SUPERSEDED_TEXT.format(files=count, size=convert.size_text(size),
                                   held=plural(held, *SUPERSEDED_HELD) if held else SUPERSEDED_NONE_HELD)
+
+
+# The music folder as the window's gate and `doctor` say it (`HubApi._paths` raises them as `no_library`)
+NOT_CHOSEN = "Choose your music folder first: it is the first step of Setup."
+MISSING = "Your music folder isn't there: {path}. Connect the drive it is on, or choose another folder."
+
+# `doctor`: every check that found something says it in one sentence (a count takes its one-form through `plural`);
+# what to do next is a command (`next`) or a step only the person can do (`outcomes.STEPS`)
+DOCTOR_PROBLEMS = ("1 problem", "{n} problems")
+DOCTOR_NOTES = ("1 note", "{n} notes")
+DOCTOR_TEXT = "{problems}, {notes}."
+DOCTOR_ALL_GOOD = "Nothing wrong found."
+DOCTOR_TOOLS = "Missing: {tools}."
+DOCTOR_LOGIN = "{service}: its last login check failed."
+DOCTOR_ACCESS = "Discjockey can't open {folder}."
+DOCTOR_FOREIGN_LOCK = "Something outside Discjockey's job list holds your library: {text}"
+DOCTOR_LOST = ("1 job stopped without finishing this week.", "{n} jobs stopped without finishing this week.")
+DOCTOR_PENDING = "Some file steps were cut off; the next change finishes them first."
+DOCTOR_AWAY = ("1 watched folder is on a drive that isn't connected.",
+               "{n} watched folders are on a drive that isn't connected.")
+DOCTOR_PAUSED = "Paused today to protect your account: {services}."
+# what each `next` of a problem is for
+DOCTOR_WHY_SETUP = "what Setup still needs"
+DOCTOR_WHY_REKORDBOX = "what rekordbox's library says"
+DOCTOR_WHY_BACKUPS = "the backups Discjockey made of it"
+DOCTOR_WHY_LOGINS = "each login's state"
+DOCTOR_WHY_JOBS = "every job Discjockey knows of"
+DOCTOR_WHY_LOST = "what it did before it stopped"
+DOCTOR_WHY_SCAN = "finishes them, then scans"
+DOCTOR_WHY_LIMITS = "today's downloads and why they paused"
+
+# the apps a command can run in, by the bundle id macOS gives them and by `TERM_PROGRAM`: the app a person grants
+# access to a folder (macOS charges a command to the app it started from, not to Discjockey)
+APP_BY_BUNDLE = {"com.apple.Terminal": "Terminal", "com.googlecode.iterm2": "iTerm",
+                 "com.microsoft.VSCode": "Visual Studio Code", "dev.warp.Warp-Stable": "Warp"}
+APP_BY_TERM = {"Apple_Terminal": "Terminal", "iTerm.app": "iTerm", "vscode": "Visual Studio Code",
+               "WarpTerminal": "Warp"}
+UNKNOWN_APP = "the app you run this command in"
+
+
+def running_app(environ: Mapping[str, str]) -> str:
+    """The app this command runs in, named as System Settings › Privacy & Security › Files and Folders names it: the
+    bundle id first, else `TERM_PROGRAM`, else `UNKNOWN_APP`."""
+    return (APP_BY_BUNDLE.get(environ.get("__CFBundleIdentifier", "")) or APP_BY_TERM.get(environ.get("TERM_PROGRAM", ""))
+            or UNKNOWN_APP)
+
+
+def doctor_text(problems: int, notes: int) -> str:
+    """The one sentence of `doctor`: how many problems and notes, or that there is nothing wrong."""
+    if not problems and not notes:
+        return DOCTOR_ALL_GOOD
+    return DOCTOR_TEXT.format(problems=plural(problems, *DOCTOR_PROBLEMS), notes=plural(notes, *DOCTOR_NOTES))
 
 
 def preview_words(out: dict) -> dict:
