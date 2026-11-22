@@ -607,7 +607,7 @@ class HubApi:
         except SettingsError:
             return False
 
-    def _auto_upgrade_ready(self, state: dict, prep: run.Prepared | None) -> dict | None:
+    def _auto_upgrade_ready(self, state: dict, prep: run.Prepared | None, running: bool) -> dict | None:
         """`sync_preview().auto_upgrade`: `{on, ready, places, place_notes}`. `on`: the Auto-upgrade switch; `ready`: the
         tracks the sync's last phase would upgrade now (`auto_upgrade.plan`, quick: the cached rekordbox state, no read
         open of its library; a refusal that can't be told to still hold without one counts as holding), counting those
@@ -615,7 +615,8 @@ class HubApi:
         in for (Download again on a missing file; with the switch off too), counting those that would wait;
         `place_notes`: `{closed, open}` the sentence for them (`engine_words.place_plan_line`, rekordbox closed / open), null
         with none. None when the switch is off and nothing is to be placed (or the settings file is unreadable) or there
-        is no preview (no plan `prep`, so no questions to hold songs)."""
+        is no preview (no plan `prep`, so no questions to hold songs). `running`: whether rekordbox runs, asked once by the
+        caller (`sync_preview`) and shared with the cached rekordbox state, so a preview costs one process check."""
         if prep is None:
             return None
         try:
@@ -623,8 +624,8 @@ class HubApi:
         except SettingsError:
             return None
         planned = auto_upgrade.plan(self._paths, state, {q.song_key for q in prep.plan.questions}, settings,
-                                    running=self._svc.rekordbox_running, place=self._svc.rekordbox_place(),
-                                    status=self._rekordbox_status(), quick=True)
+                                    running=lambda: running, place=self._svc.rekordbox_place(),
+                                    status=self._rekordbox_status(running), quick=True)
         if planned is None:
             return None
         coming = [k for k in (*planned.run, *(k for k, _ in planned.waiting))]
@@ -912,7 +913,8 @@ class HubApi:
         # the songs an open question or duplicate group asks about leave the CDJ group (their decision comes first)
         decided = views.decided_songs(state, questions, groups, files, counted, away, owners)
         # the sidebar's number needs neither rekordbox's state nor a look at each file
-        rb = None if count_only else self._rekordbox_status()
+        running = None if count_only else bool(self._svc.rekordbox_running())  # once for the whole answer (a `ps`)
+        rb = None if count_only else self._rekordbox_status(running)
         # the files whose presence the page needs live: a parked upgrade's (Same track) and the CDJ group's (Convert)
         members = {} if count_only else cdj.group_members(state, include_hidden=True, held=decided)
         present = None if count_only else {k: batches.present(self._paths, e) for k, e in state["tracks"].items()
@@ -920,7 +922,7 @@ class HubApi:
         rows = [] if count_only else self._aiff_batches()
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
-        cdj_plan = self._cdj_plan(state, away, decided) if members and filt in (None, "all", "cdj") else None
+        cdj_plan = self._cdj_plan(state, away, decided, running) if members and filt in (None, "all", "cdj") else None
         # where a missing file was (the Missing files group's words); the sidebar's count needs none
         where = None
         if not count_only and any(file_missing(e) for e in state["tracks"].values()):
@@ -938,12 +940,14 @@ class HubApi:
         a missing file was."""
         return views.sites(state, pf.load(self._paths.playlists_file).rows, self._records_and_folders()[1]).place
 
-    def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str]) -> plans.AiffPlan:
+    def _cdj_plan(self, state: dict, away: Mapping[str, str], decided: frozenset[str] | set[str],
+                  running: bool | None = None) -> plans.AiffPlan:
         """The `cdj` scope's plan for To-do, remembered on the records' generation (every write of songs, files or
         decisions bumps it), rekordbox's cache key (`_rekordbox_status`: master.db's change, whether it runs) and the
         folders away now: a To-do read that changed none of them opens no library of rekordbox's again. A state that
-        carries no generation is planned every time. `decided`: `views.decided_songs`, which the plan leaves out."""
-        self._rekordbox_status()  # first: it refreshes the key below
+        carries no generation is planned every time. `decided`: `views.decided_songs`, which the plan leaves out.
+        `running`: whether rekordbox runs, when the caller (`_todo`) has asked already: the plan reuses it."""
+        self._rekordbox_status(running)  # first: it refreshes the key below
         with self._lock:
             rb_key = self._rb_cache[0] if self._rb_cache else None
             last = self._cdj_cache
@@ -952,25 +956,30 @@ class HubApi:
                if generation is not None else None)
         if key is not None and last is not None and last[0] == key:
             return last[1]
-        plan, blind = self._planned_read(state, {"kind": "cdj"}, held=decided)
+        plan, blind = self._planned_read(state, {"kind": "cdj"}, held=decided, running=running)
         # a plan made while a writer held rekordbox.lock took rekordbox's cached state and no lookup: not kept
         if key is not None and not blind:
             with self._lock:
                 self._cdj_cache = (key, plan)
         return plan
 
-    def _rekordbox_status(self) -> rekordbox.Status:
-        """`_rekordbox_read`'s status: what the screens and plans take of rekordbox's state."""
-        return self._rekordbox_read()[0]
+    def _rekordbox_status(self, running: bool | None = None) -> rekordbox.Status:
+        """`_rekordbox_read`'s status: what the screens and plans take of rekordbox's state. `running`: as there."""
+        return self._rekordbox_read(running)[0]
 
-    def _rekordbox_read(self) -> tuple[rekordbox.Status, bool, str | None, tuple[int, int] | None]:
+    def _rekordbox_read(self, running: bool | None = None
+                        ) -> tuple[rekordbox.Status, bool, str | None, tuple[int, int] | None]:
         """rekordbox's state for the screens, cached on master.db's modified time and size plus whether rekordbox runs
         (plan rekordbox B §4): one read open per change. A reader takes `rekordbox.lock` shared and without waiting
         (design §6.1): while a writer of any Discjockey process holds it master.db is never opened and the answer is the
         last value (or "ready" when there is none), `writing` True, with the time it was read (`as_of`). A write job that
         holds no rekordbox session does not stop the read: only a writer's lock does. Returns (status, writing, as_of,
-        stat): `stat` is master.db's (modified time in ns, size) as that value was read, None without a library."""
-        running = bool(self._svc.rekordbox_running())
+        stat): `stat` is master.db's (modified time in ns, size) as that value was read, None without a library.
+        `running`: the answer to "does rekordbox run" the caller already has for this read answer (the check is a `ps`
+        of ~40 ms, so a bridge read asks once and hands it down); None asks now. Only reads pass it: whatever guards a
+        write of rekordbox's files asks fresh at the write."""
+        if running is None:
+            running = bool(self._svc.rekordbox_running())
         with rb_lock.reader_lock(self._support.support) as free:
             with self._lock:
                 last, at = self._rb_cache, self._rb_at
@@ -1041,12 +1050,14 @@ class HubApi:
         return self._planned_read(state, scope, only, in_job=in_job, held=held)[0]
 
     def _planned_read(self, state: dict, scope: dict, only: str | None = None, *, in_job: bool = False,
-                      held: Collection[str] | None = None) -> tuple[plans.AiffPlan, bool]:
+                      held: Collection[str] | None = None, running: bool | None = None
+                      ) -> tuple[plans.AiffPlan, bool]:
         """`aiff_plan.read_plan` for `scope` with one read open of rekordbox's library (the lookup of its tracks), and
         whether it was made blind. A read asked while a writer holds `rekordbox.lock` (any Discjockey process) takes
         rekordbox's cached state and no lookup instead (as `_rekordbox_status`); a job plans for itself (`in_job`,
         after its recovery, holding no reader lock: its own session takes the writer's). The `cdj` scope leaves out
-        `held` (`_decided_now` when not given: what To-do shows as a question or a duplicate)."""
+        `held` (`_decided_now` when not given: what To-do shows as a question or a duplicate). `running`: whether rekordbox
+        runs, when the caller has asked already for this read answer (a job's plan, `in_job`, always asks for itself)."""
         if held is None:
             held = self._decided_now(state, self._plan()) if scope.get("kind") == "cdj" else ()
         if in_job:
@@ -1057,9 +1068,10 @@ class HubApi:
             if hold.enter_context(rb_lock.reader_lock(self._support.support)):
                 # the shared hold ends once master.db is closed (the lookups are done), not after the tag reads
                 return plans.read_plan(self._paths, state, scope, place=self._svc.rekordbox_place(),
-                                       running=bool(self._svc.rekordbox_running()), only=only, tags=self._tags,
+                                       running=bool(self._svc.rekordbox_running()) if running is None else running,
+                                       only=only, tags=self._tags,
                                        held=held, released=hold.close), False
-        return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(), entries=None, tags=self._tags,
+        return plans.plan(self._paths, state, scope, rb=self._rekordbox_status(running), entries=None, tags=self._tags,
                           only=only, held=held), True
 
     def _planned_reading(self, state: dict, scope: dict, only: str | None = None) -> plans.AiffPlan:
@@ -1151,10 +1163,11 @@ class HubApi:
         lines = pf.load(self._paths.playlists_file).rows
         where = views.sites(state, lines, folders).place
         read = self._read_view(strict=True)  # a refused settings.json is the answer here, not an empty preview
+        running = bool(self._svc.rekordbox_running())  # once for the whole answer: it is a `ps` of ~40 ms
         answer = views.sync_preview(read, state, self._settings(), self._today(), self._svc.now(),
                                     self._reading(), self._cover(self._images(read.prep)), self._logins(), where,
                                     views.song_places(state, lines, folders, overrides),
-                                    self._auto_upgrade_ready(state, read.prep))
+                                    self._auto_upgrade_ready(state, read.prep, running))
         if read.prep is not None:
             answer["plan_id"] = self._store_sync_plan(answer, state.get("generation"))
         return answer
