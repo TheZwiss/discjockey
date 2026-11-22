@@ -50,6 +50,13 @@ NOUN_WORDS = {
     "track": "One song: find it, show it, its spectrum, undo its last step.",
     "upgrade": "Better versions waiting: list, put in, throw away.",
     "job": "Long runs: list, show, follow, wait for, stop.",
+    "tidy": "Files out of playlist order: see what a tidy-up would move.",
+    "limits": "The daily download limits: what is used, what another limit would do.",
+    "playlist": "Your playlists: list them, check a link before you add it.",
+    "login": "The download logins: their state, the browsers that hold one.",
+    "tools": "The programs Discjockey needs: are they there.",
+    "setup": "Setup: what it still needs, whether a folder can be your music folder.",
+    "app": "This app: open its window, its version and whether a newer one is out.",
 }
 
 NO_PLAYLIST = "No playlist called “{name}”."

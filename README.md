@@ -168,6 +168,8 @@ Discjockey opens and starts Setup.
 
 Discjockey looks for a newer version once a day: it asks GitHub for the latest release (nothing about you or your
 library is sent). When one is out, a line under its name in the sidebar says so; click it to open the download page.
+In the Terminal, `discjockey app info` says what the last check found (and when it ran); `app info --check` runs the check
+now, still at most once a day.
 
 To update, download the new `.dmg` and drag Discjockey onto Applications again, replacing the old one. Your music,
 logins and settings stay where they are. Then confirm it once with "Open Anyway", as above.
@@ -430,6 +432,11 @@ when you ask for it on the **Playlists** page. Nothing is deleted, and every mov
 Discjockey never renames a file when it moves it. rekordbox may show moved tracks as missing; its Relocate finds
 them again by file name (see [rekordbox](#rekordbox)).
 
+**In the Terminal:** `discjockey tidy run --dry-run` lists the files the playlist order would put elsewhere, as the
+**Tidy up files** button's preview does, and `batch undo moves:<n> --dry-run` shows what undoing a batch of moves would
+do (`batch list` names the batches). Moving the files and undoing them from the Terminal is not there yet: for now they
+can only be tried.
+
 ## Daily use
 
 Open Discjockey and click **Sync** in the sidebar. Before anything changes, it shows the plan:
@@ -467,6 +474,14 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
 yesterday's unused amount is added on top. The **Download limits** page changes the daily limit and can allow some
 extra downloads for today only. After 3 failed Qobuz requests in a row, Qobuz pauses for the rest of the run, and
 those tracks are tried again next time.
+
+**In the Terminal:** `discjockey limits show [<service>]` prints what the **Download limits** page shows (what is used,
+the days, the signals, the zones, the suggestion), and `limits set <service> <n> [--extra-today <n>] --dry-run` says what
+another limit would do. Saving a limit from the Terminal is not there yet. `playlist list` lists your playlists;
+`playlist check <link>` reads a link the way **Add to the list** does, and shows the playlist it found, without adding it
+to `playlists.txt`. `login list` shows each download source's state, `login find <service>` the browsers that hold a login for it,
+`tools status` whether the programs Discjockey needs are there, `setup status` what Setup still needs, and
+`setup music <folder> --dry-run` whether a folder can be your music folder.
 
 ### Listening through a list
 

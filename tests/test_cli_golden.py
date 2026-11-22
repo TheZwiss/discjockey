@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from hub_helpers import LOSSY, choose_music, make_root
+from hub_helpers import LOSSY, choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
@@ -34,6 +34,17 @@ READS = [e for e in parser.built() if e.kind == "R"]
 WRITES = ["library_facts", "aiff_convert", "aiff_rename", "upgrade_apply", "upgrade_discard", "track_undo", "check_done", "batch_resume", "batch_undo", "rekordbox_restore", "sync_run", "folder_add", "folder_remove", "settings_set", "missing_download", "missing_remove", "sync_scope_off"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
 
 
+GOLDEN_NAMES = {"undo_preview": "batch_undo_moves"}  # a read whose command has a write with a page of its own: `batch undo`'s AIFF write has batch_undo.txt
+
+
+def golden_name(entry) -> str:
+    """The file of a read's page under `tests/cli_golden`, without `.txt`: its command's words, unless the command is
+    shared with a write that has a page (`GOLDEN_NAMES`)."""
+    return GOLDEN_NAMES.get(entry.method, "_".join(entry.command))
+
+
+TIMED = {("limits", "show"), ("limits", "set")}  # pages that word today's date: on the fixed clock of `services()`
+STUBBED = {("setup", "status"), ("tools", "status"), ("login", "list"), ("login", "find"), ("app", "info")}  # reads of this Mac
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
                                                                                         # parked and checks open
 CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file: a preview decodes it
@@ -69,13 +80,21 @@ def with_read(paths, monkeypatch):
     words the read's age and the plan's days, so it must not move with the day it runs on."""
     from datetime import datetime
 
-    from hub_helpers import ID1, ID2, TRACKS, services, store_sync_read
+    from hub_helpers import ID1, ID2, TRACKS, store_sync_read
 
-    from discjockey.hub.api import CliApi
     from discjockey.models import FetchedPlaylist, PlaylistLine
     store_sync_read(paths, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
                             FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])],
                     when=datetime(2026, 10, 20, 21, 45))
+    with_clock(monkeypatch)
+
+
+def with_clock(monkeypatch):
+    """The command line's api on the services of the hub fixtures (`hub_helpers.services()`: the clock is 2026-10-20 21:47,
+    nothing of this Mac): a page that words the date or an age must not move with the day it runs on."""
+    from hub_helpers import services
+
+    from discjockey.hub.api import CliApi
 
     def default():
         resolved = library.resolve_paths()
@@ -110,6 +129,10 @@ def fixture(tmp_path, monkeypatch, request, utc):
         return rich_library(tmp_path, monkeypatch).root
     if entry is not None and entry.command == ("missing", "list"):
         return missing_library(tmp_path, monkeypatch).root
+    if entry is not None and entry.command in STUBBED:
+        stub_headless(monkeypatch, "1.0.0")  # the pages never show this Mac's browsers or tools, nor the version of the day
+    if entry is not None and entry.command in TIMED:
+        with_clock(monkeypatch)
     paths = make_root(tmp_path)
     choose_music(tmp_path, monkeypatch)
     if entry is not None and entry.command[0] == "batch":
@@ -153,7 +176,7 @@ def test_golden_text(entry, fixture, capsys):
     code, out, err = run(words(entry), capsys)
     assert code == 0 and err == ""
     # a plan's id is a hash of the music folder's path, which is a different one on every run
-    check_golden("_".join(entry.command), re.sub(r"plan:[0-9a-f]{12}", "plan:<id>", out.replace(str(fixture), "<tmp>")))
+    check_golden(golden_name(entry), re.sub(r"plan:[0-9a-f]{12}", "plan:<id>", out.replace(str(fixture), "<tmp>")))
 
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
@@ -161,7 +184,8 @@ def test_t7_prime_every_leaf_of_data_is_in_the_verbose_text(entry, fixture, caps
     skip_without_tools(entry)
     _, out, _ = run([*words(entry), "--json"], capsys)
     data = json.loads(out)["data"]
-    code, text, _ = run([*words(entry), "--verbose", "--limit", "0"], capsys)
+    unpaged = ["--limit", "0"] if "--limit" in parser.extra_flags(parser.commands()[entry.command]) else []  # `batch undo` has none: its write is no read
+    code, text, _ = run([*words(entry), "--verbose", *unpaged], capsys)
     assert code == 0
     missing = dropped(data, text)
     assert not missing, f"{entry.command}: {missing[:5]} are not in the text"
@@ -204,5 +228,9 @@ def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
 
 
 def test_every_built_read_has_a_golden_file_and_no_golden_file_is_left_over():
-    wanted = {f"{'_'.join(e.command)}.txt" for e in READS} | {f"{name}.txt" for name in WRITES}
+    wanted = {f"{golden_name(e)}.txt" for e in READS} | {f"{name}.txt" for name in WRITES}
     assert {p.name for p in GOLDEN.glob("*.txt")} == wanted
+
+
+def test_no_read_has_the_golden_file_of_a_write():
+    assert not [e.method for e in READS if golden_name(e) in WRITES]

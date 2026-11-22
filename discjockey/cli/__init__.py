@@ -84,7 +84,7 @@ def _run(argv: list[str]) -> int:
         if parsed.command in HOUSEKEEPING:
             env = housekeeping.run(parsed)
         else:
-            env = call.run(call.choose(parsed.entries, flags), parsed.args, flags)
+            env = call.run(call.choose(parsed.entries, flags, parsed.args), parsed.args, flags)
     except UsageError as e:
         env = envelope.usage(command, e.message, e.reason)
     except Exception:  # noqa: BLE001 - `--json` always ends with one object; a bug is a failed answer

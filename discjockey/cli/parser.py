@@ -197,16 +197,21 @@ PHASE_ONLY_WORDS = ("{command} runs only the sync's last phase for now: say {fla
                     "`discjockey --yes` (or `discjockey --dry-run` to look first).")
 
 
+DRY_RUN_ONLY_WORDS = "{command} can only be tried for now: say --dry-run."  # a command whose write is not built (`catalog.dry_run_only`)
+
 SELECTION_FLAGS = {"--rows": ("rows", True, None), "--in": ("where", False, "COLLECTION"),
                    "--todo": ("todo", False, "GROUP"), "--search": ("search", False, "WORDS"),
                    "--quality": ("quality", False, "QUALITY")}  # flag -> (Flags field, switch?, the value's word in `help`)
 VALUE_FLAGS = {"--limit": "N", "--offset": "N"}  # the flags of a read that take a number (value word)
 
 
-def form_of(name: str, arg: catalog.Arg) -> str:
+def form_of(name: str, arg: catalog.Arg, command: tuple[str, ...] = ()) -> str:
     """What a person types for this argument (or for a flag's value), as `help` and the usage errors write it: the
     `--way` words, the id kind's form (`ids.FORMS`), `plan:ID` for a plan, `on|off` for a switch word, else the
-    parameter's name."""
+    parameter's name. The positional of a command that dispatches by id kind (`catalog.BY_ID_KIND`) takes every form
+    the command has (`aiff:N|moves:N`), not the one of the entry that happens to be its primary."""
+    if (by_kind := catalog.BY_ID_KIND.get(" ".join(command))) and by_kind[0] == name:
+        return ids.FORMS[by_kind[1]]
     kind = arg.resolve.split(":")[0] if arg.resolve else None
     if arg.resolve in RESOLVE_WORDS:
         return RESOLVE_WORDS[arg.resolve]
@@ -242,7 +247,7 @@ def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
     flags = _selection_flags(entries, taken)
     if (switch := catalog.PHASE_ONLY.get(" ".join(entries[0].command))) is not None:
         flags.append(switch)
-    if any(e.dry_run for e in entries):
+    if any(e.dry_run for e in entries) or catalog.dry_run_only(entries[0].command):
         flags.append("--dry-run")
     if any(e.needs_yes for e in entries):
         flags.append("--yes")
@@ -399,6 +404,8 @@ def parse(argv: list[str]) -> Parsed:
     signature = signature_of(primary.method)
     if (switch := catalog.PHASE_ONLY.get(" ".join(command))) is not None and not flags.auto_upgrade_only:
         raise UsageError(PHASE_ONLY_WORDS.format(command=" ".join(command), flag=switch))
+    if catalog.dry_run_only(command) and not flags.dry_run:
+        raise UsageError(DRY_RUN_ONLY_WORDS.format(command=" ".join(command)))
     for name, arg in catalog.effective_params(primary, signature).items():
         if arg.positional and arg.many:
             if name in ns and not ns[name]:
@@ -406,7 +413,7 @@ def parse(argv: list[str]) -> Parsed:
         if (arg.positional and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
                 and not (selected and name == "track_ids")):  # --all / --rows say which songs instead
             raise UsageError(_selection_words("batch_id" in signature.parameters) if name == "track_ids"
-                             else "Say on or off." if arg.type == "bool" else f"Say which {_what(name)}: {form_of(name, arg)}.")
+                             else "Say on or off." if arg.type == "bool" else f"Say which {_what(name)}: {form_of(name, arg, command)}.")
         if (arg.flag and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
                 and not flags.all):  # a flag the method cannot do without; the verb's own --all has its meaning without it
             raise UsageError(f"{arg.flag} is missing.")

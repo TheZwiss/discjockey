@@ -1,0 +1,27 @@
+Downloads › Qobuz
+State       off
+Last check  none
+Tracks      1
+
+Downloads › Youtube
+State         off
+Browser       none
+Browser name  none
+Profile       none
+Profile name  none
+Last check    none
+Tracks        0
+
+Downloads › Soundcloud
+State         off
+Browser       none
+Browser name  none
+Profile       none
+Profile name  none
+Last check    none
+Tracks        0
+
+Downloads › Library
+Lossless  1
+Account   0
+Free      1

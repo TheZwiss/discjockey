@@ -1,13 +1,14 @@
 // Fake mode only: an in-memory Discjockey state shaped like the contract. Reads are computed from it, writes change it.
 import type {
   FileState, LibraryRow,
-  AnySignalKind, AppUpdate, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
+  AnySignalKind, Alignment, Browser, Budget, LastCheck, LoginBrowser, ByQuality, Candidate, PlaylistInfo, PlaylistRow, PreviewAction, Quality, Result, RunDetail,
   DownloadTools, FolderCheck, SetupStatus, SignalKind, Source, ReadStatus, Status, TodoGroupKey, TrackRow, Upgrade, FreeDownload,
   PlaylistService, SourceHow, TrackLink, DuplicateWhy, FileSide, ImportPhase, QuestionPair, QuestionWhy, UnreadableFile,
   RekordboxCheckView,
 } from '../types';
 import { QUALITIES } from '../types';
 import { PLAYLIST_SERVICE_NAMES } from '../../copy';
+import type { UpdateNotice } from '../../appUpdate';
 import { cutoffStat } from '../../format';
 
 /** the fake's newest yt-dlp on PyPI */
@@ -237,7 +238,7 @@ export type FakeState = {
   undoRefuse?: Record<string, string>;
   offline: boolean;
   /** app_update(): the update check's answer (scenario update_available: a newer version) */
-  appUpdate: AppUpdate;
+  appUpdate: UpdateNotice;
   previewRead: boolean;          // false → sync_preview empty 'no_preview'
   errors: boolean;               // every write ends with a problem
   errorTurn: number;

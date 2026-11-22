@@ -2,8 +2,9 @@
 import { derived, get, writable, type Readable } from 'svelte/store';
 import { onEvent } from '../bridge/events';
 import { api, onNoLibrary } from '../bridge/client';
-import type { AppUpdate, ConsoleHolder, CrateSaved, CratesSaved, FavouritesSaved, JobSnap, LastSync, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
+import type { ConsoleHolder, CrateSaved, CratesSaved, FavouritesSaved, JobSnap, LastSync, PlaylistService, SetupStatus, Sidebar, ReadStatus, Res } from '../bridge/types';
 import { WRITE_BLOCKED } from '../copy';
+import type { UpdateNotice } from '../appUpdate';
 
 export type HubState = {
   booted: boolean; fake: boolean;
@@ -22,7 +23,7 @@ export type HubState = {
   /** the last playlist read was stopped (until the next one starts): ReadStatus says so */
   read_stopped: boolean;
   /** the update check's last answer (app_update / AppUpdate; spec public-release §8) */
-  app_update: AppUpdate | null;
+  app_update: UpdateNotice | null;
   /** counts the AppUpdate events reduced so far, so refreshHub can tell an answer that an event has overtaken */
   app_update_seq: number;
   /** counts the ConsoleBusy events reduced so far, so refreshHub can tell a `console` answer that an event has overtaken */

@@ -1,0 +1,6 @@
+Batch id      1
+Title         Tidy-up
+Rows          none
+Moving        0
+Warning       none
+Nothing left  yes

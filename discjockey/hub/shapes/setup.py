@@ -81,12 +81,16 @@ class MusicFolderSet(TypedDict):
 
 @shape
 class AppUpdate(TypedDict):
-    """The update check's last answer (event `AppUpdate`); it never touches the network."""
+    """`app_update(check)`: the update check's last answer (the event `AppUpdate` carries its first four fields); without
+    `check` it never touches the network."""
     state: Annotated[Literal["available", "up_to_date", "unknown"], F(
         "`unknown`: no answer yet (offline, rate limit, or a version that is not plain); the page shows nothing.")]
     current: Annotated[str, F("This app's version.")]
     latest: Annotated[str | None, F("The newest version; only for `available`.")]
     url: Annotated[str | None, F("The release page; only for `available`.", shown=False)]
+    checked: Annotated[bool, F("This call ran the update check (`--check`); the network is asked only when the last "
+                               "answer is a day old.")]
+    checked_at: Annotated[str | None, F("When the last answer was fetched; null when it never was.")]
 
 
 @shape

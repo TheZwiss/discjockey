@@ -1,10 +1,10 @@
 // Settings (spec settings-setup §3): the rows, the one line each says about its state, and which row opens first.
 // Pure: the page passes in what the bridge answered and the time.
 // The download sources' lines live with the account panel (accountModel), so a row and its panel say the same thing.
-import { aboutLine } from '$lib/appUpdate';
+import { aboutLine, type UpdateNotice } from '$lib/appUpdate';
 import { autoUpgradeLine, autoUpgradeOn } from '$lib/autoUpgrade';
 import type {
-  AppUpdate, DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, ReadStatus, WatchedFolders,
+  DownloadsView, DownloadTool, DownloadTools, JobSnap, SetupStatus, SetupTools, ReadStatus, WatchedFolders,
 } from '$lib/bridge/types';
 import { WHAT_IT_GIVES, checkedWhen, stateLine, type RowLine, type Tone } from '$lib/components/accountModel';
 import type { LogoKey } from '$lib/components/serviceLogos';
@@ -56,7 +56,7 @@ export type RowContext = {
   /** playlists.txt has a switched-on Spotify line (the read status's `services`) */
   spotifyUsed?: boolean;
   /** the update check's last answer; never a problem, so it never moves `firstAttention` */
-  update?: AppUpdate | null;
+  update?: UpdateNotice | null;
   /** watched_folders(); null while it is read */
   folders?: WatchedFolders | null;
   /** the hub's write job: a running import says its live count in the Watched folders row */

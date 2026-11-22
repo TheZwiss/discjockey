@@ -7,8 +7,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from hub_helpers import choose_music, make_root
+from hub_helpers import choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
+from test_cli_upgrade import inline_workers  # noqa: F401 - the fixture
 
 import discjockey.cli as cli
 from discjockey import __version__, db, library
@@ -114,7 +115,7 @@ def test_help_of_a_word_that_is_not_there_is_bad_args(capsys):
 
 
 def test_a_command_not_built_is_in_no_help(capsys):
-    code, env = run_json(["help", "playlist"], capsys)
+    code, env = run_json(["help", "open"], capsys)
     assert code == 2 and env["outcome"] == "bad_args"
 
 
@@ -244,7 +245,7 @@ def _row(capsys, *words):
 
 def test_an_id_argument_is_listed_as_the_form_a_person_types(capsys):
     undo = _row(capsys, "batch", "undo")
-    assert undo["args"][0]["id"] == "aiff" and undo["args"][0]["type"] == "str" and undo["args"][0]["word"] == "aiff:N"
+    assert (undo["args"][0]["id"], undo["args"][0]["type"], undo["args"][0]["word"]) == ("batch", "str", "aiff:N|moves:N")  # by id kind
     show = _row(capsys, "batch", "show")
     assert (show["args"][0]["id"], show["args"][0]["word"]) == ("batch", "aiff:N|moves:N")
     assert _row(capsys, "folder", "remove")["args"][0]["word"] == "FOLDER"
@@ -290,9 +291,13 @@ def test_a_command_lists_the_reasons_its_entries_and_locks_answer_with(capsys):
     assert {"needs_yes", "refused"} <= set(_row(capsys, "call")["reasons"])
 
 
-def test_a_read_answers_no_library_exactly_when_the_catalogue_says_it_needs_one(tmp_path, monkeypatch, capsys):
-    """`NEEDS_NO_LIBRARY` is the fact behind the `no_library` reason: run every built read with no music folder chosen."""
+def test_a_read_answers_no_library_exactly_when_the_catalogue_says_it_needs_one(tmp_path, monkeypatch, capsys,
+                                                                                 inline_workers):  # noqa: F811
+    """`NEEDS_NO_LIBRARY` is the fact behind the `no_library` reason: run every built read with no music folder chosen
+    (on the services of the hub fixtures: no browser or tool of this Mac is read; a read that runs as a job
+    (`playlist check`) runs in this process, so no worker starts)."""
     monkeypatch.setenv(library.SUPPORT_ENV, str(tmp_path / "support"))
+    stub_headless(monkeypatch)
     seen = 0
     for command, entries in parser.commands().items():
         for e in entries:

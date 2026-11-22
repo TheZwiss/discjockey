@@ -1710,10 +1710,18 @@ class HubApi:
         return {}
 
     @bridge
-    def app_update(self) -> dict:
-        """Is a newer Discjockey out (spec public-release §8)? The last answer of the update check, never the
-        network: {state: available | up_to_date | unknown, current, latest, url}. Works without a music folder."""
-        return self._update.status()
+    def app_update(self, check: bool = False) -> dict:
+        """Is a newer Discjockey out (spec public-release §8)? {state: available | up_to_date | unknown, current, latest,
+        url, checked, checked_at}. Without `check` never the network: the window's check keeps the answer in memory, and
+        a process that runs none (the command line) reads the cache while it is a day old at most. With `check` this call
+        ran the update check (`Checker.check`: GitHub only when the cache is a day old or missing, never for a
+        developer's version): `checked` says so, `checked_at` is when the last answer was fetched (null: never).
+        Works without a music folder."""
+        if check:
+            self._update.check()
+        else:
+            self._update.load_cache()
+        return {**self._update.status(), "checked": bool(check), "checked_at": self._update.cached_at()}
 
     def _watch_app_update(self, interval: float = _UPDATE_TICK) -> threading.Thread:
         """The update check at start, then every `interval` while the window is open: the cached answer, or GitHub's
@@ -3791,7 +3799,7 @@ class CliApi(HubApi):
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
                  "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch",
-                 "report": "_resolve_report", "since": "_resolve_since"}  # kind -> the method that makes it (grows per group)
+                 "report": "_resolve_report", "since": "_resolve_since", "moves": "_resolve_moves"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -4080,6 +4088,16 @@ class CliApi(HubApi):
             row = db.aiff_batch(conn, found.value) if conn is not None else None
         if row is None:
             raise BadId("unknown_id", f"There is no AIFF batch {found.value}.")
+        return int(found.value)
+
+    def _resolve_moves(self, text: str) -> int:
+        """`batch undo moves:<n>`: the move batch as its number. A bare number or an AIFF batch is `bad_id_kind`, a batch
+        that was never made `unknown_id`."""
+        found = parse_id(text, ("moves",))
+        with self._move_log() as conn:
+            row = db.batch(conn, found.value) if conn is not None else None
+        if row is None:
+            raise BadId("unknown_id", f"There is no move batch {found.value}.")
         return int(found.value)
 
     def _resolve_batch(self, text: str) -> str:

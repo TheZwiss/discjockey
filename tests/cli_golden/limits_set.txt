@@ -1,0 +1,10 @@
+Limit            40
+Extra today      0
+Allowance today  53
+Remaining today  53
+Days to load     none
+Run minutes      45
+
+Assessment
+Level  1
+Label  careful

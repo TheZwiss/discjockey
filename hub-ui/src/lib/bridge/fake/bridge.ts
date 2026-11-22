@@ -1496,7 +1496,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     async open_external(url: string) {
       return /^https:\/\//.test(url ?? '') ? ok({}) : fail('refused', 'Only https links open in the browser.');
     },
-    async app_update() { return ok({ ...s.appUpdate }); },
+    async app_update(check?: boolean) {
+      return ok({ ...s.appUpdate, checked: !!check, checked_at: s.appUpdate.state === 'unknown' ? null : '2026-10-20T21:47:00+00:00' });
+    },
     // the music folder (api.py pick_folder / check_music_folder / set_music_folder / retry_music_folder)
     async pick_folder(_start?: string | null) { return later(300, () => ok({ path: s.pick })); },
     async check_music_folder(path: string) { return ok(checkFolder(path)); },

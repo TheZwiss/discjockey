@@ -1,0 +1,5 @@
+Browsers
+Id      Name    Default  Readable  Problem  Profiles
+chrome  Chrome  no       yes       none     none
+safari  Safari  no       yes       none     id: none, name: Safari, signed_in: no
+2 of 2 shown

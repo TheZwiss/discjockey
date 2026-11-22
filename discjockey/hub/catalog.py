@@ -141,10 +141,16 @@ DISPATCH: dict[str, str] = {
     "login skip": "the service word: qobuz runs setup_skip_qobuz, spotify runs setup_skip_spotify",
 }
 
+# The commands whose entry is picked by the id kind of one positional (`call.choose` reads the typed id's kind): `<command> ->
+# (the positional's name, the key of `ids.FORMS` that writes all its forms)`. `help` prints that form (`aiff:N|moves:N`)
+# for the positional, not the form of the primary entry's own kind. Every such command is named in `DISPATCH` too.
+BY_ID_KIND: dict[str, tuple[str, str]] = {"batch undo": ("batch_id", "batch")}
+
 # The built methods that work without a bound music folder (every other one answers `refused`, `no_library` first): a
 # fact `help --json` lists as the `no_library` reason. tests/test_cli_housekeeping.py runs every built read with none
 # chosen to pin it (`set_auto_upgrade` and `set_sync_scope` are writes: probed by hand, they answer `ok` with none chosen).
-NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope"))  # Settings works before a folder is chosen
+NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope",
+                              "check_music_folder", "setup_status", "setup_check_tools", "downloads_view", "find_logins", "app_update"))  # Settings works before a folder is chosen
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
@@ -161,6 +167,22 @@ def primary(entries: "list[Entry]") -> "Entry":
     first), else a read that runs as a job, else the read (`aiff convert` has the read `aiff_plan` among its entries,
     which the write's `--dry-run` runs)."""
     return next((e for e in entries if e.kind in ("J", "B")), next((e for e in entries if e.kind != "R"), entries[0]))
+
+
+def stands_in(entry: "Entry") -> bool:
+    """Whether `entry` is a built read that answers the `--dry-run` of a write nobody has built yet (`tidy_preview` for
+    the planned `tidy_up`): until the write is built the command can only be tried, and this read is the whole of it.
+    Derived: the moment the write loses its `planned` label, the read stops standing in."""
+    return entry.kind == "R" and not entry.planned and any(
+        e.dry_run == entry.method for e in ENTRIES
+        if e.command == entry.command and e.kind in ("J", "B") and e.planned)
+
+
+def dry_run_only(command: tuple[str, ...]) -> bool:
+    """Whether every built entry of `command` stands in for a write that is not built: the command line offers it with
+    `--dry-run` alone (`tidy run`, `limits set`, `setup music`); `batch undo` is not one (its AIFF write is built)."""
+    built = [e for e in ENTRIES if e.command == command and not e.planned and e.kind not in ("W", "dropped")]
+    return bool(built) and all(stands_in(e) for e in built)
 
 
 def entry_of(method: str, command: str) -> "Entry | None":
@@ -249,10 +271,10 @@ ENTRIES: tuple[Entry, ...] = (
     _e("watched_folders", "folder list", "R", "folder list", built=True),
     _e("removal_preview", "", "R", params={"folder_id": _positional("folder", type="int")}, built=True),  # `folder remove --dry-run`
     _e("check_import_folder", "folder check", "R", "folder check /Music/Crate", built=True),
-    _e("tidy_preview", "tidy run", "R", "tidy run --dry-run", planned="phase 3: V3.1b"),
+    _e("tidy_preview", "tidy run", "R", "tidy run --dry-run", built=True),
     _e("move_batches", "", "R", built=True),  # the window's own list; `batch list` is `batches`
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
-       params={"batch_id": _positional("moves", type="int")}, planned="phase 3: V3.1b"),
+       params={"batch_id": _positional("moves", type="int")}, built=True),
     _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True, locks={"rekordbox_r"}),
     _e("job_status", "", "R", built=True),  # the window's own job; `job list` / `job show` read the registry
     _e("job_events", "", "R", built=True),  # the window's follow; `job follow --jsonl` reads the same files
@@ -275,8 +297,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("never_download", "track download", "J", params={"track_id": TRACKS}, fixed={"never": False}, planned="phase 4: V4.6"),
     _e("hide", "track hide", "J", params={"track_id": TRACKS}, fixed={"hidden": True}, planned="phase 4: V4.6"),
     _e("hide", "track unhide", "J", params={"track_id": TRACKS}, fixed={"hidden": False}, planned="phase 4: V4.6"),
-    _e("setup_status", "setup status", "R", "setup status", planned="phase 3: V3.1b"),
-    _e("app_update", "app info", "R", "app info", planned="phase 3: V3.1b"),
+    _e("setup_status", "setup status", "R", "setup status", built=True),
+    _e("app_update", "app info", "R", "app info", built=True),
     _e("rescan_library", "library scan", "J", "library scan", built=True, locks={"library"}),
     _e("quit", "", "W"),
     _e("open_external", "open url", "R", "open url https://example.com", planned="phase 3: V3.1c"),
@@ -285,15 +307,16 @@ ENTRIES: tuple[Entry, ...] = (
         "track_id": TRACK, "which": Arg("--upgrade", type="bool", resolve="which")}, planned="phase 3: V3.1c"),
     _e("select", "", "dropped"),
     # --- limits
-    _e("limits", "limits show", "R", "limits show qobuz", params={"service": _positional()}, planned="phase 3: V3.1b"),
+    _e("limits", "limits show", "R", "limits show qobuz", params={"service": _positional()}, built=True),
     _e("limits_what_if", "limits set", "R", "limits set qobuz 40 --dry-run", params={
-        "service": _positional(), "limit": _positional(type="int")}, planned="phase 3: V3.1b"),
+        "service": _positional(), "limit": _positional(type="int")}, built=True),
     _e("save_limits", "limits set", "J", params={"service": _positional(), "limit": _positional(type="int")},
        dry_run="limits_what_if", planned="phase 4: V4.8"),
     _e("mark_warnings_seen", "limits seen", "J", params={"service": _positional()}, planned="phase 4: V4.8"),
     # --- playlists
-    _e("playlists", "playlist list", "R", "playlist list", planned="phase 3: V3.1b"),
-    _e("add_playlist", "playlist check", "RJ", params={"url": _positional()}, planned="phase 3: V3.1b"),
+    _e("playlists", "playlist list", "R", "playlist list", built=True),
+    _e("add_playlist", "playlist check", "RJ", "playlist check https://soundcloud.com/someone/sets/a-set",
+       params={"url": _positional()}, built=True),
     _e("preview_playlist_change", "", "R", params={"lines": _derived("playlist_lines", "list")}, planned="phase 4: V4.2"),
     *_playlist_edits(),
     _e("set_read_liked_music", "settings set read-liked-music", "J", params={"on": _positional(type="bool")}, planned="phase 4: V4.8"),
@@ -303,8 +326,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("undo_moves", "batch undo", "J", params={"batch_id": _positional("moves", type="int")}, needs_yes=True,
        dry_run="undo_preview", planned="phase 4: V4.4"),
     # --- logins and setup
-    _e("downloads_view", "login list", "R", "login list", planned="phase 3: V3.1b"),
-    _e("find_logins", "login find", "R", "login find soundcloud", params={"service": _positional()}, planned="phase 3: V3.1b"),
+    _e("downloads_view", "login list", "R", "login list", built=True),
+    _e("find_logins", "login find", "R", "login find soundcloud", params={"service": _positional()}, built=True),
     _e("setup_account", "login use", "J", params={"service": _positional(), "browser": Arg("--browser")}, planned="phase 4: V4.7"),
     _e("setup_account", "login check", "J", params={"service": _positional(), "browser": _derived("saved_browser")}, planned="phase 4: V4.7"),
     _e("account_sign_in", "login sign-in", "J", params={"service": _positional(), "browser": Arg("--browser")}, planned="phase 4: V4.7"),
@@ -326,17 +349,19 @@ ENTRIES: tuple[Entry, ...] = (
        fixed={"on": []}, built=True, locks={"library", "support"}),
     _e("set_sync_scope", "sync scope on", "J", "sync scope on kind:weekly", params={"on": _positional(many=True)},
        fixed={"off": []}, built=True, locks={"library", "support"}),
-    _e("setup_check_tools", "tools status", "R", "tools status", planned="phase 3: V3.1b"),
+    _e("setup_check_tools", "tools status", "R", "tools status", built=True),
     _e("update_tools", "tools update", "J", planned="phase 4: V4.8"),
     _e("rollback_tools", "tools rollback", "J", needs_yes=True, planned="phase 4: V4.8"),
     _e("open_licenses", "open licences", "R", "open licences", planned="phase 3: V3.1c"),
     *_favourite_entries(),
     *_crate_entries(),
     _e("pick_folder", "", "W"),
-    _e("check_music_folder", "setup music", "R", "setup music /Music/Discjockey --dry-run", params={"path": _positional()}, planned="phase 3: V3.1b"),
+    _e("check_music_folder", "setup music", "R", "setup music /Music/Discjockey --dry-run", params={"path": _positional()}, built=True),
     _e("set_music_folder", "setup music", "J", params={"path": _positional()}, needs_yes=True,
        dry_run="check_music_folder", planned="phase 4: V4.8"),
-    _e("retry_music_folder", "setup status", "R", "setup status", planned="phase 3: V3.1b"),
+    # the window's Try again on the missing-folder screen; a command resolves the folder fresh every time, so `setup status`
+    # answers (design §5.2)
+    _e("retry_music_folder", "", "R", built=True),
     _e("setup_skip_import", "setup skip-import", "B", planned="phase 4: V4.8"),
     _e("add_watched_folder", "folder add", "J", "folder add /Music/Crate", params={"path": _positional()},
        dry_run="check_import_folder", built=True, locks={"library"}),

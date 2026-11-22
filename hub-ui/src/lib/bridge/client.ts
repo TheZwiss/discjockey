@@ -112,7 +112,8 @@ export interface Bridge {
   // other
   show_in_finder(track_id: string, which: Which): Promise<Res<Empty>>;   reveal(rel_path: string): Promise<Res<Empty>>;
   open_report(run_id: string): Promise<Res<Empty>>;   open_external(url: string): Promise<Res<Empty>>;
-  app_update(): Promise<Res<AppUpdate>>;
+  /** The update check's last answer; `check` runs the check (the network only when the cache is a day old). */
+  app_update(check?: boolean): Promise<Res<AppUpdate>>;
   quit(): Promise<Res<Empty>>;
   // setup
   setup_check_tools(): Promise<Res<SetupTools>>;  setup_save_client_id(client_id: string): Promise<JobStart>;

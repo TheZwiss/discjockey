@@ -206,3 +206,47 @@ def test_report_show_prints_the_id_once_and_verbose_prints_both_forms(lib, capsy
     assert cli.main(["report", "show", "last", "--verbose"]) == 0
     verbose = capsys.readouterr().out
     assert "Run id" in verbose and f"report:{stamp}" in verbose
+
+
+# --- `batch undo` by the kind of its id (V3.1b): `aiff:<n>` is the AIFF write, `moves:<n>` is only tried for now ---
+
+def test_batch_undo_moves_is_tried_with_dry_run_and_is_undo_preview(lib, capsys):
+    from discjockey.cli import bind
+    with_batches(lib)
+    code, env = data_of(["batch", "undo", "moves:1", "--dry-run"], capsys)
+    answer = bind.default().undo_preview(1)
+    assert code == 0 and env["command"] == "batch undo" and "plan_id" not in env["data"]
+    assert env["data"] == {k: v for k, v in answer.items() if k != "ok"} and env["data"]["batch_id"] == 1
+
+
+def test_batch_undo_moves_without_dry_run_says_it_can_only_be_tried_naming_the_batch_form(lib, capsys):
+    from discjockey.cli.parser import DRY_RUN_ONLY_WORDS
+    with_batches(lib)
+    for extra in ([], ["--yes"]):
+        code, env = data_of(["batch", "undo", "moves:1", *extra], capsys)
+        assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "usage")
+        assert env["message"] == DRY_RUN_ONLY_WORDS.format(command="batch undo moves:<n>")
+
+
+def test_batch_undo_by_kind_refuses_a_bare_number_a_batch_nobody_made_and_another_kind(lib, capsys):
+    with_batches(lib)
+    code, env = data_of(["batch", "undo", "moves:9", "--dry-run"], capsys)
+    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "unknown_id")
+    assert env["message"] == "There is no move batch 9."
+    for typed in ("1", "job:ab12cd34"):
+        code, env = data_of(["batch", "undo", typed, "--dry-run"], capsys)
+        assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "bad_id_kind"), typed
+    code, env = data_of(["batch", "undo", "moves:1"], capsys)  # the kind is read before anything else is said
+    assert env["reason"] == "usage"
+    code, env = data_of(["batch", "undo"], capsys)
+    assert code == 2 and "aiff:N|moves:N" in env["message"]
+
+
+def test_batch_undo_aiff_still_runs_the_aiff_write_and_help_names_both_kinds(lib, capsys):
+    with_batches(lib)
+    code, env = data_of(["batch", "undo", "aiff:1", "--dry-run"], capsys)
+    assert code == 0 and "moving" not in env["data"]  # batch_undo_preview's page, not the moves'
+    code, env = data_of(["help", "batch", "undo"], capsys)
+    (row,) = env["data"]["commands"]
+    assert row["usage"].startswith("batch undo aiff:N|moves:N") and row["args"][0]["id"] == "batch"
+    assert set(row["methods"]) == {"batch_undo", "undo_preview"}

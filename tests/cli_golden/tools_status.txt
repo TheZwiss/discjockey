@@ -1,0 +1,20 @@
+Missing                 none
+Redirect uri            http://127.0.0.1:8888/callback
+Download tools problem  none
+
+Tools
+Ffmpeg   yes
+Ffprobe  yes
+Deno     yes
+
+Download tools › Yt-dlp
+Version   2026.10.21
+Source    built_in
+Waiting   none
+Previous  none
+
+Download tools › Streamrip
+Version   2.1.0
+Source    built_in
+Waiting   none
+Previous  none
