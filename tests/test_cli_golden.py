@@ -260,9 +260,10 @@ def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
     answer = getattr(api, entry.method)(**kwargs)
     assert answer["ok"], answer
     _, out, _ = run([*words(entry), "--json"], capsys)
-    # an answer that says what to run next (a search with no hit) has it in the envelope's `next`, not in `data`;
+    # an answer that says what to run next (a search with no hit) has it in the envelope's `next`, and the live steps of a
+    # running job (`status`) in its `person_steps`, not in `data`;
     # a headless api has no media server, so no answer carries a hub URL
-    assert json.loads(out)["data"] == {k: v for k, v in answer.items() if k not in ("ok", "next")}
+    assert json.loads(out)["data"] == {k: v for k, v in answer.items() if k not in ("ok", "next", "person_steps")}
 
 
 def test_every_built_read_has_a_golden_file_and_no_golden_file_is_left_over():

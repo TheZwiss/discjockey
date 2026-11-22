@@ -547,6 +547,17 @@ def test_the_envelope_rejects_a_word_it_does_not_know():
     assert (env["outcome"], env["reason"], env["data"]) == ("busy", "library_lock", {"holder": "sync"})
 
 
+def test_an_ok_answers_next_and_person_steps_are_the_envelopes_not_data():
+    from discjockey.cli import envelope
+    step = {"id": "step:connect_drive", "say": "Connect the drive Gig Stick.", "then": None}
+    answer = {"ok": True, "rows": [1], "next": [{"run": "doctor", "why": "look further"}], "person_steps": [step]}
+    env = envelope.from_answer("status", answer)
+    assert (env["outcome"], env["data"]) == ("ok", {"rows": [1]})
+    assert env["next"] == [{"run": "doctor", "why": "look further"}] and env["person_steps"] == [step]
+    plain = envelope.from_answer("status", {"ok": True, "rows": []})
+    assert plain["next"] == [] and plain["person_steps"] == []
+
+
 # --- `rev` replaces the window's memory of what it showed ---
 
 def test_the_api_keeps_no_memory_of_what_a_page_showed():
