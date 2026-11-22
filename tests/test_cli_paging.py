@@ -143,3 +143,19 @@ def test_the_spread_sets_the_derived_argument_and_resolves_it_once(songs):
     assert kwargs == {"query": "x"}  # no --in: the method's own defaults
     kwargs, _ = call._arguments(entry, {"view": "playlist", "key": "k"}, "call", bind.default(), exact=True)
     assert kwargs == {"view": "playlist", "key": "k"}  # `call` sends the bridge's own arguments, nothing resolved
+
+
+def test_sync_plan_search_narrows_the_actions_and_keeps_the_plan_whole(songs, capsys):
+    from hub_helpers import ID1, ID2, TRACKS, store_sync_read
+
+    from discjockey.models import FetchedPlaylist, PlaylistLine
+    store_sync_read(songs, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
+                            FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])])
+    _, whole = run_json(["sync", "plan"], capsys)
+    code, found = run_json(["sync", "plan", "--search", "PEGASSI"], capsys)
+    assert code == 0 and found["page"] is None  # `groups` is the plan's own structure, not a list the command pages
+    assert [a["title"] for g in found["data"]["groups"] for a in g["actions"]] == ["AEIOU"]
+    assert found["data"]["search"] == "PEGASSI" and whole["data"]["search"] is None
+    assert found["data"]["plan_id"] == whole["data"]["plan_id"] and found["data"]["counts"] == whole["data"]["counts"]
+    _, none = run_json(["sync", "plan", "--search", "zzz"], capsys)
+    assert none["data"]["groups"] == [] and none["data"]["counts"] == whole["data"]["counts"]

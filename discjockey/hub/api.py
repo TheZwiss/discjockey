@@ -1156,7 +1156,11 @@ class HubApi:
                              away=self._away_folders(folders))
 
     @bridge
-    def sync_preview(self) -> dict:
+    def sync_preview(self, search: str = "") -> dict:
+        """The plan as the Sync page shows it. `search` (the command line's `--search`; the window sends none) narrows
+        the actions of `groups` to the songs the Library's search finds by that artist and title (`views.matches_search`),
+        a group left with none is left out, and `search` says the words. Everything else, the counts, the estimate, the
+        presets, `never`, `ambiguous`, `dropped` and `plan_id`, stays the whole plan's: a search only picks what to look at."""
         state = self._state()
         with self._move_log() as conn:
             folders, overrides = (db.watched_folders(conn), db.crate_overrides(conn)) if conn is not None else ([], {})
@@ -1170,6 +1174,11 @@ class HubApi:
                                     self._auto_upgrade_ready(state, read.prep, running))
         if read.prep is not None:
             answer["plan_id"] = self._store_sync_plan(answer, state.get("generation"))
+        if words := views.search_query(search):
+            groups = [{**g, "actions": [a for a in g["actions"] if views.matches_search(words, a["artist"], a["title"])]}
+                      for g in answer["groups"]]
+            answer["groups"] = [g for g in groups if g["actions"]]
+            answer["search"] = search.strip()
         return answer
 
     def _store_sync_plan(self, preview: dict, generation: int | None) -> str:

@@ -63,6 +63,28 @@ def utc():
     time.tzset()
 
 
+def with_read(paths, monkeypatch):
+    """The playlists read the hub fixture's two lines hold (two songs to download: `sync plan` has a plan to show), made
+    on the clock of `hub_helpers.services()` (2026-10-20 21:47), which the command line's api now runs on: the page
+    words the read's age and the plan's days, so it must not move with the day it runs on."""
+    from datetime import datetime
+
+    from hub_helpers import ID1, ID2, TRACKS, services, store_sync_read
+
+    from discjockey.hub.api import CliApi
+    from discjockey.models import FetchedPlaylist, PlaylistLine
+    store_sync_read(paths, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
+                            FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])],
+                    when=datetime(2026, 10, 20, 21, 45))
+
+    def default():
+        resolved = library.resolve_paths()
+        api = CliApi(resolved.support, None, services())
+        api._attach(resolved.paths)
+        return api
+    monkeypatch.setattr(bind, "default", default)
+
+
 def with_backups(tmp_path, monkeypatch):
     """Two backups of the fixture rekordbox library, made at fixed times (their names are the time), one of them by two
     batches: what `rekordbox backups` lists."""
@@ -92,6 +114,8 @@ def fixture(tmp_path, monkeypatch, request, utc):
     choose_music(tmp_path, monkeypatch)
     if entry is not None and entry.command[0] == "batch":
         with_batches(paths)  # two AIFF batches and a move batch: the typed ids `aiff:1`, `aiff:2`, `moves:1`
+    if entry is not None and entry.command == ("sync", "plan"):
+        with_read(paths, monkeypatch)
     if entry is not None and entry.command in (("report", "show"), ("report", "list")):
         with_report(paths)
     make_master(tmp_path / "rekordbox", [])
@@ -128,7 +152,8 @@ def test_golden_text(entry, fixture, capsys):
     skip_without_tools(entry)
     code, out, err = run(words(entry), capsys)
     assert code == 0 and err == ""
-    check_golden("_".join(entry.command), out.replace(str(fixture), "<tmp>"))
+    # a plan's id is a hash of the music folder's path, which is a different one on every run
+    check_golden("_".join(entry.command), re.sub(r"plan:[0-9a-f]{12}", "plan:<id>", out.replace(str(fixture), "<tmp>")))
 
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))

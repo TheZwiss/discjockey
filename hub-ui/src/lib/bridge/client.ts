@@ -15,7 +15,8 @@ import { CRASHED_MESSAGE, RECOVERED_TITLE, problemCopy, successCopy } from '../c
 export interface Bridge {
   // read, any time
   dashboard(): Promise<Res<Dashboard>>;           sidebar(): Promise<Res<Sidebar>>;
-  sync_preview(): Promise<Res<SyncPreview>>;      refresh(auto?: boolean): Promise<JobStart>;
+  /** `search`: the command line's `--search` narrows the actions to the songs it finds; the window sends none */
+  sync_preview(search?: string): Promise<Res<SyncPreview>>;      refresh(auto?: boolean): Promise<JobStart>;
   stop_refresh(): Promise<Res<Stopped>>;   job_status(): Promise<Res<JobStatus>>;
   /** any job of this support folder, the Terminal's too: its events from position `after` on (at most 500), as `job follow --jsonl` reads them */
   job_events(job_id: string, after?: number): Promise<Res<JobEvents>>;

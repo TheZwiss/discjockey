@@ -2181,6 +2181,11 @@ export type SyncPreview = {
    * choices.
    */
   default_how_many: string | null;
+  /**
+   * The words the actions of `groups` were narrowed to (the command line's `--search`); null for the whole
+   * plan. Everything else is the whole plan's.
+   */
+  search: string | null;
 };
 /** One planned action of a running job, copied from `RunStarted.actions`. */
 export type PlannedAction = {

@@ -112,6 +112,17 @@ def _preview(api, rec):
     assert answer["ok"], answer
 
 
+def _plan(api, rec):
+    """`sync plan` with a stored read, so there is a plan to derive (an unread library answers before it looks at anything)."""
+    from hub_helpers import ID1, ID2, TRACKS, store_sync_read
+
+    from discjockey.models import FetchedPlaylist, PlaylistLine
+    store_sync_read(api._paths, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
+                                 FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])])
+    api.lock_recorder.words.clear()
+    assert api.sync_preview("pegassi")["groups"]
+
+
 def _spectrum(api, rec):
     """`track spectrum` on `t2`, whose file is made a real recording: it decodes the file and opens no library."""
     shutil.copyfile(CLICKS, api._paths.root / hub_helpers.LOSSY)
@@ -310,6 +321,7 @@ DRIVERS = {
     "runs": lambda api, rec: api.runs(),  # the stored reports: no lock
     "library": lambda api, rec: api.library("all", None, "naughty"),
     "sidebar": lambda api, rec: api.sidebar(),
+    "sync_preview": _plan,
     "watched_folders": lambda api, rec: api.watched_folders(),
     "check_import_folder": lambda api, rec: api.check_import_folder(str(api._paths.root / "Crate")),
     "spectrum": _spectrum,  # a file's own samples: not master.db

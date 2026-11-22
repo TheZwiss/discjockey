@@ -12988,6 +12988,18 @@
           "description": "How the last playlists read went.",
           "x-shown": true
         },
+        "search": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The words the actions of `groups` were narrowed to (the command line's `--search`); null for the whole plan. Everything else is the whole plan's.",
+          "x-shown": true
+        },
         "waiting_answers": {
           "description": "Songs held back until the user answers \"Is this the same song?\" (not downloaded meanwhile).",
           "type": "integer",
@@ -13013,7 +13025,8 @@
         "read_id",
         "plan_id",
         "presets",
-        "default_how_many"
+        "default_how_many",
+        "search"
       ],
       "type": "object"
     },

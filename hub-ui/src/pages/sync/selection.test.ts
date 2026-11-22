@@ -12,7 +12,7 @@ const preview = (...actions: PreviewAction[]): SyncPreview => ({
   counts: null, groups: [{ key: 'acquire:new', label: 'Download (new)', actions }], estimate: null, never: [], folders: [],
   in_playlists: null, ambiguous: [],
   dropped: [], notes: [], empty: null, collections: {}, auto_upgrade: null, read_id: 'read:1', plan_id: null, presets: [],
-  default_how_many: null });
+  default_how_many: null, search: null });
 const ids = (s: Set<string>) => [...s].map((k) => k.split(':')[2]).sort();
 
 describe('ticks across a new preview', () => {

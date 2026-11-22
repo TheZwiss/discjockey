@@ -461,6 +461,7 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
   continues where this one stopped.
 - **A sync started in the Terminal** (by you or an agent) shows on the Sync page as one started here does, track by
   track, marked "In the Terminal", and ends on its results. **Stop safely** stops it from the window too.
+- `discjockey sync plan [--search <words>]` prints the plan the Sync page shows, narrowed to the songs that match.
 
 **Qobuz limit.** Discjockey downloads at most 60 tracks a day from Qobuz. Up to a third of
 yesterday's unused amount is added on top. The **Download limits** page changes the daily limit and can allow some
@@ -551,6 +552,11 @@ your own and bought files, show no second line.
 
 The keys work while you type in a field, but not while a dialog is open.
 
+**In the Terminal:** `discjockey library list [--in all | unlisted | playlist:<name> | folder:<path>] [--search <words>]
+[--quality <quality>] [--sort <sort>]` lists the songs of a collection and `library collections` lists the collections;
+with `--json`, `--limit <n>` (default 200, `0` is all) and `--offset <n>` cut the list to a page, and the answer's `page`
+says where the next one starts. `track spectrum <track> [--which current|upgrade]` reads a file's spectrum.
+
 ## Folders
 
 - `Library/<Folder>/` holds lossless tracks (verified) and files you bought.
@@ -565,6 +571,9 @@ The keys work while you type in a field, but not while a dialog is open.
   waiting for you to decide (see [Upgrades](#upgrades)). It sits next to `Library/`, so rekordbox doesn't
   see these files, but you can listen to them in Finder.
 
+**In the Terminal:** `discjockey folder list` lists the folders Discjockey watches and `folder check <path>` says what
+watching a folder would find, before you add it.
+
 ## Reports and not_lossless.md
 
 After every run, Discjockey writes a report to `.discjockey/reports/` in your music folder and shows a short
@@ -577,6 +586,9 @@ reached), and errors (tried again next run).
 If you buy one, save it under the exact name shown (as `.wav` or `.aiff`) in its folder. The
 next run picks it up and takes the place of the lossy copy. When a lossless version is
 waiting for a track, the list says so.
+
+**In the Terminal:** `discjockey report list [--since today|yesterday|3d|12h|2026-11-20]` lists the reports of past
+syncs, newest first, and `report show <id>|last` shows one.
 
 ## Upgrades
 

@@ -263,7 +263,8 @@ ENTRIES: tuple[Entry, ...] = (
        pages="runs", built=True),
     _e("run", "report show", "R", "report show last", params={"run_id": _positional("report")}, built=True),
     _e("open_report", "open report", "R", "open report last", params={"run_id": _positional("report")}, planned="phase 3: V3.1c"),
-    _e("sync_preview", "sync plan", "R", "sync plan", planned="phase 3: V3.1a"),
+    _e("sync_preview", "sync plan", "R", "sync plan --search pegassi", params={"search": Arg("--search")}, built=True,
+       locks={"rekordbox_r"}),  # the plan's Auto-upgrade count reads rekordbox's library, shared
     # --- sync and jobs
     _e("refresh", "sync read", "J", planned="phase 4: V4.1"),
     _e("stop_refresh", "", "J-control", built=True),  # `job stop` writes the job's stop file (cli/follow.py)
