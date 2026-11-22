@@ -462,6 +462,14 @@ def test_the_generic_page_headline_is_the_first_text_field_and_lists_page_by_lim
     assert generic.page({"state_text": "Ready.", "state": "ready"}).headline == "Ready."
 
 
+def test_the_generic_page_headline_is_the_top_level_text_before_any_other_text_field_and_is_not_repeated():
+    from discjockey.cli.render import generic, layout
+    page = generic.page({"state_text": "A", "text": "B"})
+    assert page.headline == "B"
+    lines = layout.render(page).splitlines()
+    assert lines[0] == "B" and lines.count("B") == 1 and not [line for line in lines[1:] if line.startswith("Text")]
+
+
 def test_rest_prints_what_a_hand_page_did_not_place_under_more():
     from discjockey.cli.render import generic, layout
     sections = generic.rest({"a": 1, "b": 2, "c": [{"x": 1}]}, {"a"})

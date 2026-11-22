@@ -36,8 +36,8 @@ def test_every_check_is_ok_on_good_facts():
     assert answer["problems"] == [] and answer["text"] == words.DOCTOR_ALL_GOOD
     assert [c["state"] for c in answer["checks"]] == ["ok"] * len(doctor.CHECKS)
     assert [c["check"] for c in answer["checks"]] == [c.key for c in doctor.CHECKS] == [
-        "music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs", "pending_steps",
-        "drives_away", "downloads_paused", "out_of_place", "superseded", "rekordbox_files", "stopped_batches",
+        "music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs", "records",
+        "pending_steps", "drives_away", "downloads_paused", "out_of_place", "superseded", "rekordbox_files", "stopped_batches",
         "open_checks", "cdj", "songs_without_file", "upgrades_waiting"]
 
 
@@ -51,8 +51,8 @@ def test_the_shape_names_exactly_the_checks_there_are():
 
 def test_the_checks_say_which_a_gig_depends_on_and_which_need_the_library():
     assert {c.key for c in doctor.CHECKS if c.gig} == {
-        "music_folder", "folder_access", "rekordbox", "pending_steps", "drives_away", "rekordbox_files", "stopped_batches",
-        "open_checks", "cdj", "songs_without_file", "upgrades_waiting"}
+        "music_folder", "folder_access", "rekordbox", "records", "pending_steps", "drives_away", "rekordbox_files",
+        "stopped_batches", "open_checks", "cdj", "songs_without_file", "upgrades_waiting"}
     assert {c.key for c in doctor.CHECKS if not c.needs_library} == {
         "music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs"}
 
@@ -70,13 +70,13 @@ def test_a_music_folder_that_is_not_there_names_its_drive():
     assert p["text"] == words.MISSING.format(path="/Volumes/Gig Stick/Music") and p["next"] == []
     assert p["person_steps"] == [{"id": "step:connect_drive", "say": "Connect the drive Gig Stick.", "then": None}]
     elsewhere = only("music_folder", music_state="missing", music_path="/Users/dj/Music")
-    assert elsewhere["person_steps"][0]["say"] == "Connect the drive /Users/dj/Music."  # no drive: the path itself
+    assert elsewhere["person_steps"][0]["say"] == "Put the folder /Users/dj/Music back, or choose another folder."  # on no drive
 
 
 def test_missing_programs_are_one_problem_with_a_step_per_install_command():
     p = only("tools", missing_tools=(("ffmpeg", "brew install ffmpeg"), ("ffprobe", "brew install ffmpeg"),
                                     ("deno", "brew install deno")))
-    assert (p["level"], p["text"], p["count"]) == ("problem", "Missing: ffmpeg, ffprobe, deno.", None)
+    assert (p["level"], p["text"], p["count"]) == ("problem", "Programs Discjockey needs are missing: ffmpeg, ffprobe, deno.", None)
     assert [s["say"] for s in p["person_steps"]] == ["Paste `brew install ffmpeg` into the Terminal.",
                                                       "Paste `brew install deno` into the Terminal."]
     assert {s["then"] for s in p["person_steps"]} == {"tools status"} and run("tools") == []
@@ -134,7 +134,7 @@ def test_a_lock_held_by_nobody_the_registry_names_is_a_note():
     holder = {"job": None, "via": None, "kind": None, "line": None, "text": words.UNNAMED_HOLDER, "where": None}
     p = only("stale_lock", lock_holder=holder)
     assert p["level"] == "note" and p["text"] == ("Something outside Discjockey's job list holds your library: "
-                                                  + words.UNNAMED_HOLDER)
+                                                  + words.UNNAMED_HOLDER + ".")
     assert p["next"] == [{"run": "job list --all", "why": "every job Discjockey knows of"}]
     named = {**holder, "job": "job:0a1b2c3d", "kind": "sync", "text": "Sync running in the Terminal"}
     assert run("stale_lock", lock_holder=named) == [] and run("stale_lock") == []  # `job list` shows a named job
@@ -172,11 +172,15 @@ def test_cut_off_steps_say_the_next_change_finishes_them():
 def test_watched_folders_away_are_counted_with_a_step_per_drive():
     away = ("/Volumes/Gig Stick/Crates", "/Volumes/Gig Stick/More", "/Volumes/Backup/Old", "/Users/dj/Gone")
     p = only("drives_away", away_folders=away)
-    assert (p["level"], p["text"], p["count"]) == ("problem", "4 watched folders are on a drive that isn't connected.", 4)
+    assert (p["level"], p["text"], p["count"]) == (
+        "problem", "3 watched folders are on a drive that isn't connected. 1 watched folder is not there.", 4)
     assert [s["say"] for s in p["person_steps"]] == ["Connect the drive Gig Stick.", "Connect the drive Backup.",
-                                                     "Connect the drive /Users/dj/Gone."]
+                                                     "Put the folder /Users/dj/Gone back, or choose another folder."]
     one = only("drives_away", away_folders=("/Volumes/Gig Stick/Crates",))
     assert one["text"] == "1 watched folder is on a drive that isn't connected." and one["count"] == 1
+    gone = only("drives_away", away_folders=("/Users/dj/Gone",))  # on no drive: moved or deleted, not "a drive"
+    assert gone["text"] == "1 watched folder is not there." and gone["count"] == 1
+    assert [s["id"] for s in gone["person_steps"]] == ["step:folder_gone"]
     assert run("drives_away") == []
 
 
@@ -224,16 +228,22 @@ def test_rekordbox_tracks_on_missing_or_superseded_files_are_a_problem_a_gig_dep
     assert only("rekordbox_files", rekordbox_match=counts(superseded=1))["text"].startswith("1 rekordbox track points ")
 
 
-def test_a_rekordbox_that_was_not_compared_claims_nothing():
-    assert run("rekordbox_files", rekordbox_match=None) == []  # never read as "everything matches" or as a problem
+def test_a_rekordbox_that_was_not_compared_says_so_and_never_reads_as_a_match():
+    p = only("rekordbox_files", rekordbox_match=None, rekordbox_match_why=words.WRITING_WORDS)  # a library, not read
+    assert (p["level"], p["count"]) == ("note", None)  # a note: nothing is wrong, but it is not known either
+    assert p["text"] == f"rekordbox's tracks could not be compared with your files: {words.WRITING_WORDS}."
+    assert p["next"] == [{"run": "rekordbox status", "why": "whether rekordbox can be read now"}]
+    busy = only("rekordbox_files", rekordbox_match=None, rekordbox_match_why=words.REKORDBOX_PROBLEM["busy"])
+    assert busy["text"].endswith("its library is busy right now.")
+    assert run("rekordbox_files", rekordbox_match=None) == []  # no rekordbox library here: nothing to compare
+    assert doctor.CHECKS[[c.key for c in doctor.CHECKS].index("rekordbox_files")].gig  # `status --ready` lists the note
 
 
-def test_a_stopped_aiff_batch_can_be_resumed_and_a_stopped_move_batch_is_looked_at():
+def test_a_stopped_aiff_batch_can_be_resumed():
     assert run("stopped_batches") == []
-    p = only("stopped_batches", stopped_batches=("aiff:2", "moves:3", "aiff:1"))
-    assert (p["level"], p["count"]) == ("problem", 3) and p["text"] == "3 batches stopped before their end."
+    p = only("stopped_batches", stopped_batches=("aiff:2", "aiff:1"))
+    assert (p["level"], p["count"]) == ("problem", 2) and p["text"] == "2 batches stopped before their end."
     assert p["next"] == [{"run": "batch resume aiff:2", "why": "goes on where it stopped"},
-                         {"run": "batch show moves:3", "why": "what it moved"},
                          {"run": "batch resume aiff:1", "why": "goes on where it stopped"}]
     assert only("stopped_batches", stopped_batches=("aiff:2",))["text"] == "1 batch stopped before its end."
 
@@ -317,7 +327,24 @@ def test_running_app_names_the_app_the_command_runs_in(environ, app):
     assert words.running_app(environ) == app
 
 
-def test_drive_name():
-    assert doctor.drive_name("/Volumes/Gig Stick/Music/Crates") == "Gig Stick"
-    assert doctor.drive_name("/Volumes/Gig Stick") == "Gig Stick"
-    assert doctor.drive_name("/Volumes") == "/Volumes" and doctor.drive_name("/Users/dj") == "/Users/dj"
+def test_every_check_has_a_label_and_only_those():
+    assert set(words.DOCTOR_LABELS) == {c.key for c in doctor.CHECKS}
+    assert all(c.label == words.DOCTOR_LABELS[c.key] for c in doctor.CHECKS)
+
+
+def test_records_that_cannot_be_read_are_a_problem_and_the_checks_that_read_them_are_skipped():
+    assert run("records") == []
+    why = "Discjockey can't read its records of this music folder (.discjockey/library.db): the file is damaged. Nothing was changed."
+    p = only("records", records_problem=why)
+    assert (p["level"], p["count"], p["text"]) == ("problem", None, f"{why} {words.DOCTOR_RECORDS_SKIPPED}")
+    assert p["next"] == [{"run": "where", "why": "where Discjockey keeps its records"}] and p["person_steps"] == []
+    answer = doctor.answer(replace(GOOD, records_problem=why, pending=True, tidy_rows=3, superseded_files=1,
+                                   superseded_bytes=10), True)
+    states = {c["check"]: c["state"] for c in answer["checks"]}
+    assert states["records"] == "problem"
+    assert {k for k, v in states.items() if v == "skipped"} == {c.key for c in doctor.CHECKS if c.reads_records}
+    assert {"pending_steps", "drives_away", "downloads_paused", "out_of_place", "rekordbox_files", "stopped_batches",
+            "open_checks", "cdj", "songs_without_file", "upgrades_waiting"} == {c.key for c in doctor.CHECKS if c.reads_records}
+    assert states["superseded"] == "note"  # a folder walk, no records: it still runs
+    assert [p["check"] for p in answer["problems"]] == ["records", "superseded"]
+    assert {c.key for c in doctor.CHECKS if c.reads_records} <= {c.key for c in doctor.CHECKS if c.needs_library}

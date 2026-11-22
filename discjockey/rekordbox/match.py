@@ -13,7 +13,8 @@ A rekordbox track is, the first that applies:
 - `not_in_library`: it is there, inside a root, but no song of the library has it as its file;
 - `matched`: the file is a song's current file.
 
-Then each file of the library that no track holds is `not_in_rekordbox`. Paths compare as `names.fold` does (NFC, case
+Then each file of the library that no track holds, and that is there, is `not_in_rekordbox` (a song whose file is gone
+is a missing file, not something rekordbox lacks). Paths compare as `names.fold` does (NFC, case
 folded), the way `Master.entries_for` compares.
 """
 from __future__ import annotations
@@ -52,11 +53,20 @@ def under(folded_path: str, folded_base: str) -> bool:
     return folded_path.startswith(folded_base.rstrip("/") + "/")
 
 
-def classify(tracks: Iterable[Entry], *, root: Path, roots: Collection[Path], library_files: Mapping[str, str],
-             away_roots: Collection[Path], exists: Callable[[Path], bool]) -> list[Row]:
+def present(path: Path) -> bool:
+    """Whether a file is there. A file we cannot look at (macOS refuses the folder: `PermissionError`) is not claimed
+    missing: `doctor`'s `folder_access` says that folder cannot be read."""
+    try:
+        return path.exists()
+    except OSError:
+        return True
+
+
+def classify(tracks: Iterable[Entry], *, root: Path, roots: Collection[Path],
+             library_files: Mapping[str, tuple[str, Path]], away_roots: Collection[Path], exists: Callable[[Path], bool]) -> list[Row]:
     """Every track's kind, then the `not_in_rekordbox` files, listed kinds first (`LISTED` order), each by folded path.
     `root` is the music folder, `roots` it and every watched folder, `library_files` maps the folded absolute path of each
-    song's current file to the song's key, `away_roots` the watched folders whose drive is away now, `exists` says
+    song's current file to (the song's key, the file's real path), `away_roots` the watched folders whose drive is away now, `exists` says
     whether a file is there."""
     superseded = fold(str(root / SUPERSEDED_DIR))
     away = [fold(str(p)) for p in away_roots]
@@ -66,7 +76,7 @@ def classify(tracks: Iterable[Entry], *, root: Path, roots: Collection[Path], li
     for entry in tracks:
         folded = fold(entry.folder_path)
         held.add(folded)
-        key = library_files.get(folded)
+        key = library_files.get(folded, (None, None))[0]
         if under(folded, superseded):
             kind: Kind = "superseded"
         elif any(under(folded, a) for a in away):
@@ -80,7 +90,8 @@ def classify(tracks: Iterable[Entry], *, root: Path, roots: Collection[Path], li
         else:
             kind = "matched"
         rows.append(Row(kind, entry, key, folded))
-    rows += [Row("not_in_rekordbox", None, key, folded) for folded, key in library_files.items() if folded not in held]
+    rows += [Row("not_in_rekordbox", None, key, folded) for folded, (key, path) in library_files.items()
+             if folded not in held and exists(path)]
     order = {kind: i for i, kind in enumerate((*LISTED, "matched", "outside"))}
     return sorted(rows, key=lambda r: (order[r.kind], r.folded, r.entry.id if r.entry else ""))
 

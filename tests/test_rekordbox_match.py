@@ -1,4 +1,5 @@
 """`rekordbox.match.classify` (issue 39): each kind of finding, which kind wins, folded comparison, the counts."""
+import os
 import unicodedata
 from collections import Counter
 from pathlib import Path
@@ -22,7 +23,7 @@ def track(id: str, path: str) -> Entry:
 def run(tracks, *, library=(), away=(), there=(), roots=(ROOT, DRIVE)):
     """`classify` with `library` = the paths of the songs' current files (keys `s0`, `s1`, ...), `there` = the paths that
     exist."""
-    files = {fold(p): f"s{i}" for i, p in enumerate(library)}
+    files = {fold(p): (f"s{i}", Path(p)) for i, p in enumerate(library)}
     present = {fold(p) for p in there}
     return match.classify(tracks, root=ROOT, roots=roots, library_files=files, away_roots=away,
                           exists=lambda p: fold(str(p)) in present)
@@ -37,7 +38,7 @@ def test_each_kind():
              "d": "/m/Superseded/A/d.mp3", "e": "/Volumes/Crate/e.mp3", "f": "/Users/dj/Music/f.mp3",
              "g": "/m/Library/A/g.aiff"}
     rows = run([track(i, p) for i, p in paths.items()], library=[paths["a"], "/m/Library/A/lack.aiff"],
-               away=[DRIVE], there=[paths["a"], paths["b"], paths["c"], paths["f"], paths["g"]])
+               away=[DRIVE], there=[paths["a"], paths["b"], paths["c"], paths["f"], paths["g"], "/m/Library/A/lack.aiff"])
     assert kinds(rows) == {"a": "matched", "b": "not_in_library", "c": "not_in_library", "d": "superseded",
                            "e": "away", "f": "outside", "g": "not_in_library", "s1": "not_in_rekordbox"}
     missing = run([track("m", "/m/Library/A/gone.aiff")], there=[])
@@ -68,10 +69,31 @@ def test_paths_compare_folded():
 
 def test_a_library_file_two_tracks_hold_is_held_and_one_rekordbox_lacks_is_not():
     file = "/m/Library/A/a.aiff"
-    rows = run([track("1", file), track("2", file)], library=[file, "/m/Library/B/b.aiff"], there=[file])
+    rows = run([track("1", file), track("2", file)], library=[file, "/m/Library/B/b.aiff"],
+               there=[file, "/m/Library/B/b.aiff"])
     assert kinds(rows) == {"1": "matched", "2": "matched", "s1": "not_in_rekordbox"}
     lacking = [r for r in rows if r.kind == "not_in_rekordbox"]
     assert lacking[0].entry is None and lacking[0].key == "s1" and lacking[0].folded == fold("/m/Library/B/b.aiff")
+
+
+def test_a_library_file_that_is_not_there_is_not_something_rekordbox_lacks():
+    gone, here = "/m/Library/A/gone.aiff", "/m/Library/A/here.aiff"
+    rows = run([], library=[gone, here], there=[here])
+    assert kinds(rows) == {"s1": "not_in_rekordbox"}
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root opens every folder")
+def test_present_does_not_claim_a_file_missing_that_it_cannot_look_at(tmp_path):
+    folder = tmp_path / "locked"
+    folder.mkdir()
+    (folder / "a.aiff").write_bytes(b"x")
+    folder.chmod(0)
+    try:
+        assert match.present(folder / "a.aiff") is True  # macOS refuses the folder: Path.exists() would raise
+    finally:
+        folder.chmod(0o755)
+    assert match.present(folder / "a.aiff") is True
+    assert match.present(folder / "b.aiff") is False
 
 
 def test_rows_come_in_listed_order_then_by_folded_path_and_the_counts_add_up():
