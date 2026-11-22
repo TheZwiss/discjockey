@@ -36,7 +36,7 @@ def test_help_json_lists_every_built_entry_with_what_an_agent_needs(capsys):
     planned = {" ".join(e.command) for e in catalog.ENTRIES if e.planned and e.command} - built  # `batch undo` is built for AIFF batches
     assert not planned & set(listed)  # nothing that is not built
     for command, found in listed.items():
-        assert set(found) >= {"command", "kind", "writes", "job", "args", "flags", "needs_yes", "dry_run", "locks",
+        assert set(found) >= {"command", "kind", "writes", "job", "pages", "args", "flags", "needs_yes", "dry_run", "locks",
                               "reasons", "example", "usage", "methods", "dry_run_method", "songs", "flag_values",
                               "required_flags"}, command
         assert all("id" in a for a in found["args"]), command
@@ -328,7 +328,7 @@ def test_the_short_list_says_what_each_noun_is_for_and_a_new_noun_cannot_ship_wi
     assert {c[0] for c in parser.commands()} <= set(NOUN_WORDS)
     assert cli.main(["help"]) == 0
     out = capsys.readouterr().out
-    assert "The folders Discjockey watches for your own files. (add, remove)" in out
+    assert "The folders Discjockey watches for your own files. (add, check, list, remove)" in out
 
 
 def test_help_of_one_word_prints_its_sentence(capsys):

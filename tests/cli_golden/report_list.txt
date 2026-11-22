@@ -1,0 +1,4 @@
+Runs
+Run id             Id                        Started              Finished             Duration s  Exit code  Kind  Counts                                        Stopped after  Auto upgrade
+2026-11-10_110000  report:2026-11-10_110000  2026-11-10T11:00:00  2026-11-10T11:05:00  300         0          sync  lossless: 2, lossy: 0, problems: 0, moved: 0  none           none
+1 of 1 shown

@@ -1,0 +1,13 @@
+Todo             2
+All tracks       2
+Not in playlist  0
+Limits warning   no
+Favourites       none
+Watched          none
+Library folders  none
+
+Playlists
+Name         Ref                     Service  Enabled  Songs
+Hard_Bounce  0DiscjockeyExampleList  spotify  yes      none
+Powertrance  3DiscjockeyExampleList  spotify  yes      none
+2 of 2 shown

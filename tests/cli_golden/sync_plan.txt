@@ -1,0 +1,71 @@
+Never             none
+Folders           Hard_Bounce, Powertrance
+In playlists      5
+Ambiguous         none
+Dropped           none
+Notes             none
+Empty             none
+Waiting answers   0
+Deferred checks   0
+Read id           read:1
+Plan id           plan:<id>
+Default how many  all
+Search            pegassi
+
+Read status
+Read at          2026-10-20T21:45:00
+Minutes ago      2
+Problem          none
+Problem service  none
+Message
+Lines changed    no
+Reading          no
+Offline          no
+Auto read        no
+
+Read status › Services
+Service  Name     Connected
+spotify  Spotify  no
+1 of 1 shown
+
+Counts
+New            2
+Retries        0
+Redownloads    0
+Bought         0
+Weekly checks  1
+
+Groups
+Key          Label           Actions
+acquire:new  Download (new)  kind: acquire, reason: new, track_id: t4, artist: Pegassi, title: AEIOU, folder: Hard_Bounce, to_dir: Library/Hard_Bounce, to_not_lossless: no, src: none, cover_url: https://i.scdn.co/image/t4, id: act:acquire:t4:1, in: playlist:0DiscjockeyExampleList, run: 0
+1 of 1 shown
+
+Estimate
+Duration min          5
+Qobuz limit           60
+Qobuz needed          3
+Qobuz left            80
+Qobuz uses            3
+Left                  80
+Limit                 60
+Minutes by downloads  0, 5, 5, 5
+
+Estimate › Accounts
+Service  Name   Uses  Left  Limit  About  Uses by downloads
+qobuz    Qobuz  3     80    60     no     0, 1, 2, 3
+1 of 1 shown
+
+Collections
+Playlist:0DiscjockeyExampleList  Hard_Bounce
+Playlist:3DiscjockeyExampleList  Powertrance
+
+Auto upgrade
+On           yes
+Ready        0
+Places       0
+Place notes  none
+
+Presets
+Key  Label  Downloads  Selected
+all  All 3  3          act:acquire:t4:1, act:acquire:t5:2, act:upgrade:t2:1
+1 of 1 shown

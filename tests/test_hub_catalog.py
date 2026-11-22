@@ -1,6 +1,7 @@
 """T1, catalogue <-> bridge (issue 39, design §13): every @bridge method of HubApi has an entry, every entry names a
 method, every parameter has a word, window-only and dropped rows are what the design says."""
 import inspect
+import re
 import typing
 from dataclasses import replace
 
@@ -10,20 +11,15 @@ from discjockey.hub import catalog, shapes
 from discjockey.hub.api import CliApi, HubApi
 from discjockey.hub.catalog import Arg, Entry
 
-# The phase 1 ceiling: how many entries may still be `planned` (their command not built). Every group that builds a
-# command lowers the number; nothing may raise it. 1.1 plans them all; 1.2 builds `rekordbox status` and `resolve`; 1.3 builds `freshness`; 1.8 builds `track show`, `todo list`, `upgrade list`,
-# `check list` and `track find`; 1.9 builds `rekordbox preview`, `batch list`, `batch show`, `report show`
-# and takes `move_batches` out of the plan (it has no command: `batches` is `batch list`); 1.10 builds the two methods
-# its dry runs and selections need (`select_listing`, `upgrade_preview`: no command of their own); 1.11 builds `upgrade apply`
-# and `upgrade_all` (part a), `upgrade discard`, `track undo` and `check done` (part b) and `undo_upgrade_preview`;
-# 1.12 builds `batch resume`, `batch undo aiff:<n>` and `batch_undo_preview` (the moves forms are phase 4's), then (part b)
-# `rekordbox backups`, `rekordbox restore` and `rekordbox_restore_preview`; 1.13 part a builds `library facts` (and its
-# read, `facts_preview`), part b `aiff convert` and `aiff rename` (`convert`, `rename`, `make_aiff` and the two `aiff_plan`
-# reads that are their dry runs); 1.14 part a builds `sync run --auto-upgrade-only` (`auto_upgrade_run` and its dry run
-# `auto_upgrade_preview`; `start_sync`'s own `sync run` row stays planned for phase 4), part b `folder add`, `folder remove`
-# (`add_watched_folder`, `remove_watched_folder`, and `removal_preview`, which is its dry run: no command of its own),
-# `settings show` (`settings_view`) and `settings set auto-upgrade` (`set_auto_upgrade`).
-PHASE_1_CEILING = 81  # 80 + the planned `login check <service>` row (`setup_account` with the saved browser: U2)
+# The ceiling of entries that may still be `planned` (their command not built). Every group that builds a command lowers
+# the number; nothing may raise it. Phase 1 built the AIFF, upgrade, folder, rekordbox and settings commands; phase 3
+# group V3.1a (this number: 74) builds `library list`, `library collections`, `folder list`, `folder check`,
+# `report list`, `sync plan` and `track spectrum`. The next to lower it: V3.1b (13 rows: the setup, limits, playlist,
+# login and tidy reads), V3.1c (6: the `open` commands), V3.2b (1: `status`); phase 4's rows stay planned until it builds
+# them (`planned` names the group).
+PLANNED_CEILING = 74
+# The phases that are finished: no row may be planned for one of them (V3.2b sets 3 when phase 3 ends).
+FINISHED_PHASES = 2
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
@@ -176,13 +172,36 @@ def test_the_entries_are_well_formed():
         key = (e.method, e.command, e.cli_first, repr(sorted(e.fixed.items(), key=str)))  # a fixed value may be a list
         assert key not in seen, e
         seen.add(key)
-        assert e.planned is None or e.planned.startswith("phase "), e
+        assert e.planned is None or re.fullmatch(r"phase (\d): V\1\.\d+[a-z]?", e.planned), e
     assert {("help",), ("where",), ("app", "open"), ("call",)} <= set(catalog.HOUSEKEEPING)
 
 
 def test_the_planned_count_only_shrinks():
     planned = [e for e in catalog.ENTRIES if e.planned]
-    assert len(planned) <= PHASE_1_CEILING, f"{len(planned)} planned entries"
+    assert len(planned) <= PLANNED_CEILING, f"{len(planned)} planned entries"
+
+
+def test_no_entry_is_planned_for_a_finished_phase():
+    late = [e for e in catalog.ENTRIES if e.planned and int(e.planned[len("phase "):][0]) <= FINISHED_PHASES]
+    assert not late, late
+
+
+def test_pages_names_a_top_level_list_of_the_answer_of_a_read():
+    paged = [e for e in catalog.ENTRIES if e.pages]
+    assert {(e.method, e.pages) for e in paged} == {("library", "rows"), ("runs", "runs")}
+    for e in paged:
+        assert e.kind == "R" and e.planned is None, e  # a page is cut where the answer is whole: a read that answers at once
+        assert e.schema, f"{e.method} has no shape: its list cannot be checked"
+        field = shapes.DEFAULT.definition(e.schema)["properties"].get(e.pages)
+        assert field is not None and field.get("type") == "array", (e.method, e.pages)
+
+
+def test_a_row_that_is_not_built_needs_its_label():
+    with pytest.raises(ValueError):
+        catalog._e("hide", "track hide", "J")
+    assert catalog._e("hide", "track hide", "J", planned="phase 4: V4.6").planned == "phase 4: V4.6"
+    assert catalog._e("hide", "track hide", "J", built=True).planned is None
+    assert catalog._e("quit", "", "W").planned is None
 
 
 def _all_built(monkeypatch):

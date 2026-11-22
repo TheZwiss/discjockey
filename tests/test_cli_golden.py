@@ -25,7 +25,7 @@ from discjockey import library
 from test_cli_batches import with_batches, with_report
 from test_cli_missing import missing_library
 from test_cli_reads import rich_library
-from discjockey.cli import bind, parser
+from discjockey.cli import bind, call, parser
 from discjockey.cli.render import generic
 from discjockey.hub import catalog
 
@@ -40,8 +40,9 @@ CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real 
 
 
 def skip_without_tools(entry):
-    """`rekordbox preview` decodes a real file: without ffmpeg and ffprobe it skips, like the other audio tests."""
-    if entry.method == "rekordbox_preview" and (shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None):
+    """`rekordbox preview` and `track spectrum` decode a real file: without ffmpeg and ffprobe they skip, like the other
+    audio tests."""
+    if entry.method in ("rekordbox_preview", "spectrum") and (shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None):
         pytest.skip("ffmpeg not installed")
 
 
@@ -60,6 +61,28 @@ def utc():
     else:
         os.environ["TZ"] = before
     time.tzset()
+
+
+def with_read(paths, monkeypatch):
+    """The playlists read the hub fixture's two lines hold (two songs to download: `sync plan` has a plan to show), made
+    on the clock of `hub_helpers.services()` (2026-10-20 21:47), which the command line's api now runs on: the page
+    words the read's age and the plan's days, so it must not move with the day it runs on."""
+    from datetime import datetime
+
+    from hub_helpers import ID1, ID2, TRACKS, services, store_sync_read
+
+    from discjockey.hub.api import CliApi
+    from discjockey.models import FetchedPlaylist, PlaylistLine
+    store_sync_read(paths, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
+                            FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])],
+                    when=datetime(2026, 10, 20, 21, 45))
+
+    def default():
+        resolved = library.resolve_paths()
+        api = CliApi(resolved.support, None, services())
+        api._attach(resolved.paths)
+        return api
+    monkeypatch.setattr(bind, "default", default)
 
 
 def with_backups(tmp_path, monkeypatch):
@@ -91,7 +114,9 @@ def fixture(tmp_path, monkeypatch, request, utc):
     choose_music(tmp_path, monkeypatch)
     if entry is not None and entry.command[0] == "batch":
         with_batches(paths)  # two AIFF batches and a move batch: the typed ids `aiff:1`, `aiff:2`, `moves:1`
-    if entry is not None and entry.command == ("report", "show"):
+    if entry is not None and entry.command == ("sync", "plan"):
+        with_read(paths, monkeypatch)
+    if entry is not None and entry.command in (("report", "show"), ("report", "list")):
         with_report(paths)
     make_master(tmp_path / "rekordbox", [])
     os.utime(tmp_path / "rekordbox" / "master.db", (MASTER_TIME, MASTER_TIME))
@@ -127,7 +152,8 @@ def test_golden_text(entry, fixture, capsys):
     skip_without_tools(entry)
     code, out, err = run(words(entry), capsys)
     assert code == 0 and err == ""
-    check_golden("_".join(entry.command), out.replace(str(fixture), "<tmp>"))
+    # a plan's id is a hash of the music folder's path, which is a different one on every run
+    check_golden("_".join(entry.command), re.sub(r"plan:[0-9a-f]{12}", "plan:<id>", out.replace(str(fixture), "<tmp>")))
 
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
@@ -167,12 +193,9 @@ def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
     skip_without_tools(entry)
     parsed = parser.parse(words(entry))
     api = bind.default()
-    kwargs = dict(parsed.args)
-    for name, arg in catalog.effective_params(entry, parser.signature_of(entry.method)).items():
-        if arg.resolve and name in kwargs:
-            resolved = api.resolve(arg.resolve, list(kwargs[name]) if arg.many else [kwargs[name]])["resolved"]
-            kwargs[name] = resolved if arg.many else resolved[0]
-    answer = getattr(api, entry.method)(**kwargs, **entry.fixed)
+    kwargs, failed = call._arguments(entry, parsed.args, " ".join(entry.command), api, exact=False)  # what `call.run` makes of the line
+    assert failed is None, failed
+    answer = getattr(api, entry.method)(**kwargs)
     assert answer["ok"], answer
     _, out, _ = run([*words(entry), "--json"], capsys)
     # an answer that says what to run next (a search with no hit) has it in the envelope's `next`, not in `data`;

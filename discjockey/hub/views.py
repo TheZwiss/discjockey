@@ -1386,10 +1386,10 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
                "not_lossless": by["good_lossy"] + by["weak"] + by["fake"],
                "to_do": sum(1 for e in entries if (e.get("in_playlists") or file_missing(e)) and not e.get("hidden")
                             and _group(e) is not None)}
-    q = search_fold(query or "").strip()  # case and accents ignored, as the command line's `track find`
+    q = search_query(query)
     if q:
-        rows = [r for r in rows if q in search_fold(f"{r['artist']} {r['title']}")]
-        also = [r for r in also if q in search_fold(f"{r['artist']} {r['title']}")] if also is not None else None
+        rows = [r for r in rows if matches_search(q, r["artist"], r["title"])]
+        also = [r for r in also if matches_search(q, r["artist"], r["title"])] if also is not None else None
     # All counts every row the table lists under it (a read playlist's songs without a file too, never `also`); the
     # quality chips count files, the rows they list
     chips = {f: sum(1 for r in rows if (f == "all" or r["file_state"] != "no_file") and _matches(r, f))
@@ -2321,6 +2321,17 @@ def how_many(rows: Sequence[Mapping], left: int | None, off: Collection[str], we
              for key, label, n in sorted(offered, key=lambda o: o[2])], "fits" if fits else "all")
 
 
+def search_query(text: str | None) -> str:
+    """What a search box's words are looked for as: case and accents ignored, as the command line's `track find`."""
+    return search_fold(text or "").strip()
+
+
+def matches_search(query: str, artist: str, title: str) -> bool:
+    """Whether a song is found by `query` (`search_query`): the words are in its artist and title. The one rule of the
+    Library's search, `sync_preview`'s `search` and the command line's."""
+    return query in search_fold(f"{artist} {title}")
+
+
 def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, now: datetime, reading: bool,
                  cover: Url | None = None, logins: Sequence[tuple[str, bool]] = (),
                  where: Callable[[str], str] | None = None, places: Places | None = None,
@@ -2339,7 +2350,7 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
         return {"read_status": status, "counts": None, "groups": [], "estimate": None, "never": [], "folders": [],
                 "in_playlists": None, "ambiguous": [], "dropped": [], "notes": [], "empty": "no_preview",
                 "waiting_answers": 0, "deferred_checks": 0, "collections": {}, "auto_upgrade": None,
-                "read_id": read.read_id, "plan_id": None, "presets": [], "default_how_many": None}
+                "read_id": read.read_id, "plan_id": None, "presets": [], "default_how_many": None, "search": None}
     from .. import run  # at call time: run imports this module
     plan_state = prep.state
     members, names = _members(prep, plan_state, places)
@@ -2376,7 +2387,7 @@ def sync_preview(read: ReadView, state: dict, settings: Settings, today: date, n
             # every collection a row is in, by its target (the browser column's key) -> its name (issue 37)
             "collections": names, "auto_upgrade": auto_upgrade, "read_id": read.read_id,
             # the id the plan is stored under is the api's to give (`HubApi.sync_preview` saves it): a view stores nothing
-            "plan_id": None, "presets": presets, "default_how_many": default}
+            "plan_id": None, "presets": presets, "default_how_many": default, "search": None}
 
 
 # --- watched folders (Settings, Setup; plan library stage 4 I11) ---

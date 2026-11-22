@@ -828,7 +828,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!s.previewRead) return ok({ read_status: readStatus(s), counts: null, groups: [], estimate: null, never: [],
         folders: [], in_playlists: null, ambiguous: [], dropped: [], notes: [], waiting_answers: 0, deferred_checks: 0,
         empty: 'no_preview' as const, collections: {}, auto_upgrade: null, read_id: null, plan_id: null, presets: [],
-        default_how_many: null });  // like views.sync_preview: never not_set_up
+        default_how_many: null, search: null });  // like views.sync_preview: never not_set_up
       // each row's collections, as views._members gives them (issue 37)
       const m = membersOf(s, sidebarOf(s, 0, false));
       for (const a of [...p.groups.flatMap((g) => g.actions), ...p.never]) a.in = m.of(a);
@@ -839,7 +839,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
         folders: p.folders, in_playlists: p.in_playlists, ambiguous: [], dropped: [], notes: [],
         waiting_answers: s.imp.questions.length, deferred_checks: s.imp.deferred,
         auto_upgrade: autoPreview(s, autoReady(), placeTracks(s)),
-        empty: p.actions ? null : 'up_to_date' as const, read_id: readId() });
+        empty: p.actions ? null : 'up_to_date' as const, read_id: readId(), search: null });
     },
     async refresh(auto = false) {
       if (auto && s.read_status.auto_read) {
@@ -962,7 +962,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!(limit >= 1 && limit <= 500)) return fail('refused', 'The daily limit is between 1 and 500.');
       return ok(whatIfOf(s, service, limit, extra_today ?? 0, stillToLoad().count));
     },
-    async runs() { return ok({ runs: s.runs.map(summary) }); },
+    async runs(since?: string | null) {
+      // like the hub: only the runs that started at or after `since`; a run whose time cannot be read is kept
+      const from = since ? new Date(since).getTime() : NaN;
+      const kept = s.runs.filter((r) => Number.isNaN(from) || !(new Date(r.started).getTime() < from));
+      return ok({ runs: kept.map(summary) });
+    },
     async run(run_id: string) {
       // like the hub: `report:<stamp>` is the stamp, `last` the newest report
       const stamp = run_id.startsWith('report:') ? run_id.slice('report:'.length) : run_id;

@@ -14,8 +14,12 @@ parameter has no word of its own (its entry says which `resolve` kind builds it)
 what the design names differently. `fixed` binds arguments a command never takes from the user; `match` names the literal words (a login row's service) that pick
 the entry when a command has several (`DISPATCH`).
 
-`planned` is "phase N" while the command is not built: T1 counts it as covered, the parser and `help --json` leave
-it out, and the last phase's test fails while any is left. `locks` (design §6.1) names the locks a command takes,
+`planned` is "phase N: VN.x" (the phase and the agent group that builds it, a letter allowed: "phase 3: V3.1b") while
+the command is not built: T1 counts it as covered, the parser and `help --json` leave it out, and a row planned for a
+finished phase fails a test. `_e` writes no row that is neither built nor window-only/dropped without its label: a row
+nobody builds cannot be written. The group that builds a row drops its label (`built=True`). `pages` is the key of the
+one top-level list of an R entry's answer that `--json` cuts to a page (`--limit`, `--offset`; the envelope's `page`
+says where); a read without it is never paged. `locks` (design §6.1) names the locks a command takes,
 per built entry (a later group fills it with its command; T10, tests/test_cli_locks.py, pins it); `schema` names the shape that
 answers the method (`shapes.ANSWERS`, read when the entry is made), None while none is mapped."""
 from __future__ import annotations
@@ -62,6 +66,7 @@ class Entry:
     match: Mapping[str, str] = field(default_factory=dict)  # words that pick this entry among a command's (a login row's service); not passed to the method
     cli_first: bool = False             # a method the command line needs and the window does not have yet
     planned: str | None = None
+    pages: str | None = None            # the key of the one top-level list of the answer that `--json` pages (`--limit`, `--offset`)
     example: str = ""
     schema: str | None = None           # the shape of the method's answer (hub/shapes), from `_e`
 
@@ -74,8 +79,6 @@ DROPPED = frozenset(("media_url", "select", "setup_check_account"))
 # The `job` words read the registry directly (`cli/follow.py`); the window's job methods below have no command of their own.
 HOUSEKEEPING = (("help",), ("where",), ("app", "open"), ("call",), ("job", "list"), ("job", "show"), ("job", "follow"),
                 ("job", "wait"), ("job", "stop"))
-
-PHASE = "phase 1"
 
 # What the window asks before it does a `needs_yes` command, and says under the question: `<command> -> words`. A
 # command line that is run without `--yes` answers `refused`, `needs_yes` with these words as `message`; a command
@@ -173,13 +176,16 @@ def confirm_words(entry: "Entry") -> str | None:
 def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapping[str, Arg] | None = None,
        fixed: Mapping[str, object] | None = None, needs_yes: bool = False, dry_run: str | None = None,
        cli_first: bool = False, built: bool = False, locks: Iterable[str] = (), partial: Iterable[str] = (),
-       match: Mapping[str, str] | None = None) -> Entry:
+       match: Mapping[str, str] | None = None, planned: str | None = None, pages: str | None = None) -> Entry:
     """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command.
+    An entry that is neither built nor `W`/`dropped` must say `planned`, the group that builds it ("phase 3: V3.1b").
     `partial`: the per-item states that end a finished run `partial` (design §4.3, R24)."""
+    if not built and kind not in ("W", "dropped") and not planned:
+        raise ValueError(f"{method} {command!r}: a row that is not built needs the group that builds it (planned=)")
     return Entry(method=method, command=tuple(command.split()), kind=kind, needs_yes=needs_yes, dry_run=dry_run,
                  params=params or {}, fixed=fixed or {}, cli_first=cli_first, locks=frozenset(locks),
                  partial=frozenset(partial), match=match or {},
-                 planned=None if built or kind in ("W", "dropped") else PHASE, example=example,
+                 planned=None if built or kind in ("W", "dropped") else planned, pages=pages, example=example,
                  schema=shapes.ANSWERS.get(method))
 
 
@@ -204,7 +210,8 @@ def _playlist_edits() -> list[Entry]:
     for op in edits:
         params = {"lines": _derived(f"playlist_lines:{op}", "list"), "loaded_version": _derived("playlist_version"),
                   "files": _derived(f"playlist_files:{op}", "dict")}
-        out.append(_e("save_playlists", f"playlist {op}", "J", params=params, dry_run="preview_playlist_change"))
+        out.append(_e("save_playlists", f"playlist {op}", "J", params=params, dry_run="preview_playlist_change",
+                      planned="phase 4: V4.2"))
     return out
 
 
@@ -212,22 +219,23 @@ def _crate_entries() -> list[Entry]:
     out = []
     for word, shown in (("show", True), ("hide", False), ("default", None)):
         out.append(_e("set_crates_shown", f"folder crates {word}", "B", params={"paths": _positional("folder", many=True)},
-                      fixed={"shown": shown}))
+                      fixed={"shown": shown}, planned="phase 4: V4.8"))
         out.append(_e("set_crate_shown", f"folder crates {word}", "B", params={"path": _positional("folder")},
-                      fixed={"shown": shown}))
+                      fixed={"shown": shown}, planned="phase 4: V4.8"))
     return out
 
 
 def _favourite_entries() -> list[Entry]:
-    return [_e("set_favourites", f"library favourites {op}", "B", params={"keys": _positional(f"favourites:{op}", many=True)})
+    return [_e("set_favourites", f"library favourites {op}", "B", params={"keys": _positional(f"favourites:{op}", many=True)},
+               planned="phase 4: V4.8")
             for op in ("add", "remove", "move")]
 
 
 ENTRIES: tuple[Entry, ...] = (
     # --- reads of the library and the screens
-    _e("library", "library list", "R", "library list --in all --search love --quality lossless", params={
+    _e("library", "library list", "R", "library list --in all --search vatoz --quality lossless", params={
         "view": Arg("--in", type="str", resolve="collection"), "key": _derived("collection"),
-        "query": Arg("--search"), "filter": Arg("--quality"), "sort": Arg("--sort")}),
+        "query": Arg("--search"), "filter": Arg("--quality"), "sort": Arg("--sort")}, pages="rows", built=True),
     _e("track", "track show", "R", 'track show "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff"', params={"track_id": TRACK}, built=True, locks={"rekordbox_r"}),
     _e("todo", "todo list", "R", "todo list --hidden", params={
         "filter": Arg("--group"), "show_hidden": Arg("--hidden", type="bool")}, built=True, locks={"rekordbox_r"}),
@@ -237,78 +245,80 @@ ENTRIES: tuple[Entry, ...] = (
        fixed={"filter": "missing_file"}, built=True, locks={"rekordbox_r"}),
     _e("todo", "check list", "R", "check list", params={"show_hidden": Arg("--hidden", type="bool")},
        fixed={"filter": "rekordbox_check"}, built=True, locks={"rekordbox_r"}),
-    _e("sidebar", "library collections", "R", "library collections"),
-    _e("watched_folders", "folder list", "R", "folder list"),
+    _e("sidebar", "library collections", "R", "library collections", built=True),
+    _e("watched_folders", "folder list", "R", "folder list", built=True),
     _e("removal_preview", "", "R", params={"folder_id": _positional("folder", type="int")}, built=True),  # `folder remove --dry-run`
-    _e("check_import_folder", "folder check", "R", "folder check /Music/Crate"),
-    _e("tidy_preview", "tidy run", "R", "tidy run --dry-run"),
+    _e("check_import_folder", "folder check", "R", "folder check /Music/Crate", built=True),
+    _e("tidy_preview", "tidy run", "R", "tidy run --dry-run", planned="phase 3: V3.1b"),
     _e("move_batches", "", "R", built=True),  # the window's own list; `batch list` is `batches`
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
-       params={"batch_id": _positional("moves", type="int")}),
+       params={"batch_id": _positional("moves", type="int")}, planned="phase 3: V3.1b"),
     _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True, locks={"rekordbox_r"}),
     _e("job_status", "", "R", built=True),  # the window's own job; `job list` / `job show` read the registry
     _e("job_events", "", "R", built=True),  # the window's follow; `job follow --jsonl` reads the same files
-    _e("spectrum", "track spectrum", "R", "track spectrum local:1 --which current", params={"track_id": TRACK}),
+    _e("spectrum", "track spectrum", "R", 'track spectrum "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff" --which current', params={"track_id": TRACK}, built=True),
     _e("media_url", "", "dropped"),
-    _e("dashboard", "status", "R", "status"),
-    _e("runs", "report list", "R", "report list"),
+    _e("dashboard", "status", "R", "status", planned="phase 3: V3.2b"),
+    _e("runs", "report list", "R", "report list --since 2026-11-01", params={"since": Arg("--since", resolve="since")},
+       pages="runs", built=True),
     _e("run", "report show", "R", "report show last", params={"run_id": _positional("report")}, built=True),
-    _e("open_report", "open report", "R", "open report last", params={"run_id": _positional("report")}),
-    _e("sync_preview", "sync plan", "R", "sync plan"),
+    _e("open_report", "open report", "R", "open report last", params={"run_id": _positional("report")}, planned="phase 3: V3.1c"),
+    _e("sync_preview", "sync plan", "R", "sync plan --search pegassi", params={"search": Arg("--search")}, built=True,
+       locks={"rekordbox_r"}),  # the plan's Auto-upgrade count reads rekordbox's library, shared
     # --- sync and jobs
-    _e("refresh", "sync read", "J"),
+    _e("refresh", "sync read", "J", planned="phase 4: V4.1"),
     _e("stop_refresh", "", "J-control", built=True),  # `job stop` writes the job's stop file (cli/follow.py)
-    _e("start_sync", "sync run", "J", params={"selected": _derived("selection", "list")}, dry_run="sync_preview"),
+    _e("start_sync", "sync run", "J", params={"selected": _derived("selection", "list")}, dry_run="sync_preview", planned="phase 4: V4.1"),
     _e("stop", "", "J-control", built=True),
     _e("stop_sign_in", "", "J-control", built=True),
-    _e("never_download", "track never", "J", params={"track_id": TRACKS}, fixed={"never": True}),
-    _e("never_download", "track download", "J", params={"track_id": TRACKS}, fixed={"never": False}),
-    _e("hide", "track hide", "J", params={"track_id": TRACKS}, fixed={"hidden": True}),
-    _e("hide", "track unhide", "J", params={"track_id": TRACKS}, fixed={"hidden": False}),
-    _e("setup_status", "setup status", "R", "setup status"),
-    _e("app_update", "app info", "R", "app info"),
+    _e("never_download", "track never", "J", params={"track_id": TRACKS}, fixed={"never": True}, planned="phase 4: V4.6"),
+    _e("never_download", "track download", "J", params={"track_id": TRACKS}, fixed={"never": False}, planned="phase 4: V4.6"),
+    _e("hide", "track hide", "J", params={"track_id": TRACKS}, fixed={"hidden": True}, planned="phase 4: V4.6"),
+    _e("hide", "track unhide", "J", params={"track_id": TRACKS}, fixed={"hidden": False}, planned="phase 4: V4.6"),
+    _e("setup_status", "setup status", "R", "setup status", planned="phase 3: V3.1b"),
+    _e("app_update", "app info", "R", "app info", planned="phase 3: V3.1b"),
     _e("rescan_library", "library scan", "J", "library scan", built=True, locks={"library"}),
     _e("quit", "", "W"),
-    _e("open_external", "open url", "R", "open url https://example.com"),
-    _e("reveal", "open folder", "R", "open folder all"),
+    _e("open_external", "open url", "R", "open url https://example.com", planned="phase 3: V3.1c"),
+    _e("reveal", "open folder", "R", "open folder all", planned="phase 3: V3.1c"),
     _e("show_in_finder", "open file", "R", "open file local:1", params={
-        "track_id": TRACK, "which": Arg("--upgrade", type="bool", resolve="which")}),
+        "track_id": TRACK, "which": Arg("--upgrade", type="bool", resolve="which")}, planned="phase 3: V3.1c"),
     _e("select", "", "dropped"),
     # --- limits
-    _e("limits", "limits show", "R", "limits show qobuz", params={"service": _positional()}),
+    _e("limits", "limits show", "R", "limits show qobuz", params={"service": _positional()}, planned="phase 3: V3.1b"),
     _e("limits_what_if", "limits set", "R", "limits set qobuz 40 --dry-run", params={
-        "service": _positional(), "limit": _positional(type="int")}),
+        "service": _positional(), "limit": _positional(type="int")}, planned="phase 3: V3.1b"),
     _e("save_limits", "limits set", "J", params={"service": _positional(), "limit": _positional(type="int")},
-       dry_run="limits_what_if"),
-    _e("mark_warnings_seen", "limits seen", "J", params={"service": _positional()}),
+       dry_run="limits_what_if", planned="phase 4: V4.8"),
+    _e("mark_warnings_seen", "limits seen", "J", params={"service": _positional()}, planned="phase 4: V4.8"),
     # --- playlists
-    _e("playlists", "playlist list", "R", "playlist list"),
-    _e("add_playlist", "playlist check", "RJ", params={"url": _positional()}),
-    _e("preview_playlist_change", "", "R", params={"lines": _derived("playlist_lines", "list")}),
+    _e("playlists", "playlist list", "R", "playlist list", planned="phase 3: V3.1b"),
+    _e("add_playlist", "playlist check", "RJ", params={"url": _positional()}, planned="phase 3: V3.1b"),
+    _e("preview_playlist_change", "", "R", params={"lines": _derived("playlist_lines", "list")}, planned="phase 4: V4.2"),
     *_playlist_edits(),
-    _e("set_read_liked_music", "settings set read-liked-music", "J", params={"on": _positional(type="bool")}),
-    _e("add_liked_music", "playlist add-liked", "J"),
+    _e("set_read_liked_music", "settings set read-liked-music", "J", params={"on": _positional(type="bool")}, planned="phase 4: V4.8"),
+    _e("add_liked_music", "playlist add-liked", "J", planned="phase 4: V4.2"),
     _e("tidy_up", "tidy run", "J", params={"moves": _positional("tidy_moves", many=True, type="list")},
-       dry_run="tidy_preview"),
+       dry_run="tidy_preview", planned="phase 4: V4.4"),
     _e("undo_moves", "batch undo", "J", params={"batch_id": _positional("moves", type="int")}, needs_yes=True,
-       dry_run="undo_preview"),
+       dry_run="undo_preview", planned="phase 4: V4.4"),
     # --- logins and setup
-    _e("downloads_view", "login list", "R", "login list"),
-    _e("find_logins", "login find", "R", "login find soundcloud", params={"service": _positional()}),
-    _e("setup_account", "login use", "J", params={"service": _positional(), "browser": Arg("--browser")}),
-    _e("setup_account", "login check", "J", params={"service": _positional(), "browser": _derived("saved_browser")}),
-    _e("account_sign_in", "login sign-in", "J", params={"service": _positional(), "browser": Arg("--browser")}),
-    _e("open_privacy_settings", "open privacy-settings", "R", "open privacy-settings"),
+    _e("downloads_view", "login list", "R", "login list", planned="phase 3: V3.1b"),
+    _e("find_logins", "login find", "R", "login find soundcloud", params={"service": _positional()}, planned="phase 3: V3.1b"),
+    _e("setup_account", "login use", "J", params={"service": _positional(), "browser": Arg("--browser")}, planned="phase 4: V4.7"),
+    _e("setup_account", "login check", "J", params={"service": _positional(), "browser": _derived("saved_browser")}, planned="phase 4: V4.7"),
+    _e("account_sign_in", "login sign-in", "J", params={"service": _positional(), "browser": Arg("--browser")}, planned="phase 4: V4.7"),
+    _e("open_privacy_settings", "open privacy-settings", "R", "open privacy-settings", planned="phase 3: V3.1c"),
     _e("setup_check_account", "", "dropped"),
-    _e("setup_forget_account", "login sign-out", "J", params={"service": _positional()}, needs_yes=True),
-    _e("qobuz_check_login", "login check", "J", match={"service": "qobuz"}),
+    _e("setup_forget_account", "login sign-out", "J", params={"service": _positional()}, needs_yes=True, planned="phase 4: V4.7"),
+    _e("qobuz_check_login", "login check", "J", match={"service": "qobuz"}, planned="phase 4: V4.7"),
     _e("setup_qobuz_login", "login qobuz", "J", params={
-        "email": Arg("--email"), "password": Arg("--password-stdin", type="bool", resolve="stdin", secret=True)}),
-    _e("setup_skip_qobuz", "login skip", "J", match={"service": "qobuz"}),
-    _e("setup_save_client_id", "login spotify", "J", params={"client_id": Arg("--client-id")}),
-    _e("setup_spotify_login", "login sign-in", "J", match={"service": "spotify"}),
-    _e("spotify_sign_out", "login sign-out", "J", needs_yes=True, match={"service": "spotify"}),
-    _e("setup_skip_spotify", "login skip", "J", match={"service": "spotify"}),
+        "email": Arg("--email"), "password": Arg("--password-stdin", type="bool", resolve="stdin", secret=True)}, planned="phase 4: V4.7"),
+    _e("setup_skip_qobuz", "login skip", "J", match={"service": "qobuz"}, planned="phase 4: V4.7"),
+    _e("setup_save_client_id", "login spotify", "J", params={"client_id": Arg("--client-id")}, planned="phase 4: V4.7"),
+    _e("setup_spotify_login", "login sign-in", "J", match={"service": "spotify"}, planned="phase 4: V4.7"),
+    _e("spotify_sign_out", "login sign-out", "J", needs_yes=True, match={"service": "spotify"}, planned="phase 4: V4.7"),
+    _e("setup_skip_spotify", "login skip", "J", match={"service": "spotify"}, planned="phase 4: V4.7"),
     _e("set_auto_upgrade", "settings set auto-upgrade", "J", "settings set auto-upgrade off",
        params={"on": _positional(type="bool")}, built=True, locks={"library", "support"}),
     _e("sync_scope", "sync scope show", "R", "sync scope show", built=True),
@@ -316,32 +326,32 @@ ENTRIES: tuple[Entry, ...] = (
        fixed={"on": []}, built=True, locks={"library", "support"}),
     _e("set_sync_scope", "sync scope on", "J", "sync scope on kind:weekly", params={"on": _positional(many=True)},
        fixed={"off": []}, built=True, locks={"library", "support"}),
-    _e("setup_check_tools", "tools status", "R", "tools status"),
-    _e("update_tools", "tools update", "J"),
-    _e("rollback_tools", "tools rollback", "J", needs_yes=True),
-    _e("open_licenses", "open licences", "R", "open licences"),
+    _e("setup_check_tools", "tools status", "R", "tools status", planned="phase 3: V3.1b"),
+    _e("update_tools", "tools update", "J", planned="phase 4: V4.8"),
+    _e("rollback_tools", "tools rollback", "J", needs_yes=True, planned="phase 4: V4.8"),
+    _e("open_licenses", "open licences", "R", "open licences", planned="phase 3: V3.1c"),
     *_favourite_entries(),
     *_crate_entries(),
     _e("pick_folder", "", "W"),
-    _e("check_music_folder", "setup music", "R", "setup music /Music/Discjockey --dry-run", params={"path": _positional()}),
+    _e("check_music_folder", "setup music", "R", "setup music /Music/Discjockey --dry-run", params={"path": _positional()}, planned="phase 3: V3.1b"),
     _e("set_music_folder", "setup music", "J", params={"path": _positional()}, needs_yes=True,
-       dry_run="check_music_folder"),
-    _e("retry_music_folder", "setup status", "R", "setup status"),
-    _e("setup_skip_import", "setup skip-import", "B"),
+       dry_run="check_music_folder", planned="phase 4: V4.8"),
+    _e("retry_music_folder", "setup status", "R", "setup status", planned="phase 3: V3.1b"),
+    _e("setup_skip_import", "setup skip-import", "B", planned="phase 4: V4.8"),
     _e("add_watched_folder", "folder add", "J", "folder add /Music/Crate", params={"path": _positional()},
        dry_run="check_import_folder", built=True, locks={"library"}),
-    _e("start_import", "import run", "J"),
+    _e("start_import", "import run", "J", planned="phase 4: V4.4"),
     _e("remove_watched_folder", "folder remove", "J", "folder remove folder:/Music/Crate --dry-run",
        params={"folder_id": _positional("folder", type="int")}, needs_yes=True, dry_run="removal_preview", built=True,
        locks={"library"}),
     # --- questions, duplicates, AIFF, upgrades, rekordbox check
     _e("answer_same_song", "question answer", "J", params={
-        "song_key": _derived("question"), "own_key": _derived("question"), "same": _positional(type="bool")}),
+        "song_key": _derived("question"), "own_key": _derived("question"), "same": _positional(type="bool")}, planned="phase 4: V4.5"),
     _e("keep_duplicates", "duplicate keep", "J", params={
-        "group_id": _positional("duplicate"), "paths": Arg("--all", type="bool", resolve="duplicate_paths")}),
+        "group_id": _positional("duplicate"), "paths": Arg("--all", type="bool", resolve="duplicate_paths")}, planned="phase 4: V4.5"),
     _e("keep_file", "duplicate keep", "J", params={
         "group_id": _positional("duplicate"), "file_id": _positional("file", type="int"),
-        "paths": _derived("duplicate_paths", "list")}),
+        "paths": _derived("duplicate_paths", "list")}, planned="phase 4: V4.5"),
     # `aiff convert` is three entries of one command: `convert` (named or --rows songs), `make_aiff` (--all [--in C | --todo
     # cdj]: `ALL_METHOD` swaps it in) and the read that is its `--dry-run` (`aiff_plan`, which a worker runs: it may read
     # files). `aiff rename` is `rename` and its own `aiff_plan` (`only` rename). `help` shows one row for each command.
@@ -385,12 +395,12 @@ ENTRIES: tuple[Entry, ...] = (
     _e("missing_files", "missing remove", "J", "missing remove --all --yes", params={"track_ids": TRACKS},
        fixed={"action": "remove"}, needs_yes=True, dry_run="missing_files_preview", built=True, locks={"library"},
        partial=MISSING_PARTIAL),
-    _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK, "path": _positional(type="str")}),
-    _e("search_candidates", "version search", "RJ", params={"track_id": TRACK}),
-    _e("preview", "version preview", "RJ", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),
-    _e("use_candidate", "version use", "J", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}),
-    _e("use_link", "version use", "J", params={"track_id": TRACK, "url": Arg("--link")}),
-    _e("reject_current", "version reject", "J", params={"track_id": TRACK}, needs_yes=True),
+    _e("add_bought_file", "version add-file", "J", params={"track_id": TRACK, "path": _positional(type="str")}, planned="phase 4: V4.6"),
+    _e("search_candidates", "version search", "RJ", params={"track_id": TRACK}, planned="phase 4: V4.6"),
+    _e("preview", "version preview", "RJ", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}, planned="phase 4: V4.6"),
+    _e("use_candidate", "version use", "J", params={"track_id": TRACK, "candidate": _positional("candidate", type="dict")}, planned="phase 4: V4.6"),
+    _e("use_link", "version use", "J", params={"track_id": TRACK, "url": Arg("--link")}, planned="phase 4: V4.6"),
+    _e("reject_current", "version reject", "J", params={"track_id": TRACK}, needs_yes=True, planned="phase 4: V4.6"),
     # --- methods the command line needs and the window has not (their shapes belong to the group that builds them)
     _e("freshness", "", "R", cli_first=True, built=True),
     _e("resolve", "", "R", cli_first=True, built=True),

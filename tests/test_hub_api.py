@@ -126,6 +126,24 @@ def test_sync_preview_lists_the_actions_with_ids(root):
     assert [p["collections"][i[0]] for i in ins] == ["Hard_Bounce", "Powertrance"]
 
 
+def test_sync_preview_search_narrows_the_actions_like_the_librarys_search_and_nothing_else(root):
+    api, rec = make_api(root)
+    assert api.sync_preview("pegassi")["groups"] == [] and api.sync_preview("pegassi")["empty"] == "no_preview"  # no read yet
+    refreshed(api, rec)
+    whole = api.sync_preview()
+    assert whole["search"] is None and api.sync_preview("") == whole and api.sync_preview("  ") == whole
+    found = api.sync_preview(" Pégassi ")  # case, accents and the spaces around are not the words
+    assert [(g["key"], [a["title"] for a in g["actions"]]) for g in found["groups"]] == [("acquire:new", ["AEIOU"])]
+    assert found["search"] == "Pégassi"
+    assert {k: v for k, v in found.items() if k not in ("groups", "search")} == {
+        k: v for k, v in whole.items() if k not in ("groups", "search")}  # counts, estimate, presets, plan_id: the whole plan's
+    assert found["groups"][0]["actions"][0] == whole["groups"][0]["actions"][0]  # the row is the whole plan's own row
+    assert api.sync_preview("non stop")["groups"][0]["actions"][0]["id"] == whole["groups"][0]["actions"][1]["id"]
+    assert api.sync_preview("torben")["groups"][0]["actions"][0]["artist"] == "torbentorben"  # the artist counts too
+    assert api.sync_preview("no such song")["groups"] == [] and api.sync_preview("no such song")["counts"] == whole["counts"]
+    assert len(list((root.support / "plans").iterdir())) == 1  # a search stores no plan of its own
+
+
 def plan_file(root, plan_id):
     return root.support / "plans" / f"{plan_id.removeprefix('plan:')}.json"
 

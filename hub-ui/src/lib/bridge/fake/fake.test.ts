@@ -185,6 +185,16 @@ describe('fake backend', () => {
     if (!runs.ok) throw new Error();
     expect(runs.runs.map((r) => r.exit_code)).toEqual([1, 130, 0]);
     expect(runs.runs[1].stopped_after).toBe(61);
+    // `since` keeps the runs that started at or after it (the hub's `runs(since)`), `null` and a time nobody can read keep all
+    const middle = runs.runs[1].started;
+    const from = await f.runs(middle);
+    if (!from.ok) throw new Error();
+    expect(from.runs.map((r) => r.exit_code)).toEqual([1, 130]);
+    for (const none of [null, 'not a time']) {
+      const all = await f.runs(none);
+      if (!all.ok) throw new Error();
+      expect(all.runs).toHaveLength(3);
+    }
     const usage = await f.limits('qobuz');
     if (!usage.ok) throw new Error();
     expect(usage.usage!.days).toHaveLength(14);

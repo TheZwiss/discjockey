@@ -132,13 +132,16 @@ The page reads `sidebar()` again after `JobFinished` of kind `refresh`, `sync` o
 and lists), after `DrivesChanged` (a folder's `state`), and after its own `set_favourites` / `set_crate_shown`; no
 event was added for it. The hub store reads it after every `JobFinished`, which includes those.
 
-`sync_preview()` — the check before Start. Each action's `id` (`act:<kind>:<track>:<n>`, `n` the place of its target
+`sync_preview(search?)` — the check before Start. Each action's `id` (`act:<kind>:<track>:<n>`, `n` the place of its target
 folder in playlists.txt, opaque to the page) is sent back ticked to `start_sync`, with the preview's `plan_id`: the plan
 (its actions by id, the read and the records' generation) is stored in `<support>/plans/` for 24 hours, saved when its actions or their targets
 change, or an hour after its last save, so every process finds it. `presets` are the "how many" choices (`key`, `label`,
 `downloads`, the ids it ticks `selected`) for the actions in the Sync scope (settings.json's `sync_scope`) and
 `default_how_many` the key to start from (`fits` when offered, else `all`); null `plan_id`, no presets before the first
-read.
+read. `search` (the command line's `--search`; the window sends none) narrows the actions of `groups` to the songs the
+Library's search finds by artist and title (the same rule: case and accents ignored), a group left with none is left out,
+and the answer's `search` says the words (null for the whole plan); every other field, `plan_id` included, stays the
+whole plan's.
 Shape: `SyncPreview` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 Before the first read the counts are 0, `counts` and `estimate` are null and `collections` is empty. `waiting_answers`
 are held back until the user answers "Is this the same song?" (the plan's `questions`) and are not downloaded meanwhile.
@@ -355,7 +358,7 @@ must be set up (else refused "Set up YouTube Premium first."); `limit` 1–500, 
 Qobuz `days_to_load` is null.
 Shape: `WhatIf` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
-`runs()` → `Runs` (`{"runs": [RunSummary, newest first]}`). `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → `RunAnswer` (`{"run": RunDetail}`), the end screen.
+`runs(since?)` → `Runs` (`{"runs": [RunSummary, newest first]}`); `since` (an ISO time, the command line's `--since` after it resolved the word) keeps the runs that started at or after it, a run with no readable time is kept; the window sends none. `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → `RunAnswer` (`{"run": RunDetail}`), the end screen.
 Shape: `RunAnswer` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 Every row with a `track_id` except `queued` carries `cover_url` (the file's own cover, else Spotify's, else null).
 `section_labels` are the report's own title of every section (`report.SECTIONS`; the end screen's part of the placements
