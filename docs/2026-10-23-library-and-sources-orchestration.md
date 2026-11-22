@@ -1477,12 +1477,21 @@ Results:
         Agent while the list is not empty. Pipe-tested (partial read ticks nothing; gate deny → allow) and proved live.
         Checklist: Opus planning records (one brief = material + ~185k), rehearsals automated in the scratchpad, rule 13
         (CI after every merge, tell every gate refusal).
+      - V4.2b brief done (Opus, `ae8f5a31`): **238k** (exp. 225k; 52 calls, cache 8.1M, fresh 224k, out 70k, advisor 0k).
+        `.claude/issue39/phase4/V4.2b.md` (23.6 KB, size line 30k material → exp. ~195k build, one file). Root cause of the
+        T1 gap: `catalog._type_of` reads string annotations → `typed_dict_of` via `shapes.SHAPES`. Deviations: T1 checks
+        dotted keys exist (not all keys mapped); resolver `files_choice`; `--if-version` + `--dry-run` = conflicting_flags
+        (no hub-ui change); dry run's `next` gives the exact guarded line (`pf.op_words`, `_apply_next`); `Arg.required`,
+        `_pick` default rule (also makes `call refresh` work without `auto`); T9 `WITHOUT_ITEMS` for 7 playlist commands
+        (V4.3 removes it). Reported bug: `views.playlists` rows carry `index` from 0 while `--at`/`--to`/undo count from 1.
+        DECIDED (mine): a 1-based `place` on each row beside `index` (the window's bridge position, unchanged), built in
+        V4.2b; the V4.2 brief check writes it into V4.2b.md. Phase 4 so far: 382k + 218k + 238k = 838k.
       - **RESUME HERE (LATEST, 2026-11-22, phase 4 wave A briefs):** phase4-plan.md, V4.1a.md, V4.1b.md, V4.2a.md written;
-        V4.2b brief run (Opus, exp. 225k) running. Next, one at a time: V4.3 brief run, V4.4 brief run (Opus, one brief
+        V4.2b.md written (238k). Next, one at a time: V4.3 brief run, V4.4 brief run (Opus, one brief
         each, measured material + ~185k); phase4-dispatch.md by me (fix the plan's low Opus estimates: wave B detailing
         and the brief check split per group, record 370k); one Sonnet for review-V4.1..V4.4 + rehearse-V4.1..V4.4; the
         brief check split by group (V4.1; V4.2; V4.3+V4.4), fresh Opus each; then `feat/cli-4-writes` from main and the
-        builds by the dispatch table. Phase 4 so far 600k + V4.2b. No release.
+        builds by the dispatch table. Phase 4 so far 838k. The V4.2 brief check also writes the `place` decision into V4.2b.md. No release.
       - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
