@@ -1332,7 +1332,7 @@ Results:
         CI green (44967540408). No release. Today's agents: 87k + 93k + 77k = 257k → phase 2 ≈ 9.63M logged.
         NEXT on the user's go: phase 3 detailing (plan v2 §6 phase 3, 1 230k), same method; the cost projection told the
         user: phases 3-8 ≈ 12.9M plan → ~28M logged at the 2.2x ratio.
-      - **RESUME HERE (LATEST, 2026-11-22, before a compact the user asked for):** phase 2 is DONE and on main 4339bdfd
+      - RESUME HERE (superseded below, 2026-11-22, before a compact the user asked for): phase 2 is DONE and on main 4339bdfd
         (merge 3a2063d8, CI green). Main checkout still on feat/cli-2-foundations (= main's code); worktree main-log on
         main for log edits. Nothing running, no agent open. THE USER'S ASK after the compact: "tell me whats in phase 3,
         what it will cost and lets plan it". So: read plan v2 `docs/2026-11-15-agent-cli-plan-v2.md` §6 "### Phase 3:
@@ -1343,6 +1343,22 @@ Results:
         → Opus detailing → fresh Opus brief check → Sonnet builds/reviews/fixes), and where detailing overhead (~21% in
         phase 2) could be cut without hidden cost. Dispatch nothing until the user says go. Rehearsals run automated
         without the user (open-scope Decided 2026-11-22). No release.
+      - PHASE 3 PLANNED WITH THE USER (2026-11-22, after the compact): told the user what phase 3 gives and its cost
+        (plan 1 230k × phase 2's measured 2.21x = 9.63M/4.35M → ~2.7M). User asked whether new read commands get
+        touched again when the engine becomes the single source of truth → V3.4's hand pages MOVED to the end of phase 6
+        (they need window-only words, e.g. format.ts qualityWords/cutoffStat); phase 3 = V3.1-V3.3 + Sonnet phase review
+        split by diff + fixes + an automated read pass on an APFS clone, ~2.0-2.3M logged. Phases 4-5: no moves; rule in
+        every brief: text prints only words the engine's answer carries (open-scope Decided). Phase 1's todo/track
+        pages checked: engine words only. User: "go".
+        Sizing by me (no agent): `.claude/issue39/phase3/size_reads.py` → sizing-reads.md: 29 planned reads, every one
+        already has an E7 schema; their api.py bodies total 5.1k; size.py's totals inflated by common names.
+        Detailing dispatched: Opus, brief `.claude/issue39/phase3/brief-detail.md`, material 85k, exp. ~300k.
+      - **RESUME HERE (LATEST, 2026-11-22, phase 3 detailing running):** one Opus detailing agent writing
+        phase3-plan.md, V3.x briefs, rehearse-reads.md, phase3-dispatch.md in `.claude/issue39/phase3/`. On its
+        notice: ps check, agent-cost.py (advisor 0k), log its size; then a fresh Opus brief check (brief to write,
+        format phase2/brief-check-wave1.md); then create `feat/cli-3-reads` from main and build by phase3-dispatch.md
+        (one agent at a time, Sonnet), Sonnet phase review halves, fixes, read pass, verify + CI, merge into main. No
+        release. Stop only for product decisions or what I physically can't do.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
