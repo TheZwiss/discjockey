@@ -1,0 +1,9 @@
+Since  2026-11-01T00:00:00+00:00
+
+Entries
+Kind   Id                        At                   Text                                              Undo               Cant text                                                 Track id  Artist  Title
+batch  aiff:2                    2026-11-12T18:30:00  Made AIFF · 0 of 1 done                           none               Nothing was changed, so there is nothing to undo.         none      none    none
+batch  moves:1                   2026-11-11T12:00:00  Tidy-up · 0 files moved · 1 not moved             none               Nothing was changed, so there is nothing to undo.         none      none    none
+run    report:2026-11-10_110000  2026-11-10T11:00:00  Sync: 2 lossless, 0 lossy, 0 moved, 0 to look at  none               A sync's downloads stay: Discjockey never deletes music.  none      none    none
+batch  aiff:1                    2026-11-10T09:00:00  Better versions put in · 1 of 2 done              batch undo aiff:1  none                                                      none      none    none
+4 of 4 shown

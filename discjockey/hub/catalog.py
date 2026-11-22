@@ -439,6 +439,8 @@ ENTRIES: tuple[Entry, ...] = (
        params={"track_id": _positional("track")}, cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("batches", "batch list", "R", "batch list --since 2026-11-11", params={"since": Arg("--since", resolve="since")},
        cli_first=True, pages="batches", built=True),
+    _e("history", "history", "R", "history --since 2026-11-01", params={"since": Arg("--since", resolve="since")},
+       cli_first=True, pages="entries", built=True),
     _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional("batch")}, cli_first=True,
        built=True),
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),

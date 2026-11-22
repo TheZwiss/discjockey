@@ -135,11 +135,11 @@ def fixture(tmp_path, monkeypatch, request, utc):
         with_clock(monkeypatch)
     paths = make_root(tmp_path)
     choose_music(tmp_path, monkeypatch)
-    if entry is not None and entry.command[0] == "batch":
+    if entry is not None and (entry.command[0] == "batch" or entry.command == ("history",)):
         with_batches(paths)  # two AIFF batches and a move batch: the typed ids `aiff:1`, `aiff:2`, `moves:1`
     if entry is not None and entry.command == ("sync", "plan"):
         with_read(paths, monkeypatch)
-    if entry is not None and entry.command in (("report", "show"), ("report", "list")):
+    if entry is not None and entry.command in (("report", "show"), ("report", "list"), ("history",)):
         with_report(paths)
     if entry is not None and entry.command == ("open", "report"):
         (paths.reports / f"{with_report(paths)}.md").write_text("# Run\n")  # `open report` opens the written page, not the data

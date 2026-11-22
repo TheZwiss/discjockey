@@ -5733,6 +5733,146 @@
       ],
       "type": "object"
     },
+    "History": {
+      "additionalProperties": false,
+      "description": "What changed and what can be undone: runs, batches and single steps, newest first.",
+      "properties": {
+        "entries": {
+          "description": "The entries, newest first.",
+          "items": {
+            "$ref": "#/$defs/HistoryEntry"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "since": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The time the list starts at, an ISO time; null when it was not limited.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "entries",
+        "since"
+      ],
+      "type": "object"
+    },
+    "HistoryEntry": {
+      "additionalProperties": false,
+      "description": "One thing that changed: a run of the sync, a batch (AIFF or moves) or a single step Discjockey logged. Exactly one of `undo` and `cant_text` is set.",
+      "properties": {
+        "artist": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's artist, for a single step.",
+          "x-shown": true
+        },
+        "at": {
+          "description": "When it happened, an ISO time: a run's or batch's start, a step's time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "cant_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why `undo` is null, in words; null when there is an `undo`.",
+          "x-shown": true
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The id the commands take: `report:<stamp>`, `aiff:12` or `moves:12`; null for a single step.",
+          "x-shown": true
+        },
+        "kind": {
+          "description": "A run, a batch or a single logged step.",
+          "enum": [
+            "run",
+            "batch",
+            "operation"
+          ],
+          "x-shown": false
+        },
+        "text": {
+          "description": "What happened, in words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's title, for a single step.",
+          "x-shown": true
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song a single step was done to; null for a run or a batch.",
+          "x-shown": false
+        },
+        "undo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The command that undoes it (run its `--dry-run` first); null when nothing does or the command is not there yet.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "at",
+        "text",
+        "undo",
+        "cant_text",
+        "track_id",
+        "artist",
+        "title"
+      ],
+      "type": "object"
+    },
     "ImportFolderCheck": {
       "additionalProperties": false,
       "description": "What `check_import_folder(path)` found; it changes nothing.",
@@ -16980,6 +17120,7 @@
     "find_tracks": "FindTracksAnswer",
     "freshness": "Freshness",
     "hide": "OpResult",
+    "history": "History",
     "job_events": "JobEvents",
     "job_status": "JobStatus",
     "keep_duplicates": "Empty",

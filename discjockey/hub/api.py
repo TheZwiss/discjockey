@@ -60,7 +60,7 @@ from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, Setti
                         load_settings, update_settings_held)
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
+from . import catalog, history as history_mod, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
@@ -134,7 +134,7 @@ LIBRARY_METHODS = frozenset((
     "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
-CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
+CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
 RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
                  "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
@@ -4479,6 +4479,44 @@ class CliApi(HubApi):
             if row is None:
                 raise BadId("unknown_id", f"There is no move batch {found.value}.")
             return {**self._moves_batch_row(conn, row), "moves": views.batch_moves(db.batch_moves(conn, found.value))}
+
+    @cli_first
+    def history(self, since: str | None = None) -> dict:
+        """What changed, newest first, and how to undo it: the sync runs, the batches (AIFF and moves) and the single
+        steps of the operations log that no AIFF batch made (`history.entries` holds the rule). `since` is an ISO time
+        (the command line's `--since` resolves to one). An entry: `kind` (`run` | `batch` | `operation`), `id` (what the
+        commands take; null for a step), `at`, `text`, `undo` (the command that undoes it) or `cant_text` (why nothing
+        does: exactly one is set), and for a step `track_id`, `artist`, `title`."""
+        def built(method: str, command: str) -> bool:
+            entry = catalog.entry_of(method, command)
+            return entry is not None and entry.planned is None
+
+        paths = self._paths
+        rows = self._batch_rows()
+        batch_tracks = {r["batch"]: frozenset(i.track for i in batches.result_of(paths, r["batch"]).results)
+                        for r in rows if r["kind"] == "aiff"}
+        found = history_mod.entries(
+            views.runs(self._reports()), rows, self._operations(), tracks=self._state()["tracks"],
+            batch_tracks=batch_tracks, finished_order=batches.finished_order(paths),
+            built=built, now=self._svc.now(), since=since)
+        return {"entries": found, "since": since}
+
+    def _operations(self) -> list[tuple[int, dict]]:
+        """The lines of the operations log with their 0-based line numbers (the numbering `batches.finished_order`
+        uses); a line that cannot be read is skipped and its number kept."""
+        try:
+            lines = self._paths.operations_log.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        out = []
+        for n, line in enumerate(lines):
+            try:
+                op = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(op, dict):
+                out.append((n, op))
+        return out
 
     @staticmethod
     def _track_name(tracks: dict, key: str) -> str:

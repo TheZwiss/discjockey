@@ -338,6 +338,7 @@ DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
     "batch_detail": lambda api, rec: api.batch_detail("moves:1"),
+    "history": lambda api, rec: api.history(),  # the records, the reports and the operations log: no lock
     "move_batches": lambda api, rec: api.move_batches(),
     "run": lambda api, rec: api.run("last"),
     "runs": lambda api, rec: api.runs(),  # the stored reports: no lock
