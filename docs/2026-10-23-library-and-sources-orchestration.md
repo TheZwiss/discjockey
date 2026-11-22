@@ -1537,12 +1537,19 @@ Results:
         V4.1a built in two parts at its named cut (5a: §6 commits 1-2 engine + contract; 5b: commit 3 commands), since
         the plan holds builds ≤ ~220k. Re-estimate: wave A ≈ 5.96M, wave B ≈ 6.7M, **phase 4 ≈ 12.6M**. Phase 4 so far
         1 651k.
+      - Brief check V4.2a done (Opus, `addfd4cd`): **275k** (exp. 230k; 119 calls, cache 20.3M, fresh 261k, out 99k,
+        advisor 0k). check-V4.2a.md: 0 Critical, 6 Important, 12 Minor, nothing handed back. Decided on the code: `index`
+        → `place` (1-based) in V4.2a (the window uses `index` only in a draft row key; open-scope). Caught only here:
+        `needs_choice` would write every playlist link + private SoundCloud tokens into result.json; SoundCloud short
+        link → `bad_args` + `playlist check`; `op_words`/`undo_op` built in V4.2a; history's undo line gains
+        `--if-version`; commits 3+4 merged (shape check). V4.2a → ~220k, V4.2b ~191k. Record: one-brief check ~275k
+        (the smallest unit; checks 2b/3a/3b ~275k each). Wave A ≈ 6.1M, phase 4 ≈ 12.9M. Phase 4 so far 1 926k.
       - **RESUME HERE (LATEST, 2026-11-23, phase 4 brief checks):** run `.claude/issue39/phase4/phase4-dispatch.md` rows
-        in order, one at a time: 2a (brief check V4.2a, also decides the `place` numbering) running → 2b → 3a → 3b, each
+        in order, one at a time: 2a done; 2b (brief check V4.2b) running → 3a → 3b, each
         Opus fresh by `brief-check.md`, measured < ~250k. On each notice: ps, agent-cost (advisor 0k), log, a hand-back
         → one warm-cache question at once. Then row 4 (Sonnet, review + rehearsal files), then `feat/cli-4-writes` from
         main and the builds (5a/5b = V4.1a in two parts). Every prompt carries checklist rules 12 + 14. Phase 4 so far
-        1 651k. No release.
+        1 926k. No release.
       - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
