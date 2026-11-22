@@ -1431,6 +1431,9 @@ Results:
         renders goldens from `--json` with the temp path masked). F-D1: the Playlists ChangePanel shows its own `U1`
         constant (no engine notes in `ChangePreviewTidy`): set to the same word; real fix noted as issue 46 in
         docs/issues.md (on the phase branch, reaches main with the merge). Merged 272d8846. FR2 dispatched (cli3-f2).
+      - FR2 done cbf39204 (2 commits): logged **152k** (exp. 170k), advisor 0k; 6880 passed. All 9 applied; P2-2 by a
+        per-song undo stack (an undo takes back only the latest open step); P2-3 one rule `views.batch_how` used by the
+        window and history; `Opened.text`. Merged. FR3 dispatched (cli3-f3).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
