@@ -3,12 +3,13 @@ and `setup status`. Their pages, their `--json` parity and `--verbose` completen
 (tests/test_cli_golden.py); this file pins what is particular to them: the service word, the refusals, and that the
 setup reads need no music folder."""
 import json
+from pathlib import Path
 
 import pytest
 from hub_helpers import choose_music, make_root, stub_headless
 
 import discjockey.cli as cli
-from discjockey import library, words
+from discjockey import browsers, library, words
 
 
 @pytest.fixture
@@ -98,3 +99,19 @@ def test_app_info_check_with_no_answer_is_ok_and_says_unknown(tmp_path, monkeypa
     assert env["data"]["message"] == words.UPDATE_NO_ANSWER_OFFLINE
     code, text = cli.main(["app", "info", "--check"]), capsys.readouterr().out
     assert code == 0 and "unknown" in text and words.UPDATE_NO_ANSWER_OFFLINE in text
+
+
+def test_login_find_looks_for_browsers_only_where_the_stubbed_services_say(lib, monkeypatch, capsys):
+    """The golden pages show the fixture's browsers, not this Mac's: the api asks `browsers.installed` for the folders
+    its services name (none under the stub), never for `/Applications`."""
+    seen = []
+    real = browsers.installed
+
+    def recording(home, apps=(Path("/Applications"),)):
+        seen.append((home, apps))
+        return real(home, apps)
+
+    monkeypatch.setattr(browsers, "installed", recording)
+    _, env = run_json(["login", "find", "soundcloud"], capsys)
+    assert env["data"]["browsers"] == []
+    assert seen and all(apps == () for _, apps in seen), seen
