@@ -304,3 +304,10 @@ def test_every_built_read_has_a_golden_file_and_no_golden_file_is_left_over():
 
 def test_no_read_has_the_golden_file_of_a_write():
     assert not [e.method for e in READS if golden_name(e) in WRITES]
+
+
+def test_a_list_of_sentences_is_joined_by_a_space_and_any_other_list_by_a_comma():
+    assert generic.cell(["First one.", "Second one!", "Third one?"]) == "First one. Second one! Third one?"
+    assert generic.cell(["First one.", "no stop"]) == "First one., no stop"  # one that is not a sentence: a plain list
+    assert generic.cell(["a", "b"]) == "a, b" and generic.cell([1, 2]) == "1, 2" and generic.cell([]) == "none"
+    assert generic.cell([["One.", "Two."], ["Three."]]) == "One. Two., Three."  # a list of lists: each is a sentence list

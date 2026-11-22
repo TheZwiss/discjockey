@@ -320,7 +320,7 @@ def test_the_index_names_the_methods_a_row_runs_and_call_lists_what_it_takes(cap
     assert rows["help"]["methods"] == [] and rows["help"]["dry_run_method"] is None
     methods = env["data"]["call_methods"]
     assert "select_listing" in methods and "upgrade_preview" in methods
-    assert not {"select", "quit", "stop", "pick_folder"} & set(methods)
+    assert not {"select", "quit", "stop", "pick_folder", "retry_music_folder"} & set(methods)
     for name in methods:  # a catalogue assertion: calling them would start workers
         built = [e for e in catalog.by_method(name) if not e.planned]
         assert built and name not in catalog.WINDOW_ONLY and name not in catalog.DROPPED, name

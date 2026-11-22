@@ -332,6 +332,7 @@ def test_call_reads_its_arguments_from_stdin(monkeypatch, capsys):
 @pytest.mark.parametrize("argv,message", [
     (["call", "quit"], "closes the window"),
     (["call", "pick_folder"], "dialog"),
+    (["call", "retry_music_folder"], "starts watching it"),
     (["call", "media_url"], "not offered"),
     (["call", "tidy_up"], "not built yet"),
     (["call", "no_such_method"], "no method"),

@@ -64,8 +64,8 @@ def test_a_cli_first_method_exists_exactly_when_its_entry_is_built():
 
 
 def test_window_only_and_dropped():
-    assert catalog.WINDOW_ONLY == {"pick_folder": "native_dialog", "quit": "closes_window"}
-    assert set(catalog.WINDOW_ONLY.values()) <= {"native_dialog", "closes_window"}
+    assert catalog.WINDOW_ONLY == {"pick_folder": "native_dialog", "quit": "closes_window", "retry_music_folder": "binds_folder"}
+    assert set(catalog.WINDOW_ONLY.values()) <= catalog.WINDOW_ONLY_REASONS
     assert catalog.DROPPED == {"media_url", "select", "setup_check_account"}
     assert {e.method for e in EXISTING if e.kind == "W"} == set(catalog.WINDOW_ONLY)
     assert {e.method for e in EXISTING if e.kind == "dropped"} == catalog.DROPPED

@@ -30,7 +30,8 @@ START_WAIT_S = 15.0  # how long the client waits for a worker to leave `queued` 
 FOLLOW_POLL_S = 0.05
 _children: list[subprocess.Popen] = []  # workers this process started and has not seen end (reaped at the next start)
 WINDOW_WORDS = {"native_dialog": "it opens a macOS dialog, which only the window can show",
-                "closes_window": "it closes the window, which only the window has"}
+                "closes_window": "it closes the window, which only the window has",
+                "binds_folder": "it connects the music folder and starts watching it, which only the window does (`setup status` says how the folder stands)"}
 
 
 def command_of(entry: Entry) -> str:
