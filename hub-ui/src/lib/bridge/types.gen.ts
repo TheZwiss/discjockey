@@ -4081,10 +4081,47 @@ export type BatchRow = {
 };
 /** The batches Discjockey made, newest first. */
 export type Batches = {
-  /** The newest batches (`--limit`). */
+  /** The batches, newest first. */
   batches: BatchRow[];
-  /** How many batches there are of the kinds asked for. */
+  /**
+   * How many batches there are of the kind and from the time asked for: as many as the list holds, and the
+   * `page`'s total.
+   */
   total: number;
+};
+/**
+ * One thing that changed: a run of the sync, a batch (AIFF or moves) or a single step Discjockey logged.
+ * Exactly one of `undo` and `cant_text` is set.
+ */
+export type HistoryEntry = {
+  /** A run, a batch or a single logged step. */
+  kind: 'run' | 'batch' | 'operation';
+  /** The id the commands take: `report:<stamp>`, `aiff:12` or `moves:12`; null for a single step. */
+  id: string | null;
+  /** When it happened, an ISO time: a run's or batch's start, a step's time. */
+  at: string;
+  /** What happened, in words. */
+  text: string;
+  /**
+   * The command that undoes it (run its `--dry-run` first); null when nothing does or the command is not there
+   * yet.
+   */
+  undo: string | null;
+  /** Why `undo` is null, in words; null when there is an `undo`. */
+  cant_text: string | null;
+  /** The song a single step was done to; null for a run or a batch. */
+  track_id: string | null;
+  /** The song's artist, for a single step. */
+  artist: string | null;
+  /** The song's title, for a single step. */
+  title: string | null;
+};
+/** What changed and what can be undone: runs, batches and single steps, newest first. */
+export type History = {
+  /** The entries, newest first. */
+  entries: HistoryEntry[];
+  /** The time the list starts at, an ISO time; null when it was not limited. */
+  since: string | null;
 };
 /** One track of an AIFF batch, with its name. */
 export type BatchItem = ItemResult & {

@@ -21,7 +21,7 @@ PLANNED_CEILING = 61
 # The phases that are finished: no row may be planned for one of them (V3.2b sets 3 when phase 3 ends).
 FINISHED_PHASES = 2
 
-CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "select_listing",
+CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "history", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
              "rekordbox_backups", "rekordbox_restore", "rekordbox_restore_preview"}
 
@@ -188,7 +188,7 @@ def test_no_entry_is_planned_for_a_finished_phase():
 
 def test_pages_names_a_top_level_list_of_the_answer_of_a_read():
     paged = [e for e in catalog.ENTRIES if e.pages]
-    assert {(e.method, e.pages) for e in paged} == {("library", "rows"), ("runs", "runs")}
+    assert {(e.method, e.pages) for e in paged} == {("library", "rows"), ("runs", "runs"), ("batches", "batches"), ("history", "entries")}
     for e in paged:
         assert e.kind == "R" and e.planned is None, e  # a page is cut where the answer is whole: a read that answers at once
         assert e.schema, f"{e.method} has no shape: its list cannot be checked"

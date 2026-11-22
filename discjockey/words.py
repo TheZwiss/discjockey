@@ -58,6 +58,7 @@ NOUN_WORDS = {
     "setup": "Setup: what it still needs, whether a folder can be your music folder.",
     "app": "This app: open its window, its version and whether a newer one is out.",
     "open": "Show a song, a folder or a report in the Finder, or open a web page.",
+    "history": "What changed, newest first, and how to undo it.",
 }
 
 NO_PLAYLIST = "No playlist called “{name}”."
@@ -107,6 +108,66 @@ WOULD_MISSING = ("{n} of your rekordbox tracks would point at files that Discjoc
 # when it meets rekordbox open at the end of a sync, `AUTO_UPGRADE_OFF` what the phase alone says with the switch off.
 AUTO_UPGRADE_OFF = "Auto-upgrade is off, so nothing was moved."
 AUTO_UPGRADE_NOTHING = "No upgrade was waiting, so nothing was moved."
+
+
+# `history` (design §5.3, §7.4): the text of each entry, and for each one the command that undoes it or the words that say
+# why nothing does. `HISTORY_RUN` is by the run's kind; an AIFF batch says what it did (`HISTORY_AIFF`, by the batch's
+# `what`), or "Upgraded during your sync" when the sync's last phase made it; a move batch says its title and what moved.
+BATCH_MADE_AIFF = "Made AIFF"  # the sub of the To-do item of a Convert batch's checks (plan stage D §3), and a history entry's
+AUTO_BATCH_DETAIL = "Upgraded during your sync"  # the sub of the To-do item of an Auto-upgrade batch's checks, and a history entry's
+HISTORY_RUN = {"sync": "Sync: {lossless} lossless, {lossy} lossy, {moved} moved, {problems} to look at",
+               "auto_upgrade_only": "Auto-upgrade alone: {line}"}
+HISTORY_RUN_NOTHING = "nothing to do"
+HISTORY_AIFF = {"upgrade": "Better versions put in", "convert": BATCH_MADE_AIFF,
+                "mixed": "Better versions put in and made AIFF"}
+HISTORY_AIFF_DONE = "{what} · {done} of {total} done"
+# a logged step, by the operation's name in operations.jsonl; a name that is not here says itself
+OPERATION_WORDS = {
+    "upgrade_same_track": "better version put in",
+    "upgrade_add_new": "better version added as a new track",
+    "upgrade_place": "parked version put in for its missing file",
+    "upgrade_discard": "better version thrown away",
+    "aiff_convert": "made AIFF",
+    "aiff_rename": "given its clean name",
+    "undo_upgrade": "upgrade undone",
+    "undo_convert": "AIFF undone",
+    "undo_rename": "clean name undone",
+    "rekordbox_checked": "checked in rekordbox",
+    "move_to_superseded": "other files moved to Superseded/",
+    "never download": "set to never download",
+    "download allowed": "allowed to download again",
+    "download again": "to be downloaded again (its file was missing)",
+    "removed from library": "removed from your library",
+    "hide": "hidden",
+    "unhide": "shown again",
+    "add_bought_file": "bought file added",
+    "use_candidate": "another version downloaded",
+    "use_link": "downloaded from a link",
+    "reject_current": "its version turned down",
+}
+UNDO_NOT_YET = "Undoing this comes in a later version ({command})."
+RUN_CANT = "A sync's downloads stay: Discjockey never deletes music."
+STILL_RUNNING = "Still running."
+WAS_UNDO = "This was an undo."
+UNDONE = "Undone already."
+UNDONE_BY = "Undone by {id}."
+NOTHING_DONE = "Nothing was changed, so there is nothing to undo."
+LATER_STEP = "A later step of this song comes first: undo that one."
+CANT_UNDO_NOW = "This step can't be undone any more: the files changed since."
+SONG_GONE = "This song is no longer in your library."
+DISCARD_CANT = "Thrown-away versions are not offered again."
+CHECKED_CANT = "Marked as checked in rekordbox: nothing to undo."
+SUPERSEDED_CANT = "The other files are in Superseded/; move one back in the Finder to use it again."
+DOWNLOAD_CANT = "A download is not undone: Discjockey never deletes music."
+REMOVED_CANT = "A removed song comes back when its file is added again."
+NEW_VERSION_CANT = "A new version stays: Discjockey never deletes music."
+UNKNOWN_CANT = "Discjockey can't undo this step."
+
+
+def plural(n: int, one: str, many: str) -> str:
+    """`one` when `n` is 1, else `many` with its `{n}` filled: the one helper for the count texts ("1 file moved", "3 files
+    moved")."""
+    return one if n == 1 else many.format(n=n)
 
 
 def before_start_line(n: int) -> str:

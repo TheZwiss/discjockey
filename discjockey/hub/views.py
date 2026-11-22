@@ -29,7 +29,7 @@ from ..planner import KIND_RANK, WAIT_DAYS, TidyRow, out_of_place, tidy_rows
 from ..quality import quality_line
 from ..report import PART_LABELS, PLAN_LABELS, SECTIONS, auto_upgrade_line, check_text, result_folder
 from ..settings import Settings
-from ..words import TODO_EMPTY, person_steps, short_day
+from ..words import AUTO_BATCH_DETAIL, BATCH_MADE_AIFF, TODO_EMPTY, person_steps, plural, short_day
 from ..sources import SOURCES
 from ..rekordbox import eligible
 from ..rekordbox.master import Status as RekordboxStatus
@@ -873,7 +873,6 @@ AUTO_REFUSED_DETAIL = "{short} · not upgraded at your sync"  # the reason first
 AUTO_REFUSED_SHORT = {"timing": "couldn't line it up", "not_analysed": "not analysed in rekordbox",
                       "cloud": "in Cloud Library Sync", "space": "not enough free space",
                       "needs_choice": "couldn't compare it"}  # the five reasons the phase records (auto_upgrade.REFUSALS)
-AUTO_BATCH_DETAIL = "Upgraded during your sync"  # the sub of the To-do item of an Auto-upgrade batch's checks
 
 
 def auto_refused_view(up: dict | None) -> dict | None:
@@ -1235,7 +1234,7 @@ def _folder_rows(key: str, with_file: Mapping[str, dict], found: Sites, away: Ma
     subtitle: Callable[[str], list[str]] = lambda n: [n, "every folder"]
     if folder_kind == "watched":
         count = found.crate_counts[nkey]
-        subtitle = lambda n: [n, *away_part, *([_plural(count, "1 folder with music", "{n} folders with music")]
+        subtitle = lambda n: [n, *away_part, *([plural(count, "1 folder with music", "{n} folders with music")]
                                               if count else []), place(nkey)]
     elif folder_kind == "crate":
         tip = " › ".join([found.roots[root], *nkey[len(root) + 1:].split("/")])
@@ -1402,7 +1401,7 @@ def library(state: dict, view: str, key: str | None, query: str, filt: str, sort
         sort_rows(lst, order, (sort or "").startswith("-"))
     empty = ("gone" if gone else None if rows or also else "empty_library" if not with_file else "no_match")
     return {"title": title, "folder": folder, "view": view, "key": shown_key, "folder_kind": folder_kind,
-            "subtitle": [] if gone else subtitle(_plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
+            "subtitle": [] if gone else subtitle(plural(len(have), "1 track", "{n} tracks")), "summary": summary, "chips": chips,
             "rows": rows, "also": also, "songs": songs, "read_at": read_at, "enabled": enabled, "service": service,
             "empty": empty,
             "aiff_stopped": {"batch_id": aiff_stopped[0], "left": aiff_stopped[1]} if aiff_stopped else None}
@@ -1625,7 +1624,7 @@ def todo_sub(chips: Mapping[str, int], check_tracks: int) -> list[str]:
     Nothing in any of them: ["Nothing to do"]."""
     tracks = sum(chips[g] for g in ("upgrade_ready", "not_found", "weak", "good_lossy", "fake", "other"))
     questions = chips["same_song"] + chips["duplicate"]
-    parts = [_plural(n, *words) for n, words in ((tracks, TODO_SUB_TRACKS), (questions, TODO_SUB_QUESTIONS),
+    parts = [plural(n, *words) for n, words in ((tracks, TODO_SUB_TRACKS), (questions, TODO_SUB_QUESTIONS),
                                                  (check_tracks, TODO_SUB_CHECKS), (chips["cdj"], TODO_SUB_CDJ),
                                                  (chips["missing_file"], TODO_SUB_MISSING)) if n]
     return parts or [TODO_SUB_NOTHING]
@@ -1811,7 +1810,6 @@ def recommend(files: Sequence[DupFile]) -> tuple[int | None, str | None]:
     return None, None
 
 
-BATCH_MADE_AIFF = "Made AIFF"  # the sub of the To-do item of a Convert batch's checks (plan stage D §3)
 SYNC_STARTERS = (batches.AUTO, batches.DOWNLOAD_AGAIN)  # `started_by` of a batch the sync's last phase made
 BATCH_CLEAN_NAME = "Clean name"  # a batch that only gave clean names
 BATCH_PLACED = "Better versions put in during your sync"  # the sub of a batch of placements only (issue 43)
@@ -2582,10 +2580,6 @@ def tidy_row(row: TidyRow, e: dict, cover: Url | None = None, by_rename: str | N
             "by_rename": by_rename}
 
 
-def _plural(n: int, one: str, many: str) -> str:
-    return one if n == 1 else many.format(n=n)
-
-
 def tidy_preview(rows: list[TidyRow], state: dict, cover: Url | None = None) -> dict:
     """The "Tidy up files" preview. Rows ticked by default are those a tidy-up moves for sure; `yours` rows
     (the user's own placement) are listed apart, with one control that ticks them all (plan P1)."""
@@ -2595,7 +2589,7 @@ def tidy_preview(rows: list[TidyRow], state: dict, cover: Url | None = None) -> 
     if not out:
         empty = TIDY_EMPTY
     elif not ticked and movable_yours:
-        empty = _plural(movable_yours, TIDY_ONLY_YOURS_ONE, TIDY_ONLY_YOURS)
+        empty = plural(movable_yours, TIDY_ONLY_YOURS_ONE, TIDY_ONLY_YOURS)
     else:
         empty = None
     yours = sum(1 for r in out if r["yours"])
@@ -2615,8 +2609,8 @@ def batch_title(b: BatchRow, undone_title: str | None = None) -> str:
     return BATCH_TITLES.get(b.started_by, "Moves")
 
 
-def _summary(moved: int, skipped: int) -> str:
-    text = _plural(moved, "1 file moved", "{n} files moved")
+def moves_summary(moved: int, skipped: int) -> str:
+    text = plural(moved, "1 file moved", "{n} files moved")
     return f"{text} · {skipped} not moved" if skipped else text
 
 
@@ -2632,7 +2626,7 @@ def move_batches(rows: list[BatchRow], total: int, titles: Mapping[int, str] | N
 
     return {"batches": [{"id": b.id, "at": b.started, "title": title(b),
                          "moved": b.moved, "skipped": b.skipped, "undoable": b.undoable,
-                         "undone_by": b.undone_by, "summary": _summary(b.moved, b.skipped)} for b in rows],
+                         "undone_by": b.undone_by, "summary": moves_summary(b.moved, b.skipped)} for b in rows],
             "total": total}
 
 
@@ -2675,7 +2669,7 @@ def _skipped_item(m: MoveRow) -> dict:
 def batch_result(r: BatchResult, title: str) -> dict:
     """What a finished batch tells the page: "Moved 3 files." (undo: "... back."), then "2 not moved:" and the list."""
     back = " back" if r.started_by == "undo" else ""
-    headline = _plural(r.moved, f"Moved 1 file{back}.", "Moved {n} files" + back + ".")
+    headline = plural(r.moved, f"Moved 1 file{back}.", "Moved {n} files" + back + ".")
     if r.skipped:
         headline += f" {len(r.skipped)} not moved:"
     return {"batch_id": r.batch_id, "title": title, "moved": r.moved, "headline": headline,
@@ -2701,7 +2695,7 @@ def undo_preview(batch: BatchRow, moves: list[PlannedMove], files: Iterable[str]
     running = [m for m, r in zip(moves, rows) if r["skip"] is None]
     # a folder's files sit under its current name, `src`
     moving = sum(1 if m.kind == "file" else r["files"] or 0 for m, r in zip(moves, rows) if r["skip"] is None)
-    warning = [_plural(moving, UNDO_WARN_ONE, UNDO_WARN)] if moving else []
+    warning = [plural(moving, UNDO_WARN_ONE, UNDO_WARN)] if moving else []
     folder = next((m for m in running if m.kind == "folder"), None)
     if folder is not None:
         warning.append(UNDO_RENAME.format(old=_rel(folder.dst)))
@@ -2808,7 +2802,7 @@ def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files
     days = (1 if c.new else 0) if money is None else days_to_load(len(c.new), money["remaining"], money["limit"])
     n_tracks = len(reroutes)
     tracks_will = f"{n_tracks} tracks will" if n_tracks != 1 else "1 track will"
-    save_headline = _plural(len(tidy_list), SAVE_HEADLINE_ONE, SAVE_HEADLINE)
+    save_headline = plural(len(tidy_list), SAVE_HEADLINE_ONE, SAVE_HEADLINE)
     if pairs and renamed and pairs <= renamed:
         kind = "rename"
         headline = save_headline if tidy_list else f"{tracks_will} go to the new folder name"

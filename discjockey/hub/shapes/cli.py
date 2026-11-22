@@ -1,5 +1,5 @@
 """The shapes of the command line's own reads and jobs (issue 39, phase 2, E7e): `settings show`, the rekordbox
-backups and their restore, the batch list and one batch, an AIFF batch's undo preview, the stored audio facts and the
+backups and their restore, the batch list and one batch, the history, an AIFF batch's undo preview, the stored audio facts and the
 sync's Auto-upgrade phase alone. Most are methods of `CliApi` the window does not call (`@cli_first`), so no window file
 uses them; the exception is `Opened`, the answer of the six openers the window calls too. The meanings are those of
 `docs/hub-bridge-contract.md` and of the commands' own help.
@@ -162,8 +162,35 @@ class BatchRow(TypedDict):
 @shape
 class Batches(TypedDict):
     """The batches Discjockey made, newest first."""
-    batches: Annotated[list[BatchRow], F("The newest batches (`--limit`).")]
-    total: Annotated[int, F("How many batches there are of the kinds asked for.")]
+    batches: Annotated[list[BatchRow], F("The batches, newest first.")]
+    total: Annotated[int, F("How many batches there are of the kind and from the time asked for: as many as the list "
+                            "holds, and the `page`'s total.")]
+
+
+# --- history ---
+
+@shape
+class HistoryEntry(TypedDict):
+    """One thing that changed: a run of the sync, a batch (AIFF or moves) or a single step Discjockey logged. Exactly
+    one of `undo` and `cant_text` is set."""
+    kind: Annotated[Literal["run", "batch", "operation"], F("A run, a batch or a single logged step.", shown=False)]
+    id: Annotated[str | None, F("The id the commands take: `report:<stamp>`, `aiff:12` or `moves:12`; null for a single "
+                                "step.")]
+    at: Annotated[str, F("When it happened, an ISO time: a run's or batch's start, a step's time.")]
+    text: Annotated[str, F("What happened, in words.")]
+    undo: Annotated[str | None, F("The command that undoes it (run its `--dry-run` first); null when nothing does or the "
+                                  "command is not there yet.")]
+    cant_text: Annotated[str | None, F("Why `undo` is null, in words; null when there is an `undo`.")]
+    track_id: Annotated[str | None, F("The song a single step was done to; null for a run or a batch.", shown=False)]
+    artist: Annotated[str | None, F("The song's artist, for a single step.")]
+    title: Annotated[str | None, F("The song's title, for a single step.")]
+
+
+@shape
+class History(TypedDict):
+    """What changed and what can be undone: runs, batches and single steps, newest first."""
+    entries: Annotated[list[HistoryEntry], F("The entries, newest first.")]
+    since: Annotated[str | None, F("The time the list starts at, an ISO time; null when it was not limited.")]
 
 
 @shape
@@ -317,6 +344,7 @@ class Opened(TypedDict):
 ANSWERS: dict[str, str] = {
     "settings_view": "SettingsView", "rekordbox_backups": "RekordboxBackups",
     "rekordbox_restore_preview": "RestorePreview", "batches": "Batches", "batch_detail": "BatchDetail",
+    "history": "History",
     "batch_undo_preview": "BatchUndoPreview", "facts_preview": "FactsPreview",
     "show_in_finder": "Opened", "reveal": "Opened", "open_report": "Opened", "open_licenses": "Opened",
     "open_external": "Opened", "open_privacy_settings": "Opened",

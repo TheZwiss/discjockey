@@ -60,7 +60,7 @@ from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, Setti
                         load_settings, update_settings_held)
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
+from . import catalog, history as history_mod, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
@@ -134,7 +134,7 @@ LIBRARY_METHODS = frozenset((
     "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
-CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
+CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
 RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
                  "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
@@ -2299,7 +2299,7 @@ class HubApi:
                 state["never"].pop(track_id, None)
             library.save_state(self._paths, state)
             rep.write_not_lossless(self._paths, state)  # a "not found" track leaves (or rejoins) that list
-            what = "never download" if never else "download again"
+            what = "never download" if never else "download allowed"  # not "download again": that is a missing file's (missing.py)
             ops.log_operation(self._paths, self._svc.now(), track_id, info, what, "done", what)
             return {"track_id": track_id, "never": bool(never)}
 
@@ -4425,36 +4425,34 @@ class CliApi(HubApi):
         return OpProblem(words, "refused", reason="unclean" if e.reason == "unclean" else None, data={"why": e.reason})
 
     @cli_first
-    def batches(self, kind: str | None = None, limit: int = 20) -> dict:
+    def batches(self, kind: str | None = None, since: str | None = None) -> dict:
         """The batches Discjockey made, AIFF batches (Same track, Convert, Rename) and move batches (tidy-ups, saves,
-        folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them). `{batches, total}`;
-        `total` counts every batch of the kinds asked for, the list holds the newest `limit`. A row: `id` (`aiff:12` or
-        `moves:12`, the id every other command takes), `kind`, `what` (an AIFF batch's `upgrade` | `convert` | `mixed`; a
-        move batch's title), `started_by`, `state` (`running` | `stopped` | `done`), `stop_reason`, `started`, `ended`,
-        `total`, `done`, `skipped`, `failed`, `planned`, `undone` (items; for a move batch `done` is the files moved),
-        `backup` (the rekordbox backup an AIFF batch made), `via` (`window` | `terminal`: where it started), `scope` (what
-        was picked for an AIFF batch: `selection`, `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the batch that
-        undid it). `limit` 0 is every batch."""
+        folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them; `since`: an ISO time,
+        the command line's `--since` resolves to one, keeps the batches that started at or after it). `{batches, total}`;
+        `total` counts every batch of the kind and since asked for (the list is as long: `--json` pages it, the envelope's
+        `page` says where). A row: `id` (`aiff:12` or `moves:12`, the id every other command takes), `kind`, `what` (an
+        AIFF batch's `upgrade` | `convert` | `mixed`; a move batch's title), `started_by`, `state` (`running` |
+        `stopped` | `done`), `stop_reason`, `started`, `ended`, `total`, `done`, `skipped`, `failed`, `planned`, `undone`
+        (items; for a move batch `done` is the files moved), `backup` (the rekordbox backup an AIFF batch made), `via`
+        (`window` | `terminal`: where it started), `scope` (what was picked for an AIFF batch: `selection`,
+        `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the
+        batch that undid it)."""
         if kind not in (None, *BATCH_KINDS):
             raise BadId("usage", f"A batch kind is aiff or moves, not {kind}.")
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
-            raise BadId("usage", "--limit takes a number: 0 for every batch.")
-        fetch = limit or -1  # SQLite's LIMIT -1 is no limit
-        paths = self._paths
+        rows = [r for r in self._batch_rows(kind) if since_mod.after(r["started"], since)]
+        return {"batches": rows, "total": len(rows)}
+
+    def _batch_rows(self, kind: str | None = None) -> list[dict]:
+        """Every batch of `kind` (None: both) as a `BatchRow`, newest first."""
         rows: list[dict] = []
-        total = 0
         with self._move_log() as conn:
             if conn is not None:
                 if kind in (None, "aiff"):
-                    found, count = db.aiff_batches(conn, fetch)
-                    rows += [views.aiff_batch_row(b) for b in found]
-                    total += count
+                    rows += [views.aiff_batch_row(b) for b in db.aiff_batches(conn, -1)[0]]  # SQLite's LIMIT -1: no limit
                 if kind in (None, "moves"):
-                    found, count = db.batches(conn, fetch)
-                    rows += [self._moves_batch_row(conn, b) for b in found]
-                    total += count
+                    rows += [self._moves_batch_row(conn, b) for b in db.batches(conn, -1)[0]]
         rows.sort(key=lambda r: (r["started"], r["batch"], r["kind"]), reverse=True)
-        return {"batches": rows[:limit] if limit else rows, "total": total}
+        return rows
 
     def _moves_batch_row(self, conn, b: BatchRow) -> dict:
         return views.moves_batch_row(b, self._batch_title(conn, b), db.planned_moves(conn, b.id))
@@ -4481,6 +4479,44 @@ class CliApi(HubApi):
             if row is None:
                 raise BadId("unknown_id", f"There is no move batch {found.value}.")
             return {**self._moves_batch_row(conn, row), "moves": views.batch_moves(db.batch_moves(conn, found.value))}
+
+    @cli_first
+    def history(self, since: str | None = None) -> dict:
+        """What changed, newest first, and how to undo it: the sync runs, the batches (AIFF and moves) and the single
+        steps of the operations log that no AIFF batch made (`history.entries` holds the rule). `since` is an ISO time
+        (the command line's `--since` resolves to one). An entry: `kind` (`run` | `batch` | `operation`), `id` (what the
+        commands take; null for a step), `at`, `text`, `undo` (the command that undoes it) or `cant_text` (why nothing
+        does: exactly one is set), and for a step `track_id`, `artist`, `title`."""
+        def built(method: str, command: str) -> bool:
+            entry = catalog.entry_of(method, command)
+            return entry is not None and entry.planned is None
+
+        paths = self._paths
+        rows = self._batch_rows()
+        batch_tracks = {r["batch"]: frozenset(i.track for i in batches.result_of(paths, r["batch"]).results)
+                        for r in rows if r["kind"] == "aiff"}
+        found = history_mod.entries(
+            views.runs(self._reports()), rows, self._operations(), tracks=self._state()["tracks"],
+            batch_tracks=batch_tracks, finished_order=batches.finished_order(paths),
+            built=built, now=self._svc.now(), since=since)
+        return {"entries": found, "since": since}
+
+    def _operations(self) -> list[tuple[int, dict]]:
+        """The lines of the operations log with their 0-based line numbers (the numbering `batches.finished_order`
+        uses); a line that cannot be read is skipped and its number kept."""
+        try:
+            lines = self._paths.operations_log.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        out = []
+        for n, line in enumerate(lines):
+            try:
+                op = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(op, dict):
+                out.append((n, op))
+        return out
 
     @staticmethod
     def _track_name(tracks: dict, key: str) -> str:
