@@ -1390,7 +1390,7 @@ Results:
         `AppUpdate` gains `checked`/`checked_at` (window event uses `UpdateNotice` Pick); PLANNED_CEILING 61. Review
         carries in `phase3/carry-review.md` (undo_note "this page" printed by the CLI, /Music golden, spectrum golden).
         Merged into `feat/cli-3-reads` 0f0d005e. Usage limit hit: V3.1c NOT dispatched yet; its worktree cli3-3 on
-        `feat/cli-3-open` is ready (node_modules linked). Next: dispatch V3.1c (scope hits = V3.1 own, `--group` V3.1c).
+        `feat/cli-3-open` is ready (node_modules linked). V3.1c dispatched after the reset (Sonnet, material 35k, exp. 207k).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
