@@ -112,6 +112,21 @@ def _preview(api, rec):
     assert answer["ok"], answer
 
 
+def _with_rekordbox(api, call):
+    """`call()` against a fixture rekordbox library whose master.db is opened once (the match reads and `library
+    superseded` look at its tracks)."""
+    from unittest import mock
+
+    from rekordbox_helpers import make_master
+    folder = api._paths.root / "rekordbox"
+    make_master(folder, [{"path": str(api._paths.root / "Superseded" / "old.mp3")}])
+    (api._paths.superseded).mkdir(exist_ok=True)
+    (api._paths.superseded / "old.mp3").write_bytes(b"old")
+    with mock.patch.dict("os.environ", {"DISCJOCKEY_REKORDBOX": str(folder)}):
+        answer = call()
+    assert answer["ok"] and answer["rekordbox"]["state"] == "ready", answer
+
+
 def _plan(api, rec):
     """`sync plan` with a stored read, so there is a plan to derive (an unread library answers before it looks at anything)."""
     from hub_helpers import ID1, ID2, TRACKS, store_sync_read
@@ -338,6 +353,8 @@ DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
     "batch_detail": lambda api, rec: api.batch_detail("moves:1"),
+    "rekordbox_match": lambda api, rec: _with_rekordbox(api, api.rekordbox_match),
+    "library_superseded": lambda api, rec: _with_rekordbox(api, api.library_superseded),  # the shared hold while master.db is open
     "history": lambda api, rec: api.history(),  # the records, the reports and the operations log: no lock
     "move_batches": lambda api, rec: api.move_batches(),
     "run": lambda api, rec: api.run("last"),

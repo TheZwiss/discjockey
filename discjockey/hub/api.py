@@ -39,8 +39,8 @@ from .. import app_update as update_check, setup_cmd, tool_updates, tools
 from .. import folders as folders_mod, importer, scanner, sources, tidy
 from ..sources import soundcloud, spotify, youtube_music
 from ..sources.soundcloud import YOU as SOUNDCLOUD_YOU  # the module imports yt-dlp only inside functions
-from .. import auto_upgrade, batches, rekordbox, report as rep, run, upgrades
-from ..rekordbox import backup as rb_backup, lock as rb_lock, preview as rb_preview, process as rb_process
+from .. import auto_upgrade, batches, convert, rekordbox, report as rep, run, upgrades
+from ..rekordbox import backup as rb_backup, lock as rb_lock, match as rb_match, preview as rb_preview, process as rb_process
 from ..accounts import ACCOUNTS, BROWSERS, SERVICE_NAMES, SERVICES, check_message
 from ..acquire import make_ready
 from ..candidates import current_key
@@ -134,7 +134,8 @@ LIBRARY_METHODS = frozenset((
     "missing_files_preview", "missing_files",
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
-CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history"))  # `settings_view` needs none
+CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history", "rekordbox_match",
+                                 "library_superseded"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
 RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
                  "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
@@ -4249,6 +4250,154 @@ class CliApi(HubApi):
         if writing:
             answer["rekordbox"]["writing"] = True
         return preview_words(answer)
+
+    # --- does rekordbox match the library? (`rekordbox match`, `library superseded`; `doctor` calls the helpers) ---
+
+    def _read_rekordbox(self, reading: Callable) -> tuple[dict, str | None, object]:
+        """`reading(master)` on rekordbox's library, opened as `rekordbox_preview` does (read-only, `rekordbox.lock`
+        shared and without waiting: while a writer holds it master.db is never opened). Returns (the `MatchRekordbox`
+        part, the words that say why nothing was read or None, what `reading` returned or None). No library on this Mac,
+        a library that cannot be read and a writer are all answered here, never raised."""
+        def part(state: str, problem: str | None = None, writing: bool = False) -> dict:
+            return {"state": state, "state_text": rekordbox_words(state, problem)[0], "writing": writing}
+
+        place = self._svc.rekordbox_place()
+        if place is None or not place.db.is_file():
+            return part("none"), engine_words.MATCH_NO_REKORDBOX, None
+        running = bool(self._svc.rekordbox_running())
+        with rb_lock.reader_lock(self._support.support) as free:
+            if not free:
+                return part("unreadable", writing=True), engine_words.WRITING_WORDS, None
+            try:
+                return part("ready"), None, rb_match.read(place, running, reading)
+            except rekordbox.Unreadable as e:
+                state_text, problem_text = rekordbox_words("unreadable", e.problem)
+                return part("unreadable", e.problem), problem_text or state_text, None
+
+    def _library_files(self, state: dict) -> dict[str, str]:
+        """The folded absolute path of every song's current file -> the song's key (`rekordbox.match.classify`'s
+        `library_files`)."""
+        root = self._paths.root
+        return {fold(str(root / e["path"])): key for key, e in state["tracks"].items() if e.get("path")}
+
+    def _match_view(self, state: dict, view: str, key: str | None) -> tuple[frozenset[str], frozenset[str]]:
+        """What `rekordbox match --in C` narrows to: the folded folders that hold the files of the songs the view shows
+        and where each of them goes when it is superseded, and those songs' keys."""
+        shown = self._library_view(state, view, key, "", "all", None)
+        rows = [r for r in (*shown["rows"], *(shown.get("also") or ())) if r.get("path")]
+        root = self._paths.root
+        folders: set[str] = set()
+        with self._move_log() as conn:
+            for r in rows:
+                watched = db.watched_root(conn, r["path"]) if conn is not None else None
+                folders.add(fold(str((root / r["path"]).parent)))
+                folders.add(fold(str(root / planner.superseded_dir(r["path"], watched))))
+        return frozenset(folders), frozenset(r["track_id"] for r in rows)
+
+    def _match(self, state: dict, view: str = "all", key: str | None = None) -> dict:
+        """`rekordbox_match`'s answer: reads rekordbox's tracks, classifies them against the library's files and puts
+        the findings in the words. The one computation `rekordbox_match` and `_match_counts` share."""
+        root = self._paths.root
+        rb, why, tracks = self._read_rekordbox(lambda library: library.tracks())
+        counts = dict.fromkeys(("matched", "missing", "superseded", "away", "not_in_library", "not_in_rekordbox",
+                                "outside"), 0)
+        entries: list[dict] = []
+        if tracks is not None:
+            with self._move_log() as conn:
+                folders = [f for f in (db.watched_folders(conn) if conn is not None else []) if f.kind == "import"]
+            found = rb_match.classify(
+                tracks, root=root, roots=[root, *(f.path for f in folders)], library_files=self._library_files(state),
+                away_roots=[Path(p) for p in self._away_by_root(folders)], exists=lambda p: p.exists())
+            if view != "all" or key is not None:
+                near, keys = self._match_view(state, view, key)
+                found = [r for r in found if (r.key in keys if r.entry is None
+                                               else fold(os.path.dirname(r.entry.folder_path)) in near)]
+            for r in found:
+                counts[r.kind] += 1
+                if r.kind in rb_match.LISTED:
+                    entries.append(self._match_row(state, r))
+        problems = counts["missing"] + counts["superseded"] + counts["not_in_library"]
+        return {"entries": entries, "counts": counts, "rekordbox": rb,
+                "text": why or engine_words.match_text(problems, counts["not_in_rekordbox"])}
+
+    def _match_row(self, state: dict, row: rb_match.Row) -> dict:
+        """One finding as `MatchRow`: a rekordbox track by its own path, title and artist, a file rekordbox lacks by the
+        library's."""
+        root = self._paths.root
+        if row.entry is not None:
+            path, artist, title, rekordbox_id = row.entry.folder_path, row.entry.artist, row.entry.title, row.entry.id
+        else:
+            song = state["tracks"][row.key]
+            path, artist, title, rekordbox_id = str(root / song["path"]), song["artist"], song["title"], None
+        try:
+            rel = Path(path).relative_to(root).as_posix()
+        except ValueError:
+            rel = None
+        return {"kind": row.kind, "kind_text": engine_words.MATCH_KINDS[row.kind], "path": path, "rel_path": rel,
+                "track_id": row.key, "rekordbox_id": rekordbox_id, "artist": artist or None, "title": title or None}
+
+    def _match_counts(self, state: dict) -> dict | None:
+        """`rekordbox match`'s counts for the whole library (`MatchCounts`), for `doctor` and `status --ready`: None when
+        there is nothing to compare, because rekordbox has no library here, cannot be read or is being written."""
+        answer = self._match(state)
+        return answer["counts"] if answer["rekordbox"]["state"] == "ready" else None
+
+    @cli_first
+    def rekordbox_match(self, view: str = "all", key: str | None = None) -> dict:
+        """Does rekordbox match your files? (design §5.3; `rekordbox.match`): the rekordbox tracks whose file is missing,
+        is in `Superseded/`, is on a drive that is not connected or is in your music folder but no song's file, and
+        the files of your library that no rekordbox track holds. A track whose file is there but elsewhere (your own
+        files) is counted (`counts.outside`) and never listed. `view` and `key` narrow it to a collection (`--in`): the
+        tracks in the folders of its songs' files and of their Superseded/ places, and its songs' files that rekordbox
+        lacks. Read only: master.db is opened read-only under the shared `rekordbox.lock`; with a writer holding it
+        nothing is read and `rekordbox.writing` is true. No rekordbox library, one that cannot be read or a writer:
+        `entries` empty, `counts` 0 and `text` says why."""
+        return self._match(self._state(), view, key)
+
+    def _superseded_files(self) -> list[tuple[Path, int]]:
+        """The files under `<music folder>/Superseded/` (dot files and folders skipped) with their sizes, by path."""
+        found: list[tuple[Path, int]] = []
+        for folder, names, files in os.walk(self._paths.superseded):
+            names[:] = [n for n in names if not n.startswith(".")]
+            for name in files:
+                path = Path(folder) / name
+                try:
+                    stat = path.lstat()
+                except OSError:
+                    continue
+                if not name.startswith(".") and S_ISREG(stat.st_mode):
+                    found.append((path, stat.st_size))
+        return sorted(found, key=lambda f: f[0].relative_to(self._paths.superseded).as_posix())
+
+    def _superseded_size(self) -> tuple[int, int]:
+        """(how many files, how many bytes) `Superseded/` holds: the numbers `library superseded` prints, for `doctor`."""
+        files = self._superseded_files()
+        return len(files), sum(size for _, size in files)
+
+    @cli_first
+    def library_superseded(self) -> dict:
+        """What sits in `Superseded/`: the files (never deleted by Discjockey: `note` says so), their sizes and, for
+        each, how many rekordbox tracks still point at it (`rekordbox`; 0 for all when rekordbox cannot be read, which
+        `rekordbox.state` says). `next` says how to show them in the Finder and, when rekordbox still uses some, which
+        tracks (`rekordbox match`). No folder or an empty one: no files and `text` says it is empty."""
+        files = self._superseded_files()
+        rb, _, index = self._read_rekordbox(lambda library: library.index())
+        root = self._paths.root
+        rows = [{"path": str(path), "rel_path": path.relative_to(root).as_posix(), "size": size,
+                 "size_text": convert.size_text(size),
+                 "rekordbox": len(index.by_path.get(fold(str(path)), ())) if index is not None else 0}
+                for path, size in files]
+        size, held = sum(r["size"] for r in rows), sum(1 for r in rows if r["rekordbox"])
+        readable = rb["state"] != "unreadable"  # no library at all still answers "none of them"
+        answer = {"files": rows, "total": len(rows), "size": size, "size_text": convert.size_text(size), "held": held,
+                  "rekordbox": rb, "note": engine_words.DELETE_SUPERSEDED,
+                  "text": engine_words.superseded_text(len(rows), size, held if readable else None)
+                  if rows else engine_words.NO_SUPERSEDED}
+        if rows:
+            answer["next"] = [{"run": "open folder Superseded", "why": "show them in the Finder"},
+                              *([{"run": "rekordbox match", "why": "which rekordbox tracks still use them"}]
+                                if held else [])]
+        return answer
 
     @cli_first
     def select_listing(self, listing: dict) -> dict:

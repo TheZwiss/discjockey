@@ -441,6 +441,11 @@ ENTRIES: tuple[Entry, ...] = (
        cli_first=True, pages="batches", built=True),
     _e("history", "history", "R", "history --since 2026-11-01", params={"since": Arg("--since", resolve="since")},
        cli_first=True, pages="entries", built=True),
+    _e("rekordbox_match", "rekordbox match", "R", "rekordbox match --in all", params={
+        "view": Arg("--in", type="str", resolve="collection"), "key": _derived("collection")},
+       cli_first=True, pages="entries", built=True, locks={"rekordbox_r"}),
+    _e("library_superseded", "library superseded", "R", "library superseded", cli_first=True, pages="files", built=True,
+       locks={"rekordbox_r"}),
     _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional("batch")}, cli_first=True,
        built=True),
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),

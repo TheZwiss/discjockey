@@ -40,9 +40,9 @@ NOUN_WORDS = {
     "batch": "The batches Discjockey made: list, show, carry on or undo one.",
     "check": "The checks to do in rekordbox after a file changed.",
     "folder": "The folders Discjockey watches for your own files.",
-    "library": "Your library: list it, its collections, read it again, read file facts.",
+    "library": "Your library: list it, its collections, what is in Superseded/, read it again, read file facts.",
     "missing": "Songs whose file is missing: list them, download again or remove from your library.",
-    "rekordbox": "rekordbox's library: its state, what a change would do, its backups.",
+    "rekordbox": "rekordbox's library: its state, whether it matches your files, what a change would do, its backups.",
     "report": "The reports of past syncs: list them, show one.",
     "settings": "What Settings holds, and changing it.",
     "sync": "The sync: what it would do, its last phase.",
@@ -323,6 +323,44 @@ TIMING_WORDS = {
     "unreadable": "rekordbox's library can't be read",
 }
 WRITING_WORDS = "Discjockey is changing your rekordbox library in another window or the Terminal; try again when it is done"
+
+
+# `rekordbox match` (does rekordbox match my files?) and `library superseded` (what sits in Superseded/?). A rekordbox
+# track needs a look when its file is missing, sits in Superseded/ or is in your music folder but no song's file;
+# a track on a drive that is not connected, and a file of your own elsewhere, are not problems.
+MATCH_KINDS = {"missing": "File missing", "superseded": "Points at Superseded/",
+               "away": "On a drive that isn't connected", "not_in_library": "In your music folder but no song's file",
+               "not_in_rekordbox": "Not in rekordbox"}
+MATCH_PROBLEMS = ("1 rekordbox track needs a look", "{n} rekordbox tracks need a look")
+MATCH_LACKING = ("1 of your files is not in rekordbox", "{n} of your files are not in rekordbox")
+MATCH_TEXT = "{problems}, {lacking}."
+MATCH_ALL_GOOD = "rekordbox and your library match."
+MATCH_NO_REKORDBOX = "There is no rekordbox library on this Mac."
+SUPERSEDED_FILES = ("1 file", "{n} files")
+SUPERSEDED_HELD = ("still uses 1 of them", "still uses {n} of them")
+SUPERSEDED_TEXT = "{files} in Superseded/, {size}; rekordbox {held}."
+SUPERSEDED_BLIND = "{files} in Superseded/, {size}."  # rekordbox can't be read now: no word of what it uses
+SUPERSEDED_NONE_HELD = "uses none of them"
+NO_SUPERSEDED = "Superseded/ is empty."
+DELETE_SUPERSEDED = "Discjockey never deletes music. You can delete these files in the Finder."
+
+
+def match_text(problems: int, lacking: int) -> str:
+    """The one sentence of `rekordbox match`: how many rekordbox tracks need a look and how many of your files it lacks,
+    or that they match."""
+    if not problems and not lacking:
+        return MATCH_ALL_GOOD
+    return MATCH_TEXT.format(problems=plural(problems, *MATCH_PROBLEMS), lacking=plural(lacking, *MATCH_LACKING))
+
+
+def superseded_text(files: int, size: int, held: int | None) -> str:
+    """The one sentence of `library superseded`: how many files, how big, and how many of them rekordbox still uses
+    (`held` None: rekordbox can't be read now)."""
+    count = plural(files, *SUPERSEDED_FILES)
+    if held is None:
+        return SUPERSEDED_BLIND.format(files=count, size=convert.size_text(size))
+    return SUPERSEDED_TEXT.format(files=count, size=convert.size_text(size),
+                                  held=plural(held, *SUPERSEDED_HELD) if held else SUPERSEDED_NONE_HELD)
 
 
 def preview_words(out: dict) -> dict:

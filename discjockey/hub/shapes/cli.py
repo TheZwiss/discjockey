@@ -13,7 +13,7 @@ answer plus what the command line adds (a dry run's `plan_id`, a batch's `batch_
 method not in it prints its `ANSWERS` shape. `help --json` gives `data_schema` and `dry_run_schema` from it."""
 from typing import Annotated, Literal, NotRequired, TypedDict
 
-from .common import FailPersonStep
+from .common import FailNext, FailPersonStep
 from .kernel import F, shape
 from .library import Browser
 from .setup import AiffPlanAnswer, LastCheck
@@ -193,6 +193,81 @@ class History(TypedDict):
     since: Annotated[str | None, F("The time the list starts at, an ISO time; null when it was not limited.")]
 
 
+# --- rekordbox match, library superseded ---
+
+@shape
+class MatchRekordbox(TypedDict):
+    """What state rekordbox's library was in for the read, in words."""
+    state: Annotated[Literal["ready", "none", "unreadable"], F("`ready`: it was read; `none`: no rekordbox library on "
+                                                               "this Mac; `unreadable`: it could not be read now (a "
+                                                               "writer holds it, or its problem).")]
+    state_text: Annotated[str, F("The state in words.")]
+    writing: Annotated[bool, F("Discjockey is changing rekordbox's library in another window or the Terminal, so it "
+                               "was not opened.")]
+
+
+@shape
+class MatchRow(TypedDict):
+    """One thing that does not match: a rekordbox track, or a file of your library rekordbox lacks."""
+    kind: Annotated[Literal["missing", "superseded", "away", "not_in_library", "not_in_rekordbox"],
+                    F("What does not match.", shown=False)]
+    kind_text: Annotated[str, F("What does not match, in words.")]
+    path: Annotated[str, F("The file's absolute path, as rekordbox holds it (for a file rekordbox lacks: where it is).")]
+    rel_path: Annotated[str | None, F("The path relative to the music folder; null for a file outside it.")]
+    track_id: Annotated[str | None, F("The library song whose current file it is; null when none.", shown=False)]
+    rekordbox_id: Annotated[str | None, F("The rekordbox track's id; null for a file rekordbox lacks.", shown=False)]
+    artist: Annotated[str | None, F("The artist: rekordbox's for its track, the library's for a file it lacks.")]
+    title: Annotated[str | None, F("The title: rekordbox's for its track, the library's for a file it lacks.")]
+
+
+@shape
+class MatchCounts(TypedDict):
+    """How many of each kind there are in the narrowed view."""
+    matched: Annotated[int, F("Rekordbox tracks whose file is a song's current file.")]
+    missing: Annotated[int, F("Rekordbox tracks whose file is not there.")]
+    superseded: Annotated[int, F("Rekordbox tracks that point at a file in Superseded/.")]
+    away: Annotated[int, F("Rekordbox tracks on a watched drive that is not connected now.")]
+    not_in_library: Annotated[int, F("Rekordbox tracks whose file is in your music folder or a watched folder but is "
+                                     "no song's file.")]
+    not_in_rekordbox: Annotated[int, F("Files of your library that no rekordbox track holds.")]
+    outside: Annotated[int, F("Rekordbox tracks whose file is there but elsewhere: your own files, never a problem.")]
+
+
+@shape
+class RekordboxMatch(TypedDict):
+    """`rekordbox match`: what in rekordbox does not match your files, and which of your files rekordbox lacks."""
+    entries: Annotated[list[MatchRow], F("The findings, missing first, then Superseded/, away, not in the library and "
+                                         "not in rekordbox; each kind by path. Empty when rekordbox was not read.")]
+    counts: Annotated[MatchCounts, F("How many of each kind (all 0 when rekordbox was not read).")]
+    rekordbox: Annotated[MatchRekordbox, F("rekordbox's state for this read.")]
+    text: Annotated[str, F("The answer in one sentence.")]
+
+
+@shape
+class SupersededFile(TypedDict):
+    """One file in `Superseded/`."""
+    path: Annotated[str, F("The file's absolute path.")]
+    rel_path: Annotated[str, F("The path relative to the music folder.")]
+    size: Annotated[int, F("The size in bytes.", shown=False)]
+    size_text: Annotated[str, F("The size in words.")]
+    rekordbox: Annotated[int, F("How many rekordbox tracks hold this file; 0 when rekordbox could not be read.")]
+
+
+@shape
+class Superseded(TypedDict):
+    """`library superseded`: the files of `Superseded/`, their size and which of them rekordbox still points at."""
+    files: Annotated[list[SupersededFile], F("The files, by path.")]
+    total: Annotated[int, F("How many files.")]
+    size: Annotated[int, F("Their size together, in bytes.", shown=False)]
+    size_text: Annotated[str, F("Their size together, in words.")]
+    held: Annotated[int, F("How many files rekordbox still points at.")]
+    rekordbox: Annotated[MatchRekordbox, F("rekordbox's state for this read.")]
+    text: Annotated[str, F("The answer in one sentence.")]
+    note: Annotated[str, F("Discjockey never deletes music: the files can be deleted in the Finder.")]
+    next: NotRequired[Annotated[list[FailNext], F("When there are files: how to show them in the Finder, and, when "
+                                                  "rekordbox still uses some, which tracks.")]]
+
+
 @shape
 class BatchItem(ItemResult):
     """One track of an AIFF batch, with its name."""
@@ -344,7 +419,7 @@ class Opened(TypedDict):
 ANSWERS: dict[str, str] = {
     "settings_view": "SettingsView", "rekordbox_backups": "RekordboxBackups",
     "rekordbox_restore_preview": "RestorePreview", "batches": "Batches", "batch_detail": "BatchDetail",
-    "history": "History",
+    "history": "History", "rekordbox_match": "RekordboxMatch", "library_superseded": "Superseded",
     "batch_undo_preview": "BatchUndoPreview", "facts_preview": "FactsPreview",
     "show_in_finder": "Opened", "reveal": "Opened", "open_report": "Opened", "open_licenses": "Opened",
     "open_external": "Opened", "open_privacy_settings": "Opened",

@@ -4123,6 +4123,104 @@ export type History = {
   /** The time the list starts at, an ISO time; null when it was not limited. */
   since: string | null;
 };
+/** What state rekordbox's library was in for the read, in words. */
+export type MatchRekordbox = {
+  /**
+   * `ready`: it was read; `none`: no rekordbox library on this Mac; `unreadable`: it could not be read now (a
+   * writer holds it, or its problem).
+   */
+  state: 'ready' | 'none' | 'unreadable';
+  /** The state in words. */
+  state_text: string;
+  /** Discjockey is changing rekordbox's library in another window or the Terminal, so it was not opened. */
+  writing: boolean;
+};
+/** One thing that does not match: a rekordbox track, or a file of your library rekordbox lacks. */
+export type MatchRow = {
+  /** What does not match. */
+  kind: 'missing' | 'superseded' | 'away' | 'not_in_library' | 'not_in_rekordbox';
+  /** What does not match, in words. */
+  kind_text: string;
+  /** The file's absolute path, as rekordbox holds it (for a file rekordbox lacks: where it is). */
+  path: string;
+  /** The path relative to the music folder; null for a file outside it. */
+  rel_path: string | null;
+  /** The library song whose current file it is; null when none. */
+  track_id: string | null;
+  /** The rekordbox track's id; null for a file rekordbox lacks. */
+  rekordbox_id: string | null;
+  /** The artist: rekordbox's for its track, the library's for a file it lacks. */
+  artist: string | null;
+  /** The title: rekordbox's for its track, the library's for a file it lacks. */
+  title: string | null;
+};
+/** How many of each kind there are in the narrowed view. */
+export type MatchCounts = {
+  /** Rekordbox tracks whose file is a song's current file. */
+  matched: number;
+  /** Rekordbox tracks whose file is not there. */
+  missing: number;
+  /** Rekordbox tracks that point at a file in Superseded/. */
+  superseded: number;
+  /** Rekordbox tracks on a watched drive that is not connected now. */
+  away: number;
+  /** Rekordbox tracks whose file is in your music folder or a watched folder but is no song's file. */
+  not_in_library: number;
+  /** Files of your library that no rekordbox track holds. */
+  not_in_rekordbox: number;
+  /** Rekordbox tracks whose file is there but elsewhere: your own files, never a problem. */
+  outside: number;
+};
+/** `rekordbox match`: what in rekordbox does not match your files, and which of your files rekordbox lacks. */
+export type RekordboxMatch = {
+  /**
+   * The findings, missing first, then Superseded/, away, not in the library and not in rekordbox; each kind by
+   * path. Empty when rekordbox was not read.
+   */
+  entries: MatchRow[];
+  /** How many of each kind (all 0 when rekordbox was not read). */
+  counts: MatchCounts;
+  /** rekordbox's state for this read. */
+  rekordbox: MatchRekordbox;
+  /** The answer in one sentence. */
+  text: string;
+};
+/** One file in `Superseded/`. */
+export type SupersededFile = {
+  /** The file's absolute path. */
+  path: string;
+  /** The path relative to the music folder. */
+  rel_path: string;
+  /** The size in bytes. */
+  size: number;
+  /** The size in words. */
+  size_text: string;
+  /** How many rekordbox tracks hold this file; 0 when rekordbox could not be read. */
+  rekordbox: number;
+};
+/** `library superseded`: the files of `Superseded/`, their size and which of them rekordbox still points at. */
+export type Superseded = {
+  /** The files, by path. */
+  files: SupersededFile[];
+  /** How many files. */
+  total: number;
+  /** Their size together, in bytes. */
+  size: number;
+  /** Their size together, in words. */
+  size_text: string;
+  /** How many files rekordbox still points at. */
+  held: number;
+  /** rekordbox's state for this read. */
+  rekordbox: MatchRekordbox;
+  /** The answer in one sentence. */
+  text: string;
+  /** Discjockey never deletes music: the files can be deleted in the Finder. */
+  note: string;
+  /**
+   * When there are files: how to show them in the Finder, and, when rekordbox still uses some, which tracks.
+   */
+  next?: FailNext[];
+};
 /** One track of an AIFF batch, with its name. */
 export type BatchItem = ItemResult & {
   /** The song as `Artist - Title`; its key when it is not in the library any more. */
