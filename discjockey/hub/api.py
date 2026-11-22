@@ -888,8 +888,8 @@ class HubApi:
         reports = self._reports()
         return views.todo_others(prep, reports[-1][1] if reports else None)
 
-    def _todo(self, state: dict, filt: str, show_hidden: bool, count_only: bool = False) -> dict:
-        """views.todo with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
+    def _todo(self, state: dict, filt: Collection[str] | None, show_hidden: bool, count_only: bool = False) -> dict:
+        """views.todo (`filt`: the groups to list, None for every one) with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
         records' same-audio ones, each with its files). `count_only` (the sidebar's number): the records' groups are
         counted without loading their files (they are online and not held by how they are found), so only the plan's
         few same-song groups read theirs; the groups of the answer are then not listed. While an import folder is
@@ -922,7 +922,7 @@ class HubApi:
         rows = [] if count_only else self._aiff_batches()
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
-        cdj_plan = self._cdj_plan(state, away, decided, running) if members and filt in (None, "all", "cdj") else None
+        cdj_plan = self._cdj_plan(state, away, decided, running) if members and (filt is None or "cdj" in filt) else None
         # where a missing file was (the Missing files group's words); the sidebar's count needs none
         where = None
         if not count_only and any(file_missing(e) for e in state["tracks"].values()):
@@ -1144,7 +1144,7 @@ class HubApi:
         """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
         which of the keys it is given exist right now)."""
         state = self._shown_state()
-        count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
+        count = self._todo(state, None, False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
         with self._move_log() as conn:  # no library.db yet: no records, no Favourites, no watched folders
@@ -1426,12 +1426,17 @@ class HubApi:
         return {"plan": answer}
 
     @bridge
-    def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
-        if filter not in ("all", None, *views.TODO_GROUP_KEYS):
-            raise BadId("usage", f"There is no to-do group called {filter}. The groups are "
-                                      f"{', '.join(views.TODO_GROUP_KEYS)}.")
+    def todo(self, filter: str | list[str] = "all", show_hidden: bool = False) -> dict:
+        """The To-do page's groups. `filter`: one group key, `all`, or a list of keys (each text may hold several,
+        comma-separated); the groups come in the window's order whatever order they were named in."""
+        texts = [filter] if isinstance(filter, str) or filter is None else filter
+        keys = [word.strip() for text in texts for word in (text or "").split(",") if word.strip()]
+        for key in keys:
+            if key != "all" and key not in views.TODO_GROUP_KEYS:
+                raise BadId("usage", f"There is no to-do group called {key}. The groups are "
+                                          f"{', '.join(views.TODO_GROUP_KEYS)}.")
         state = self._state()
-        return self._todo(state, filter, bool(show_hidden))
+        return self._todo(state, None if not keys or "all" in keys else keys, bool(show_hidden))
 
     def _away_folders(self, rows: Sequence[WatchedFolder]) -> dict[int, str]:
         """Folder id -> why it is not there right now ("unmounted" or "missing", scanner.away_reason) for the import
@@ -2827,7 +2832,7 @@ class HubApi:
     def _upgrade_all_ids(self, state: dict) -> list[str]:
         """What Upgrade all runs: the songs of To-do's Upgrade ready group whose Same track can run (`select`, the one
         answer the window's button, `upgrade_preview` and `select_listing` share)."""
-        return select.upgrade_all_ids(self._todo(state, "upgrade_ready", False))
+        return select.upgrade_all_ids(self._todo(state, ("upgrade_ready",), False))
 
     @bridge
     def upgrade_all(self, plan_id: str | None = None) -> dict:
@@ -4224,11 +4229,11 @@ class CliApi(HubApi):
         if want.verb_all == select.UPGRADE_ALL:
             return self._nothing_left({"ids": self._upgrade_all_ids(state)}, NO_UPGRADES)
         if want.verb_all == select.CHECK_DONE:
-            return self._nothing_left({"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))},
+            return self._nothing_left({"ids": select.check_done_ids(self._todo(state, ("rekordbox_check",), False))},
                                       NOTHING_TO_CHECK)
         if want.verb_all in (select.DOWNLOAD_AGAIN, select.REMOVE_MISSING):
             ids = (select.download_again_ids if want.verb_all == select.DOWNLOAD_AGAIN else select.remove_missing_ids)(
-                self._todo(state, "missing_file", False))
+                self._todo(state, ("missing_file",), False))
             return self._nothing_left({"ids": ids}, NO_MISSING_LEFT[want.verb_all])
         if want.verb_all == select.RENAME_ALL:
             ids = self._rename_all_ids(state, want.view, want.key)
@@ -4237,7 +4242,7 @@ class CliApi(HubApi):
                 ids = [*ids, *(k for k in plan.items if k not in ids)]
             return self._nothing_left({"ids": ids}, plans.NOTHING_TO_CHANGE)
         if want.source == "todo":
-            return {"ids": select.todo_ids(self._todo(state, want.group, want.hidden))}
+            return {"ids": select.todo_ids(self._todo(state, None if want.group == "all" else (want.group,), want.hidden))}
         view, key = want.view, want.key
         if view == "folder":
             key = self._folder_key(key or "")

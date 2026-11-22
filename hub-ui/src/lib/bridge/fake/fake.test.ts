@@ -199,6 +199,20 @@ describe('fake backend', () => {
     if (!usage.ok) throw new Error();
     expect(usage.usage!.days).toHaveLength(14);
   });
+  it('todo takes a list of groups: only those, in the page\'s order', async () => {
+    const f = createFakeBridge('normal', { speed: 100 });
+    const all = await f.todo('all', false);
+    if (!all.ok) throw new Error();
+    const some = await f.todo(['fake', 'weak'], false);
+    if (!some.ok) throw new Error();
+    const want = all.groups.map((g) => g.key).filter((k) => k === 'weak' || k === 'fake');
+    expect(want.length).toBeGreaterThan(0);
+    expect(some.groups.map((g) => g.key)).toEqual(want);
+    expect(some.chips).toEqual(all.chips);
+    const withAll = await f.todo(['fake', 'all'], false);
+    if (!withAll.ok) throw new Error();
+    expect(withAll.groups).toHaveLength(all.groups.length);
+  });
   it('a write changes what the reads return (hide leaves the to-do list)', async () => {
     const evs: HubEvent[] = [];
     const f = createFakeBridge('normal', { speed: 100, emit: (e) => evs.push(e) });

@@ -483,6 +483,9 @@ to `playlists.txt`. `login list` shows each download source's state, `login find
 `tools status` whether the programs Discjockey needs are there, `setup status` what Setup still needs, and
 `setup music <folder> --dry-run` whether a folder can be your music folder.
 
+The To-do page is `discjockey todo list [--group <group>[,<group>…]] [--hidden]`: `--group fake,weak` lists only those groups (the
+keys are the ones `todo list` prints), `upgrade list`, `missing list` and `check list` list one group each.
+
 ### Listening through a list
 
 Press ▶ on a track's cover in **Library** (or in its details, or a to-do's details) and Discjockey plays that track,

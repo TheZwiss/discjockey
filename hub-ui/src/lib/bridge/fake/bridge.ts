@@ -942,7 +942,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       } });
     },
     // the engine answers bad_args for a filter that is no group; the window sends only TodoFilter keys
-    async todo(filter: TodoFilter, show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
+    async todo(filter: TodoFilter | TodoFilter[], show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
     async playlists() {
       const overlaps = s.tracks.filter((t) => t.playlists.length > 1).map((t) => {
         const r = trackRow(t);
@@ -1685,7 +1685,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
    *  minus the ones a recorded refusal still holds. */
   function autoReady(): number { return readyTracks(s).length; }
 
-  function todoView(filter: TodoFilter, show_hidden: boolean) {
+  function todoView(filter: TodoFilter | TodoFilter[], show_hidden: boolean) {
+    const wanted = ([] as TodoFilter[]).concat(filter);  // the engine takes a list too (`todo list --group fake,weak`)
+    const everything = !wanted.length || wanted.includes('all');
     const order: TodoGroupKey[] = ['rekordbox_check', 'missing_file', 'same_song', 'duplicate', 'upgrade_ready', 'cdj', 'not_found', 'weak',
       'good_lossy', 'fake', 'other'];
     const LABELS: Record<TodoGroupKey, [string, string]> = {
@@ -1759,13 +1761,13 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     for (const q of questionItems(s)) { items.same_song.push(q); chips.same_song++; counted.add(q.track_id); }
     for (const d of duplicateItems(s)) { items.duplicate.push(d); chips.duplicate++; counted.add(d.track_id); }
     chips.all = counted.size;
-    const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
+    const groups = order.filter((k) => items[k].length && (everything || wanted.includes(k)))
       .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k],
         ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}),
         ...(k === 'missing_file' ? missingAll(items[k]) : {}) })) as Todo['groups'];
     const TODO_EMPTY: Record<string, string | undefined> = { all_lossless: 'Everything is lossless.',
       all_hidden: 'Only hidden tracks are left.', nothing_here: 'Nothing here.' };  // words.TODO_EMPTY
-    const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'
+    const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : !everything
       ? 'nothing_here' as const : hidden_count ? 'all_hidden' as const : 'all_lossless' as const;
     const check_tracks = s.tracks.filter((t) => t.rekordbox_check).length;
     return { chips, check_tracks, sub: todoSub(chips, check_tracks), hidden_count, show_hidden, groups, empty,

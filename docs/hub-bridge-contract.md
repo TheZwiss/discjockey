@@ -295,7 +295,7 @@ checks). A track without a file is `here`. For every state but
 Finder. `todo()` question and duplicate sides (`FileSide.online`) mean `here` by the folder rule only (and carry no
 `audio_url` when false). The `detail` of lossy and fake rows is the source and bitrate ("YT Music · 131 kbps", "Qobuz"), as the badge already says the kHz.
 
-`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|missing_file|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`).
+`todo(filter="all", show_hidden=false)` — filter: `all|rekordbox_check|missing_file|same_song|duplicate|upgrade_ready|cdj|not_found|weak|good_lossy|fake|other` (any other word is `bad_args` / `usage`), or a list of those: every comma-separated word of every text is a group key, `all` among them (or none) means every group, and the groups come in the order below whatever order they were named in (the command line's `todo list --group fake,weak`; the window sends one key). `chips` count every group whichever are listed.
 Groups always in that order; `chips` counts exclude hidden; `hidden_count` for "Show hidden (N)". The import adds two
 groups after the first (see "Watched folders and the import" below): `same_song` and `duplicate`, whose items also carry
 a `pair`; the user's own songs (`local:<n>`, in no playlist) are on To-do only under `upgrade_ready`, `missing_file`

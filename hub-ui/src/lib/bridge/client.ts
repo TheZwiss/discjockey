@@ -22,7 +22,7 @@ export interface Bridge {
   job_events(job_id: string, after?: number): Promise<Res<JobEvents>>;
   library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null): Promise<Res<Library>>;
   track(track_id: string): Promise<Res<TrackAnswer>>;
-  todo(filter: TodoFilter, show_hidden: boolean): Promise<Res<Todo>>;
+  todo(filter: TodoFilter | TodoFilter[], show_hidden: boolean): Promise<Res<Todo>>;
   playlists(): Promise<Res<Playlists>>;
   tidy_preview(): Promise<Res<TidyPreview>>;
   move_batches(): Promise<Res<MoveBatches>>;

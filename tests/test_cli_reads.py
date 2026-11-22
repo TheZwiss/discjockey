@@ -245,6 +245,26 @@ def test_todo_group_filters_to_one_group_and_a_wrong_one_is_bad_args(rich, capsy
     assert code == 2 and json.loads(out)["outcome"] == "bad_args"
 
 
+def test_todo_group_takes_several_groups_repeated_or_comma_separated(rich, capsys):
+    api = CliApi(rich.support, None, services())
+    api._attach(rich)
+    want = api.todo(["upgrade_ready", "rekordbox_check"])
+    keys = [g["key"] for g in want["groups"]]
+    assert keys == [k for k in views.TODO_GROUP_KEYS if k in ("upgrade_ready", "rekordbox_check")] and len(keys) == 2  # the window's order
+    for flags in (["--group", "upgrade_ready", "--group", "rekordbox_check"], ["--group", "rekordbox_check,upgrade_ready"]):
+        code, env = data_of(["todo", "list", *flags], capsys)
+        assert code == 0 and env["data"] == {k: v for k, v in want.items() if k != "ok"}, flags
+    _, everything = data_of(["todo", "list"], capsys)
+    _, with_all = data_of(["todo", "list", "--group", "all,upgrade_ready"], capsys)
+    assert with_all["data"] == everything["data"] and len(everything["data"]["groups"]) > 2
+
+
+def test_todo_group_names_the_word_that_is_no_group(rich, capsys):
+    code, out, _ = run(["todo", "list", "--group", "weak,nope", "--json"], capsys)
+    env = json.loads(out)
+    assert code == 2 and env["outcome"] == "bad_args" and env["message"].startswith("There is no to-do group called nope.")
+
+
 def test_upgrade_list_and_check_list_are_the_todo_page_of_one_group(rich, capsys):
     _, up = data_of(["upgrade", "list"], capsys)
     _, ck = data_of(["check", "list"], capsys)

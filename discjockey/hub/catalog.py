@@ -259,8 +259,8 @@ ENTRIES: tuple[Entry, ...] = (
         "view": Arg("--in", type="str", resolve="collection"), "key": _derived("collection"),
         "query": Arg("--search"), "filter": Arg("--quality"), "sort": Arg("--sort")}, pages="rows", built=True),
     _e("track", "track show", "R", 'track show "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff"', params={"track_id": TRACK}, built=True, locks={"rekordbox_r"}),
-    _e("todo", "todo list", "R", "todo list --hidden", params={
-        "filter": Arg("--group"), "show_hidden": Arg("--hidden", type="bool")}, built=True, locks={"rekordbox_r"}),
+    _e("todo", "todo list", "R", "todo list --group not_found,upgrade_ready --hidden", params={
+        "filter": Arg("--group", many=True), "show_hidden": Arg("--hidden", type="bool")}, built=True, locks={"rekordbox_r"}),
     _e("todo", "upgrade list", "R", "upgrade list", params={"show_hidden": Arg("--hidden", type="bool")},
        fixed={"filter": "upgrade_ready"}, built=True, locks={"rekordbox_r"}),
     _e("todo", "missing list", "R", "missing list", params={"show_hidden": Arg("--hidden", type="bool")},
