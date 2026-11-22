@@ -1461,6 +1461,13 @@ Results:
         total est. 7.1M) and briefs V4.1a, V4.1b. Still to write: briefs V4.2a, V4.2b, V4.3, V4.4, rehearsal and review
         files, dispatch table, carry-waveB. Proposal to the user: small fresh Opus runs (each ≤ ~200k), brief check split
         per group.
+      - User go ("ok continue … no fuckups"): wave A finished in one-brief Opus runs (brief-write.md), split by context.
+        V4.2a brief (Opus) done: logged **218k** (exp. 160k by the Sonnet formula, 1.36x), agent-cost 74 calls, cache 9.9M,
+        fresh in 204k, out 66k, advisor 0k; V4.2a.md 6.1k, its own size line 203k. Record for a one-brief Opus run:
+        material + ~185k. 8 deviations written into the brief (one contract commit; log lines carry the playlists
+        version; LATER_CHANGE words; window saves logged too; engine fills the default folder; bad_args gains `next`;
+        files keys optional; no network preview skips sync_running). Flag for V4.2b: the T1 dict-argument test checks
+        nothing today (api.py annotations are strings). Phase 4 so far: 382k + 218k = 600k.
       - **RESUME HERE (LATEST, 2026-11-22, phase 4 detailing wave A running):** user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
