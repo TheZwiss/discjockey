@@ -44,9 +44,9 @@ def golden_name(entry) -> str:
     return GOLDEN_NAMES.get(entry.method, "_".join(entry.command))
 
 
-TIMED = {("limits", "show"), ("limits", "set")}  # pages that word today's date: on the fixed clock of `services()`
+TIMED = {("limits", "show"), ("limits", "set"), ("status",)}  # pages that word today's date: on the fixed clock of `services()`
 STUBBED = {("setup", "status"), ("tools", "status"), ("login", "list"), ("login", "find"), ("app", "info"),
-           ("doctor",)}  # reads of this Mac
+           ("doctor",), ("status",)}  # reads of this Mac
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
                                                                                         # parked and checks open
 CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file: a preview decodes it
@@ -121,7 +121,7 @@ def with_backups(tmp_path, monkeypatch):
         rb_backup.Backup.ensure(paths, place, dbid=None, batch_id=batch, tracks=[], now=lambda stamp=stamp: stamp)
 
 
-DOCTORS = {("doctor",)}  # a read that needs something wrong to say: a watched drive that is away, a pause waiting
+DOCTORS = {("doctor",), ("status",)}  # a read that needs something wrong to say: a watched drive that is away, a pause waiting
 
 
 def with_doctor(paths) -> None:
@@ -260,9 +260,10 @@ def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
     answer = getattr(api, entry.method)(**kwargs)
     assert answer["ok"], answer
     _, out, _ = run([*words(entry), "--json"], capsys)
-    # an answer that says what to run next (a search with no hit) has it in the envelope's `next`, not in `data`;
+    # an answer that says what to run next (a search with no hit) has it in the envelope's `next`, and the live steps of a
+    # running job (`status`) in its `person_steps`, not in `data`;
     # a headless api has no media server, so no answer carries a hub URL
-    assert json.loads(out)["data"] == {k: v for k, v in answer.items() if k not in ("ok", "next")}
+    assert json.loads(out)["data"] == {k: v for k, v in answer.items() if k not in ("ok", "next", "person_steps")}
 
 
 def test_every_built_read_has_a_golden_file_and_no_golden_file_is_left_over():

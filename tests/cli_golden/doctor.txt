@@ -7,15 +7,23 @@ downloads_paused  note     no   Paused today to protect your account: YouTube Pr
 2 of 2 shown
 
 Checks
-Check             Label            State
-music_folder      Music folder     ok
-tools             Programs         ok
-logins            Logins           ok
-folder_access     Folder access    ok
-rekordbox         rekordbox        ok
-stale_lock        Library lock     ok
-lost_jobs         Jobs             ok
-pending_steps     Cut-off steps    ok
-drives_away       Drives           problem
-downloads_paused  Download limits  note
-10 of 10 shown
+Check               Label                 State
+music_folder        Music folder          ok
+tools               Programs              ok
+logins              Logins                ok
+folder_access       Folder access         ok
+rekordbox           rekordbox             ok
+stale_lock          Library lock          ok
+lost_jobs           Jobs                  ok
+pending_steps       Cut-off steps         ok
+drives_away         Drives                problem
+downloads_paused    Download limits       note
+out_of_place        Files out of place    ok
+superseded          Superseded/           ok
+rekordbox_files     rekordbox tracks      ok
+stopped_batches     Stopped batches       ok
+open_checks         rekordbox checks      ok
+cdj                 CDJ problems          ok
+songs_without_file  Songs without a file  ok
+upgrades_waiting    Better versions       ok
+18 of 18 shown

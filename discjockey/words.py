@@ -46,6 +46,7 @@ NOUN_WORDS = {
     "rekordbox": "rekordbox's library: its state, whether it matches your files, what a change would do, its backups.",
     "report": "The reports of past syncs: list them, show one.",
     "settings": "What Settings holds, and changing it.",
+    "status": "What the Dashboard shows, the running jobs, and whether you're ready for a gig.",
     "sync": "The sync: what it would do, its last phase.",
     "todo": "Your to-do list.",
     "track": "One song: find it, show it, its spectrum, undo its last step.",
@@ -384,6 +385,18 @@ DOCTOR_PENDING = "Some file steps were cut off; the next change finishes them fi
 DOCTOR_AWAY = ("1 watched folder is on a drive that isn't connected.",
                "{n} watched folders are on a drive that isn't connected.")
 DOCTOR_PAUSED = "Paused today to protect your account: {services}."
+# the library's own checks (a count takes its one-form through `plural`; Superseded/ reuses `SUPERSEDED_FILES`)
+DOCTOR_OUT_OF_PLACE = ("1 file is not where the playlist order puts it.",
+                       "{n} files are not where the playlist order puts them.")
+DOCTOR_SUPERSEDED = "{files} in Superseded/, {size}."
+DOCTOR_RB_FILES = ("1 rekordbox track points at a file that is missing or in Superseded/.",
+                   "{n} rekordbox tracks point at files that are missing or in Superseded/.")
+DOCTOR_STOPPED = ("1 batch stopped before its end.", "{n} batches stopped before their end.")
+DOCTOR_CHECKS = ("1 track waits for a check in rekordbox.", "{n} tracks wait for a check in rekordbox.")
+DOCTOR_CDJ = ("1 file won't play well on CDJs.", "{n} files won't play well on CDJs.")
+DOCTOR_MISSING_FILES = ("1 song's file is missing.", "{n} songs' files are missing.")
+DOCTOR_TO_LOAD = ("1 playlist song has no file yet.", "{n} playlist songs have no file yet.")
+DOCTOR_UPGRADES = ("1 better version waits for you.", "{n} better versions wait for you.")
 # what each `next` of a problem is for
 DOCTOR_WHY_SETUP = "what Setup still needs"
 DOCTOR_WHY_REKORDBOX = "what rekordbox's library says"
@@ -393,6 +406,16 @@ DOCTOR_WHY_JOBS = "every job Discjockey knows of"
 DOCTOR_WHY_LOST = "what it did before it stopped"
 DOCTOR_WHY_SCAN = "finishes them, then scans"
 DOCTOR_WHY_LIMITS = "today's downloads and why they paused"
+DOCTOR_WHY_TIDY = "which files a tidy-up would move"
+DOCTOR_WHY_SUPERSEDED = "the files and what rekordbox still uses"
+DOCTOR_WHY_MATCH = "which tracks, and their files"
+DOCTOR_WHY_RESUME = "goes on where it stopped"
+DOCTOR_WHY_MOVES = "what it moved"
+DOCTOR_WHY_CHECKS = "the checks and what to do in rekordbox"
+DOCTOR_WHY_CDJ = "the files and why"
+DOCTOR_WHY_MISSING = "the songs and what can be done"
+DOCTOR_WHY_SYNC_PLAN = "what the next sync downloads"
+DOCTOR_WHY_UPGRADES = "the versions waiting"
 
 # the apps a command can run in, by the bundle id macOS gives them and by `TERM_PROGRAM`: the app a person grants
 # access to a folder (macOS charges a command to the app it started from, not to Discjockey)
@@ -408,6 +431,11 @@ def running_app(environ: Mapping[str, str]) -> str:
     bundle id first, else `TERM_PROGRAM`, else `UNKNOWN_APP`."""
     return (APP_BY_BUNDLE.get(environ.get("__CFBundleIdentifier", "")) or APP_BY_TERM.get(environ.get("TERM_PROGRAM", ""))
             or UNKNOWN_APP)
+
+
+def doctor_superseded(files: int, size: int) -> str:
+    """`doctor`'s note on Superseded/: how many files it holds and how big they are together."""
+    return DOCTOR_SUPERSEDED.format(files=plural(files, *SUPERSEDED_FILES), size=convert.size_text(size))
 
 
 def doctor_text(problems: int, notes: int) -> str:

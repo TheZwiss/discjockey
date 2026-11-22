@@ -134,7 +134,7 @@ LIBRARY_METHODS = frozenset((
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history", "rekordbox_match",
-                                 "library_superseded"))  # `settings_view` needs none
+                                 "library_superseded", "status_view"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
 RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
                  "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
@@ -1112,6 +1112,10 @@ class HubApi:
 
     @bridge
     def dashboard(self) -> dict:
+        return self._dashboard_view()
+
+    def _dashboard_view(self) -> dict:
+        """The Dashboard's answer: the window's `dashboard` and the command line's `status` both carry it."""
         return views.dashboard(self._shown_state(), self._settings(), self._read_view(), self._reports(), self._folders(),
                                setup_status(self._support, self._paths, self._music_status(), self._svc.which),
                                self._today(), self._svc.now(),
@@ -4424,11 +4428,18 @@ class CliApi(HubApi):
     def doctor(self) -> dict:
         """Everything that is wrong, and what to do about it (design §5.3; `hub/doctor.py` holds the checks): the setup
         (music folder, programs, logins), the machine (whether each root can be read, rekordbox, a lock held by something
-        the job list does not know, jobs that stopped without finishing this week) and, with a music folder, cut-off file
-        steps, watched folders on a drive that is not connected and a source paused today. Works without a music folder:
-        the checks that need one are `skipped` and `music_folder` says why. Read only: it takes `rekordbox.lock` shared
-        to read rekordbox's state, finishes no cut-off step and takes no other lock; the library checks come from
+        the job list does not know, jobs that stopped without finishing this week) and, with a music folder, the library
+        itself: cut-off file steps, watched folders on a drive that is not connected, a source paused today, files out
+        of place, Superseded/, rekordbox tracks on missing or superseded files, stopped batches, open rekordbox checks,
+        files that won't play well on CDJs, songs without a file and better versions waiting. Works without a music
+        folder: the checks that need one are `skipped` and `music_folder` says why. Read only: it takes `rekordbox.lock`
+        shared to read rekordbox's state, finishes no cut-off step and takes no other lock; the library checks come from
         `library.db` opened read-only."""
+        return self._doctor(None)
+
+    def _doctor(self, dashboard: dict | None) -> dict:
+        """`doctor`'s answer. `dashboard`: the Dashboard's answer when the caller has built it already (`status`), so
+        the library checks read the number of songs still to load from it and the plan is not derived twice."""
         music = self._music_status()
         bound = music["state"] == "ok"
         present = self._tool_presence()
@@ -4453,7 +4464,51 @@ class CliApi(HubApi):
             rekordbox_state=status.state, rekordbox_problem=status.problem, lock_holder=self._jobs.console_holder(),
             jobs=tuple(doctor_mod.JobRow(str(s.get("id")), str(s.get("status")), str(s.get("started")))
                        for s in listed),
-            now=self._svc.now(), pending=pending, away_folders=tuple(str(f.path) for f in rows if f.id in away)), bound)
+            now=self._svc.now(), pending=pending, away_folders=tuple(str(f.path) for f in rows if f.id in away),
+            **(self._library_facts(dashboard) if bound else self._NO_LIBRARY_FACTS)), bound)
+
+    # what `Inputs` holds while no music folder is bound (the checks that read it are skipped then)
+    _NO_LIBRARY_FACTS = {"tidy_rows": 0, "superseded_files": 0, "superseded_bytes": 0, "rekordbox_match": None,
+                         "stopped_batches": (), "check_tracks": 0, "cdj_files": 0, "missing_files": 0,
+                         "upgrades_ready": 0, "to_load": 0}
+
+    def _library_facts(self, dashboard: dict | None) -> dict:
+        """The library's own facts for `doctor`'s checks (`Inputs`), each read once: the To-do answer's counts, the tidy-up's
+        rows, `Superseded/`, rekordbox's match counts, the stopped batches and the Dashboard's songs still to load."""
+        state = self._state()
+        todo = self._todo(state, None, False)
+        files, size = self._superseded_size()
+        if dashboard is None:
+            dashboard = self._dashboard_view()
+        return {"tidy_rows": len(planner.tidy_rows(state)), "superseded_files": files, "superseded_bytes": size,
+                "rekordbox_match": self._match_counts(state),
+                "stopped_batches": tuple(r["id"] for r in self._batch_rows() if r["state"] == "stopped"),
+                "check_tracks": todo["check_tracks"], "cdj_files": todo["chips"]["cdj"],
+                "missing_files": todo["chips"]["missing_file"], "upgrades_ready": todo["chips"]["upgrade_ready"],
+                "to_load": dashboard["tiles"]["still_to_load"]["count"] or 0}
+
+    @cli_first
+    def status_view(self, ready: bool = False) -> dict:
+        """What the window's Dashboard and navigation show, the jobs that run now and what needs a person (design §5.3):
+        `{dashboard, nav, jobs, ready}` and, while a running job waits for something only a person can do,
+        `person_steps` (its live steps, as `job show` says them). `dashboard` is `dashboard()`'s answer; `nav` the
+        sidebar's four numbers (`todo`, `all_tracks`, `not_in_playlist`, `limits_warning`); `jobs` every job of this music
+        folder that has not ended (`queued`, `running`, `stopping`), newest first, with `line`, its progress in one line.
+        `ready` (the command line's `--ready`, "is my library ready for a gig?") is the problems of `doctor` that a gig
+        depends on, taken from the same `doctor` call (never a count of its own), none when it is ready; null without it.
+        Read only: with `ready` it takes `rekordbox.lock` shared as `doctor` does."""
+        dashboard = self._dashboard_view()
+        sidebar = self._sidebar_view()
+        registry_ = self._jobs.registry
+        states = [s for s in registry_.list(self._paths.root) if s.get("status") in registry.ACTIVE] if registry_ else []
+        answer = {"dashboard": dashboard,
+                  "nav": {k: sidebar[k] for k in ("todo", "all_tracks", "not_in_playlist", "limits_warning")},
+                  "jobs": [{"id": s["id"], "command": s["command"], "via": s["via"], "status": s["status"],
+                            "line": (s.get("progress") or {}).get("line"), "started": s["started"]} for s in states],
+                  "ready": [p for p in self._doctor(dashboard)["problems"] if p["gig"]] if ready else None}
+        if steps := [step for s in states for step in s.get("person_steps") or ()]:
+            answer["person_steps"] = steps
+        return answer
 
     @cli_first
     def select_listing(self, listing: dict) -> dict:

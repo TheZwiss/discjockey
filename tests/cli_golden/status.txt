@@ -1,0 +1,83 @@
+Jobs  none
+
+Dashboard
+Greeting       Good evening
+Ready          none
+Last runs      none
+Has more runs  no
+Next checks    none
+Empty          not_set_up
+
+Dashboard › Read status
+Read at          none
+Minutes ago      none
+Problem          none
+Problem service  none
+Message
+Lines changed    no
+Reading          no
+Offline          no
+Auto read        no
+
+Dashboard › Read status › Services
+Service  Name     Connected
+spotify  Spotify  no
+1 of 1 shown
+
+Dashboard › Tiles › Lossless
+Share     0.3333
+Lossless  1
+Total     3
+
+Dashboard › Tiles › Lossless › By quality
+Lossless    1
+Good lossy  0
+Weak        1
+Fake        0
+Missing     1
+
+Dashboard › Tiles › Qobuz today
+Used        0
+Allowance   80
+Limit       60
+Carry over  20
+Extra       0
+Remaining   80
+
+Dashboard › Tiles › Still to load
+Count       none
+Days        none
+Fits today  none
+
+Dashboard › Tiles › Account today
+Service       qobuz
+Name          Qobuz
+Set up        yes
+Used          0
+Allowance     80
+Warnings      0
+New warnings  0
+Paused        no
+
+Dashboard › Needs you
+Upgrades   0
+Swappable  0
+Not found  1
+Weak       1
+
+Dashboard › Folders
+Folder       Tracks  Lossless share  By quality
+Hard_Bounce  3       0.3333          lossless: 1, good_lossy: 0, weak: 1, fake: 0, missing: 1
+Powertrance  0       none            lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0
+2 of 2 shown
+
+Nav
+Todo             2
+All tracks       2
+Not in playlist  0
+Limits warning   no
+
+Ready
+Check        Level    Gig  Text                                                  Count  Next  Person steps
+drives_away  problem  yes  1 watched folder is on a drive that isn't connected.  1      none  id: step:connect_drive, say: Connect the drive Example Stick., then: none
+1 of 1 shown

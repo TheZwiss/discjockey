@@ -159,8 +159,8 @@ def test_without_a_music_folder_it_still_answers_and_says_what_it_skipped(tmp_pa
     code, env, data = doctor_json(capsys)
     assert (code, env["outcome"]) == (0, "ok")
     assert [(p["check"], p["text"]) for p in data["problems"]] == [("music_folder", words.NOT_CHOSEN)]
-    assert states(data) == {**ALL_OK, "music_folder": "problem", "pending_steps": "skipped", "drives_away": "skipped",
-                            "downloads_paused": "skipped"}
+    needs_library = {c.key: "skipped" for c in doctor.CHECKS if c.needs_library}
+    assert states(data) == {**ALL_OK, **needs_library, "music_folder": "problem"}
     assert data["text"] == "1 problem, 0 notes."
 
 
@@ -185,12 +185,129 @@ def test_every_command_a_problem_says_to_run_is_one_the_command_line_has(capsys)
         rekordbox_state="unreadable", rekordbox_problem="unclean",
         lock_holder={"job": None, "text": words.UNNAMED_HOLDER},
         jobs=(doctor.JobRow("job:0a1b2c3d", "lost", datetime.now().astimezone().isoformat()),),
-        now=datetime.now().astimezone(), pending=True, away_folders=("/Volumes/D/x",))
+        now=datetime.now().astimezone(), pending=True, away_folders=("/Volumes/D/x",), tidy_rows=0, superseded_files=0,
+        superseded_bytes=0, rekordbox_match=None, stopped_batches=(), check_tracks=0, cdj_files=0, missing_files=0,
+        upgrades_ready=0, to_load=0)
     answer = doctor.answer(worst, True)
-    assert {c["state"] for c in answer["checks"]} == {"problem", "note"}
+    assert {"problem", "note"} <= {c["state"] for c in answer["checks"]}
     runs = {n["run"] for p in answer["problems"] for n in p["next"]} | {
         s["then"] for p in answer["problems"] for s in p["person_steps"] if s["then"]}
     assert {"setup status", "login list", "rekordbox status", "rekordbox backups", "job list --all", "library scan",
             "job show job:0a1b2c3d", "limits show qobuz", "limits show soundcloud", "tools status"} <= runs
+    for run in runs:
+        assert parser.parse(shlex.split(run)).command, run
+
+
+# --- the library's own checks (V3.2b): each fact of `Inputs` is read from a real fixture ---
+
+def problem_of(data, check):
+    return next((p for p in data["problems"] if p["check"] == check), None)
+
+
+def test_a_stopped_aiff_batch_is_a_problem_with_its_resume_command(lib, capsys):
+    from test_cli_batches import with_batches
+    with_batches(lib)  # aiff:1 done, aiff:2 stopped, moves:1 done
+    _, _, data = doctor_json(capsys)
+    p = problem_of(data, "stopped_batches")
+    assert (p["level"], p["gig"], p["count"], p["text"]) == ("problem", True, 1, "1 batch stopped before its end.")
+    assert p["next"] == [{"run": "batch resume aiff:2", "why": "goes on where it stopped"}]
+    assert states(data)["stopped_batches"] == "problem"
+
+
+def test_open_checks_and_waiting_upgrades_come_from_the_to_do_answer(tmp_path, monkeypatch, capsys):
+    from test_cli_reads import rich_library
+    rich_library(tmp_path, monkeypatch)
+    _, _, data = doctor_json(capsys)
+    checks, upgrades = problem_of(data, "open_checks"), problem_of(data, "upgrades_waiting")
+    assert (checks["level"], checks["count"], checks["next"][0]["run"]) == ("note", 2, "check list")
+    assert checks["text"] == "2 tracks wait for a check in rekordbox."
+    assert (upgrades["count"], upgrades["text"]) == (1, "1 better version waits for you.")
+    assert upgrades["next"] == [{"run": "upgrade list", "why": "the versions waiting"}]
+
+
+def test_rekordbox_tracks_on_a_missing_file_or_in_superseded_are_counted(lib, tmp_path, monkeypatch, capsys):
+    old = lib.root / "Superseded/Hard_Bounce/Old.mp3"
+    old.parent.mkdir(parents=True)
+    old.write_bytes(b"x" * 1_200_000)
+    rows = [{"path": str(lib.root / rel), "artist": "A", "Title": rel} for rel in (
+        "Library/Hard_Bounce/Gone.aiff", "Superseded/Hard_Bounce/Old.mp3", "Library/Hard_Bounce/Vatoz Locoz - Gimme Gimme.aiff")]
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(make_master(tmp_path / "rekordbox", rows).parent))
+    _, _, data = doctor_json(capsys)
+    p = problem_of(data, "rekordbox_files")
+    assert (p["level"], p["gig"], p["count"]) == ("problem", True, 2)
+    assert p["text"] == "2 rekordbox tracks point at files that are missing or in Superseded/."
+    assert p["next"] == [{"run": "rekordbox match", "why": "which tracks, and their files"}]
+    note = problem_of(data, "superseded")
+    assert (note["level"], note["gig"], note["count"], note["text"]) == ("note", False, 1, "1 file in Superseded/, 1 MB.")
+
+
+def test_a_rekordbox_that_cannot_be_read_is_one_problem_and_no_claim_about_its_tracks(lib, tmp_path, monkeypatch, capsys):
+    folder = make_master(tmp_path / "rekordbox", []).parent
+    monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(folder))
+    (folder / "master.db").write_bytes(b"not a database" * 100)
+    _, _, data = doctor_json(capsys)
+    assert states(data)["rekordbox"] == "problem" and states(data)["rekordbox_files"] == "ok"
+
+
+def test_songs_whose_file_is_missing_are_counted_with_the_command_that_lists_them(tmp_path, monkeypatch, capsys):
+    from test_cli_missing import missing_library
+    missing_library(tmp_path, monkeypatch)
+    _, _, data = doctor_json(capsys)
+    (p,) = [p for p in data["problems"] if p["check"] == "songs_without_file"]
+    assert (p["level"], p["gig"], p["count"], p["text"]) == ("note", True, 5, "5 songs' files are missing.")
+    assert p["next"] == [{"run": "missing list", "why": "the songs and what can be done"}]
+
+
+def test_playlist_songs_without_a_file_come_from_the_stored_read_s_plan(lib, monkeypatch, capsys):
+    from test_cli_golden import with_read
+    with_read(lib, monkeypatch)  # the playlists read: songs the next sync downloads
+    _, _, data = doctor_json(capsys)
+    (p,) = [p for p in data["problems"] if p["check"] == "songs_without_file"]
+    assert (p["level"], p["count"], p["text"]) == ("note", 2, "2 playlist songs have no file yet.")
+    assert p["next"] == [{"run": "sync plan", "why": "what the next sync downloads"}]
+    assert states(data)["songs_without_file"] == "note"
+
+
+def test_an_own_file_the_club_players_refuse_is_counted_with_the_group_that_lists_it(lib, capsys):
+    from hub_helpers import entry, write, write_state
+    state = library.load_state(lib)
+    state["tracks"]["t9"] = entry(artist="Own Artist", title="Own Song", duration_ms=180000, folder="Hard_Bounce",
+                                  path="Library/Hard_Bounce/Own Artist - Own Song.ogg", status="lossless",
+                                  source="manual", in_playlists=False)
+    write(lib, "Library/Hard_Bounce/Own Artist - Own Song.ogg", b"ogg")
+    write_state(lib, state)
+    with db.connect(lib.db_file) as conn:
+        conn.execute("UPDATE files SET file_codec = 'vorbis', file_rate = 44100, file_bits = NULL, file_kbps = 192 "
+                     "WHERE path LIKE '%Own Song.ogg'")
+        conn.commit()
+    _, _, data = doctor_json(capsys)
+    p = problem_of(data, "cdj")
+    assert (p["level"], p["gig"], p["count"], p["text"]) == ("note", True, 1, "1 file won't play well on CDJs.")
+    assert p["next"] == [{"run": "todo list --group cdj", "why": "the files and why"}]
+
+
+def test_files_the_playlist_order_would_move_are_a_note(lib, capsys):
+    from hub_helpers import write_state
+    state = library.load_state(lib)
+    state["tracks"]["t1"]["folder"] = "Powertrance"  # the playlist order puts it in another folder than the file is in
+    write_state(lib, state)
+    _, _, data = doctor_json(capsys)
+    p = problem_of(data, "out_of_place")
+    assert (p["level"], p["count"], p["text"]) == ("note", 1, "1 file is not where the playlist order puts it.")
+    assert p["next"] == [{"run": "tidy run --dry-run", "why": "which files a tidy-up would move"}]
+
+
+def test_every_command_the_library_checks_say_to_run_is_one_the_command_line_has():
+    facts = doctor.Inputs(
+        music_state="ok", music_path="/m", missing_tools=(), downloads={}, paused_accounts=frozenset(),
+        unreadable_folders=(), app="Terminal", rekordbox_state="ready", rekordbox_problem=None, lock_holder=None, jobs=(),
+        now=datetime.now().astimezone(), pending=False, away_folders=(), tidy_rows=1, superseded_files=1,
+        superseded_bytes=1, rekordbox_match={"missing": 1, "superseded": 1}, stopped_batches=("aiff:2", "moves:1"),
+        check_tracks=1, cdj_files=1, missing_files=1, upgrades_ready=1, to_load=1)
+    answer = doctor.answer(facts, True)
+    assert [c["state"] for c in answer["checks"][-8:]] == ["note", "note", "problem", "problem", "note", "note", "note",
+                                                          "note"]
+    runs = {n["run"] for p in answer["problems"] for n in p["next"]}
+    assert len(runs) == 10
     for run in runs:
         assert parser.parse(shlex.split(run)).command, run

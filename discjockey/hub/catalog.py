@@ -14,7 +14,7 @@ parameter has no word of its own (its entry says which `resolve` kind builds it)
 what the design names differently. `fixed` binds arguments a command never takes from the user; `match` names the literal words (a login row's service) that pick
 the entry when a command has several (`DISPATCH`).
 
-`planned` is "phase N: VN.x" (the phase and the agent group that builds it, a letter allowed: "phase 3: V3.1b") while
+`planned` is "phase N: VN.x" (the phase and the agent group that builds it, a letter allowed after the number: "phase 4: V4.1") while
 the command is not built: T1 counts it as covered, the parser and `help --json` leave it out, and a row planned for a
 finished phase fails a test. `_e` writes no row that is neither built nor window-only/dropped without its label: a row
 nobody builds cannot be written. The group that builds a row drops its label (`built=True`). `pages` is the key of the
@@ -201,7 +201,7 @@ def _e(method: str, command: str, kind: Kind, example: str = "", *, params: Mapp
        cli_first: bool = False, built: bool = False, locks: Iterable[str] = (), partial: Iterable[str] = (),
        match: Mapping[str, str] | None = None, planned: str | None = None, pages: str | None = None) -> Entry:
     """`built=True` is a command the command line has now (`planned` None); a group sets it when it lands its command.
-    An entry that is neither built nor `W`/`dropped` must say `planned`, the group that builds it ("phase 3: V3.1b").
+    An entry that is neither built nor `W`/`dropped` must say `planned`, the group that builds it ("phase 4: V4.1").
     `partial`: the per-item states that end a finished run `partial` (design §4.3, R24)."""
     if not built and kind not in ("W", "dropped") and not planned:
         raise ValueError(f"{method} {command!r}: a row that is not built needs the group that builds it (planned=)")
@@ -281,7 +281,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("job_events", "", "R", built=True),  # the window's follow; `job follow --jsonl` reads the same files
     _e("spectrum", "track spectrum", "R", 'track spectrum "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff" --which current', params={"track_id": TRACK}, built=True),
     _e("media_url", "", "dropped"),
-    _e("dashboard", "status", "R", "status", planned="phase 3: V3.2b"),
+    _e("dashboard", "", "R", built=True),  # the window's Dashboard; `status` carries it whole (design §5.2)
     _e("runs", "report list", "R", "report list --since 2026-11-01", params={"since": Arg("--since", resolve="since")},
        pages="runs", built=True),
     _e("run", "report show", "R", "report show last", params={"run_id": _positional("report")}, built=True),
@@ -447,6 +447,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("library_superseded", "library superseded", "R", "library superseded", cli_first=True, pages="files", built=True,
        locks={"rekordbox_r"}),
     _e("doctor", "doctor", "R", "doctor", cli_first=True, built=True, locks={"rekordbox_r"}),
+    _e("status_view", "status", "R", "status --ready", params={"ready": Arg("--ready", type="bool")}, cli_first=True,
+       built=True, locks={"rekordbox_r"}),
     _e("batch_detail", "batch show", "R", "batch show aiff:1", params={"batch": _positional("batch")}, cli_first=True,
        built=True),
     _e("select_listing", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),

@@ -12,7 +12,10 @@ from discjockey.hub.doctor import Inputs, JobRow
 NOW = datetime(2026, 11, 22, 9, 0).astimezone()
 GOOD = Inputs(music_state="ok", music_path="/music", missing_tools=(), downloads={}, paused_accounts=frozenset(),
               unreadable_folders=(), app="Terminal", rekordbox_state="ready", rekordbox_problem=None, lock_holder=None,
-              jobs=(), now=NOW, pending=False, away_folders=())
+              jobs=(), now=NOW, pending=False, away_folders=(), tidy_rows=0, superseded_files=0, superseded_bytes=0,
+              rekordbox_match={"matched": 5, "missing": 0, "superseded": 0, "away": 0, "not_in_library": 0,
+                               "not_in_rekordbox": 0, "outside": 0},
+              stopped_batches=(), check_tracks=0, cdj_files=0, missing_files=0, upgrades_ready=0, to_load=0)
 LAST_CHECK_FAILED = {"ok": False, "problem": "login_failed"}
 
 
@@ -34,7 +37,8 @@ def test_every_check_is_ok_on_good_facts():
     assert [c["state"] for c in answer["checks"]] == ["ok"] * len(doctor.CHECKS)
     assert [c["check"] for c in answer["checks"]] == [c.key for c in doctor.CHECKS] == [
         "music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs", "pending_steps",
-        "drives_away", "downloads_paused"]
+        "drives_away", "downloads_paused", "out_of_place", "superseded", "rekordbox_files", "stopped_batches",
+        "open_checks", "cdj", "songs_without_file", "upgrades_waiting"]
 
 
 def test_the_shape_names_exactly_the_checks_there_are():
@@ -46,9 +50,11 @@ def test_the_shape_names_exactly_the_checks_there_are():
 
 
 def test_the_checks_say_which_a_gig_depends_on_and_which_need_the_library():
-    assert {c.key for c in doctor.CHECKS if c.gig} == {"music_folder", "folder_access", "rekordbox", "pending_steps",
-                                                       "drives_away"}
-    assert {c.key for c in doctor.CHECKS if c.needs_library} == {"pending_steps", "drives_away", "downloads_paused"}
+    assert {c.key for c in doctor.CHECKS if c.gig} == {
+        "music_folder", "folder_access", "rekordbox", "pending_steps", "drives_away", "rekordbox_files", "stopped_batches",
+        "open_checks", "cdj", "songs_without_file", "upgrades_waiting"}
+    assert {c.key for c in doctor.CHECKS if not c.needs_library} == {
+        "music_folder", "tools", "logins", "folder_access", "rekordbox", "stale_lock", "lost_jobs"}
 
 
 # --- the checks ---
@@ -183,6 +189,77 @@ def test_a_source_paused_today_is_a_note_with_its_limits_command():
     waiting = only("downloads_paused", paused_accounts=frozenset({"youtube"}))
     assert waiting["text"] == "Paused today to protect your account: YouTube Premium."
     assert run("downloads_paused", downloads={"qobuz": {"state": "used_up"}}) == []  # used up is not paused
+
+
+# --- the library's own checks ---
+
+def counts(**changed):
+    return {**GOOD.rekordbox_match, **changed}
+
+
+def test_files_out_of_place_is_a_note_that_looks_at_the_tidy_up():
+    assert run("out_of_place") == []
+    p = only("out_of_place", tidy_rows=3)
+    assert (p["level"], p["count"], p["text"]) == ("note", 3, "3 files are not where the playlist order puts them.")
+    assert p["next"] == [{"run": "tidy run --dry-run", "why": "which files a tidy-up would move"}]
+    assert only("out_of_place", tidy_rows=1)["text"] == "1 file is not where the playlist order puts it."
+
+
+def test_superseded_files_are_a_note_with_their_size():
+    assert run("superseded") == []
+    p = only("superseded", superseded_files=2, superseded_bytes=36_200_000)
+    assert (p["level"], p["count"]) == ("note", 2)
+    assert p["text"] == words.doctor_superseded(2, 36_200_000) and p["text"].startswith("2 files in Superseded/, ")
+    assert only("superseded", superseded_files=1, superseded_bytes=10)["text"].startswith("1 file in Superseded/, ")
+    assert p["next"] == [{"run": "library superseded", "why": "the files and what rekordbox still uses"}]
+
+
+def test_rekordbox_tracks_on_missing_or_superseded_files_are_a_problem_a_gig_depends_on():
+    assert run("rekordbox_files") == []
+    assert run("rekordbox_files", rekordbox_match=counts(away=4, not_in_library=2, not_in_rekordbox=9)) == []  # not these
+    p = only("rekordbox_files", rekordbox_match=counts(missing=2, superseded=1))
+    assert (p["level"], p["count"]) == ("problem", 3)
+    assert p["text"] == "3 rekordbox tracks point at files that are missing or in Superseded/."
+    assert p["next"] == [{"run": "rekordbox match", "why": "which tracks, and their files"}]
+    assert only("rekordbox_files", rekordbox_match=counts(superseded=1))["text"].startswith("1 rekordbox track points ")
+
+
+def test_a_rekordbox_that_was_not_compared_claims_nothing():
+    assert run("rekordbox_files", rekordbox_match=None) == []  # never read as "everything matches" or as a problem
+
+
+def test_a_stopped_aiff_batch_can_be_resumed_and_a_stopped_move_batch_is_looked_at():
+    assert run("stopped_batches") == []
+    p = only("stopped_batches", stopped_batches=("aiff:2", "moves:3", "aiff:1"))
+    assert (p["level"], p["count"]) == ("problem", 3) and p["text"] == "3 batches stopped before their end."
+    assert p["next"] == [{"run": "batch resume aiff:2", "why": "goes on where it stopped"},
+                         {"run": "batch show moves:3", "why": "what it moved"},
+                         {"run": "batch resume aiff:1", "why": "goes on where it stopped"}]
+    assert only("stopped_batches", stopped_batches=("aiff:2",))["text"] == "1 batch stopped before its end."
+
+
+def test_open_checks_cdj_problems_and_waiting_upgrades_are_notes_with_their_list():
+    for key, fact, run_, text in (
+            ("open_checks", "check_tracks", "check list", "2 tracks wait for a check in rekordbox."),
+            ("cdj", "cdj_files", "todo list --group cdj", "2 files won't play well on CDJs."),
+            ("upgrades_waiting", "upgrades_ready", "upgrade list", "2 better versions wait for you.")):
+        assert run(key) == []
+        p = only(key, **{fact: 2})
+        assert (p["level"], p["count"], p["text"], p["next"][0]["run"]) == ("note", 2, text, run_)
+    assert only("open_checks", check_tracks=1)["text"] == "1 track waits for a check in rekordbox."
+    assert only("cdj", cdj_files=1)["text"] == "1 file won't play well on CDJs."
+    assert only("upgrades_waiting", upgrades_ready=1)["text"] == "1 better version waits for you."
+
+
+def test_songs_without_a_file_says_each_part_on_its_own():
+    assert run("songs_without_file") == []
+    (missing,) = run("songs_without_file", missing_files=3)
+    assert missing["text"] == "3 songs' files are missing." and missing["next"][0]["run"] == "missing list"
+    (load,) = run("songs_without_file", to_load=1)
+    assert load["text"] == "1 playlist song has no file yet." and load["next"][0]["run"] == "sync plan"
+    both = run("songs_without_file", missing_files=1, to_load=5)
+    assert [p["text"] for p in both] == ["1 song's file is missing.", "5 playlist songs have no file yet."]
+    assert {p["level"] for p in both} == {"note"}
 
 
 # --- the answer ---

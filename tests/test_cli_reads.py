@@ -320,7 +320,7 @@ def test_a_search_with_no_hit_keeps_parity_with_the_bridge_but_for_next(rich, ca
     api._attach(rich)
     answer = api.find_tracks(["nobody", "here"])
     _, env = data_of(["track", "find", "nobody", "here"], capsys)
-    assert env["data"] == {k: v for k, v in answer.items() if k not in ("ok", "next")}
+    assert env["data"] == {k: v for k, v in answer.items() if k not in ("ok", "next", "person_steps")}
     assert env["next"] == [{**n, "run": cmd(n["run"])} for n in answer["next"]]  # the envelope prints full command lines
 
 

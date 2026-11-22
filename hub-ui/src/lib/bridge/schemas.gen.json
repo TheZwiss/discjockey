@@ -4319,7 +4319,15 @@
         "lost_jobs",
         "pending_steps",
         "drives_away",
-        "downloads_paused"
+        "downloads_paused",
+        "out_of_place",
+        "superseded",
+        "rekordbox_files",
+        "stopped_batches",
+        "open_checks",
+        "cdj",
+        "songs_without_file",
+        "upgrades_waiting"
       ]
     },
     "DoctorProblem": {
@@ -4340,7 +4348,7 @@
               "type": "null"
             }
           ],
-          "description": "The number the text counts (jobs, folders); null when it counts nothing.",
+          "description": "The number the text counts (jobs, folders, files, tracks); null when it counts nothing.",
           "x-shown": true
         },
         "gig": {
@@ -13076,6 +13084,198 @@
         "missing"
       ]
     },
+    "StatusData": {
+      "additionalProperties": false,
+      "description": "What `status` prints as `data`: what the window's Dashboard and navigation show, the jobs that run now and, with `--ready`, the problems a gig depends on.",
+      "properties": {
+        "dashboard": {
+          "$ref": "#/$defs/Dashboard",
+          "description": "What the window's Dashboard shows.",
+          "x-shown": true
+        },
+        "jobs": {
+          "description": "The jobs of this music folder that have not ended, newest first.",
+          "items": {
+            "$ref": "#/$defs/StatusJob"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "nav": {
+          "$ref": "#/$defs/StatusNav",
+          "description": "The numbers of the window's navigation.",
+          "x-shown": true
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DoctorProblem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With `--ready`: the problems of `doctor` that a gig depends on, none when the library is ready; null without it.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "dashboard",
+        "nav",
+        "jobs",
+        "ready"
+      ],
+      "type": "object"
+    },
+    "StatusJob": {
+      "additionalProperties": false,
+      "description": "A job of this music folder that has not ended.",
+      "properties": {
+        "command": {
+          "description": "The command that started it.",
+          "type": "string",
+          "x-shown": true
+        },
+        "id": {
+          "description": "The job's id (`job:…`), what `job show` and `job wait` take.",
+          "type": "string",
+          "x-shown": true
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Its progress in one line; null before it has any.",
+          "x-shown": true
+        },
+        "started": {
+          "description": "When it started, an ISO time.",
+          "type": "string",
+          "x-shown": true
+        },
+        "status": {
+          "description": "Where it is.",
+          "enum": [
+            "queued",
+            "running",
+            "stopping"
+          ],
+          "x-shown": true
+        },
+        "via": {
+          "description": "Where it was started.",
+          "enum": [
+            "window",
+            "terminal"
+          ],
+          "x-shown": true
+        }
+      },
+      "required": [
+        "id",
+        "command",
+        "via",
+        "status",
+        "line",
+        "started"
+      ],
+      "type": "object"
+    },
+    "StatusNav": {
+      "additionalProperties": false,
+      "description": "The numbers the window's navigation shows.",
+      "properties": {
+        "all_tracks": {
+          "description": "All tracks.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "limits_warning": {
+          "description": "A set-up service has a warning sign you have not marked as seen, or is paused today: the dot on Download limits.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "not_in_playlist": {
+          "description": "Songs in no playlist.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "todo": {
+          "description": "The to-do badge: what needs you.",
+          "type": "integer",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "todo",
+        "all_tracks",
+        "not_in_playlist",
+        "limits_warning"
+      ],
+      "type": "object"
+    },
+    "StatusView": {
+      "additionalProperties": false,
+      "description": "`status`: the answer of the engine. The command line moves `person_steps` out of `data` into the envelope.",
+      "properties": {
+        "dashboard": {
+          "$ref": "#/$defs/Dashboard",
+          "description": "What the window's Dashboard shows.",
+          "x-shown": true
+        },
+        "jobs": {
+          "description": "The jobs of this music folder that have not ended, newest first.",
+          "items": {
+            "$ref": "#/$defs/StatusJob"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "nav": {
+          "$ref": "#/$defs/StatusNav",
+          "description": "The numbers of the window's navigation.",
+          "x-shown": true
+        },
+        "person_steps": {
+          "description": "The steps only a person can do for the running jobs (\"Your turn\" lines); left out when none.",
+          "items": {
+            "$ref": "#/$defs/FailPersonStep"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "ready": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DoctorProblem"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "With `--ready`: the problems of `doctor` that a gig depends on, none when the library is ready; null without it.",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "dashboard",
+        "nav",
+        "jobs",
+        "ready"
+      ],
+      "type": "object"
+    },
     "StillToLoad": {
       "additionalProperties": false,
       "description": "How long the rest of the downloads takes at the daily limit. All three are null before the playlists were read, and for an account behind Qobuz (Qobuz decides).",
@@ -17660,6 +17860,7 @@
     "spotify_sign_out": "Empty",
     "start_import": "ImportResult",
     "start_sync": "SyncResult",
+    "status_view": "StatusView",
     "stop": "Stopped",
     "stop_refresh": "Stopped",
     "stop_sign_in": "Stopped",
@@ -17691,6 +17892,7 @@
     "rekordbox_checked": "CheckDoneData",
     "rekordbox_preview": "RekordboxPreviewData",
     "rename": "UpgradeRunData",
+    "status_view": "StatusData",
     "upgrade": "UpgradeRunData",
     "upgrade_all": "UpgradeRunData",
     "upgrade_preview:dry_run": "UpgradePreviewDryRun"
