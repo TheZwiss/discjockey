@@ -483,6 +483,9 @@ to `playlists.txt`. `login list` shows each download source's state, `login find
 `tools status` whether the programs Discjockey needs are there, `setup status` what Setup still needs, and
 `setup music <folder> --dry-run` whether a folder can be your music folder.
 
+The To-do page is `discjockey todo list [--group <group>[,<group>…]] [--hidden]`: `--group fake,weak` lists only those groups (the
+keys are the ones `todo list` prints), `upgrade list`, `missing list` and `check list` list one group each.
+
 ### Listening through a list
 
 Press ▶ on a track's cover in **Library** (or in its details, or a to-do's details) and Discjockey plays that track,
@@ -604,6 +607,10 @@ waiting for a track, the list says so.
 
 **In the Terminal:** `discjockey report list [--since today|yesterday|3d|12h|2026-11-20]` lists the reports of past
 syncs, newest first, and `report show <id>|last` shows one.
+`open report <id>|last|not-lossless` opens a report, or the buy list, in the Finder's usual app; `open file <track>
+[--which current|upgrade]`, `open folder all|playlist:<name>|folder:<path>|<path>`, `open url <link>`, `open licences` and
+`open privacy-settings` show what the window's **Show in Finder** and its links do. Each says what it opened; `--print`
+says it without opening anything.
 
 ## Upgrades
 

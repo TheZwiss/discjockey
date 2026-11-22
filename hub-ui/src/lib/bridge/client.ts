@@ -1,6 +1,6 @@
 // The only bridge to Python. Only this file touches window.pywebview (plan 64.4).
 import type {
-  AddedPlaylist, Empty, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobEvents, JobStart, JobStatus, Library,
+  AddedPlaylist, Empty, Opened, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobEvents, JobStart, JobStatus, Library,
   Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res,
   SetupStatus, SetupTools, Sidebar, SyncPreview, Todo, TodoFilter, TrackAnswer, WhatIf, Which,
   Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
@@ -22,7 +22,7 @@ export interface Bridge {
   job_events(job_id: string, after?: number): Promise<Res<JobEvents>>;
   library(view: LibraryView, key: string | null, query: string, filter: LibraryFilter, sort: LibrarySort | null): Promise<Res<Library>>;
   track(track_id: string): Promise<Res<TrackAnswer>>;
-  todo(filter: TodoFilter, show_hidden: boolean): Promise<Res<Todo>>;
+  todo(filter: TodoFilter | TodoFilter[], show_hidden: boolean): Promise<Res<Todo>>;
   playlists(): Promise<Res<Playlists>>;
   tidy_preview(): Promise<Res<TidyPreview>>;
   move_batches(): Promise<Res<MoveBatches>>;
@@ -110,15 +110,16 @@ export interface Bridge {
    *  the planned download at once */
   missing_files(track_ids: string[], action: MissingAction): Promise<JobStart>;
   // other
-  show_in_finder(track_id: string, which: Which): Promise<Res<Empty>>;   reveal(rel_path: string): Promise<Res<Empty>>;
-  open_report(run_id: string): Promise<Res<Empty>>;   open_external(url: string): Promise<Res<Empty>>;
+  /** The six openers answer what they opened (`Opened`); the window never sends `print_only`, which only the Terminal's `--print` sets */
+  show_in_finder(track_id: string, which: Which): Promise<Res<Opened>>;   reveal(rel_path: string): Promise<Res<Opened>>;
+  open_report(run_id: string): Promise<Res<Opened>>;   open_external(url: string): Promise<Res<Opened>>;
   /** The update check's last answer; `check` runs the check (the network only when the cache is a day old). */
   app_update(check?: boolean): Promise<Res<AppUpdate>>;
   quit(): Promise<Res<Empty>>;
   // setup
   setup_check_tools(): Promise<Res<SetupTools>>;  setup_save_client_id(client_id: string): Promise<JobStart>;
   setup_spotify_login(): Promise<JobStart>;       setup_qobuz_login(email: string, password: string): Promise<JobStart>;
-  open_licenses(): Promise<Res<Empty>>;
+  open_licenses(): Promise<Res<Opened>>;
   update_tools(): Promise<JobStart>;
   rollback_tools(): Promise<JobStart>;
   setup_skip_qobuz(): Promise<JobStart>;
@@ -140,7 +141,7 @@ export interface Bridge {
   find_logins(service: 'youtube' | 'soundcloud'): Promise<Res<FindLogins>>;
   account_sign_in(service: 'youtube' | 'soundcloud', browser: Browser, profile?: string | null): Promise<JobStart>;
   stop_sign_in(): Promise<Res<Stopped>>;
-  open_privacy_settings(): Promise<Res<Empty>>;
+  open_privacy_settings(): Promise<Res<Opened>>;
   qobuz_check_login(): Promise<JobStart>;
   spotify_sign_out(): Promise<JobStart>;
   // the music folder

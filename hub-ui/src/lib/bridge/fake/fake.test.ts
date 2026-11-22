@@ -199,6 +199,32 @@ describe('fake backend', () => {
     if (!usage.ok) throw new Error();
     expect(usage.usage!.days).toHaveLength(14);
   });
+  it('the openers answer what they opened', async () => {
+    const f = createFakeBridge('normal', { speed: 100 });
+    expect(await f.open_external('https://example.com')).toEqual({ ok: true, target: 'https://example.com', opened: true });
+    expect(await f.reveal('Library/Hard_Bounce')).toEqual({ ok: true, target: '/Users/you/Music/Discjockey/Library/Hard_Bounce', opened: true });
+    expect(await f.reveal('../outside')).toMatchObject({ ok: false, kind: 'refused' });
+    const finder = await f.show_in_finder('t1', 'current');
+    expect(finder).toMatchObject({ ok: true, opened: true });
+    if (!finder.ok) throw new Error();
+    expect(finder.target.startsWith('/Users/you/Music/Discjockey/')).toBe(true);
+    expect(await f.open_licenses()).toMatchObject({ ok: true, opened: true });
+    expect(await f.open_privacy_settings()).toMatchObject({ ok: true, opened: true });
+  });
+  it('todo takes a list of groups: only those, in the page\'s order', async () => {
+    const f = createFakeBridge('normal', { speed: 100 });
+    const all = await f.todo('all', false);
+    if (!all.ok) throw new Error();
+    const some = await f.todo(['fake', 'weak'], false);
+    if (!some.ok) throw new Error();
+    const want = all.groups.map((g) => g.key).filter((k) => k === 'weak' || k === 'fake');
+    expect(want.length).toBeGreaterThan(0);
+    expect(some.groups.map((g) => g.key)).toEqual(want);
+    expect(some.chips).toEqual(all.chips);
+    const withAll = await f.todo(['fake', 'all'], false);
+    if (!withAll.ok) throw new Error();
+    expect(withAll.groups).toHaveLength(all.groups.length);
+  });
   it('a write changes what the reads return (hide leaves the to-do list)', async () => {
     const evs: HubEvent[] = [];
     const f = createFakeBridge('normal', { speed: 100, emit: (e) => evs.push(e) });

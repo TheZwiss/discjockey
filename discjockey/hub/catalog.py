@@ -150,7 +150,8 @@ BY_ID_KIND: dict[str, tuple[str, str]] = {"batch undo": ("batch_id", "batch")}
 # fact `help --json` lists as the `no_library` reason. tests/test_cli_housekeeping.py runs every built read with none
 # chosen to pin it (`set_auto_upgrade` and `set_sync_scope` are writes: probed by hand, they answer `ok` with none chosen).
 NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope",
-                              "check_music_folder", "setup_status", "setup_check_tools", "downloads_view", "find_logins", "app_update"))  # Settings works before a folder is chosen
+                              "check_music_folder", "setup_status", "setup_check_tools", "downloads_view", "find_logins", "app_update",
+                              "open_external", "open_licenses", "open_privacy_settings"))  # Settings works before a folder is chosen
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
@@ -259,8 +260,8 @@ ENTRIES: tuple[Entry, ...] = (
         "view": Arg("--in", type="str", resolve="collection"), "key": _derived("collection"),
         "query": Arg("--search"), "filter": Arg("--quality"), "sort": Arg("--sort")}, pages="rows", built=True),
     _e("track", "track show", "R", 'track show "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff"', params={"track_id": TRACK}, built=True, locks={"rekordbox_r"}),
-    _e("todo", "todo list", "R", "todo list --hidden", params={
-        "filter": Arg("--group"), "show_hidden": Arg("--hidden", type="bool")}, built=True, locks={"rekordbox_r"}),
+    _e("todo", "todo list", "R", "todo list --group not_found,upgrade_ready --hidden", params={
+        "filter": Arg("--group", many=True), "show_hidden": Arg("--hidden", type="bool")}, built=True, locks={"rekordbox_r"}),
     _e("todo", "upgrade list", "R", "upgrade list", params={"show_hidden": Arg("--hidden", type="bool")},
        fixed={"filter": "upgrade_ready"}, built=True, locks={"rekordbox_r"}),
     _e("todo", "missing list", "R", "missing list", params={"show_hidden": Arg("--hidden", type="bool")},
@@ -284,7 +285,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("runs", "report list", "R", "report list --since 2026-11-01", params={"since": Arg("--since", resolve="since")},
        pages="runs", built=True),
     _e("run", "report show", "R", "report show last", params={"run_id": _positional("report")}, built=True),
-    _e("open_report", "open report", "R", "open report last", params={"run_id": _positional("report")}, planned="phase 3: V3.1c"),
+    _e("open_report", "open report", "R", "open report last --print", params={
+        "run_id": _positional("report_file"), "print_only": Arg("--print", type="bool")}, built=True),
     _e("sync_preview", "sync plan", "R", "sync plan --search pegassi", params={"search": Arg("--search")}, built=True,
        locks={"rekordbox_r"}),  # the plan's Auto-upgrade count reads rekordbox's library, shared
     # --- sync and jobs
@@ -301,10 +303,10 @@ ENTRIES: tuple[Entry, ...] = (
     _e("app_update", "app info", "R", "app info", built=True),
     _e("rescan_library", "library scan", "J", "library scan", built=True, locks={"library"}),
     _e("quit", "", "W"),
-    _e("open_external", "open url", "R", "open url https://example.com", planned="phase 3: V3.1c"),
-    _e("reveal", "open folder", "R", "open folder all", planned="phase 3: V3.1c"),
-    _e("show_in_finder", "open file", "R", "open file local:1", params={
-        "track_id": TRACK, "which": Arg("--upgrade", type="bool", resolve="which")}, planned="phase 3: V3.1c"),
+    _e("open_external", "open url", "R", "open url https://example.com --print", params={"print_only": Arg("--print", type="bool")}, built=True),
+    _e("reveal", "open folder", "R", "open folder all --print", params={
+        "rel_path": _positional("place"), "print_only": Arg("--print", type="bool")}, built=True),
+    _e("show_in_finder", "open file", "R", 'open file "Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff" --print', params={"track_id": TRACK, "print_only": Arg("--print", type="bool")}, built=True),
     _e("select", "", "dropped"),
     # --- limits
     _e("limits", "limits show", "R", "limits show qobuz", params={"service": _positional()}, built=True),
@@ -331,7 +333,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("setup_account", "login use", "J", params={"service": _positional(), "browser": Arg("--browser")}, planned="phase 4: V4.7"),
     _e("setup_account", "login check", "J", params={"service": _positional(), "browser": _derived("saved_browser")}, planned="phase 4: V4.7"),
     _e("account_sign_in", "login sign-in", "J", params={"service": _positional(), "browser": Arg("--browser")}, planned="phase 4: V4.7"),
-    _e("open_privacy_settings", "open privacy-settings", "R", "open privacy-settings", planned="phase 3: V3.1c"),
+    _e("open_privacy_settings", "open privacy-settings", "R", "open privacy-settings --print", params={"print_only": Arg("--print", type="bool")},
+       built=True),
     _e("setup_check_account", "", "dropped"),
     _e("setup_forget_account", "login sign-out", "J", params={"service": _positional()}, needs_yes=True, planned="phase 4: V4.7"),
     _e("qobuz_check_login", "login check", "J", match={"service": "qobuz"}, planned="phase 4: V4.7"),
@@ -352,7 +355,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("setup_check_tools", "tools status", "R", "tools status", built=True),
     _e("update_tools", "tools update", "J", planned="phase 4: V4.8"),
     _e("rollback_tools", "tools rollback", "J", needs_yes=True, planned="phase 4: V4.8"),
-    _e("open_licenses", "open licences", "R", "open licences", planned="phase 3: V3.1c"),
+    _e("open_licenses", "open licences", "R", "open licences --print", params={"print_only": Arg("--print", type="bool")}, built=True),
     *_favourite_entries(),
     *_crate_entries(),
     _e("pick_folder", "", "W"),

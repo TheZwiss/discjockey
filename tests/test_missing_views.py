@@ -44,7 +44,7 @@ def test_a_placement_refused_and_held_stays_in_to_do_with_the_refusals_words():
     assert views._group(gone(file_gone="2026-11-18", upgrade=PARKED)) is None       # today's behaviour without a record
     assert views.next_due(held) is None
     assert views.next_due(gone(file_gone="2026-11-18", upgrade=PARKED)) == "next_sync"
-    out = views.todo(state(t=held, u=gone(file_gone="2026-11-18", upgrade=PARKED, title="U")), "all", False, {}, TODAY,
+    out = views.todo(state(t=held, u=gone(file_gone="2026-11-18", upgrade=PARKED, title="U")), None, False, {}, TODAY,
                      place=place)
     assert [i["track_id"] for i in group(out)["items"]] == ["t"]
     item = group(out)["items"][0]
@@ -100,7 +100,7 @@ def test_a_song_with_no_file_row_after_folder_remove_waits_in_its_playlist_inste
     st["tracks"]["g"]["file_gone"] = "2026-11-18"
     row = {r["track_id"]: r for r in playlist_view(st)["rows"]}["g"]
     assert (row["wait"], row["next_try"]) == ("waiting", None)
-    assert views.todo(st, "all", False, {}, TODAY)["chips"]["not_found"] == 0
+    assert views.todo(st, None, False, {}, TODAY)["chips"]["not_found"] == 0
 
 
 # --- To-do ---
@@ -108,7 +108,7 @@ def test_a_song_with_no_file_row_after_folder_remove_waits_in_its_playlist_inste
 def test_the_missing_files_group_is_second_with_its_label_and_hint():
     st = state(a=gone(title="B Song"), b=own(title="A Song"), c=e("not_lossless", cutoff_hz=16000, upgrade=PARKED))
     st["tracks"]["r"] = e(rekordbox_check={"reason": "swapped", "since": "2026-11-10"}, title="C")
-    out = views.todo(st, "all", False, {}, TODAY, place=place)
+    out = views.todo(st, None, False, {}, TODAY, place=place)
     assert [g["key"] for g in out["groups"]] == ["rekordbox_check", "missing_file", "upgrade_ready"]
     g = group(out)
     assert (g["label"], g["hint"]) == ("Missing files", "not where they were; put a file back and it links again")
@@ -119,7 +119,7 @@ def test_the_missing_files_group_is_second_with_its_label_and_hint():
 
 def test_a_missing_item_is_a_row_with_its_line_its_file_state_and_its_missing_object():
     st = state(a=gone(), b=own(), c=gone(upgrade=PARKED, status="not_lossless", cutoff_hz=16000))
-    items = {i["track_id"]: i for i in group(views.todo(st, "all", False, {}, TODAY, place=place))["items"]}
+    items = {i["track_id"]: i for i in group(views.todo(st, None, False, {}, TODAY, place=place))["items"]}
     a = items["a"]
     assert a["group"] == "missing_file" and a["file_state"] == "file_missing" and a["free"] is False
     assert a["detail"] == "Missing since 12 Nov · was in Techno 2019"
@@ -132,7 +132,7 @@ def test_a_missing_item_is_a_row_with_its_line_its_file_state_and_its_missing_ob
 def test_an_item_whose_drive_is_away_says_offline_not_missing_but_stays_in_the_group():
     st = state(a=own())
     away = {"/Volumes/Example/Music": "unmounted"}
-    item = group(views.todo(st, "all", False, {}, TODAY, away=away, place=place))["items"][0]
+    item = group(views.todo(st, None, False, {}, TODAY, away=away, place=place))["items"][0]
     assert item["file_state"] == "offline" and item["missing"]["action"] == "remove"
 
 
@@ -142,14 +142,14 @@ def test_the_group_counts_what_the_head_link_acts_on_by_action():
     st["never"] = {"n": {}}
     st["ambiguous"] = {"t": ["a.aiff", "b.aiff"]}
     st["tracks"]["d"]["rekordbox_check"] = {"reason": "swapped", "since": "2026-11-10"}
-    g = group(views.todo(st, "all", False, {}, TODAY, place=place))
+    g = group(views.todo(st, None, False, {}, TODAY, place=place))
     # a, b, x: Download again can run; c: Remove can run; d: check open; n: never; t: found twice; h: hidden
     # the head link selects every song shown (one that can't act too: the panel says why), counted by the engine
     assert g["all"] == {"download_again": 3, "remove": 1, "label": "Select all · 7"}
     reasons = {i["track_id"]: i["missing"]["why_not"] for i in g["items"]}
     assert reasons == {"a": None, "b": None, "c": None, "d": "check_open", "n": "never", "t": "found_twice",
                        "x": None}  # (h is hidden: left out of the list too)
-    shown = group(views.todo(st, "all", True, {}, TODAY, place=place))
+    shown = group(views.todo(st, None, True, {}, TODAY, place=place))
     assert shown["all"] == {"download_again": 3, "remove": 1, "label": "Select all · 7"}  # hidden songs are never counted
     assert {"h"} == {i["track_id"] for i in shown["items"]} - set(reasons)
 
@@ -158,7 +158,7 @@ def test_remove_all_leaves_out_an_own_song_found_in_several_places():
     # F5 (FB): both copies are there; Remove is refused for it, so the head link's Remove count and ids leave it out
     st = state(c=own(), d=own(title="D"))
     st["ambiguous"] = {"d": ["Library/A/x.aiff", "/Volumes/Example/y.aiff"]}
-    out = views.todo(st, "all", False, {}, TODAY, place=place)
+    out = views.todo(st, None, False, {}, TODAY, place=place)
     assert group(out)["all"]["remove"] == 1
     assert select.remove_missing_ids(out) == ["c"]
     assert {i["track_id"]: i["missing"]["why_not"] for i in group(out)["items"]} == {"c": None, "d": "found_twice"}
@@ -166,15 +166,15 @@ def test_remove_all_leaves_out_an_own_song_found_in_several_places():
 
 def test_hidden_missing_songs_are_counted_and_shown_on_request_like_any_item():
     st = state(a=gone(), h=gone(hidden=True, title="H"))
-    out = views.todo(st, "all", False, {}, TODAY, place=place)
+    out = views.todo(st, None, False, {}, TODAY, place=place)
     assert [i["track_id"] for i in group(out)["items"]] == ["a"] and out["hidden_count"] == 1
     assert out["chips"]["missing_file"] == 1
-    assert [i["track_id"] for i in group(views.todo(st, "all", True, {}, TODAY, place=place))["items"]] == ["h", "a"]  # by artist and title
+    assert [i["track_id"] for i in group(views.todo(st, None, True, {}, TODAY, place=place))["items"]] == ["h", "a"]  # by artist and title
 
 
 def test_the_filter_word_missing_file_keeps_only_its_group():
     st = state(a=gone(), c=e("not_lossless", cutoff_hz=16000, upgrade=PARKED))
-    out = views.todo(st, "missing_file", False, {}, TODAY, place=place)
+    out = views.todo(st, ("missing_file",), False, {}, TODAY, place=place)
     assert [g["key"] for g in out["groups"]] == ["missing_file"]
     assert out["chips"]["upgrade_ready"] == 1                                       # the chips count every group
 
@@ -184,7 +184,7 @@ def test_a_missing_song_is_in_no_other_group_but_a_check_and_a_download_asked_le
                                                                       cutoff_hz=16000),
                asked=gone(file_gone="2026-11-18", title="Asked"))
     st["tracks"]["w"]["rekordbox_check"] = {"reason": "swapped", "since": "2026-11-10"}
-    out = views.todo(st, "all", False, {}, TODAY, place=place)
+    out = views.todo(st, None, False, {}, TODAY, place=place)
     assert {g["key"]: [i["track_id"] for i in g["items"]] for g in out["groups"]} == {
         "rekordbox_check": ["w"], "missing_file": ["w", "u"]}                       # both of w's groups; "asked" nowhere
     assert out["chips"]["all"] == 2                                                # each track once
@@ -195,7 +195,7 @@ def test_a_missing_song_found_in_several_places_is_in_missing_files_not_in_other
     st = state(t=gone())
     st["ambiguous"] = {"t": ["Library/A/x.aiff", "/Volumes/Example/y.aiff"]}
     others = {"t": "SEVERAL FILES · could be this track, nothing done"}
-    out = views.todo(st, "all", False, others, TODAY, place=place)
+    out = views.todo(st, None, False, others, TODAY, place=place)
     assert [g["key"] for g in out["groups"]] == ["missing_file"]
     item = group(out)["items"][0]
     assert item["detail"] == "In 2 places now · keep one and it links again"
@@ -205,17 +205,17 @@ def test_a_missing_song_found_in_several_places_is_in_missing_files_not_in_other
 def test_a_download_asked_for_a_song_with_several_files_falls_back_to_other():
     st = state(t=gone(file_gone="2026-11-18"))
     others = {"t": "SEVERAL FILES · could be this track, nothing done"}
-    assert [g["key"] for g in views.todo(st, "all", False, others, TODAY, place=place)["groups"]] == ["other"]
+    assert [g["key"] for g in views.todo(st, None, False, others, TODAY, place=place)["groups"]] == ["other"]
 
 
 def test_a_missing_own_song_is_not_in_the_cdj_group():
     own_flac = own(file_codec="flac", file_rate=192000, file_bits=24, path="/Volumes/Example/Music/a.flac")
     st = state(**{"local:1": own_flac})
-    assert [g["key"] for g in views.todo(st, "all", False, {}, TODAY, place=place)["groups"]] == ["missing_file"]
+    assert [g["key"] for g in views.todo(st, None, False, {}, TODAY, place=place)["groups"]] == ["missing_file"]
 
 
 def test_the_group_is_absent_when_no_file_is_missing():
-    out = views.todo(state(a=e()), "all", False, {}, TODAY)
+    out = views.todo(state(a=e()), None, False, {}, TODAY)
     assert group(out) is None and out["chips"]["missing_file"] == 0
 
 
@@ -268,9 +268,9 @@ def test_todo_sub_is_the_headers_second_line_in_parts():
 
 
 def test_the_todo_answer_carries_the_sub():
-    out = views.todo(state(t=gone(), u=e("not_lossless", cutoff_hz=16000, title="U")), "all", False, {}, TODAY, place=place)
+    out = views.todo(state(t=gone(), u=e("not_lossless", cutoff_hz=16000, title="U")), None, False, {}, TODAY, place=place)
     assert out["sub"] == ["1 track is not lossless yet", "1 song is missing its file"]
-    assert views.todo(state(t=e()), "all", False, {}, TODAY)["sub"] == ["Nothing to do"]
+    assert views.todo(state(t=e()), None, False, {}, TODAY)["sub"] == ["Nothing to do"]
 
 
 def test_track_detail_carries_the_missing_object_with_line_and_hint():
@@ -326,7 +326,7 @@ def test_the_hub_answers_the_group_the_details_and_the_library_rows_for_a_missin
 def test_the_sidebars_to_do_count_includes_a_missing_song(hub):
     api, _ = hub
     assert api.todo()["chips"]["all"] >= 1
-    counted = api._todo(api._state(), "all", False, count_only=True)
+    counted = api._todo(api._state(), None, False, count_only=True)
     assert counted["chips"]["missing_file"] == 1 and counted["chips"]["all"] == api.todo()["chips"]["all"]
 
 
@@ -345,7 +345,7 @@ def test_the_shapes_name_the_filters_actions_and_reasons_the_views_send():
     assert list(detail) == [*view, "line", "hint", "hint_library"]       # the details add the three lines
     assert shapes.validate(detail, "MissingDetail") == []
     assert shapes.validate(missing.confirm_for(missing.REMOVE, 1), "MissingConfirm") == []
-    out = views.todo(state(t=gone()), "all", False, {}, TODAY, place=place)
+    out = views.todo(state(t=gone()), None, False, {}, TODAY, place=place)
     lib = views.library(state(t=gone()), "all", None, "", "all", None, lines=[])
     assert "in_missing_files" in lib["rows"][0] and isinstance(out["sub"], list)   # FC: the Library's flag, the header's parts
 

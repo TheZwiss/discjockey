@@ -322,6 +322,18 @@ def _check_a_link(api):
         assert api.add_playlist(SC_SET)["ok"]
 
 
+def _open_buy_list(api) -> dict:
+    """`open report not-lossless --print` on a library that has a buy list."""
+    api._paths.not_lossless_md.write_text("Songs to buy\n")
+    return _opened(api.open_report("not-lossless", print_only=True))
+
+
+def _opened(answer: dict) -> dict:
+    """An opener's answer, which must be `Opened` (a refusal would measure none of the success path's locks)."""
+    assert answer["ok"] and answer["opened"] is False, answer
+    return answer
+
+
 DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
@@ -390,6 +402,12 @@ DRIVERS = {
     "setup_check_tools": lambda api, rec: api.setup_check_tools(),
     "setup_status": lambda api, rec: api.setup_status(),
     "app_update": lambda api, rec: api.app_update(check=True),  # the cache file in the support folder's cache/ (T9's allowed write), no lock
+    "show_in_finder": lambda api, rec: _opened(api.show_in_finder("t2", print_only=True)),  # the openers look at paths and open nothing with print_only: no lock
+    "reveal": lambda api, rec: _opened(api.reveal("Library", print_only=True)),
+    "open_report": lambda api, rec: _open_buy_list(api),
+    "open_external": lambda api, rec: _opened(api.open_external("https://example.com", print_only=True)),
+    "open_licenses": lambda api, rec: _opened(api.open_licenses(print_only=True)),
+    "open_privacy_settings": lambda api, rec: _opened(api.open_privacy_settings(print_only=True)),
     "retry_music_folder": lambda api, rec: api.retry_music_folder(),  # a built read with no command of its own
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }

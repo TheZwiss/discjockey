@@ -56,6 +56,7 @@ const FOLDER_PROBLEMS: Record<FolderProblem, string> = {
 };
 /** the fake Mac's home folder, for `~` */
 const FAKE_HOME = '/Users/you';
+const PRIVACY_SETTINGS = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';  // api._PRIVACY_SETTINGS
 
 /** Like FallbackSource.check_account + accounts.check_message: Safari needs Full Disk Access, the rest works. */
 function accountCheck(service: 'youtube' | 'soundcloud', browser: Browser): AccountCheck {
@@ -942,7 +943,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       } });
     },
     // the engine answers bad_args for a filter that is no group; the window sends only TodoFilter keys
-    async todo(filter: TodoFilter, show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
+    async todo(filter: TodoFilter | TodoFilter[], show_hidden: boolean) { return ok(todoView(filter, show_hidden)); },
     async playlists() {
       const overlaps = s.tracks.filter((t) => t.playlists.length > 1).map((t) => {
         const r = trackRow(t);
@@ -1064,7 +1065,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       signInStop();
       return ok({ stopped: true });
     },
-    async open_privacy_settings() { return ok({}); },
+    async open_privacy_settings() { return ok({ target: PRIVACY_SETTINGS, opened: true }); },
     async qobuz_check_login() {
       if (syncRunning()) return fail('sync_running', MSG.sync_running);
       return startJob('qobuz_check_login', null, (finish) => setTimeout(() => {
@@ -1478,23 +1479,28 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return runUndo('undo_upgrade', ids, null);
     },
 
-    async show_in_finder() { return ok({}); },
+    async show_in_finder(track_id: string) {
+      const t = s.tracks.find((x) => x.track_id === track_id);
+      return ok({ target: `${FAKE_MUSIC}/${(t && pathOf(t)) ?? `Library/${track_id}.aiff`}`, opened: true });
+    },
     // api.reveal: a place inside the music folder, or an absolute path at or inside a watched import folder
     async reveal(rel_path: string) {
       const inWatched = (p: string) => s.imp.folders.some((f) => p === f.path || p.startsWith(`${f.path}/`));
       if (typeof rel_path !== 'string' || rel_path.split('/').includes('..') || (rel_path.startsWith('/') && !inWatched(rel_path))) {
         return fail('refused', 'Discjockey only opens places inside your music folder or a folder it watches.');
       }
-      return ok({});
+      return ok({ target: rel_path.startsWith('/') ? rel_path : rel_path === '.' ? FAKE_MUSIC : `${FAKE_MUSIC}/${rel_path}`, opened: true });
     },
     async open_report(run_id: string) {
-      return s.runs.some((r) => r.run_id === run_id) ? ok({}) : fail('refused', 'This report is not there any more.');
+      return s.runs.some((r) => r.run_id === run_id) ? ok({ target: reportPath(run_id), opened: true })
+        : fail('refused', 'This report is not there any more.');
     },
     async open_licenses() {
-      return s.licensesMissing ? fail('refused', 'The licences folder is missing from this copy of Discjockey.') : ok({});
+      return s.licensesMissing ? fail('refused', 'The licences folder is missing from this copy of Discjockey.')
+        : ok({ target: '/Applications/Discjockey.app/Contents/Resources/licenses', opened: true });
     },
     async open_external(url: string) {
-      return /^https:\/\//.test(url ?? '') ? ok({}) : fail('refused', 'Only https links open in the browser.');
+      return /^https:\/\//.test(url ?? '') ? ok({ target: url, opened: true }) : fail('refused', 'Only https links open in the browser.');
     },
     async app_update(check?: boolean) {
       return ok({ ...s.appUpdate, checked: !!check, checked_at: s.appUpdate.state === 'unknown' ? null : '2026-10-20T21:47:00+00:00' });
@@ -1685,7 +1691,9 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
    *  minus the ones a recorded refusal still holds. */
   function autoReady(): number { return readyTracks(s).length; }
 
-  function todoView(filter: TodoFilter, show_hidden: boolean) {
+  function todoView(filter: TodoFilter | TodoFilter[], show_hidden: boolean) {
+    const wanted = ([] as TodoFilter[]).concat(filter);  // the engine takes a list too (`todo list --group fake,weak`)
+    const everything = !wanted.length || wanted.includes('all');
     const order: TodoGroupKey[] = ['rekordbox_check', 'missing_file', 'same_song', 'duplicate', 'upgrade_ready', 'cdj', 'not_found', 'weak',
       'good_lossy', 'fake', 'other'];
     const LABELS: Record<TodoGroupKey, [string, string]> = {
@@ -1759,13 +1767,13 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     for (const q of questionItems(s)) { items.same_song.push(q); chips.same_song++; counted.add(q.track_id); }
     for (const d of duplicateItems(s)) { items.duplicate.push(d); chips.duplicate++; counted.add(d.track_id); }
     chips.all = counted.size;
-    const groups = order.filter((k) => items[k].length && (filter === 'all' || filter === k))
+    const groups = order.filter((k) => items[k].length && (everything || wanted.includes(k)))
       .map((k) => ({ key: k, label: LABELS[k][0], hint: LABELS[k][1], items: items[k],
         ...(k === 'upgrade_ready' ? upgradeAll(items[k]) : {}), ...(k === 'cdj' ? cdjAll() : {}),
         ...(k === 'missing_file' ? missingAll(items[k]) : {}) })) as Todo['groups'];
     const TODO_EMPTY: Record<string, string | undefined> = { all_lossless: 'Everything is lossless.',
       all_hidden: 'Only hidden tracks are left.', nothing_here: 'Nothing here.' };  // words.TODO_EMPTY
-    const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : filter !== 'all'
+    const empty = groups.length ? null : !s.tracks.length ? 'empty_library' as const : !everything
       ? 'nothing_here' as const : hidden_count ? 'all_hidden' as const : 'all_lossless' as const;
     const check_tracks = s.tracks.filter((t) => t.rekordbox_check).length;
     return { chips, check_tracks, sub: todoSub(chips, check_tracks), hidden_count, show_hidden, groups, empty,

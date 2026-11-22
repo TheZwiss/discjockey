@@ -57,11 +57,14 @@ NOUN_WORDS = {
     "tools": "The programs Discjockey needs: are they there.",
     "setup": "Setup: what it still needs, whether a folder can be your music folder.",
     "app": "This app: open its window, its version and whether a newer one is out.",
+    "open": "Show a song, a folder or a report in the Finder, or open a web page.",
 }
 
 NO_PLAYLIST = "No playlist called “{name}”."
 NO_SONG = "Your library has no song {key}. `track find <words>` finds a song's id."
 NO_REPORT_YET = "There is no run report yet."
+NO_BUY_LIST = "There is no buy list yet: Discjockey writes it when a sync finds songs it can only get lossy."
+NO_PLACE = "unlisted is no single folder: say all, playlist:<name>, folder:<path> or a path."
 NO_REPORT = "There is no report {stamp}. `report show last` shows the newest; a sync prints the id of its report."
 NO_FOLDER = "No folder at {path}."
 NOT_WATCHED = "{path} is not one of the watched folders."

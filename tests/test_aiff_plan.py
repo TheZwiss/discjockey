@@ -711,7 +711,7 @@ def test_the_todo_group_counts_are_the_cdj_plans_and_its_items_are_the_plans_ite
     state["tracks"]["wavpack"]["artist"] = ""
     state["tracks"]["hidden"].update(hidden=False)
     plan = run(paths, state, {"kind": "cdj"})
-    group = next(g for g in views.todo(state, "all", False, {}, date(2026, 11, 13), away={"/Volumes/Nowhere Drive": "unmounted"},
+    group = next(g for g in views.todo(state, None, False, {}, date(2026, 11, 13), away={"/Volumes/Nowhere Drive": "unmounted"},
                                     cdj_all=views.cdj_counts(plan.to_dict()))["groups"] if g["key"] == "cdj")
     assert views.cdj_counts(plan.to_dict()) == (plan.total, sum(w["n"] for w in plan.waiting)) == (1, 2)
     assert group["all"] == {"n": plan.total, "k": 2}
@@ -729,7 +729,7 @@ def test_a_row_of_the_cdj_group_says_what_the_head_counts_a_cloud_file_waits_in_
     assert views.cdj_counts(plan.to_dict()) == (plan.total, 1) == (2, 1)
 
     def aiff_of(**kw):
-        out = views.todo(state, "all", False, {}, date(2026, 11, 13), cdj_all=views.cdj_counts(plan.to_dict()), **kw)
+        out = views.todo(state, None, False, {}, date(2026, 11, 13), cdj_all=views.cdj_counts(plan.to_dict()), **kw)
         return {i["track_id"]: i["aiff"] for g in out["groups"] if g["key"] == "cdj" for i in g["items"]}
 
     assert aiff_of() == {"wavpack": None, "aac": None, "hidden": None}              # no plan ran: the quick answer

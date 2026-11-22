@@ -1980,7 +1980,7 @@ def _absolute(root: Path | None, path: str | None) -> str | None:
     return str(root / path) if root is not None else None
 
 
-def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], today: date,
+def todo(state: dict, filt: Collection[str] | None, show_hidden: bool, others: dict[str, str], today: date,
          cover: Url | None = None, questions: Sequence[Question] = (), duplicates: Sequence[DuplicateGroup] = (),
          dup_files: Mapping[str, Sequence[DupFile]] | None = None, audio: Url | None = None,
          counted: Collection[str] = (), away: Mapping[str, str] | None = None,
@@ -1990,7 +1990,8 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
          cdj_stopped: tuple[int, int] | None = None, batch_kinds: Mapping[int, str] | None = None,
          cdj_waits: Mapping[str, str] | None = None, decided: Collection[str] = (), root: Path | None = None,
          place: Callable[[str], str] | None = None) -> dict:
-    """Groups in this order: Check in rekordbox, Missing files, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
+    """`filt`: the groups to list (a collection of keys), None for every one (never a bare string: `"all" in "all"`
+    reads a group key as part of a word). Groups in this order: Check in rekordbox, Missing files, Is this the same song?, Duplicates, Upgrade ready, Won't play well on
     CDJs, Not found, Weak, Good lossy, Fake lossless, Other. `others`: track id -> what blocks it (a move blocked by another file, several
     files that could be it). Hidden tracks are left out unless show_hidden. "Check in rekordbox" lists every track
     with a `rekordbox_check`, hidden or not, so a track can be in two groups; chips["all"] counts each track once.
@@ -2137,7 +2138,7 @@ def todo(state: dict, filt: str, show_hidden: bool, others: dict[str, str], toda
              "cdj": {"all": {"n": cdj_all[0], "k": cdj_all[1]},
                      "stopped": {"batch_id": cdj_stopped[0], "left": cdj_stopped[1]} if cdj_stopped else None}}
     groups = [{"key": g, "label": label, "hint": hint, "items": items[g], **extra.get(g, {})}
-              for g, label, hint in TODO_GROUPS if items[g] and (filt in (None, "all") or filt == g)]
+              for g, label, hint in TODO_GROUPS if items[g] and (filt is None or g in filt)]
     empty = None
     if not chips["all"]:
         empty = "all_lossless" if not hidden else "all_hidden"

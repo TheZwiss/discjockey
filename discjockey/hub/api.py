@@ -136,7 +136,8 @@ LIBRARY_METHODS = frozenset((
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
-RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE"}
+RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
+                 "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
 
 
 @dataclass
@@ -888,8 +889,8 @@ class HubApi:
         reports = self._reports()
         return views.todo_others(prep, reports[-1][1] if reports else None)
 
-    def _todo(self, state: dict, filt: str, show_hidden: bool, count_only: bool = False) -> dict:
-        """views.todo with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
+    def _todo(self, state: dict, filt: Collection[str] | None, show_hidden: bool, count_only: bool = False) -> dict:
+        """views.todo (`filt`: the groups to list, None for every one) with the import's questions (the last plan's) and duplicates (the plan's same-song groups and the
         records' same-audio ones, each with its files). `count_only` (the sidebar's number): the records' groups are
         counted without loading their files (they are online and not held by how they are found), so only the plan's
         few same-song groups read theirs; the groups of the answer are then not listed. While an import folder is
@@ -922,7 +923,7 @@ class HubApi:
         rows = [] if count_only else self._aiff_batches()
         checked = {} if count_only else self._checked_batches(state)
         # Convert all's counts: what the CDJ plan can run now and what waits (only a page that shows the group asks)
-        cdj_plan = self._cdj_plan(state, away, decided, running) if members and filt in (None, "all", "cdj") else None
+        cdj_plan = self._cdj_plan(state, away, decided, running) if members and (filt is None or "cdj" in filt) else None
         # where a missing file was (the Missing files group's words); the sidebar's count needs none
         where = None
         if not count_only and any(file_missing(e) for e in state["tracks"].values()):
@@ -1144,7 +1145,7 @@ class HubApi:
         """The sidebar's numbers; `also`: Favourites keys to resolve besides the stored ones (set_favourites asks
         which of the keys it is given exist right now)."""
         state = self._shown_state()
-        count = self._todo(state, "all", False, count_only=True)["chips"]["all"]
+        count = self._todo(state, None, False, count_only=True)["chips"]["all"]
         # the dot on "Download limits": a warning sign the user hasn't marked as seen, or a service paused today
         warnings = any(c["new_warnings"] or c["paused"] for c in views.limit_cards(state, self._settings(), self._today()))
         with self._move_log() as conn:  # no library.db yet: no records, no Favourites, no watched folders
@@ -1426,12 +1427,17 @@ class HubApi:
         return {"plan": answer}
 
     @bridge
-    def todo(self, filter: str = "all", show_hidden: bool = False) -> dict:
-        if filter not in ("all", None, *views.TODO_GROUP_KEYS):
-            raise BadId("usage", f"There is no to-do group called {filter}. The groups are "
-                                      f"{', '.join(views.TODO_GROUP_KEYS)}.")
+    def todo(self, filter: str | list[str] = "all", show_hidden: bool = False) -> dict:
+        """The To-do page's groups. `filter`: one group key, `all`, or a list of keys (each text may hold several,
+        comma-separated); the groups come in the window's order whatever order they were named in."""
+        texts = [filter] if isinstance(filter, str) or filter is None else filter
+        keys = [word.strip() for text in texts for word in (text or "").split(",") if word.strip()]
+        for key in keys:
+            if key != "all" and key not in views.TODO_GROUP_KEYS:
+                raise BadId("usage", f"There is no to-do group called {key}. The groups are "
+                                          f"{', '.join(views.TODO_GROUP_KEYS)}.")
         state = self._state()
-        return self._todo(state, filter, bool(show_hidden))
+        return self._todo(state, None if not keys or "all" in keys else keys, bool(show_hidden))
 
     def _away_folders(self, rows: Sequence[WatchedFolder]) -> dict[int, str]:
         """Folder id -> why it is not there right now ("unmounted" or "missing", scanner.away_reason) for the import
@@ -1658,16 +1664,23 @@ class HubApi:
     # --- other ---
 
     @bridge
-    def show_in_finder(self, track_id: str, which: str = "current") -> dict:
-        self._svc.reveal(self._paths.root / self._file_of(track_id, which))
-        return {}
+    def show_in_finder(self, track_id: str, which: str = "current", print_only: bool = False) -> dict:
+        return self._opened(self._svc.reveal, self._paths.root / self._file_of(track_id, which), print_only)
 
     @bridge
-    def reveal(self, rel_path: str) -> dict:
+    def reveal(self, rel_path: str, print_only: bool = False) -> dict:
         """Shows a place in Finder: a path inside the music folder (relative), or an absolute path inside a watched
         import folder (the folder itself, a crate): only places the library knows, never any path the page names."""
-        self._svc.reveal(self._watched_place(rel_path) if str(rel_path).startswith("/") else self._inside_root(rel_path))
-        return {}
+        place = self._watched_place(rel_path) if str(rel_path).startswith("/") else self._inside_root(rel_path)
+        return self._opened(self._svc.reveal, place, print_only)
+
+    @staticmethod
+    def _opened(opener: Callable[..., object], target: Path | str, print_only: bool) -> dict:
+        """What the openers answer (`Opened`): the place or web address, and whether it was opened. Every check ran
+        before this; `print_only` (the command line's `--print`) opens nothing."""
+        if not print_only:
+            opener(target)
+        return {"target": str(target), "opened": not print_only}
 
     def _watched_place(self, path: str) -> Path:
         """The absolute `path` when it is a watched import folder or inside one (its symlinks followed: a link leading
@@ -1686,28 +1699,30 @@ class HubApi:
         return wanted
 
     @bridge
-    def open_report(self, run_id: str) -> dict:
+    def open_report(self, run_id: str, print_only: bool = False) -> dict:
+        """A run's report (`run_id`, the stamp) in its app, or the buy list (`not-lossless`, `.discjockey/not_lossless.md`)."""
+        if run_id == "not-lossless":
+            if not self._paths.not_lossless_md.is_file():
+                raise OpProblem(engine_words.NO_BUY_LIST, "refused")
+            return self._opened(self._svc.open_path, self._paths.not_lossless_md, print_only)
         if not RUN_ID.fullmatch(run_id or ""):
             raise ValueError("That is not a run report.")
-        self._svc.open_path(self._inside_root(f"{library.DATA_DIR}/reports/{run_id}.md"))
-        return {}
+        return self._opened(self._svc.open_path, self._inside_root(f"{library.DATA_DIR}/reports/{run_id}.md"), print_only)
 
     @bridge
-    def open_licenses(self) -> dict:
+    def open_licenses(self, print_only: bool = False) -> dict:
         """Settings -> About: the licences of everything Discjockey bundles, in Finder (spec public-release §6.5)."""
         folder = tools.licenses_dir()
         if not folder.is_dir():
             raise OpProblem("The licences folder is missing from this copy of Discjockey.", "refused")
-        self._svc.open_path(folder)
-        return {}
+        return self._opened(self._svc.open_path, folder, print_only)
 
     @bridge
-    def open_external(self, url: str) -> dict:
+    def open_external(self, url: str, print_only: bool = False) -> dict:
         """Websites open in the system browser, never inside the hub window."""
         if not re.fullmatch(r"https?://[^\s]+", url or ""):
             raise ValueError("Only web links (https://...) can be opened.")
-        self._svc.open_url(url)
-        return {}
+        return self._opened(self._svc.open_url, url, print_only)
 
     @bridge
     def app_update(self, check: bool = False) -> dict:
@@ -2827,7 +2842,7 @@ class HubApi:
     def _upgrade_all_ids(self, state: dict) -> list[str]:
         """What Upgrade all runs: the songs of To-do's Upgrade ready group whose Same track can run (`select`, the one
         answer the window's button, `upgrade_preview` and `select_listing` share)."""
-        return select.upgrade_all_ids(self._todo(state, "upgrade_ready", False))
+        return select.upgrade_all_ids(self._todo(state, ("upgrade_ready",), False))
 
     @bridge
     def upgrade_all(self, plan_id: str | None = None) -> dict:
@@ -3295,10 +3310,9 @@ class HubApi:
         return {"stopped": self._jobs.stop_sign_in()}
 
     @bridge
-    def open_privacy_settings(self) -> dict:
+    def open_privacy_settings(self, print_only: bool = False) -> dict:
         """System Settings at Full Disk Access (Safari's logins need it)."""
-        self._svc.open_url(_PRIVACY_SETTINGS)
-        return {}
+        return self._opened(self._svc.open_url, _PRIVACY_SETTINGS, print_only)
 
     @bridge
     def qobuz_check_login(self) -> dict:
@@ -3799,7 +3813,8 @@ class CliApi(HubApi):
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
                  "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch",
-                 "report": "_resolve_report", "since": "_resolve_since", "moves": "_resolve_moves"}  # kind -> the method that makes it (grows per group)
+                 "report": "_resolve_report", "since": "_resolve_since", "moves": "_resolve_moves",
+                 "place": "_resolve_place", "report_file": "_resolve_report_file"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -3930,7 +3945,8 @@ class CliApi(HubApi):
         every kind in this one shape. A text no id can be made of is `bad_args` (`unknown_id` / `bad_id_kind`); a kind
         nobody resolves yet is a failure. Kinds so far: `track` (a song key as it is, or the path of a file of the
         library, absolute or relative to the music folder, to its song key) and `collection` (`all`, `unlisted`,
-        `playlist:<name>`, `folder:<path>`, to `{view, key}`; an unknown one is `unknown_id`)."""
+        `playlist:<name>`, `folder:<path>`, to `{view, key}`; an unknown one is `unknown_id`), `place` (`open folder`'s
+        word, to the path `reveal` takes) and `report_file` (`report:<stamp>`, `last` or `not-lossless`)."""
         resolver = self.RESOLVERS.get(kind)
         if resolver is None:
             raise OpProblem(f"Discjockey cannot turn {kind} words into an id yet.", "failed")
@@ -4080,6 +4096,30 @@ class CliApi(HubApi):
             return key
         raise BadId("unknown_id", engine_words.NO_FOLDER.format(path=name))
 
+    def _resolve_place(self, text: str) -> str:
+        """`open folder <place>`: the path `reveal` takes. `all` is the Library, `playlist:<name>` (only with the prefix)
+        its folder, `folder:<path>` a folder of the collections; `unlisted` is no folder. Any other text is a path, never
+        a playlist: relative to the music folder as typed, an absolute one inside the music folder made relative, any
+        other absolute one as typed (`reveal` refuses what is no place of the library). A bare word is not
+        `_resolve_collection`'s playlist here: `Superseded` is the folder."""
+        word = text.strip()
+        if word == "all":
+            return "Library"
+        if word == "unlisted":
+            raise BadId("usage", engine_words.NO_PLACE)
+        if word.startswith("playlist:"):
+            return f"Library/{self._resolve_collection(word)['key']}"
+        if word.startswith("folder:"):
+            return self._collection_folder(word[len("folder:"):].strip())
+        typed = Path(os.path.expanduser(word))
+        if typed.is_absolute() and typed.is_relative_to(self._paths.root):
+            return typed.relative_to(self._paths.root).as_posix() or "."
+        return word
+
+    def _resolve_report_file(self, text: str) -> str:
+        """`open report`: `not-lossless` (the buy list) as it is, else a report as `_resolve_report` makes it."""
+        return "not-lossless" if text.strip() == "not-lossless" else self._resolve_report(text)
+
     def _resolve_aiff(self, text: str) -> int:
         """`--batch`: the AIFF batch `aiff:<n>` as its number. A bare number or a move batch is `bad_id_kind`, a batch
         that was never made `unknown_id`."""
@@ -4224,11 +4264,11 @@ class CliApi(HubApi):
         if want.verb_all == select.UPGRADE_ALL:
             return self._nothing_left({"ids": self._upgrade_all_ids(state)}, NO_UPGRADES)
         if want.verb_all == select.CHECK_DONE:
-            return self._nothing_left({"ids": select.check_done_ids(self._todo(state, "rekordbox_check", False))},
+            return self._nothing_left({"ids": select.check_done_ids(self._todo(state, ("rekordbox_check",), False))},
                                       NOTHING_TO_CHECK)
         if want.verb_all in (select.DOWNLOAD_AGAIN, select.REMOVE_MISSING):
             ids = (select.download_again_ids if want.verb_all == select.DOWNLOAD_AGAIN else select.remove_missing_ids)(
-                self._todo(state, "missing_file", False))
+                self._todo(state, ("missing_file",), False))
             return self._nothing_left({"ids": ids}, NO_MISSING_LEFT[want.verb_all])
         if want.verb_all == select.RENAME_ALL:
             ids = self._rename_all_ids(state, want.view, want.key)
@@ -4237,7 +4277,7 @@ class CliApi(HubApi):
                 ids = [*ids, *(k for k in plan.items if k not in ids)]
             return self._nothing_left({"ids": ids}, plans.NOTHING_TO_CHANGE)
         if want.source == "todo":
-            return {"ids": select.todo_ids(self._todo(state, want.group, want.hidden))}
+            return {"ids": select.todo_ids(self._todo(state, None if want.group == "all" else (want.group,), want.hidden))}
         view, key = want.view, want.key
         if view == "folder":
             key = self._folder_key(key or "")
