@@ -372,6 +372,13 @@ DRIVERS = {
     "undo_preview": lambda api, rec: api.undo_preview(1),  # `batch undo moves:1 --dry-run`: the move log, no lock
     "limits_what_if": lambda api, rec: api.limits_what_if("qobuz", 40),
     "check_music_folder": lambda api, rec: api.check_music_folder(str(api._paths.root.parent / "Elsewhere")),
+    "limits": lambda api, rec: api.limits("qobuz"),
+    "playlists": lambda api, rec: api.playlists(),  # the playlists file and the stored read: no lock
+    "downloads_view": lambda api, rec: api.downloads_view(),
+    "find_logins": lambda api, rec: api.find_logins("soundcloud"),  # the browsers of `services()`: none
+    "setup_check_tools": lambda api, rec: api.setup_check_tools(),
+    "setup_status": lambda api, rec: api.setup_status(),
+    "retry_music_folder": lambda api, rec: api.retry_music_folder(),  # a built read with no command of its own
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]

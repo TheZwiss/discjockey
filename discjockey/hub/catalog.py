@@ -150,7 +150,7 @@ BY_ID_KIND: dict[str, tuple[str, str]] = {"batch undo": ("batch_id", "batch")}
 # fact `help --json` lists as the `no_library` reason. tests/test_cli_housekeeping.py runs every built read with none
 # chosen to pin it (`set_auto_upgrade` and `set_sync_scope` are writes: probed by hand, they answer `ok` with none chosen).
 NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope",
-                              "check_music_folder"))  # Settings works before a folder is chosen
+                              "check_music_folder", "setup_status", "setup_check_tools", "downloads_view", "find_logins"))  # Settings works before a folder is chosen
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
@@ -297,7 +297,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("never_download", "track download", "J", params={"track_id": TRACKS}, fixed={"never": False}, planned="phase 4: V4.6"),
     _e("hide", "track hide", "J", params={"track_id": TRACKS}, fixed={"hidden": True}, planned="phase 4: V4.6"),
     _e("hide", "track unhide", "J", params={"track_id": TRACKS}, fixed={"hidden": False}, planned="phase 4: V4.6"),
-    _e("setup_status", "setup status", "R", "setup status", planned="phase 3: V3.1b"),
+    _e("setup_status", "setup status", "R", "setup status", built=True),
     _e("app_update", "app info", "R", "app info", planned="phase 3: V3.1b"),
     _e("rescan_library", "library scan", "J", "library scan", built=True, locks={"library"}),
     _e("quit", "", "W"),
@@ -307,14 +307,14 @@ ENTRIES: tuple[Entry, ...] = (
         "track_id": TRACK, "which": Arg("--upgrade", type="bool", resolve="which")}, planned="phase 3: V3.1c"),
     _e("select", "", "dropped"),
     # --- limits
-    _e("limits", "limits show", "R", "limits show qobuz", params={"service": _positional()}, planned="phase 3: V3.1b"),
+    _e("limits", "limits show", "R", "limits show qobuz", params={"service": _positional()}, built=True),
     _e("limits_what_if", "limits set", "R", "limits set qobuz 40 --dry-run", params={
         "service": _positional(), "limit": _positional(type="int")}, built=True),
     _e("save_limits", "limits set", "J", params={"service": _positional(), "limit": _positional(type="int")},
        dry_run="limits_what_if", planned="phase 4: V4.8"),
     _e("mark_warnings_seen", "limits seen", "J", params={"service": _positional()}, planned="phase 4: V4.8"),
     # --- playlists
-    _e("playlists", "playlist list", "R", "playlist list", planned="phase 3: V3.1b"),
+    _e("playlists", "playlist list", "R", "playlist list", built=True),
     _e("add_playlist", "playlist check", "RJ", params={"url": _positional()}, planned="phase 3: V3.1b"),
     _e("preview_playlist_change", "", "R", params={"lines": _derived("playlist_lines", "list")}, planned="phase 4: V4.2"),
     *_playlist_edits(),
@@ -325,8 +325,8 @@ ENTRIES: tuple[Entry, ...] = (
     _e("undo_moves", "batch undo", "J", params={"batch_id": _positional("moves", type="int")}, needs_yes=True,
        dry_run="undo_preview", planned="phase 4: V4.4"),
     # --- logins and setup
-    _e("downloads_view", "login list", "R", "login list", planned="phase 3: V3.1b"),
-    _e("find_logins", "login find", "R", "login find soundcloud", params={"service": _positional()}, planned="phase 3: V3.1b"),
+    _e("downloads_view", "login list", "R", "login list", built=True),
+    _e("find_logins", "login find", "R", "login find soundcloud", params={"service": _positional()}, built=True),
     _e("setup_account", "login use", "J", params={"service": _positional(), "browser": Arg("--browser")}, planned="phase 4: V4.7"),
     _e("setup_account", "login check", "J", params={"service": _positional(), "browser": _derived("saved_browser")}, planned="phase 4: V4.7"),
     _e("account_sign_in", "login sign-in", "J", params={"service": _positional(), "browser": Arg("--browser")}, planned="phase 4: V4.7"),
@@ -348,7 +348,7 @@ ENTRIES: tuple[Entry, ...] = (
        fixed={"on": []}, built=True, locks={"library", "support"}),
     _e("set_sync_scope", "sync scope on", "J", "sync scope on kind:weekly", params={"on": _positional(many=True)},
        fixed={"off": []}, built=True, locks={"library", "support"}),
-    _e("setup_check_tools", "tools status", "R", "tools status", planned="phase 3: V3.1b"),
+    _e("setup_check_tools", "tools status", "R", "tools status", built=True),
     _e("update_tools", "tools update", "J", planned="phase 4: V4.8"),
     _e("rollback_tools", "tools rollback", "J", needs_yes=True, planned="phase 4: V4.8"),
     _e("open_licenses", "open licences", "R", "open licences", planned="phase 3: V3.1c"),
@@ -358,7 +358,9 @@ ENTRIES: tuple[Entry, ...] = (
     _e("check_music_folder", "setup music", "R", "setup music /Music/Discjockey --dry-run", params={"path": _positional()}, built=True),
     _e("set_music_folder", "setup music", "J", params={"path": _positional()}, needs_yes=True,
        dry_run="check_music_folder", planned="phase 4: V4.8"),
-    _e("retry_music_folder", "setup status", "R", "setup status", planned="phase 3: V3.1b"),
+    # the window's Try again on the missing-folder screen; a command resolves the folder fresh every time, so `setup status`
+    # answers (design §5.2)
+    _e("retry_music_folder", "", "R", built=True),
     _e("setup_skip_import", "setup skip-import", "B", planned="phase 4: V4.8"),
     _e("add_watched_folder", "folder add", "J", "folder add /Music/Crate", params={"path": _positional()},
        dry_run="check_import_folder", built=True, locks={"library"}),

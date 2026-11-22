@@ -1,0 +1,34 @@
+Spotify app       no
+Spotify login     no
+Qobuz             no
+Playlists         yes
+Complete          no
+Next step         spotify
+Version           1.0.0
+Qobuz skipped     no
+Spotify skipped   no
+Auto upgrade      yes
+Existing          no
+Import folders    0
+Import skipped    no
+Qobuz last check  none
+Spotify user      none
+
+Music
+State      ok
+Path       <tmp>
+Suggested  /nonexistent-home/Music/Discjockey
+
+Tools
+Ffmpeg   yes
+Ffprobe  yes
+Deno     yes
+
+Youtube music
+Liked music  no
+Can turn on  no
+Listed       no
+
+Accounts
+Youtube     none
+Soundcloud  none

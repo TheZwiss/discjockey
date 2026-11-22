@@ -17,7 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from hub_helpers import LOSSY, choose_music, make_root
+from hub_helpers import LOSSY, choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
@@ -43,6 +43,8 @@ def golden_name(entry) -> str:
     return GOLDEN_NAMES.get(entry.method, "_".join(entry.command))
 
 
+TIMED = {("limits", "show"), ("limits", "set")}  # pages that word today's date: on the fixed clock of `services()`
+STUBBED = {("setup", "status"), ("tools", "status"), ("login", "list"), ("login", "find"), ("app", "info")}  # reads of this Mac
 RICH = {("todo", "list"), ("upgrade", "list"), ("check", "list"), ("track", "show")}  # reads that need a better version
                                                                                         # parked and checks open
 CLICKS = Path(__file__).parent / "fixtures" / "clicks-lame.mp3"  # the one real audio file: a preview decodes it
@@ -78,13 +80,21 @@ def with_read(paths, monkeypatch):
     words the read's age and the plan's days, so it must not move with the day it runs on."""
     from datetime import datetime
 
-    from hub_helpers import ID1, ID2, TRACKS, services, store_sync_read
+    from hub_helpers import ID1, ID2, TRACKS, store_sync_read
 
-    from discjockey.hub.api import CliApi
     from discjockey.models import FetchedPlaylist, PlaylistLine
     store_sync_read(paths, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
                             FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])],
                     when=datetime(2026, 10, 20, 21, 45))
+    with_clock(monkeypatch)
+
+
+def with_clock(monkeypatch):
+    """The command line's api on the services of the hub fixtures (`hub_helpers.services()`: the clock is 2026-10-20 21:47,
+    nothing of this Mac): a page that words the date or an age must not move with the day it runs on."""
+    from hub_helpers import services
+
+    from discjockey.hub.api import CliApi
 
     def default():
         resolved = library.resolve_paths()
@@ -119,6 +129,10 @@ def fixture(tmp_path, monkeypatch, request, utc):
         return rich_library(tmp_path, monkeypatch).root
     if entry is not None and entry.command == ("missing", "list"):
         return missing_library(tmp_path, monkeypatch).root
+    if entry is not None and entry.command in STUBBED:
+        stub_headless(monkeypatch, "1.0.0")  # the pages never show this Mac's browsers or tools, nor the version of the day
+    if entry is not None and entry.command in TIMED:
+        with_clock(monkeypatch)
     paths = make_root(tmp_path)
     choose_music(tmp_path, monkeypatch)
     if entry is not None and entry.command[0] == "batch":

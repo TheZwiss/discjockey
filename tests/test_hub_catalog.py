@@ -17,7 +17,7 @@ from discjockey.hub.catalog import Arg, Entry
 # `report list`, `sync plan` and `track spectrum`. V3.1b (13 rows: the setup, limits, playlist, login and tidy reads) is
 # lowering it in steps (70: its four dry-run-only rows are built). The next to lower it after it, V3.1c (6: the `open` commands), V3.2b (1: `status`); phase 4's rows stay planned until it builds
 # them (`planned` names the group).
-PLANNED_CEILING = 70
+PLANNED_CEILING = 63
 # The phases that are finished: no row may be planned for one of them (V3.2b sets 3 when phase 3 ends).
 FINISHED_PHASES = 2
 

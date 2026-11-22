@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from hub_helpers import choose_music, make_root
+from hub_helpers import choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
@@ -114,7 +114,7 @@ def test_help_of_a_word_that_is_not_there_is_bad_args(capsys):
 
 
 def test_a_command_not_built_is_in_no_help(capsys):
-    code, env = run_json(["help", "playlist"], capsys)
+    code, env = run_json(["help", "open"], capsys)
     assert code == 2 and env["outcome"] == "bad_args"
 
 
@@ -291,8 +291,10 @@ def test_a_command_lists_the_reasons_its_entries_and_locks_answer_with(capsys):
 
 
 def test_a_read_answers_no_library_exactly_when_the_catalogue_says_it_needs_one(tmp_path, monkeypatch, capsys):
-    """`NEEDS_NO_LIBRARY` is the fact behind the `no_library` reason: run every built read with no music folder chosen."""
+    """`NEEDS_NO_LIBRARY` is the fact behind the `no_library` reason: run every built read with no music folder chosen
+    (on the services of the hub fixtures: no browser or tool of this Mac is read)."""
     monkeypatch.setenv(library.SUPPORT_ENV, str(tmp_path / "support"))
+    stub_headless(monkeypatch)
     seen = 0
     for command, entries in parser.commands().items():
         for e in entries:

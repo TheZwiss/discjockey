@@ -1,0 +1,87 @@
+Service  qobuz
+
+Cards
+Service     Name             Set up  Used  Allowance  Warnings  New warnings  Paused
+qobuz       Qobuz            yes     0     80         0         0             no
+youtube     YouTube Premium  no      0     0          0         0             no
+soundcloud  SoundCloud Go+   no      0     0          0         0             no
+3 of 3 shown
+
+Usage
+Service        qobuz
+Name           Qobuz
+Behind         none
+Signals        none
+Last download  none
+
+Usage › Today
+Used        0
+Allowance   80
+Limit       60
+Carry over  20
+Extra       0
+Remaining   80
+
+Usage › Days
+Date        Used
+2026-10-07  0
+2026-10-08  0
+2026-10-09  0
+2026-10-10  0
+2026-10-11  0
+2026-10-12  0
+2026-10-13  0
+2026-10-14  0
+2026-10-15  0
+2026-10-16  0
+2026-10-17  0
+2026-10-18  0
+2026-10-19  0
+2026-10-20  0
+14 of 14 shown
+
+Usage › Still to load
+Count       none
+Days        none
+Fits today  none
+
+Usage › Setting
+Limit        60
+Extra today  0
+Recommended  60
+Min          1
+Max          500
+Extra max    200
+
+Usage › Setting › Zones
+Name     From  To
+careful  1     40
+normal   41    60
+faster   61    79
+fast     80    100
+risky    101   500
+5 of 5 shown
+
+Usage › Assessment
+Level  2
+Label  normal
+
+Usage › What if
+Limit            60
+Extra today      0
+Allowance today  80
+Remaining today  80
+Days to load     none
+Run minutes      70
+
+Usage › What if › Assessment
+Level  2
+Label  normal
+
+Usage › Signal summary
+Login failed       0
+Search failed      0
+Download rejected  0
+Preview only       0
+Duration mismatch  0
+Auto stop          0
