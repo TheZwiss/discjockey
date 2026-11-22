@@ -1434,6 +1434,12 @@ Results:
       - FR2 done cbf39204 (2 commits): logged **152k** (exp. 170k), advisor 0k; 6880 passed. All 9 applied; P2-2 by a
         per-song undo stack (an undo takes back only the latest open step); P2-3 one rule `views.batch_how` used by the
         window and history; `Opened.text`. Merged. FR3 dispatched (cli3-f3).
+      - FR3 done 3ab1f247: logged **185k** (exp. 190k), advisor 0k; 6893 passed. All applied: `present` rule (I-1/I-2),
+        `ready_text`, 19th check `records` (10 record-reading checks `skipped`), rekordbox-not-compared note,
+        `scanner.volume_of` + `step:folder_gone`, DOCTOR_LABELS. `status --ready` still fails on an unopenable
+        library.db (the Dashboard needs it; doctor answers): accepted. Merged e1a930f9. Fix rounds 518k. Read pass
+        dispatched (Sonnet, rehearse-reads.md updated for ran_check/Opened.text/19 checks/ready_text; worktree
+        `.claude/worktrees/cli3-reads-pass` detached at e1a930f9; Discjockey not running).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
