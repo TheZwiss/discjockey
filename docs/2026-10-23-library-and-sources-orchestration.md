@@ -1368,9 +1368,22 @@ Results:
         rekordbox lock, not RJ (design §6.1); `open report not-lossless`; `open file --which`; log name "download
         allowed"; new doctor/history/match words (show the user the tables).
         Brief check dispatched: fresh Opus, brief `phase3/brief-check.md` (also asked for real cuts), material 70k, exp. 270k.
-      - **RESUME HERE (LATEST, 2026-11-22, phase 3 brief check running):** on its notice: ps, agent-cost (advisor 0k),
+      - RESUME HERE (superseded below, 2026-11-22, phase 3 brief check running): on its notice: ps, agent-cost (advisor 0k),
         log it; read check.md (findings, word tables); tell the user the phase total and the word tables; then
         create `feat/cli-3-reads` from main and build by phase3-dispatch.md, one Sonnet agent at a time.
+      - Brief check done (fresh Opus): logged **370k** (exp. 270k, 1.37x), agent-cost 139 calls, cache 34.7M, fresh in
+        356k, out 130k, advisor 0k. check.md: 38 findings (3 Critical: T10 lock drivers for ~30 new entries missing from
+        every brief → every final pytest red; `app info` always "unknown" from the CLI; `batch undo moves:<n> --dry-run`
+        refused by the runner), 21 Important, 14 Minor; 16 caught only by this check → keep it. All fixes applied in the
+        briefs. Flagged decisions all kept (plain reads answer in seconds). Sizes unchanged, phase ≈ 2 173k after
+        detailing; detailing + check 739k → phase 3 ≈ 2.9M. New word tables in check.md §6 (shown to the user, nothing
+        waits). Phase branch `feat/cli-3-reads` = main de5cc633, pushed.
+        V3.1a dispatched (Sonnet, worktree `.claude/worktrees/cli3-1` on `feat/cli-3-paging`, material 39k, exp. 220k).
+      - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
+        order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
+        `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
+        -b <branch> .claude/worktrees/cli3-<n> feat/cli-3-reads` + hub-ui/node_modules symlink) and dispatch. Then the two
+        Sonnet review halves (briefs from the measured diff), fixes, read pass, verify, CI, merge into main. No release.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
