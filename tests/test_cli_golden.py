@@ -7,6 +7,7 @@ all three for free:
 * T7': every leaf of `data`, as the printer writes it, occurs in the text with `--verbose` (pages may reorder and
   word, never drop);
 * T4: `--json`'s `data` equals the bridge's answer minus `ok` (and `next`, which the envelope carries)."""
+import base64
 import json
 import os
 import re
@@ -204,26 +205,56 @@ def run(argv, capsys):
     return code, out.out, out.err
 
 
-def words(entry) -> list[str]:
-    return shlex.split(entry.example)
+def words(entry, root: Path) -> list[str]:
+    """The command line of a read's example. `setup music`'s names a folder under `root` that does not exist yet: the
+    catalogue's `/Music/Discjockey` is "not writable" only where `/` is not writable (a page must not depend on the machine)."""
+    line = shlex.split(entry.example)
+    if entry.command == ("setup", "music"):
+        line = [str(root / "Elsewhere" / "Discjockey") if word == "/Music/Discjockey" else word for word in line]
+    return line
+
+
+def golden_page(argv: list[str], root: Path, capsys, *, also: tuple = ()) -> tuple[int, str, str, dict]:
+    """The page of a command as its golden keeps it, and the notices that went with it: the line runs with `--json`, `root`
+    (and every regex in `also`) is replaced by a fixed word in that text, and the page is printed from the scrubbed
+    answer. The printer pads its columns to the longest cell, so scrubbing the finished page (the old way) made the
+    golden depend on how long the temp folder's name was. Returns (exit code, page, notices as stderr holds them, the
+    scrubbed envelope)."""
+    code, out, _ = run([*argv, "--json"], capsys)
+    notices = "\n".join(cli.notices(cli.runnable(json.loads(out))))
+    out = out.replace(json.dumps(str(root))[1:-1], "<tmp>")
+    for pattern, word in also:
+        out = re.sub(pattern, word, out)
+    env = json.loads(out)
+    text = cli.render_text(env, parser.parse(argv).flags)
+    return code, text + "\n" if text else "", notices, env
+
+
+SPECTRUM_DATA = re.compile(r"(?m)^(Data\s+)[A-Za-z0-9+/=]{100,}$")  # the base64 of the picture: it depends on the ffmpeg build
 
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
 def test_golden_text(entry, fixture, capsys):
     skip_without_tools(entry)
-    code, out, err = run(words(entry), capsys)
+    argv = words(entry, fixture)
+    code, page, notices, env = golden_page(argv, fixture, capsys, also=((r"plan:[0-9a-f]{12}", "plan:<id>"),))  # a plan's id is a hash of the music folder's path: a different one on every run
+    _, _, err = run(argv, capsys)  # the line as typed: its stderr holds what to run next
     assert code == 0 and all(line.startswith("Next: ") for line in err.splitlines())  # what to run next is a notice, not a page
-    # a plan's id is a hash of the music folder's path, which is a different one on every run
-    check_golden(golden_name(entry), re.sub(r"plan:[0-9a-f]{12}", "plan:<id>", out.replace(str(fixture), "<tmp>")))
+    if entry.command == ("track", "spectrum"):
+        shown = env["data"]["spectrum"]
+        size = shown["cols"] * shown["bands"]
+        assert len(base64.b64decode(shown["data"])) == size
+        assert SPECTRUM_DATA.search(page), "the picture's base64 is on the page"
+        page = SPECTRUM_DATA.sub(rf"\g<1><base64, {size} bytes>", page)
+    check_golden(golden_name(entry), page)
 
 
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
 def test_t7_prime_every_leaf_of_data_is_in_the_verbose_text(entry, fixture, capsys):
     skip_without_tools(entry)
-    _, out, _ = run([*words(entry), "--json"], capsys)
+    _, out, _ = run([*words(entry, fixture), "--json"], capsys)
     data = json.loads(out)["data"]
-    unpaged = ["--limit", "0"] if "--limit" in parser.extra_flags(parser.commands()[entry.command]) else []  # `batch undo` has none: its write is no read
-    code, text, _ = run([*words(entry), "--verbose", *unpaged], capsys)
+    code, text, _ = run([*words(entry, fixture), "--verbose", "--limit", "0"], capsys)
     assert code == 0
     missing = dropped(data, text)
     assert not missing, f"{entry.command}: {missing[:5]} are not in the text"
@@ -253,13 +284,13 @@ def test_dropped_finds_a_boolean_a_null_and_a_small_number_a_substring_would_fin
 @pytest.mark.parametrize("entry", READS, ids=lambda e: "_".join(e.command))
 def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
     skip_without_tools(entry)
-    parsed = parser.parse(words(entry))
+    parsed = parser.parse(words(entry, fixture))
     api = bind.default()
     kwargs, failed = call._arguments(entry, parsed.args, " ".join(entry.command), api, exact=False)  # what `call.run` makes of the line
     assert failed is None, failed
     answer = getattr(api, entry.method)(**kwargs)
     assert answer["ok"], answer
-    _, out, _ = run([*words(entry), "--json"], capsys)
+    _, out, _ = run([*words(entry, fixture), "--json"], capsys)
     # an answer that says what to run next (a search with no hit) has it in the envelope's `next`, and the live steps of a
     # running job (`status`) in its `person_steps`, not in `data`;
     # a headless api has no media server, so no answer carries a hub URL

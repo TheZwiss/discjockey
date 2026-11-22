@@ -1,6 +1,6 @@
-Path     /Music/Discjockey
+Path     <tmp>/Elsewhere/Discjockey
 Exists   no
-Usable   no
-Problem  not_writable
-Kind     none
-Message  Discjockey can't write in that folder. Choose one of your own folders.
+Usable   yes
+Problem  none
+Kind     new
+Message  none

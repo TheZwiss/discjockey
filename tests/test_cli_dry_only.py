@@ -88,3 +88,37 @@ def test_call_takes_a_stand_in_as_a_read_and_refuses_a_dry_run_of_a_read_with_no
     assert code == 0 and env["data"]["empty"]  # the stand-in is its own dry run
     code, env = run_json(["call", "library", "--args", "{}", "--dry-run"], capsys)
     assert code == 2 and "has no --dry-run" in env["message"]
+
+
+def big_move_batch(paths, n: int) -> int:
+    """A closed move batch of `n` moves (the typed id `moves:<id>` the dry run of `batch undo` answers)."""
+    from datetime import datetime
+
+    from discjockey import db
+    from discjockey.models import PlannedMove
+    with db.connect(paths.db_file) as conn:
+        moves = [PlannedMove("file", None, f"Song {i}", f"Library/Old/Song {i}.aiff", f"Library/New/Song {i}.aiff", None,
+                             "import", "playlist") for i in range(n)]
+        batch = db.start_batch(conn, started_by="tidy", about=None, undoes=None, now=datetime(2026, 11, 11, 12, 0, 0), moves=moves)
+        for move in db.batch_moves(conn, batch):
+            db.finish_move(conn, move.id)  # done: the undo lists a row for each (their files are not there: each says why it cannot go back)
+        db.close_batch(conn, batch, datetime(2026, 11, 11, 12, 0, 5))
+    return batch
+
+
+def test_a_command_with_a_read_and_a_write_takes_limit_and_offset_and_pages_its_dry_run(lib, capsys):
+    """`batch undo` has a read (`undo_preview`) and a write (`batch_undo`): the count line must not name a flag the
+    command refuses, and `--limit 0` must show every row."""
+    for line in (["batch", "undo"], ["aiff", "convert"], ["aiff", "rename"]):
+        flags = parser.extra_flags(parser.commands()[tuple(line)])
+        assert "--limit" in flags and "--offset" in flags, line
+    batch = big_move_batch(lib, 250)
+    argv = ["batch", "undo", f"moves:{batch}", "--dry-run"]
+    assert cli.main(argv) == 0
+    shown = capsys.readouterr().out
+    assert "200 of 250 shown" in shown and "--limit 0" in shown
+    assert cli.main([*argv, "--limit", "0"]) == 0
+    everything = capsys.readouterr().out
+    assert "250 of 250 shown" in everything and "Song 0 " in everything and "Song 0 " not in shown  # the rows come in reverse: Song 0 is last
+    assert cli.main([*argv, "--limit", "10", "--offset", "5"]) == 0  # both flags parse
+    assert "10 of 250 shown" in capsys.readouterr().out

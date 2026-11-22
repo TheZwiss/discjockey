@@ -393,11 +393,11 @@ def test_a_window_still_gets_the_old_results_and_none_of_the_command_lines_words
 # --- the text page ---
 
 def test_golden_the_page_of_a_new_track_apply(lib, capsys, tmp_path):
-    from test_cli_golden import WRITES, check_golden
+    from test_cli_golden import WRITES, check_golden, golden_page
     found = lib(["mp3", "aiff"])
-    code, out, err = run(["upgrade", "apply", *found.tracks, *NEW], capsys)
+    code, page, err, _ = golden_page(["upgrade", "apply", *found.tracks, *NEW], tmp_path, capsys)
     assert code == OK and "upgrade_apply" in WRITES
-    check_golden("upgrade_apply", out.replace(str(tmp_path), "<tmp>"))
+    check_golden("upgrade_apply", page)
     assert "Your turn: " in err and "relocate" in err and f"Then: {cmd('check done t1aaaaaaa')}" in err
 
 

@@ -410,9 +410,12 @@ def test_the_windows_resume_link_shows_a_stopped_terminal_batch_of_a_library_vie
 
 # --- the text pages ---
 
+BACKUP_STAMP = r"\d{8}T\d{6}Z(?:-\d+)?"  # a backup's name is its time
+
+
 def unstamped(text: str, tmp_path) -> str:
     """A page as the golden keeps it: no temp folder, no backup's time stamp."""
-    return re.sub(r"\d{8}T\d{6}Z(?:-\d+)?", "<backup>", text.replace(str(tmp_path), "<tmp>"))
+    return re.sub(BACKUP_STAMP, "<backup>", text.replace(str(tmp_path), "<tmp>"))
 
 
 def test_golden_the_pages_of_a_resume_and_an_undo(lib, capsys, tmp_path, monkeypatch):
@@ -750,13 +753,12 @@ def test_backups_and_restore_with_no_music_folder_are_refused(tmp_path, monkeypa
 
 
 def test_golden_the_page_of_a_restore(lib, capsys, tmp_path):
-    from test_cli_golden import WRITES, check_golden
+    from test_cli_golden import WRITES, check_golden, golden_page
     found = lib(["mp3", "mp3"])
     backup, _ = with_backup(found, capsys)
-    code, out, err = run(["rekordbox", "restore", backup, "--yes"], capsys)
+    code, page, err, _ = golden_page(["rekordbox", "restore", backup, "--yes"], tmp_path, capsys, also=((BACKUP_STAMP, "<backup>"),))
     assert code == OK and "rekordbox_restore" in WRITES
-    # the Path column is as wide as the temp folder: runs of spaces are squeezed, so the page is the same in any folder
-    check_golden("rekordbox_restore", re.sub(r" {2,}", "  ", unstamped(out, tmp_path)))
+    check_golden("rekordbox_restore", page)
 
 
 # --- batches and the rekordbox lock (the old console tests that pinned engine behaviour, ported) ---
