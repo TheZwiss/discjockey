@@ -4081,9 +4081,12 @@ export type BatchRow = {
 };
 /** The batches Discjockey made, newest first. */
 export type Batches = {
-  /** The newest batches (`--limit`). */
+  /** The batches, newest first. */
   batches: BatchRow[];
-  /** How many batches there are of the kinds asked for. */
+  /**
+   * How many batches there are of the kind and from the time asked for: as many as the list holds, and the
+   * `page`'s total.
+   */
   total: number;
 };
 /** One track of an AIFF batch, with its name. */

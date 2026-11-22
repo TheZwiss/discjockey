@@ -4425,36 +4425,34 @@ class CliApi(HubApi):
         return OpProblem(words, "refused", reason="unclean" if e.reason == "unclean" else None, data={"why": e.reason})
 
     @cli_first
-    def batches(self, kind: str | None = None, limit: int = 20) -> dict:
+    def batches(self, kind: str | None = None, since: str | None = None) -> dict:
         """The batches Discjockey made, AIFF batches (Same track, Convert, Rename) and move batches (tidy-ups, saves,
-        folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them). `{batches, total}`;
-        `total` counts every batch of the kinds asked for, the list holds the newest `limit`. A row: `id` (`aiff:12` or
-        `moves:12`, the id every other command takes), `kind`, `what` (an AIFF batch's `upgrade` | `convert` | `mixed`; a
-        move batch's title), `started_by`, `state` (`running` | `stopped` | `done`), `stop_reason`, `started`, `ended`,
-        `total`, `done`, `skipped`, `failed`, `planned`, `undone` (items; for a move batch `done` is the files moved),
-        `backup` (the rekordbox backup an AIFF batch made), `via` (`window` | `terminal`: where it started), `scope` (what
-        was picked for an AIFF batch: `selection`, `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the batch that
-        undid it). `limit` 0 is every batch."""
+        folder renames, undos) in one list, newest first (`kind`: `aiff` or `moves` for one of them; `since`: an ISO time,
+        the command line's `--since` resolves to one, keeps the batches that started at or after it). `{batches, total}`;
+        `total` counts every batch of the kind and since asked for (the list is as long: `--json` pages it, the envelope's
+        `page` says where). A row: `id` (`aiff:12` or `moves:12`, the id every other command takes), `kind`, `what` (an
+        AIFF batch's `upgrade` | `convert` | `mixed`; a move batch's title), `started_by`, `state` (`running` |
+        `stopped` | `done`), `stop_reason`, `started`, `ended`, `total`, `done`, `skipped`, `failed`, `planned`, `undone`
+        (items; for a move batch `done` is the files moved), `backup` (the rekordbox backup an AIFF batch made), `via`
+        (`window` | `terminal`: where it started), `scope` (what was picked for an AIFF batch: `selection`,
+        `library:<view>[:<key>]`, `todo:cdj`, …; null for a move batch), and for a move batch `undone_by` (the id of the
+        batch that undid it)."""
         if kind not in (None, *BATCH_KINDS):
             raise BadId("usage", f"A batch kind is aiff or moves, not {kind}.")
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
-            raise BadId("usage", "--limit takes a number: 0 for every batch.")
-        fetch = limit or -1  # SQLite's LIMIT -1 is no limit
-        paths = self._paths
+        rows = [r for r in self._batch_rows(kind) if since_mod.after(r["started"], since)]
+        return {"batches": rows, "total": len(rows)}
+
+    def _batch_rows(self, kind: str | None = None) -> list[dict]:
+        """Every batch of `kind` (None: both) as a `BatchRow`, newest first."""
         rows: list[dict] = []
-        total = 0
         with self._move_log() as conn:
             if conn is not None:
                 if kind in (None, "aiff"):
-                    found, count = db.aiff_batches(conn, fetch)
-                    rows += [views.aiff_batch_row(b) for b in found]
-                    total += count
+                    rows += [views.aiff_batch_row(b) for b in db.aiff_batches(conn, -1)[0]]  # SQLite's LIMIT -1: no limit
                 if kind in (None, "moves"):
-                    found, count = db.batches(conn, fetch)
-                    rows += [self._moves_batch_row(conn, b) for b in found]
-                    total += count
+                    rows += [self._moves_batch_row(conn, b) for b in db.batches(conn, -1)[0]]
         rows.sort(key=lambda r: (r["started"], r["batch"], r["kind"]), reverse=True)
-        return {"batches": rows[:limit] if limit else rows, "total": total}
+        return rows
 
     def _moves_batch_row(self, conn, b: BatchRow) -> dict:
         return views.moves_batch_row(b, self._batch_title(conn, b), db.planned_moves(conn, b.id))

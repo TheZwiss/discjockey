@@ -42,7 +42,7 @@ def op(operation, track="t1", time="2026-11-12T10:00:00", result="done", artist=
 
 def make(runs=(), batches=(), operations=(), *, tracks=None, batch_tracks=None, finished=None, built=BUILT, since=None):
     """`operations` are the lines in order: line numbers are their positions. `finished`: track -> line, by default the
-    last line of each upgrade-like step, as `batches._finished_order` reads the log."""
+    last line of each upgrade-like step, as `batches.finished_order` reads the log."""
     numbered = list(enumerate(operations))
     if finished is None:
         finished = {o["track_id"]: n for n, o in numbered

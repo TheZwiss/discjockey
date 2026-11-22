@@ -188,7 +188,7 @@ def test_no_entry_is_planned_for_a_finished_phase():
 
 def test_pages_names_a_top_level_list_of_the_answer_of_a_read():
     paged = [e for e in catalog.ENTRIES if e.pages]
-    assert {(e.method, e.pages) for e in paged} == {("library", "rows"), ("runs", "runs")}
+    assert {(e.method, e.pages) for e in paged} == {("library", "rows"), ("runs", "runs"), ("batches", "batches")}
     for e in paged:
         assert e.kind == "R" and e.planned is None, e  # a page is cut where the answer is whole: a read that answers at once
         assert e.schema, f"{e.method} has no shape: its list cannot be checked"

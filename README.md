@@ -606,7 +606,8 @@ next run picks it up and takes the place of the lossy copy. When a lossless vers
 waiting for a track, the list says so.
 
 **In the Terminal:** `discjockey report list [--since today|yesterday|3d|12h|2026-11-20]` lists the reports of past
-syncs, newest first, and `report show <id>|last` shows one.
+syncs, newest first, and `report show <id>|last` shows one. `batch list [--since ...]` lists the batches Discjockey made
+(upgrades, AIFF, tidy-ups), newest first, with the same `--since` words.
 `open report <id>|last|not-lossless` opens a report, or the buy list, in the Finder's usual app; `open file <track>
 [--which current|upgrade]`, `open folder all|playlist:<name>|folder:<path>|<path>`, `open url <link>`, `open licences` and
 `open privacy-settings` show what the window's **Show in Finder** and its links do. Each says what it opened; `--print`

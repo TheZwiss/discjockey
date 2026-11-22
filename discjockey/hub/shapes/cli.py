@@ -162,8 +162,9 @@ class BatchRow(TypedDict):
 @shape
 class Batches(TypedDict):
     """The batches Discjockey made, newest first."""
-    batches: Annotated[list[BatchRow], F("The newest batches (`--limit`).")]
-    total: Annotated[int, F("How many batches there are of the kinds asked for.")]
+    batches: Annotated[list[BatchRow], F("The batches, newest first.")]
+    total: Annotated[int, F("How many batches there are of the kind and from the time asked for: as many as the list "
+                            "holds, and the `page`'s total.")]
 
 
 @shape

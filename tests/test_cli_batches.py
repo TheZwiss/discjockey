@@ -83,18 +83,34 @@ def test_batch_list_shows_both_kinds_newest_first_with_typed_ids(lib, capsys):
             upgrade["total"], upgrade["backup"]) == ("aiff", "upgrade", "user", 1, 1, 2, "20261110T090001Z")
 
 
-def test_batch_list_takes_a_kind_and_a_limit_and_counts_every_batch(lib, capsys):
+def test_batch_list_takes_a_kind_and_pages_through_the_envelope(lib, capsys):
     with_batches(lib)
     code, env = data_of(["batch", "list", "--kind", "moves"], capsys)
     assert [r["id"] for r in env["data"]["batches"]] == ["moves:1"] and env["data"]["total"] == 1
     code, env = data_of(["batch", "list", "--limit", "2"], capsys)
-    assert [r["id"] for r in env["data"]["batches"]] == ["aiff:2", "moves:1"] and env["data"]["total"] == 3
+    assert [r["id"] for r in env["data"]["batches"]] == ["aiff:2", "moves:1"]
+    assert env["data"]["total"] == env["page"]["total"] == 3 and env["page"]["next_offset"] == 2
+    code, env = data_of(["batch", "list", "--limit", "2", "--offset", "2"], capsys)
+    assert [r["id"] for r in env["data"]["batches"]] == ["aiff:1"] and env["page"]["next_offset"] is None
     code, env = data_of(["batch", "list", "--kind", "aiff", "--limit", "1"], capsys)
     assert [r["id"] for r in env["data"]["batches"]] == ["aiff:2"] and env["data"]["total"] == 2
+    assert env["page"] == {"list": "batches", "offset": 0, "limit": 1, "total": 2, "next_offset": 1}
     code, env = data_of(["batch", "list", "--kind", "tidy"], capsys)
     assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "usage")
-    code, env = data_of(["batch", "list", "--limit", "0"], capsys)          # 0 is all, as the page's --limit 0
-    assert code == 0 and len(env["data"]["batches"]) == 3
+    code, env = data_of(["batch", "list", "--limit", "0"], capsys)          # 0 is all, as every list's --limit 0
+    assert code == 0 and len(env["data"]["batches"]) == 3 and env["page"]["next_offset"] is None
+
+
+def test_batch_list_since_keeps_the_batches_that_started_from_then_on(lib, capsys):
+    with_batches(lib)                                          # aiff:1 on 11-10, moves:1 on 11-11, aiff:2 on 11-12
+    code, env = data_of(["batch", "list", "--since", "2026-11-11"], capsys)
+    assert [r["id"] for r in env["data"]["batches"]] == ["aiff:2", "moves:1"] and env["data"]["total"] == 2
+    code, env = data_of(["batch", "list", "--since", "2026-11-11", "--kind", "aiff"], capsys)
+    assert [r["id"] for r in env["data"]["batches"]] == ["aiff:2"] and env["data"]["total"] == 1
+    code, env = data_of(["batch", "list", "--since", "1h"], capsys)    # the fixtures' dates are long ago
+    assert env["data"] == {"batches": [], "total": 0}
+    code, env = data_of(["batch", "list", "--since", "soon"], capsys)
+    assert code == 2 and (env["outcome"], env["reason"]) == ("bad_args", "usage")
 
 
 def test_batch_list_with_no_batches_and_with_no_records_is_an_empty_list(lib, tmp_path, capsys):

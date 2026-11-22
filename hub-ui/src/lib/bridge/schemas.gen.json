@@ -2609,7 +2609,7 @@
       "description": "The batches Discjockey made, newest first.",
       "properties": {
         "batches": {
-          "description": "The newest batches (`--limit`).",
+          "description": "The batches, newest first.",
           "items": {
             "$ref": "#/$defs/BatchRow"
           },
@@ -2617,7 +2617,7 @@
           "x-shown": true
         },
         "total": {
-          "description": "How many batches there are of the kinds asked for.",
+          "description": "How many batches there are of the kind and from the time asked for: as many as the list holds, and the `page`'s total.",
           "type": "integer",
           "x-shown": true
         }
