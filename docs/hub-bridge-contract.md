@@ -542,7 +542,10 @@ that still has a `rekordbox_check` when the run's report is written, `note` = th
 `show_in_finder(track_id, which="current")`, `reveal(rel_path)` (inside the music folder only, e.g.
 `"Library/Hard_Bounce"`, `".discjockey/reports"`; `"."` is the music folder itself), `open_report(run_id)`, `open_licenses()` (the licences folder, `Contents/Resources/licenses` in the app, in Finder; refused
 when it is missing: "The licences folder is missing from this copy of Discjockey."), `open_external(url)` (https only,
-system browser) → `{}`.
+system browser) → `Opened` `{target, opened}` (`target`: the absolute path or the web address; generated). Each takes a last
+parameter `print_only=false`, which the window never sends: the command line's `--print` runs every check, opens nothing and
+answers `opened: false`. `open_report("not-lossless")` opens `.discjockey/not_lossless.md` (the buy list), refused with "There is
+no buy list yet: …" when the file is not there. `open_external`, `open_licenses` and `open_privacy_settings` work without a music folder.
 
 `app_update()` (immediate, also without a music folder: not a library method) — the last answer of the update check (spec
 public-release §8); it never touches the network itself. `unknown` means no answer yet (offline, rate limit, or a version
@@ -597,7 +600,7 @@ A sync may start while it waits; the check then doesn't run. Every settings writ
 | `find_logins(service)` — `youtube\|soundcloud` | immediate | The installed browsers, the default one first, and which profiles hold a login. `problem` `no_access` (Safari without Full Disk Access) \| `locked` \| null; `profiles[].id` null = Safari's only profile. Shape: `FindLogins` |
 | `account_sign_in(service, browser, profile?)` — refused with `sync_running` during any sync, `busy` while another sign-in waits, `refused` for a browser that isn't installed | job `account_sign_in` (sign-in slot) | Opens the sign-in page in that browser (that Chrome/Brave/Edge profile in its own window; Firefox and Safari open their default profile), then looks every 3 s: for Chrome/Brave/Edge with a profile only that profile's login counts, otherwise a login in any profile of the browser (the chosen one first). `SignInPhase` `waiting` → `checking`; then like `setup_account` (Shape: `AccountSaved`), `profile` the one whose login was found. Ends `failed` after 10 minutes ("Didn't see a login in 10 minutes. Sign in again.") or at once when macOS refuses the browser's files (the Full Disk Access message); `stopped` by `stop_sign_in()`; `sync_running` ("… Check again after the sync.") when a sync started while it waited (no check runs); `busy` / `console` when the login was checked but a write job or a terminal run held the lock at the save (nothing saved) |
 | `stop_sign_in()` | immediate | `{stopped}` — Cancel on a waiting sign-in; `stop()` never ends it, and it never ends a sync |
-| `open_privacy_settings()` | immediate | `{}` — System Settings at Full Disk Access |
+| `open_privacy_settings(print_only=false)` | immediate | `Opened` — System Settings at Full Disk Access (`target`: its `x-apple.systempreferences:` address) |
 | `qobuz_check_login()` — refused with `sync_running` during any sync | job `qobuz_check_login` | `{}`: logs in with the saved login and searches once; stores `qobuz_last_check`: `login_failed` only when Qobuz refuses the login, `search_failed` when logged in but the search finds nothing (then `failed` + message). Offline, a Qobuz error or a failed search store nothing (the last check stays) and end `failed` with a plain message |
 | `spotify_sign_out()` | job `spotify_sign_out` | `{}`: forgets the Spotify login; the Client ID stays |
 

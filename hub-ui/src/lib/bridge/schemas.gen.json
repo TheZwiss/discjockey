@@ -8037,6 +8037,27 @@
       ],
       "type": "object"
     },
+    "Opened": {
+      "additionalProperties": false,
+      "description": "What `open file|folder|url|report|licences|privacy-settings` answer: the place or web address, and whether it was opened (`--print` only says it).",
+      "properties": {
+        "opened": {
+          "description": "It was opened (false with `--print`).",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "target": {
+          "description": "The absolute path or the web address.",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "target",
+        "opened"
+      ],
+      "type": "object"
+    },
     "PlaceNotes": {
       "additionalProperties": false,
       "description": "The engine's sentence for the placements of parked better versions.",
@@ -16972,10 +16993,10 @@
     "missing_files_preview": "MissingPreview",
     "move_batches": "MoveBatches",
     "never_download": "NeverDownloadResult",
-    "open_external": "Empty",
-    "open_licenses": "Empty",
-    "open_privacy_settings": "Empty",
-    "open_report": "Empty",
+    "open_external": "Opened",
+    "open_licenses": "Opened",
+    "open_privacy_settings": "Opened",
+    "open_report": "Opened",
     "playlists": "Playlists",
     "preview": "PreviewAnswer",
     "preview_playlist_change": "ChangePreview",
@@ -16993,7 +17014,7 @@
     "rename": "AiffBatchResult",
     "rescan_library": "ScanResult",
     "retry_music_folder": "MusicFolderAnswer",
-    "reveal": "Empty",
+    "reveal": "Opened",
     "rollback_tools": "ToolsChange",
     "run": "RunAnswer",
     "runs": "Runs",
@@ -17019,7 +17040,7 @@
     "setup_skip_spotify": "Empty",
     "setup_spotify_login": "SpotifyLogin",
     "setup_status": "SetupStatus",
-    "show_in_finder": "Empty",
+    "show_in_finder": "Opened",
     "sidebar": "Sidebar",
     "spectrum": "SpectrumAnswer",
     "spotify_sign_out": "Empty",

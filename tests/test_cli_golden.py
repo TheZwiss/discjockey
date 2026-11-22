@@ -21,7 +21,7 @@ from hub_helpers import LOSSY, choose_music, make_root, stub_headless
 from rekordbox_helpers import make_master
 
 import discjockey.cli as cli
-from discjockey import library
+from discjockey import library, tools
 from test_cli_batches import with_batches, with_report
 from test_cli_missing import missing_library
 from test_cli_reads import rich_library
@@ -141,6 +141,11 @@ def fixture(tmp_path, monkeypatch, request, utc):
         with_read(paths, monkeypatch)
     if entry is not None and entry.command in (("report", "show"), ("report", "list")):
         with_report(paths)
+    if entry is not None and entry.command == ("open", "report"):
+        (paths.reports / f"{with_report(paths)}.md").write_text("# Run\n")  # `open report` opens the written page, not the data
+    if entry is not None and entry.command == ("open", "licences"):
+        (tmp_path / "licenses").mkdir()  # the checkout's own folder is no place for a golden
+        monkeypatch.setattr(tools, "licenses_dir", lambda: tmp_path / "licenses")
     make_master(tmp_path / "rekordbox", [])
     os.utime(tmp_path / "rekordbox" / "master.db", (MASTER_TIME, MASTER_TIME))
     monkeypatch.setenv("DISCJOCKEY_REKORDBOX", str(tmp_path / "rekordbox"))

@@ -56,6 +56,7 @@ const FOLDER_PROBLEMS: Record<FolderProblem, string> = {
 };
 /** the fake Mac's home folder, for `~` */
 const FAKE_HOME = '/Users/you';
+const PRIVACY_SETTINGS = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';  // api._PRIVACY_SETTINGS
 
 /** Like FallbackSource.check_account + accounts.check_message: Safari needs Full Disk Access, the rest works. */
 function accountCheck(service: 'youtube' | 'soundcloud', browser: Browser): AccountCheck {
@@ -1064,7 +1065,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       signInStop();
       return ok({ stopped: true });
     },
-    async open_privacy_settings() { return ok({}); },
+    async open_privacy_settings() { return ok({ target: PRIVACY_SETTINGS, opened: true }); },
     async qobuz_check_login() {
       if (syncRunning()) return fail('sync_running', MSG.sync_running);
       return startJob('qobuz_check_login', null, (finish) => setTimeout(() => {
@@ -1478,23 +1479,28 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return runUndo('undo_upgrade', ids, null);
     },
 
-    async show_in_finder() { return ok({}); },
+    async show_in_finder(track_id: string) {
+      const t = s.tracks.find((x) => x.track_id === track_id);
+      return ok({ target: `${FAKE_MUSIC}/${(t && pathOf(t)) ?? `Library/${track_id}.aiff`}`, opened: true });
+    },
     // api.reveal: a place inside the music folder, or an absolute path at or inside a watched import folder
     async reveal(rel_path: string) {
       const inWatched = (p: string) => s.imp.folders.some((f) => p === f.path || p.startsWith(`${f.path}/`));
       if (typeof rel_path !== 'string' || rel_path.split('/').includes('..') || (rel_path.startsWith('/') && !inWatched(rel_path))) {
         return fail('refused', 'Discjockey only opens places inside your music folder or a folder it watches.');
       }
-      return ok({});
+      return ok({ target: rel_path.startsWith('/') ? rel_path : rel_path === '.' ? FAKE_MUSIC : `${FAKE_MUSIC}/${rel_path}`, opened: true });
     },
     async open_report(run_id: string) {
-      return s.runs.some((r) => r.run_id === run_id) ? ok({}) : fail('refused', 'This report is not there any more.');
+      return s.runs.some((r) => r.run_id === run_id) ? ok({ target: reportPath(run_id), opened: true })
+        : fail('refused', 'This report is not there any more.');
     },
     async open_licenses() {
-      return s.licensesMissing ? fail('refused', 'The licences folder is missing from this copy of Discjockey.') : ok({});
+      return s.licensesMissing ? fail('refused', 'The licences folder is missing from this copy of Discjockey.')
+        : ok({ target: '/Applications/Discjockey.app/Contents/Resources/licenses', opened: true });
     },
     async open_external(url: string) {
-      return /^https:\/\//.test(url ?? '') ? ok({}) : fail('refused', 'Only https links open in the browser.');
+      return /^https:\/\//.test(url ?? '') ? ok({ target: url, opened: true }) : fail('refused', 'Only https links open in the browser.');
     },
     async app_update(check?: boolean) {
       return ok({ ...s.appUpdate, checked: !!check, checked_at: s.appUpdate.state === 'unknown' ? null : '2026-10-20T21:47:00+00:00' });

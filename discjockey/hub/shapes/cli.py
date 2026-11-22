@@ -1,7 +1,7 @@
 """The shapes of the command line's own reads and jobs (issue 39, phase 2, E7e): `settings show`, the rekordbox
 backups and their restore, the batch list and one batch, an AIFF batch's undo preview, the stored audio facts and the
-sync's Auto-upgrade phase alone, and the six bridge methods that answer `{}` and belong to no area. They are methods of
-`CliApi` the window does not call (`@cli_first`), so no window file uses these shapes. The meanings are those of
+sync's Auto-upgrade phase alone. Most are methods of `CliApi` the window does not call (`@cli_first`), so no window file
+uses them; the exception is `Opened`, the answer of the six openers the window calls too. The meanings are those of
 `docs/hub-bridge-contract.md` and of the commands' own help.
 
 `resolve` and `result_words` have no shape: they are the command line's lookups, no command prints them as `data`.
@@ -304,13 +304,22 @@ class RekordboxPreviewData(RekordboxPreviewAnswer):
     ok: NotRequired[Annotated[Literal[True], F("Not in the command line's `data`.", shown=False)]]
 
 
+# --- open ... ---
+
+@shape
+class Opened(TypedDict):
+    """What `open file|folder|url|report|licences|privacy-settings` answer: the place or web address, and whether it was
+    opened (`--print` only says it)."""
+    target: Annotated[str, F("The absolute path or the web address.")]
+    opened: Annotated[bool, F("It was opened (false with `--print`).")]
+
+
 ANSWERS: dict[str, str] = {
     "settings_view": "SettingsView", "rekordbox_backups": "RekordboxBackups",
     "rekordbox_restore_preview": "RestorePreview", "batches": "Batches", "batch_detail": "BatchDetail",
     "batch_undo_preview": "BatchUndoPreview", "facts_preview": "FactsPreview",
-    # the bridge reads that answer `{}` and belong to no area
-    "show_in_finder": "Empty", "reveal": "Empty", "open_report": "Empty", "open_licenses": "Empty",
-    "open_external": "Empty", "open_privacy_settings": "Empty",
+    "show_in_finder": "Opened", "reveal": "Opened", "open_report": "Opened", "open_licenses": "Opened",
+    "open_external": "Opened", "open_privacy_settings": "Opened",
     # J methods: the shape of the job's result
     "rekordbox_restore": "RestoreResult", "fill_facts": "FactsResult", "auto_upgrade_run": "AutoUpgradeRunResult",
 }

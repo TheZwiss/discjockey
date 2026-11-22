@@ -4234,3 +4234,13 @@ export type RekordboxPreviewData = Omit<RekordboxPreviewAnswer, 'ok'> & {
   /** Not in the command line's `data`. */
   ok?: true;
 };
+/**
+ * What `open file|folder|url|report|licences|privacy-settings` answer: the place or web address, and whether
+ * it was opened (`--print` only says it).
+ */
+export type Opened = {
+  /** The absolute path or the web address. */
+  target: string;
+  /** It was opened (false with `--print`). */
+  opened: boolean;
+};

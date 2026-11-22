@@ -1,0 +1,2 @@
+Target  https://example.com
+Opened  no

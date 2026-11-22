@@ -1,0 +1,2 @@
+Target  x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles
+Opened  no
