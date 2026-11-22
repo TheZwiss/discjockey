@@ -179,6 +179,9 @@ def stands_in(entry: "Entry") -> bool:
         if e.command == entry.command and e.kind in ("J", "B") and e.planned)
 
 
+STAND_INS_ON_SCAN = frozenset(("tidy_preview", "undo_preview"))  # stand-ins that plan on the last scan's files: their dry run says `library scan` when a folder changed since (a limit's what-if or a folder check does not)
+
+
 def dry_run_only(command: tuple[str, ...]) -> bool:
     """Whether every built entry of `command` stands in for a write that is not built: the command line offers it with
     `--dry-run` alone (`tidy run`, `limits set`, `setup music`); `batch undo` is not one (its AIFF write is built)."""

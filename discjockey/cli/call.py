@@ -207,17 +207,20 @@ def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
     when a watched folder changed after that scan, `next: library scan`. An answer that lists its items (each with a
     `key`) is stored as a plan (`plan_store`: the plan file a dry run writes) and its id is `data.plan_id`, which
     `--plan` runs. A read that stands in for a write nobody has built (`catalog.stands_in`) is its own dry run: it answers
-    as a read does (`as_of`, no plan, no scan hint: a limit's what-if or a folder check does not plan on the scan)."""
+    as a read does (`as_of`, no plan; the scan hint only where the read plans on the last scan's files,
+    `catalog.STAND_INS_ON_SCAN`: a limit's what-if or a folder check does not)."""
     method = entry.dry_run or entry.method
     answer = getattr(api, method)(**{k: v for k, v in kwargs.items() if k in parameters_of(method)})
     env = envelope.from_answer(command, answer, as_of=_as_of(api))
-    if env["outcome"] == "ok" and not catalog.stands_in(entry):
-        if (plan_id := api.save_plan(command, answer, command)) is not None:
-            env["data"]["plan_id"] = plan_id
-        words = api.result_words(method, answer)  # a dry run that has something to say beside its facts
-        if words.get("ok") and words.get("message"):
-            env["message"] = words["message"]
-        env["next"] += [n for n in api.scan_next() if n not in env["next"]]
+    if env["outcome"] == "ok":
+        if not catalog.stands_in(entry):
+            if (plan_id := api.save_plan(command, answer, command)) is not None:
+                env["data"]["plan_id"] = plan_id
+            words = api.result_words(method, answer)  # a dry run that has something to say beside its facts
+            if words.get("ok") and words.get("message"):
+                env["message"] = words["message"]
+        if not catalog.stands_in(entry) or method in catalog.STAND_INS_ON_SCAN:
+            env["next"] += [n for n in api.scan_next() if n not in env["next"]]
     return envelope.noted(env, method, dry=True)
 
 

@@ -26,6 +26,11 @@ def run_json(argv, capsys):
     return code, json.loads(capsys.readouterr().out)
 
 
+def next_runs(env) -> list[list[str]]:
+    """The commands `next` names, without the program's path in front (`cli.runnable` puts it there)."""
+    return [n["run"].split()[-2:] for n in env["next"]]
+
+
 ONLY = (["tidy", "run"], ["limits", "set", "qobuz", "40"], ["setup", "music", "/Music/Discjockey"])
 
 
@@ -53,7 +58,8 @@ def test_a_dry_run_only_command_answers_its_read_as_data_and_no_plan(lib, capsys
         answer = getattr(api, method)(*args)
         assert code == 0 and env["outcome"] == "ok"
         assert env["data"] == {k: v for k, v in answer.items() if k != "ok"} and "plan_id" not in env["data"]
-        assert env["next"] == [] and env["as_of"] is not None
+        # `tidy run` plans on the last scan's files (this library was never scanned: it says so), `limits set` reads none
+        assert next_runs(env) == ([["library", "scan"]] if method == "tidy_preview" else []) and env["as_of"] is not None
 
 
 def test_a_what_if_takes_the_extra_for_today(lib, capsys):
@@ -122,3 +128,23 @@ def test_a_command_with_a_read_and_a_write_takes_limit_and_offset_and_pages_its_
     assert "250 of 250 shown" in everything and "Song 0 " in everything and "Song 0 " not in shown  # the rows come in reverse: Song 0 is last
     assert cli.main([*argv, "--limit", "10", "--offset", "5"]) == 0  # both flags parse
     assert "10 of 250 shown" in capsys.readouterr().out
+
+
+def test_a_stand_in_that_plans_on_the_scan_asks_for_one_when_a_folder_changed_since(lib, capsys):
+    """`tidy run --dry-run` and `batch undo moves:<n> --dry-run` read the last scan's files, so they say `library scan`
+    when a folder changed after it; `limits set` and `setup music` read nothing the scan holds: no hint."""
+    import os
+    from datetime import datetime
+
+    from discjockey import db
+    with db.connect(lib.db_file) as conn, db.transaction(conn):
+        conn.execute("UPDATE watched_folders SET last_scan = ?", ("2026-11-01T10:00:00",))
+    os.utime(lib.library, (datetime(2026, 11, 2).timestamp(),) * 2)  # Library/ changed after that scan
+    batch = big_move_batch(lib, 1)
+    for argv in (["tidy", "run", "--dry-run"], ["batch", "undo", f"moves:{batch}", "--dry-run"]):
+        code, env = run_json(argv, capsys)
+        assert code == 0 and next_runs(env) == [["library", "scan"]], argv
+        assert "plan_id" not in env["data"] and "result_words" not in env  # still no plan
+    for argv in (["limits", "set", "qobuz", "40", "--dry-run"], ["setup", "music", "/Music/Discjockey", "--dry-run"]):
+        code, env = run_json(argv, capsys)
+        assert code == 0 and env["next"] == [], argv

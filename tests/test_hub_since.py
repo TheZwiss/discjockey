@@ -50,3 +50,22 @@ def test_after_keeps_what_is_not_older_than_since_and_what_it_cannot_read():
     assert since.after("2026-11-20T00:00:01", cut) == (datetime(2026, 11, 20, 0, 0, 1).astimezone()
                                                        >= datetime.fromisoformat(cut))  # no zone: local
     assert since.after(None, cut) and since.after("", cut) and since.after("last tuesday", cut)  # unreadable: kept
+
+
+@pytest.mark.parametrize("text", ["1000000d", "99999999999d", "99999999999999999999h"])
+def test_a_number_too_big_for_a_date_is_a_usage_error_not_a_crash(text):
+    with pytest.raises(BadId) as caught:
+        since.parse(text, NOW)
+    assert caught.value.reason == "usage" and caught.value.message == words.BAD_SINCE.format(text=text)
+
+
+def test_a_stamp_out_of_range_is_kept_like_one_that_cannot_be_read():
+    cut = "2026-11-20T00:00:00+01:00"
+    assert since.after("0001-01-01T00:00:00", cut) and since.after("9999-12-31T23:59:59", cut)
+
+
+def test_a_since_that_is_no_time_raises_even_with_no_record_to_compare():
+    for stamp in (None, "", "2026-11-10T11:00:00"):
+        with pytest.raises(ValueError, match="--since takes"):
+            since.after(stamp, "yesterday")
+    assert since.after(None, None)
