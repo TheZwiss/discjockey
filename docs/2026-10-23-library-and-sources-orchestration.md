@@ -1332,6 +1332,17 @@ Results:
         CI green (44967540408). No release. Today's agents: 87k + 93k + 77k = 257k → phase 2 ≈ 9.63M logged.
         NEXT on the user's go: phase 3 detailing (plan v2 §6 phase 3, 1 230k), same method; the cost projection told the
         user: phases 3-8 ≈ 12.9M plan → ~28M logged at the 2.2x ratio.
+      - **RESUME HERE (LATEST, 2026-11-22, before a compact the user asked for):** phase 2 is DONE and on main 4339bdfd
+        (merge 3a2063d8, CI green). Main checkout still on feat/cli-2-foundations (= main's code); worktree main-log on
+        main for log edits. Nothing running, no agent open. THE USER'S ASK after the compact: "tell me whats in phase 3,
+        what it will cost and lets plan it". So: read plan v2 `docs/2026-11-15-agent-cli-plan-v2.md` §6 "### Phase 3:
+        every other read (1 230k)" (line ~424-435) and the §8 owner-table rows for V3.x (scope-check.sh V3), plus the
+        catalogue's `planned` read commands (`discjockey/hub/catalog.py`); then tell the user in plain words what phase
+        3 gives, its cost (plan 1 230k; at the measured 2.15-2.24x → ~2.6-2.8M logged incl. detailing; say the basis),
+        and plan it WITH the user (a planning conversation, not a dispatch): detailing method as phase 2 (sizing script
+        → Opus detailing → fresh Opus brief check → Sonnet builds/reviews/fixes), and where detailing overhead (~21% in
+        phase 2) could be cut without hidden cost. Dispatch nothing until the user says go. Rehearsals run automated
+        without the user (open-scope Decided 2026-11-22). No release.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
