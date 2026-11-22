@@ -1384,7 +1384,12 @@ Results:
         locks `rekordbox_r` (T10 driver measured it); golden masks `plan:<id>`; `views.search_query`; PLANNED_CEILING 74.
         Fixed on the way: dashboard fake dropped `runs(since)`. For review half A: `cli_golden/track_spectrum.txt` is
         69 KB of base64 matrix from the real ffmpeg (a different ffmpeg build may change it). Merged into
-        `feat/cli-3-reads`. V3.1b dispatched (cli3-2 on `feat/cli-3-dryrun`).
+        `feat/cli-3-reads`. V3.1b dispatched (cli3-2 on `feat/cli-3-dryruns`).
+      - V3.1b done 58924e06 (5 commits): logged **249k** (exp. 213k, 1.17x), agent-cost 105 calls, cache 17.4M, fresh in
+        234k, out 74k, advisor 0k; 6604 passed. Stand-in dry runs answer as plain reads (no "Next: library scan");
+        `AppUpdate` gains `checked`/`checked_at` (window event uses `UpdateNotice` Pick); PLANNED_CEILING 61. Review
+        carries in `phase3/carry-review.md` (undo_note "this page" printed by the CLI, /Music golden, spectrum golden).
+        Merged into `feat/cli-3-reads`. V3.1c dispatched (cli3-3).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
