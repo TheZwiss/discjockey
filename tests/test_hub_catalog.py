@@ -12,14 +12,11 @@ from discjockey.hub.api import CliApi, HubApi
 from discjockey.hub.catalog import Arg, Entry
 
 # The ceiling of entries that may still be `planned` (their command not built). Every group that builds a command lowers
-# the number; nothing may raise it. Phase 1 built the AIFF, upgrade, folder, rekordbox and settings commands; phase 3
-# group V3.1a (74) builds `library list`, `library collections`, `folder list`, `folder check`, `report list`, `sync plan`
-# and `track spectrum`; V3.1b (this number: 61) builds the setup, limits, playlist, login, app and tidy reads (13 rows).
-# The next to lower it: V3.1c (6: the `open` commands), V3.2b (1: `status`); phase 4's rows stay planned until it builds
-# them (`planned` names the group).
-PLANNED_CEILING = 61
-# The phases that are finished: no row may be planned for one of them (V3.2b sets 3 when phase 3 ends).
-FINISHED_PHASES = 2
+# the number; nothing may raise it. Phase 3 is finished: every row left is phase 4's (`planned` names the group), and
+# phase 4 lowers the ceiling as it builds them.
+PLANNED_CEILING = 54
+# The phases that are finished: no row may be planned for one of them.
+FINISHED_PHASES = 3
 
 CLI_FIRST = {"freshness", "resolve", "find_tracks", "rekordbox_preview", "batches", "batch_detail", "history", "doctor", "status_view", "rekordbox_match", "library_superseded", "select_listing",
              "upgrade_preview", "undo_upgrade_preview", "batch_undo_preview", "result_words", "fill_facts", "facts_preview", "auto_upgrade_preview", "auto_upgrade_run", "settings_view",
