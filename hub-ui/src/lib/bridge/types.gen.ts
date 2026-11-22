@@ -4494,4 +4494,8 @@ export type Opened = {
   target: string;
   /** It was opened (false with `--print`). */
   opened: boolean;
+  /**
+   * What was done, in words: "Opened <target>.", or with `--print` that it would open it and opened nothing.
+   */
+  text: string;
 };

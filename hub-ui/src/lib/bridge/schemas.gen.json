@@ -8538,11 +8538,17 @@
           "description": "The absolute path or the web address.",
           "type": "string",
           "x-shown": true
+        },
+        "text": {
+          "description": "What was done, in words: \"Opened <target>.\", or with `--print` that it would open it and opened nothing.",
+          "type": "string",
+          "x-shown": true
         }
       },
       "required": [
         "target",
-        "opened"
+        "opened",
+        "text"
       ],
       "type": "object"
     },

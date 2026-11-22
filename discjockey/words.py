@@ -115,6 +115,12 @@ AUTO_UPGRADE_OFF = "Auto-upgrade is off, so nothing was moved."
 AUTO_UPGRADE_NOTHING = "No upgrade was waiting, so nothing was moved."
 
 
+# What the openers say (`Opened.text`: `show_in_finder`, `reveal`, `open_report`, `open_licenses`, `open_external`,
+# `open_privacy_settings`; the command line's `open ...`).
+OPENED = "Opened {target}."
+NOT_OPENED = "Would open {target}; nothing was opened."  # with `--print`
+
+
 # `history` (design §5.3, §7.4): the text of each entry, and for each one the command that undoes it or the words that say
 # why nothing does. `HISTORY_RUN` is by the run's kind; an AIFF batch says what it did (`HISTORY_AIFF`, by the batch's
 # `what`), or "Upgraded during your sync" when the sync's last phase made it; a move batch says its title and what moved.

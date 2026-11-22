@@ -201,15 +201,26 @@ describe('fake backend', () => {
   });
   it('the openers answer what they opened', async () => {
     const f = createFakeBridge('normal', { speed: 100 });
-    expect(await f.open_external('https://example.com')).toEqual({ ok: true, target: 'https://example.com', opened: true });
-    expect(await f.reveal('Library/Hard_Bounce')).toEqual({ ok: true, target: '/Users/you/Music/Discjockey/Library/Hard_Bounce', opened: true });
+    expect(await f.open_external('https://example.com')).toEqual({ ok: true, target: 'https://example.com', opened: true, text: 'Opened https://example.com.' });
+    expect(await f.open_external('http://example.com/a')).toMatchObject({ ok: true, opened: true });   // the engine takes http too
+    expect(await f.open_external('ftp://example.com')).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.reveal('Library/Hard_Bounce')).toEqual({ ok: true, target: '/Users/you/Music/Discjockey/Library/Hard_Bounce', opened: true,
+      text: 'Opened /Users/you/Music/Discjockey/Library/Hard_Bounce.' });
     expect(await f.reveal('../outside')).toMatchObject({ ok: false, kind: 'refused' });
     const finder = await f.show_in_finder('t1', 'current');
     expect(finder).toMatchObject({ ok: true, opened: true });
     if (!finder.ok) throw new Error();
     expect(finder.target.startsWith('/Users/you/Music/Discjockey/')).toBe(true);
+    expect(finder.text).toBe(`Opened ${finder.target}.`);
+    expect(await f.show_in_finder('t1', 'upgrade')).toMatchObject({ ok: false, kind: 'refused', message: 'That file is not there.' });   // t1 has no parked file
+    let parked = '';
+    const g = createFakeBridge('normal', { speed: 100, prepare: (st) => { parked = st.tracks.find((t) => t.upgrade)?.track_id ?? ''; } });
+    expect(parked).not.toBe('');   // the scene has a song with a parked version
+    expect(await g.show_in_finder(parked, 'upgrade')).toMatchObject({ ok: true, opened: true });
+    expect(await f.open_report('not-lossless')).toMatchObject({ ok: true, target: '/Users/you/Music/Discjockey/.discjockey/not_lossless.md', opened: true });
+    expect(await createFakeBridge('normal', { speed: 100, prepare: (st) => { st.tracks = []; } }).open_report('not-lossless')).toMatchObject({ ok: false, kind: 'refused' });
     expect(await f.open_licenses()).toMatchObject({ ok: true, opened: true });
-    expect(await f.open_privacy_settings()).toMatchObject({ ok: true, opened: true });
+    expect(await f.open_privacy_settings()).toMatchObject({ ok: true, opened: true, text: expect.stringMatching(/^Opened /) });
   });
   it('todo takes a list of groups: only those, in the page\'s order', async () => {
     const f = createFakeBridge('normal', { speed: 100 });

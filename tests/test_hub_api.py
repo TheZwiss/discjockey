@@ -456,9 +456,11 @@ def test_the_openers_answer_what_they_opened_and_print_only_opens_nothing(root):
         (lambda **k: api.open_privacy_settings(**k), "open_url", api_module._PRIVACY_SETTINGS),
     ]
     for call, opener, target in cases:
-        assert call(print_only=True) == {"ok": True, "target": target, "opened": False}
+        assert call(print_only=True) == {"ok": True, "target": target, "opened": False,
+                                          "text": words.NOT_OPENED.format(target=target)}
         assert not any(calls.values()), target
-        assert call() == {"ok": True, "target": target, "opened": True}
+        assert call() == {"ok": True, "target": target, "opened": True,
+                          "text": words.OPENED.format(target=target)}
         assert len(calls[opener]) == 1, target
         calls[opener].clear()
     # every check still runs with print_only: nothing is told about a place the page may not open
@@ -472,7 +474,8 @@ def test_the_buy_list_is_a_report_file_open_report_names(root):
     api, _ = make_api(root)
     assert api.open_report("not-lossless", print_only=True)["message"] == words.NO_BUY_LIST
     write(root, ".discjockey/not_lossless.md", b"# buy")
-    assert api.open_report("not-lossless") == {"ok": True, "target": str(root.not_lossless_md), "opened": True}
+    assert api.open_report("not-lossless") == {
+        "ok": True, "target": str(root.not_lossless_md), "opened": True, "text": words.OPENED.format(target=root.not_lossless_md)}
     assert api._svc.calls["open_path"] == [root.not_lossless_md]
 
 

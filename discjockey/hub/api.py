@@ -1685,11 +1685,12 @@ class HubApi:
 
     @staticmethod
     def _opened(opener: Callable[..., object], target: Path | str, print_only: bool) -> dict:
-        """What the openers answer (`Opened`): the place or web address, and whether it was opened. Every check ran
-        before this; `print_only` (the command line's `--print`) opens nothing."""
+        """What the openers answer (`Opened`): the place or web address, whether it was opened, and `text` that says so.
+        Every check ran before this; `print_only` (the command line's `--print`) opens nothing."""
         if not print_only:
             opener(target)
-        return {"target": str(target), "opened": not print_only}
+        say = engine_words.NOT_OPENED if print_only else engine_words.OPENED
+        return {"target": str(target), "opened": not print_only, "text": say.format(target=target)}
 
     def _watched_place(self, path: str) -> Path:
         """The absolute `path` when it is a watched import folder or inside one (its symlinks followed: a link leading
@@ -1730,7 +1731,7 @@ class HubApi:
     def open_external(self, url: str, print_only: bool = False) -> dict:
         """Websites open in the system browser, never inside the hub window."""
         if not re.fullmatch(r"https?://[^\s]+", url or ""):
-            raise ValueError("Only web links (https://...) can be opened.")
+            raise ValueError("Only web links (http:// or https://) can be opened.")
         return self._opened(self._svc.open_url, url, print_only)
 
     @bridge
