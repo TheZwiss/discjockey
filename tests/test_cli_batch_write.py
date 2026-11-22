@@ -305,12 +305,14 @@ def test_stop_during_a_batch_undo_is_exit_5_with_the_rest_waiting_and_a_second_u
     assert [i.state for i in found.batch(1).items] == ["undone"] * 3
 
 
-def test_undo_takes_a_typed_aiff_id_only_and_the_move_batch_form_is_not_built_yet(lib, capsys):
+def test_undo_takes_a_typed_batch_id_and_a_move_batch_is_only_tried_for_now(lib, capsys):
     lib(["mp3"])
-    for text, reason in (("1", "bad_id_kind"), ("moves:1", "bad_id_kind"), ("aiff:99", "unknown_id")):
-        for flag in ("--yes", "--dry-run"):
-            code, env = run_json(["batch", "undo", text, flag], capsys)
-            assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", reason), (text, flag)
+    for text, reason in (("1", "bad_id_kind"), ("aiff:99", "unknown_id"), ("moves:99", "unknown_id")):
+        code, env = run_json(["batch", "undo", text, "--dry-run"], capsys)
+        assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", reason), text
+    for text, reason in (("1", "bad_id_kind"), ("aiff:99", "unknown_id"), ("moves:1", "usage")):  # `moves:` has no write yet
+        code, env = run_json(["batch", "undo", text, "--yes"], capsys)
+        assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", reason), text
 
 
 def test_undo_while_the_library_lock_is_held_is_busy_and_a_dry_run_still_answers(lib, capsys):

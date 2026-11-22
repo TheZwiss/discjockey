@@ -14,10 +14,10 @@ from discjockey.hub.catalog import Arg, Entry
 # The ceiling of entries that may still be `planned` (their command not built). Every group that builds a command lowers
 # the number; nothing may raise it. Phase 1 built the AIFF, upgrade, folder, rekordbox and settings commands; phase 3
 # group V3.1a (this number: 74) builds `library list`, `library collections`, `folder list`, `folder check`,
-# `report list`, `sync plan` and `track spectrum`. The next to lower it: V3.1b (13 rows: the setup, limits, playlist,
-# login and tidy reads), V3.1c (6: the `open` commands), V3.2b (1: `status`); phase 4's rows stay planned until it builds
+# `report list`, `sync plan` and `track spectrum`. V3.1b (13 rows: the setup, limits, playlist, login and tidy reads) is
+# lowering it in steps (70: its four dry-run-only rows are built). The next to lower it after it, V3.1c (6: the `open` commands), V3.2b (1: `status`); phase 4's rows stay planned until it builds
 # them (`planned` names the group).
-PLANNED_CEILING = 74
+PLANNED_CEILING = 70
 # The phases that are finished: no row may be planned for one of them (V3.2b sets 3 when phase 3 ends).
 FINISHED_PHASES = 2
 
@@ -267,3 +267,24 @@ def test_duplicate_keep_with_a_file_id_runs_keep_file_and_all_runs_keep_duplicat
     assert list(by_method["keep_file"].params) == ["group_id", "file_id", "paths"]
     assert by_method["keep_file"].params["file_id"].positional and by_method["keep_file"].params["paths"].resolve == "duplicate_paths"
     assert catalog.DISPATCH["duplicate keep"] == ("a file id as the second word runs keep_file, `--all` runs keep_duplicates")
+
+
+def test_a_read_stands_in_for_a_write_that_is_planned_and_only_until_the_write_is_built(monkeypatch):
+    stand = {e.method for e in catalog.ENTRIES if catalog.stands_in(e)}
+    assert stand == {"tidy_preview", "limits_what_if", "check_music_folder", "undo_preview"}
+    assert [c for c in (("tidy", "run"), ("limits", "set"), ("setup", "music"), ("batch", "undo"), ("sync", "run"),
+                        ("limits", "show"), ("nothing", "here")) if catalog.dry_run_only(c)] == [
+        ("tidy", "run"), ("limits", "set"), ("setup", "music")]  # `batch undo` has a built write (`batch_undo`)
+    monkeypatch.setattr(catalog, "ENTRIES", tuple(replace(e, planned=None) if e.method == "tidy_up" else e
+                                                  for e in catalog.ENTRIES))
+    assert not catalog.dry_run_only(("tidy", "run")) and not catalog.stands_in(catalog.by_method("tidy_preview")[0])
+    assert catalog.dry_run_only(("limits", "set"))  # the others keep standing in
+
+
+def test_a_command_that_dispatches_by_id_kind_names_a_positional_and_a_rule():
+    from discjockey.hub import ids
+    assert set(catalog.BY_ID_KIND) <= set(catalog.DISPATCH)
+    for command, (name, forms) in catalog.BY_ID_KIND.items():
+        rows = [e for e in catalog.ENTRIES if " ".join(e.command) == command and name in e.params]
+        assert len(rows) >= 2 and forms in ids.FORMS
+        assert {e.params[name].resolve for e in rows if e.kind in ("J", "B")} == set(ids.FORMS[forms].replace(":N", "").split("|"))

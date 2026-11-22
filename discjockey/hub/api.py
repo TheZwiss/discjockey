@@ -3791,7 +3791,7 @@ class CliApi(HubApi):
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
                  "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch",
-                 "report": "_resolve_report", "since": "_resolve_since"}  # kind -> the method that makes it (grows per group)
+                 "report": "_resolve_report", "since": "_resolve_since", "moves": "_resolve_moves"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -4080,6 +4080,16 @@ class CliApi(HubApi):
             row = db.aiff_batch(conn, found.value) if conn is not None else None
         if row is None:
             raise BadId("unknown_id", f"There is no AIFF batch {found.value}.")
+        return int(found.value)
+
+    def _resolve_moves(self, text: str) -> int:
+        """`batch undo moves:<n>`: the move batch as its number. A bare number or an AIFF batch is `bad_id_kind`, a batch
+        that was never made `unknown_id`."""
+        found = parse_id(text, ("moves",))
+        with self._move_log() as conn:
+            row = db.batch(conn, found.value) if conn is not None else None
+        if row is None:
+            raise BadId("unknown_id", f"There is no move batch {found.value}.")
         return int(found.value)
 
     def _resolve_batch(self, text: str) -> str:

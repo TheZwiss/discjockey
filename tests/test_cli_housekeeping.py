@@ -244,7 +244,7 @@ def _row(capsys, *words):
 
 def test_an_id_argument_is_listed_as_the_form_a_person_types(capsys):
     undo = _row(capsys, "batch", "undo")
-    assert undo["args"][0]["id"] == "aiff" and undo["args"][0]["type"] == "str" and undo["args"][0]["word"] == "aiff:N"
+    assert (undo["args"][0]["id"], undo["args"][0]["type"], undo["args"][0]["word"]) == ("batch", "str", "aiff:N|moves:N")  # by id kind
     show = _row(capsys, "batch", "show")
     assert (show["args"][0]["id"], show["args"][0]["word"]) == ("batch", "aiff:N|moves:N")
     assert _row(capsys, "folder", "remove")["args"][0]["word"] == "FOLDER"

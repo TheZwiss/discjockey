@@ -141,10 +141,16 @@ DISPATCH: dict[str, str] = {
     "login skip": "the service word: qobuz runs setup_skip_qobuz, spotify runs setup_skip_spotify",
 }
 
+# The commands whose entry is picked by the id kind of one positional (`call.choose` reads the typed id's kind): `<command> ->
+# (the positional's name, the key of `ids.FORMS` that writes all its forms)`. `help` prints that form (`aiff:N|moves:N`)
+# for the positional, not the form of the primary entry's own kind. Every such command is named in `DISPATCH` too.
+BY_ID_KIND: dict[str, tuple[str, str]] = {"batch undo": ("batch_id", "batch")}
+
 # The built methods that work without a bound music folder (every other one answers `refused`, `no_library` first): a
 # fact `help --json` lists as the `no_library` reason. tests/test_cli_housekeeping.py runs every built read with none
 # chosen to pin it (`set_auto_upgrade` and `set_sync_scope` are writes: probed by hand, they answer `ok` with none chosen).
-NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope"))  # Settings works before a folder is chosen
+NEEDS_NO_LIBRARY = frozenset(("settings_view", "rekordbox_status", "set_auto_upgrade", "sync_scope", "set_sync_scope",
+                              "check_music_folder"))  # Settings works before a folder is chosen
 
 # The per-item states of an upgrade that make a finished run `partial` (design §4.3: a skipped or failed song)
 UPGRADE_PARTIAL = ("skipped", "failed")
@@ -161,6 +167,22 @@ def primary(entries: "list[Entry]") -> "Entry":
     first), else a read that runs as a job, else the read (`aiff convert` has the read `aiff_plan` among its entries,
     which the write's `--dry-run` runs)."""
     return next((e for e in entries if e.kind in ("J", "B")), next((e for e in entries if e.kind != "R"), entries[0]))
+
+
+def stands_in(entry: "Entry") -> bool:
+    """Whether `entry` is a built read that answers the `--dry-run` of a write nobody has built yet (`tidy_preview` for
+    the planned `tidy_up`): until the write is built the command can only be tried, and this read is the whole of it.
+    Derived: the moment the write loses its `planned` label, the read stops standing in."""
+    return entry.kind == "R" and not entry.planned and any(
+        e.dry_run == entry.method for e in ENTRIES
+        if e.command == entry.command and e.kind in ("J", "B") and e.planned)
+
+
+def dry_run_only(command: tuple[str, ...]) -> bool:
+    """Whether every built entry of `command` stands in for a write that is not built: the command line offers it with
+    `--dry-run` alone (`tidy run`, `limits set`, `setup music`); `batch undo` is not one (its AIFF write is built)."""
+    built = [e for e in ENTRIES if e.command == command and not e.planned and e.kind not in ("W", "dropped")]
+    return bool(built) and all(stands_in(e) for e in built)
 
 
 def entry_of(method: str, command: str) -> "Entry | None":
@@ -249,10 +271,10 @@ ENTRIES: tuple[Entry, ...] = (
     _e("watched_folders", "folder list", "R", "folder list", built=True),
     _e("removal_preview", "", "R", params={"folder_id": _positional("folder", type="int")}, built=True),  # `folder remove --dry-run`
     _e("check_import_folder", "folder check", "R", "folder check /Music/Crate", built=True),
-    _e("tidy_preview", "tidy run", "R", "tidy run --dry-run", planned="phase 3: V3.1b"),
+    _e("tidy_preview", "tidy run", "R", "tidy run --dry-run", built=True),
     _e("move_batches", "", "R", built=True),  # the window's own list; `batch list` is `batches`
     _e("undo_preview", "batch undo", "R", "batch undo moves:1 --dry-run",
-       params={"batch_id": _positional("moves", type="int")}, planned="phase 3: V3.1b"),
+       params={"batch_id": _positional("moves", type="int")}, built=True),
     _e("rekordbox_status", "rekordbox status", "R", "rekordbox status", built=True, locks={"rekordbox_r"}),
     _e("job_status", "", "R", built=True),  # the window's own job; `job list` / `job show` read the registry
     _e("job_events", "", "R", built=True),  # the window's follow; `job follow --jsonl` reads the same files
@@ -287,7 +309,7 @@ ENTRIES: tuple[Entry, ...] = (
     # --- limits
     _e("limits", "limits show", "R", "limits show qobuz", params={"service": _positional()}, planned="phase 3: V3.1b"),
     _e("limits_what_if", "limits set", "R", "limits set qobuz 40 --dry-run", params={
-        "service": _positional(), "limit": _positional(type="int")}, planned="phase 3: V3.1b"),
+        "service": _positional(), "limit": _positional(type="int")}, built=True),
     _e("save_limits", "limits set", "J", params={"service": _positional(), "limit": _positional(type="int")},
        dry_run="limits_what_if", planned="phase 4: V4.8"),
     _e("mark_warnings_seen", "limits seen", "J", params={"service": _positional()}, planned="phase 4: V4.8"),
@@ -333,7 +355,7 @@ ENTRIES: tuple[Entry, ...] = (
     *_favourite_entries(),
     *_crate_entries(),
     _e("pick_folder", "", "W"),
-    _e("check_music_folder", "setup music", "R", "setup music /Music/Discjockey --dry-run", params={"path": _positional()}, planned="phase 3: V3.1b"),
+    _e("check_music_folder", "setup music", "R", "setup music /Music/Discjockey --dry-run", params={"path": _positional()}, built=True),
     _e("set_music_folder", "setup music", "J", params={"path": _positional()}, needs_yes=True,
        dry_run="check_music_folder", planned="phase 4: V4.8"),
     _e("retry_music_folder", "setup status", "R", "setup status", planned="phase 3: V3.1b"),

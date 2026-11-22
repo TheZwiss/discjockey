@@ -368,6 +368,10 @@ DRIVERS = {
     "missing_files": lambda api, rec: wait_job(api, rec, api.missing_files(["t3"], "download_again")),  # a skipped song: the job still takes its lock
     "missing_files_preview": lambda api, rec: api.missing_files_preview(["t2"], "download_again"),
     "remove_watched_folder": lambda api, rec: wait_job(api, rec, api.remove_watched_folder(_watched_id(api, rec))),
+    "tidy_preview": lambda api, rec: api.tidy_preview(),  # `tidy run --dry-run`: the records, no lock
+    "undo_preview": lambda api, rec: api.undo_preview(1),  # `batch undo moves:1 --dry-run`: the move log, no lock
+    "limits_what_if": lambda api, rec: api.limits_what_if("qobuz", 40),
+    "check_music_folder": lambda api, rec: api.check_music_folder(str(api._paths.root.parent / "Elsewhere")),
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]

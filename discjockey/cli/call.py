@@ -16,12 +16,13 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 
 from .. import tools
-from ..hub import catalog, registry, select
+from ..hub import catalog, ids, registry, select
 from ..hub.catalog import Entry
 from ..rekordbox import lock as rb_lock
 from ..rekordbox.locate import locate
 from . import bind, envelope, follow, worker
-from .parser import BATCH_SELECTION_WORDS, SELECTION_WORDS, Flags, parameters_of, selects, signature_of
+from .parser import (BATCH_SELECTION_WORDS, DRY_RUN_ONLY_WORDS, SELECTION_WORDS, Flags, UsageError, parameters_of, selects,
+                     signature_of)
 
 NOT_BUILT = "{command} is not built yet."
 JOB_FLAGS_WORDS = "{command} answers at once: {given} is for a command that runs as a job."
@@ -205,17 +206,19 @@ def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
     """The entry's `--dry-run` (design §7.1): its `dry_run` method on the last scan, answering `as_of.scanned_at` and,
     when a watched folder changed after that scan, `next: library scan`. An answer that lists its items (each with a
     `key`) is stored as a plan (`plan_store`: the plan file a dry run writes) and its id is `data.plan_id`, which
-    `--plan` runs."""
-    answer = getattr(api, entry.dry_run)(**{k: v for k, v in kwargs.items() if k in parameters_of(entry.dry_run)})
+    `--plan` runs. A read that stands in for a write nobody has built (`catalog.stands_in`) is its own dry run: it answers
+    as a read does (`as_of`, no plan, no scan hint: a limit's what-if or a folder check does not plan on the scan)."""
+    method = entry.dry_run or entry.method
+    answer = getattr(api, method)(**{k: v for k, v in kwargs.items() if k in parameters_of(method)})
     env = envelope.from_answer(command, answer, as_of=_as_of(api))
-    if env["outcome"] == "ok":
+    if env["outcome"] == "ok" and not catalog.stands_in(entry):
         if (plan_id := api.save_plan(command, answer, command)) is not None:
             env["data"]["plan_id"] = plan_id
-        words = api.result_words(entry.dry_run, answer)  # a dry run that has something to say beside its facts
+        words = api.result_words(method, answer)  # a dry run that has something to say beside its facts
         if words.get("ok") and words.get("message"):
             env["message"] = words["message"]
         env["next"] += [n for n in api.scan_next() if n not in env["next"]]
-    return envelope.noted(env, entry.dry_run, dry=True)
+    return envelope.noted(env, method, dry=True)
 
 
 def _needs_yes(entry: Entry, command: str, kwargs: Mapping | None = None, api=None) -> dict:
@@ -254,7 +257,7 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
         return envelope.usage(command, NOT_BUILT.format(command=command))
     if entry.kind == "J-control":
         return envelope.usage(command, f"{entry.method} is the window's Stop safely: use `job stop <job>`.")
-    if flags.dry_run and not entry.dry_run:
+    if flags.dry_run and not entry.dry_run and not catalog.stands_in(entry):
         return envelope.usage(command, f"{command} has no --dry-run: it does not change anything or it cannot be tried first.")
     if not flags.dry_run and entry.kind not in ("R", "B", "J", "RJ"):
         return envelope.usage(command, NOT_BUILT.format(command=command))
@@ -389,10 +392,33 @@ def _as_of(api) -> dict | None:
     return {key: fresh[key] for key in ("scanned_at", "read_at")} if fresh.get("ok") else None
 
 
-def choose(entries: list[Entry], flags: Flags) -> Entry:
+def choose(entries: list[Entry], flags: Flags, args: Mapping | None = None) -> Entry:
     """The entry of a noun-verb command that runs: the write when there is one (its `--dry-run` runs the entry's
-    `dry_run` method), else the read."""
+    `dry_run` method), else the read. A command that dispatches by id kind (`catalog.BY_ID_KIND`: `batch undo`) runs the
+    entry of the typed id's kind. Raises `UsageError`."""
+    command = " ".join(entries[0].command)
+    if command in catalog.BY_ID_KIND and args:
+        return _by_id_kind(entries, command, args, flags)
     return catalog.primary(entries)
+
+
+def _by_id_kind(entries: list[Entry], command: str, args: Mapping, flags: Flags) -> Entry:
+    """The entry of `command` whose positional resolves the kind of the id typed (the catalogue's rows, built and planned).
+    A kind whose write is not built (`batch undo moves:<n>`) runs its stand-in read with `--dry-run` and is a usage
+    error without it; a write that is built is returned itself."""
+    name = catalog.BY_ID_KIND[command][0]
+    try:
+        kind = ids.parse(str(args[name]), ids.BATCH_KINDS).kind
+    except ids.BadId as e:  # the same words `resolve` gives a bad batch id
+        raise UsageError(e.message, e.reason) from None
+    rows = [e for e in catalog.ENTRIES if e.command == entries[0].command and name in e.params
+            and e.params[name].resolve == kind]
+    write = catalog.primary(rows) if rows else catalog.primary(entries)
+    if not write.planned:
+        return write
+    if not flags.dry_run:
+        raise UsageError(DRY_RUN_ONLY_WORDS.format(command=f"{command} {ids.FORMS[kind].replace(':N', ':<n>')}"))
+    return next(e for e in rows if catalog.stands_in(e))
 
 
 def _pick(entries: list[Entry], args: Mapping) -> Entry | None:
