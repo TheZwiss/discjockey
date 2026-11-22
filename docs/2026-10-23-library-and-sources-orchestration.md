@@ -1303,6 +1303,13 @@ Results:
         rehearsals V2.2 + V2.5 (.claude/issue39/phase2/rehearse-V2.2.md / -V2.5.md; APFS clones of the real library,
         user present, Discjockey + rekordbox closed); (3) the go to merge phase 2 into main (after the rehearsals).
         No release. Nothing running.
+      - USER GO (LATEST, 2026-11-22): "Do the rehearsal … automated, only tell me to do something when you physically
+        cant. then merge wenn all done" (open-scope Decided). Cost answer to the user: phase 2 logged ~9.37M vs plan v2
+        4 350k (2 390 base + E7 820 + E4 835 + E9 305) = 2.15x (phase 1 2.24x); rest of plan v2 (phases 3-8 base
+        12 265k + E2 380 + E3 245 = 12.9M) at ~2.2x ≈ 28M logged. Order: rehearsal V2.2 (Sonnet, est. 110k) RUNNING →
+        V2.5 (Sonnet, est. 110k) → a FAIL → fix round → rotated login files (scratchpad/rotated/) copied back to the
+        real support folder with a backup if newer → merge feat/cli-2-foundations into main (suite + CI green), push.
+        No release.
     NEXT after the user's go: V1.14 rehearse-sync (made-up) → merge V1.14 → V1.15 (a/b, review, fix on a scratch
     library; carry: `tools update` terminal path via `_support_job`'s registry check) → Opus phase review (measure
     material first, likely split; all "FOR PHASE REVIEW" items below + memory project_issue39_cli carry list + amend
