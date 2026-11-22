@@ -14109,7 +14109,7 @@
           "x-shown": true
         },
         "undo_note": {
-          "description": "\"You can undo this on this page.\"",
+          "description": "\"You can undo this afterwards.\"",
           "type": "string",
           "x-shown": true
         },

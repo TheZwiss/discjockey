@@ -31,7 +31,7 @@
   import { toasts } from '$lib/stores/toasts';
   import TidyList from './TidyList.svelte';
   import {
-    CANT_MOVE_BACK, NOTHING_LEFT, R1, R2, U1, confirmLabel, countLine, fileCountText, folderName, goBackText, groups,
+    CANT_MOVE_BACK, NOTHING_LEFT, confirmLabel, countLine, fileCountText, folderName, goBackText, groups,
     initialTicks, itemOfRow, movesOf, notMovedText, outcomeOf, pairsOf, progressDone, progressStart, progressStep,
     problemToTell, progressTotal, resultUndo, skipTone, tickable, tickedRows, tickedText, toggleGroup, toggleTick, undoItems,
     undoLabel, undoRowName, type Outcome,

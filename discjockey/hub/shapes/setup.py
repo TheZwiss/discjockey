@@ -500,7 +500,7 @@ class TidyPreview(TypedDict):
     rows: Annotated[list[TidyRow], F("The files a tidy-up could move.")]
     ticked: Annotated[int, F("How many rows are ticked by default.")]
     rekordbox: Annotated[list[str], F("Two lines for the confirmation.")]
-    undo_note: Annotated[str, F("\"You can undo this on this page.\"")]
+    undo_note: Annotated[str, F("\"You can undo this afterwards.\"")]
     empty: Annotated[str | None, F("Null, or the text shown instead of the list (nothing out of place, or only `yours` "
                                    "rows left: the button then stays usable).")]
     yours: Annotated[TidyYours | None, F("The \"You put these here\" group; null when no row is `yours`.")]

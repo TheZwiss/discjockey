@@ -2494,7 +2494,7 @@ TIDY_YOURS_HEADER = "You put these here"
 TIDY_YOURS_CONTROL = "Put these in playlist order too"
 REKORDBOX_NOTES = ["rekordbox may show the moved tracks as missing.",
                    "Its Relocate finds them again by file name: Discjockey never renames them."]
-UNDO_NOTE = "You can undo this on this page."
+UNDO_NOTE = "You can undo this afterwards."
 UNDO_WARN = ("{n} files go back to where they were. rekordbox may show them as missing again; Relocate finds them "
              "by file name.")
 UNDO_WARN_ONE = ("1 file goes back to where it was. rekordbox may show it as missing again; Relocate finds it "

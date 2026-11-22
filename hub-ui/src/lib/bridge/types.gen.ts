@@ -3422,7 +3422,7 @@ export type TidyPreview = {
   ticked: number;
   /** Two lines for the confirmation. */
   rekordbox: string[];
-  /** "You can undo this on this page." */
+  /** "You can undo this afterwards." */
   undo_note: string;
   /**
    * Null, or the text shown instead of the list (nothing out of place, or only `yours` rows left: the button
