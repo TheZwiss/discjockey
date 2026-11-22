@@ -1395,6 +1395,10 @@ Results:
         216k, out 48k, advisor 0k; 6662 passed. `todo` takes a list of groups (contract), `Opened` shape + six openers
         with `print_only`, stubbed opener in tests. Carries for half A added. Merged into `feat/cli-3-reads` fab8b7c6.
         V3.3a dispatched (cli3-4 on `feat/cli-3-history`, material 17k re-measured, exp. 208k).
+      - V3.3a done 89d057c2 (4 commits): logged **221k** (exp. 208k, 1.06x), agent-cost 70 calls, cache 10.6M, fresh in
+        206k, out 59k, advisor 0k; 6729 passed. `hub/history.py` + `History` shapes, `batches(kind, since)`, "download
+        allowed" log name; undone rule fixed against the code, NOTHING_DONE word. Carries for half B. Merged 752d7437.
+        V3.3b dispatched (cli3-5 on `feat/cli-3-match`, exp. 213k).
       - **RESUME HERE (LATEST, 2026-11-22, phase 3 builds):** run `.claude/issue39/phase3/phase3-dispatch.md` rows 1-12 in
         order, one agent at a time. Per agent: ps, agent-cost (advisor 0k), log; merge the group branch into
         `feat/cli-3-reads` (--no-ff), push, remove the worktree and branch; create the next worktree (`git worktree add
