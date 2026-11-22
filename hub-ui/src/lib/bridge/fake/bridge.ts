@@ -962,7 +962,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       if (!(limit >= 1 && limit <= 500)) return fail('refused', 'The daily limit is between 1 and 500.');
       return ok(whatIfOf(s, service, limit, extra_today ?? 0, stillToLoad().count));
     },
-    async runs() { return ok({ runs: s.runs.map(summary) }); },
+    async runs(since?: string | null) {
+      // like the hub: only the runs that started at or after `since`; a run whose time cannot be read is kept
+      const from = since ? new Date(since).getTime() : NaN;
+      const kept = s.runs.filter((r) => Number.isNaN(from) || !(new Date(r.started).getTime() < from));
+      return ok({ runs: kept.map(summary) });
+    },
     async run(run_id: string) {
       // like the hub: `report:<stamp>` is the stamp, `last` the newest report
       const stamp = run_id.startsWith('report:') ? run_id.slice('report:'.length) : run_id;

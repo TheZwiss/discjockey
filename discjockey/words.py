@@ -40,14 +40,14 @@ NOUN_WORDS = {
     "batch": "The batches Discjockey made: list, show, carry on or undo one.",
     "check": "The checks to do in rekordbox after a file changed.",
     "folder": "The folders Discjockey watches for your own files.",
-    "library": "Your library: read it again, read file facts.",
+    "library": "Your library: list it, its collections, read it again, read file facts.",
     "missing": "Songs whose file is missing: list them, download again or remove from your library.",
     "rekordbox": "rekordbox's library: its state, what a change would do, its backups.",
-    "report": "The reports of past syncs.",
+    "report": "The reports of past syncs: list them, show one.",
     "settings": "What Settings holds, and changing it.",
-    "sync": "The sync.",
+    "sync": "The sync: what it would do, its last phase.",
     "todo": "Your to-do list.",
-    "track": "One song: find it, show it, undo its last step.",
+    "track": "One song: find it, show it, its spectrum, undo its last step.",
     "upgrade": "Better versions waiting: list, put in, throw away.",
     "job": "Long runs: list, show, follow, wait for, stop.",
 }
@@ -61,6 +61,8 @@ NOT_WATCHED = "{path} is not one of the watched folders."
 LIBRARY_NOT_REMOVABLE = "{path} is your Library: it is always watched and cannot be removed."
 BAD_FOLDER = "A folder is its path, or folder:<path>."
 BAD_COLLECTION = "A collection is all, unlisted, playlist:<name> or folder:<path>."
+BAD_SINCE = ("--since takes today, yesterday, a number of days or hours (3d, 12h) or a date or time (2026-11-20, "
+             "2026-11-20T18:00), not {text}.")
 
 # file facts (`library facts`, and the dry runs that read a few in memory: design §5.3, §7.1)
 FACTS_MISSING = ("{n} files have not been read yet, which is more than can be read at once ({most} at most). "

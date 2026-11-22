@@ -355,7 +355,7 @@ must be set up (else refused "Set up YouTube Premium first."); `limit` 1–500, 
 Qobuz `days_to_load` is null.
 Shape: `WhatIf` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 
-`runs()` → `Runs` (`{"runs": [RunSummary, newest first]}`). `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → `RunAnswer` (`{"run": RunDetail}`), the end screen.
+`runs(since?)` → `Runs` (`{"runs": [RunSummary, newest first]}`); `since` (an ISO time, the command line's `--since` after it resolved the word) keeps the runs that started at or after it, a run with no readable time is kept; the window sends none. `run(run_id)` (the command line also says `report:<id>` or `last`, the newest report) → `RunAnswer` (`{"run": RunDetail}`), the end screen.
 Shape: `RunAnswer` (generated: `hub-ui/src/lib/bridge/types.gen.ts`, `discjockey help <command> --json`).
 Every row with a `track_id` except `queued` carries `cover_url` (the file's own cover, else Spotify's, else null).
 `section_labels` are the report's own title of every section (`report.SECTIONS`; the end screen's part of the placements

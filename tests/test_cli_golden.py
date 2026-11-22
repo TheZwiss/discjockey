@@ -25,7 +25,7 @@ from discjockey import library
 from test_cli_batches import with_batches, with_report
 from test_cli_missing import missing_library
 from test_cli_reads import rich_library
-from discjockey.cli import bind, parser
+from discjockey.cli import bind, call, parser
 from discjockey.cli.render import generic
 from discjockey.hub import catalog
 
@@ -91,7 +91,7 @@ def fixture(tmp_path, monkeypatch, request, utc):
     choose_music(tmp_path, monkeypatch)
     if entry is not None and entry.command[0] == "batch":
         with_batches(paths)  # two AIFF batches and a move batch: the typed ids `aiff:1`, `aiff:2`, `moves:1`
-    if entry is not None and entry.command == ("report", "show"):
+    if entry is not None and entry.command in (("report", "show"), ("report", "list")):
         with_report(paths)
     make_master(tmp_path / "rekordbox", [])
     os.utime(tmp_path / "rekordbox" / "master.db", (MASTER_TIME, MASTER_TIME))
@@ -167,12 +167,9 @@ def test_t4_json_data_is_the_bridge_answer_minus_ok(entry, fixture, capsys):
     skip_without_tools(entry)
     parsed = parser.parse(words(entry))
     api = bind.default()
-    kwargs = dict(parsed.args)
-    for name, arg in catalog.effective_params(entry, parser.signature_of(entry.method)).items():
-        if arg.resolve and name in kwargs:
-            resolved = api.resolve(arg.resolve, list(kwargs[name]) if arg.many else [kwargs[name]])["resolved"]
-            kwargs[name] = resolved if arg.many else resolved[0]
-    answer = getattr(api, entry.method)(**kwargs, **entry.fixed)
+    kwargs, failed = call._arguments(entry, parsed.args, " ".join(entry.command), api, exact=False)  # what `call.run` makes of the line
+    assert failed is None, failed
+    answer = getattr(api, entry.method)(**kwargs)
     assert answer["ok"], answer
     _, out, _ = run([*words(entry), "--json"], capsys)
     # an answer that says what to run next (a search with no hit) has it in the envelope's `next`, not in `data`;

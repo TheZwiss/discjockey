@@ -298,6 +298,7 @@ DRIVERS = {
     "batch_detail": lambda api, rec: api.batch_detail("moves:1"),
     "move_batches": lambda api, rec: api.move_batches(),
     "run": lambda api, rec: api.run("last"),
+    "runs": lambda api, rec: api.runs(),  # the stored reports: no lock
     "rekordbox_status": lambda api, rec: api.rekordbox_status(),
     "job_status": lambda api, rec: api.job_status(),
     "job_events": lambda api, rec: api.job_events(_a_job(api)),

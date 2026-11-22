@@ -60,7 +60,7 @@ from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, Setti
                         load_settings, update_settings_held)
 from ..setup_cmd import TOOL_HINTS
 from ..sources.spotify import REDIRECT_URI
-from . import catalog, media as media_mod, plan_store, registry, select, shapes, spectrum as spec, views
+from . import catalog, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
 from .outcomes import REASONS as OUTCOME_REASONS, problem_fields
@@ -136,7 +136,7 @@ LIBRARY_METHODS = frozenset((
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
-RESOLVE_WORDS = {"upgrade_way": "same-track|new-track"}
+RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE"}
 
 
 @dataclass
@@ -1600,8 +1600,10 @@ class HubApi:
                                     self._today())
 
     @bridge
-    def runs(self) -> dict:
-        return {"runs": views.runs(self._reports())}
+    def runs(self, since: str | None = None) -> dict:
+        """The runs, newest first. `since` (an ISO time; the command line's `--since` resolves to one) keeps the runs
+        that started at or after it; the window sends none."""
+        return {"runs": [r for r in views.runs(self._reports()) if since_mod.after(r["started"], since)]}
 
     @bridge
     def run(self, run_id: str) -> dict:
@@ -3780,7 +3782,7 @@ class CliApi(HubApi):
 
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
                  "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch",
-                 "report": "_resolve_report"}  # kind -> the method that makes it (grows per group)
+                 "report": "_resolve_report", "since": "_resolve_since"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -4089,6 +4091,11 @@ class CliApi(HubApi):
         if found.value not in stamps:
             raise BadId("unknown_id", engine_words.NO_REPORT.format(stamp=found.value))
         return str(found.value)
+
+    def _resolve_since(self, text: str) -> str:
+        """`--since`: today, yesterday, `<n>d`, `<n>h`, a date or a time (`since.parse`) as an ISO time with its zone,
+        to the second. Anything else is `bad_args`, `usage`, in the words `BAD_SINCE`."""
+        return since_mod.parse(text, self._svc.now()).isoformat(timespec="seconds")
 
     def _resolve_upgrade_way(self, text: str) -> str:
         """`--way`: `same-track` or `new-track` (the snake_case spellings too) as the bridge's mode."""

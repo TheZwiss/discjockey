@@ -44,7 +44,7 @@ const fake: PageFake = {
       return { ...r, ready: { ...r.ready, counts: ZERO, actions: 0, duration_min: 0, qobuz_needed: 0, qobuz_uses: 0 },
         tiles: { ...r.tiles, still_to_load: { count: 0, days: 0, fits_today: true } }, next_checks: 0 };
     },
-    runs: (ctx, base) => async () => broken.has(ctx.s) ? ctx.fail('crashed', 'Something went wrong. Try again.') : base(),
+    runs: (ctx, base) => async (since?: string | null) => broken.has(ctx.s) ? ctx.fail('crashed', 'Something went wrong. Try again.') : base(since),
   },
 };
 export const scenarios = fake.scenarios;

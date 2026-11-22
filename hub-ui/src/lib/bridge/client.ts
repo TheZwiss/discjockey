@@ -41,7 +41,8 @@ export interface Bridge {
   set_crates_shown(paths: string[], shown: boolean | null): Promise<Res<CratesSaved>>;
   limits(service: Service): Promise<Res<Limits>>;
   limits_what_if(service: Service, limit: number, extra_today: number): Promise<Res<WhatIf>>;
-  runs(): Promise<Res<Runs>>;   run(run_id: string): Promise<Res<RunAnswer>>;
+  /** the runs, newest first; `since` (an ISO time) keeps those that started at or after it (the command line's `--since`) */
+  runs(since?: string | null): Promise<Res<Runs>>;   run(run_id: string): Promise<Res<RunAnswer>>;
   spectrum(track_id: string, which: Which): Promise<Res<SpectrumAnswer>>;
   setup_status(): Promise<Res<SetupStatus>>;
   /** rekordbox on this Mac now; works without a music folder. The Sync page reads it when it opens and on window focus */
