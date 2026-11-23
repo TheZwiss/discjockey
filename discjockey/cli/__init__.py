@@ -3,8 +3,10 @@
 through `call.run`, which calls a `HubApi` method (`bind.py`, headless) and wraps its answer in the envelope
 (`envelope.py`): with `--json` stdout holds exactly that object, also for a usage error and a crash, and the exit code
 is the outcome's (`hub/outcomes.py` `EXIT`). Without `--json` the answer is a text page (`render/`), notices and
-problems go to stderr. A line whose command is not built yet (a bare sync, a leading sync flag, a legacy word) goes
-unchanged to the old parser in `legacy.py`. Imports yt-dlp through the engine: only after `tools.activate()`."""
+problems go to stderr. A line whose command word is `setup` or `update` (not rebuilt yet) goes unchanged to the old
+parser in `legacy.py`; no argument, or only `--json`, is `help`; any other line without a command word was the bare
+sync and answers where it went (`parser.SYNC_MOVED_WORDS`). Imports yt-dlp through the engine: only after
+`tools.activate()`."""
 from __future__ import annotations
 
 import json
@@ -72,7 +74,7 @@ def emit(env: dict, flags: Flags) -> int:
 
 def _run(argv: list[str]) -> int:
     flags = Flags(json="--json" in argv, jsonl="--jsonl" in argv)  # what a usage error needs before the line is read
-    words = parser.words_of(argv)[0]
+    words = parser.words_of(argv)
     command = " ".join(words[:2])
     try:
         parsed = parser.parse(argv)
@@ -102,12 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     if argv[:2] == WORKER:
         from . import worker
         return worker.main(argv[2:])
-    if [a for a in argv if a != "--json"] in (["--help"], ["-h"]):  # the usual first probe: the short list
+    others = [a for a in argv if a != "--json"]
+    if others in ([], ["--help"], ["-h"]):  # no argument or the usual first probe: the short list (T12)
         argv = ["help", *(a for a in argv if a == "--json")]
     elif {"--help", "-h"} & set(argv):  # `upgrade --help`, `upgrade apply -h`: the help of that word or command
         rest = [a for a in argv if a not in ("--help", "-h")]
         if parser.route(rest) == "new":
-            argv = ["help", *parser.words_of(rest)[0], *(["--json"] if "--json" in argv else [])]
+            argv = ["help", *parser.words_of(rest), *(["--json"] if "--json" in argv else [])]
     if parser.route(argv) == "legacy":
         from . import legacy
         return legacy.main(argv)

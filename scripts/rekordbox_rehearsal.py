@@ -22,7 +22,7 @@ same-track --json` and `bin/discjockey batch undo aiff:<id> --yes --json` with `
 <backup> --yes`, which must give back the "before" copy byte for byte; each step is checked with Discjockey's reader. It prints one PASS/FAIL line per check (tracks by
 their labels only) and writes `W/report.json`. Exit code 0 when every check passes, 1 otherwise, 2 when it refuses.
 `rehearse-sync` (plan stage C §7 RH): the same copies, but the sync's Auto-upgrade phase instead of `upgrade apply`
-(`bin/discjockey sync run --auto-upgrade-only [--dry-run] --wait 3600 --json`; the whole sync, `--yes`, only where a
+(`bin/discjockey sync run --auto-upgrade-only [--dry-run] --wait 3600 --json`; the whole sync, `sync read` then `sync run --wait 3600`, only where a
 step is about the whole sync: RH1's dry run and RH2's switch off); see its docstring. `rehearse-convert` (plan stage D §7.1): Convert to AIFF, Give it its clean name, Make all lossless
 files AIFF and the CDJ group's Convert all (`bin/discjockey aiff convert … --dry-run`, then the same line with `--plan
 <id> --json`; each answer is the envelope, its `data` the plan or the batch); see its docstring. Run these on a work folder that only `copy-db` and
@@ -927,14 +927,40 @@ def defer_checks(paths: Paths) -> None:
         library.save_state(paths, state)
 
 
+def read_playlists(work: Path, tag: str) -> dict:
+    """`sync read`, offline: the plan of `sync run` comes from the stored read (the old bare dry run read the playlists
+    itself). The copy's one playlists.txt line is left out before any request, so the read asks nothing of the network."""
+    code, env, _, _ = run_cli(work, f"{tag}-read", "sync", "read", "--wait", "900", "--json", offline=True)
+    if code != 0 or env.get("outcome") != "ok":
+        raise Refused(f"{tag}: `sync read` failed (exit {code}, {env.get('reason')}): no sync.")
+    return env
+
+
+def planned_actions(env: dict) -> list[dict]:
+    """The actions a `sync run --dry-run` answer plans, in the order the page lists them."""
+    return [a for g in (env.get("data") or {}).get("groups") or [] for a in g.get("actions") or []]
+
+
 def real_sync(work: Path, tag: str) -> tuple[int, dict, str, float]:
-    """A sync that changes things (`--yes --json`). Never reaches the network: a dry run first must plan no action
-    (no download, no Qobuz, YouTube or SoundCloud search, no playlist read), or the rehearsal stops."""
-    code, data, _, _ = run_cli(work, f"{tag}-guard", "--dry-run", "--json", offline=True)
-    if code != 0 or data.get("counts"):
-        raise Refused(f"{tag}: the dry run before the sync planned actions ({data.get('counts')}) or failed "
+    """A sync that changes things (`sync read`, then `sync run --wait 3600 --json`). Never reaches the network: a dry
+    run first must plan no action (no download, no Qobuz, YouTube or SoundCloud search), or the rehearsal stops. The
+    answer is shaped as `phase_run`'s, `auto_upgrade` read from the report's `.json` beside `report` (a whole sync's
+    answer carries no block: a report without an `auto_upgrade` key is the phase's null)."""
+    read_playlists(work, tag)
+    code, guard, _, _ = run_cli(work, f"{tag}-guard", "sync", "run", "--dry-run", "--json", offline=True)
+    actions = planned_actions(guard)
+    if code != 0 or actions:
+        raise Refused(f"{tag}: the dry run before the sync planned {len(actions)} actions or failed "
                       f"(exit {code}): no real run.")
-    return run_cli(work, tag, "--yes", "--json", offline=True)
+    code, env, err, seconds = run_cli(work, tag, "sync", "run", "--wait", "3600", "--json", offline=True)
+    data = env.get("data") or {}
+    report = Path(data["report"]) if data.get("report") else None
+    record = json.loads(report.with_suffix(".json").read_text(encoding="utf-8")) if report and report.with_suffix(
+        ".json").is_file() else None
+    shaped = {"ok": env.get("outcome") == "ok", "report": str(report) if report else None, "counts": data.get("counts"),
+              "report_read": record is not None, "auto_upgrade": (record or {}).get("auto_upgrade"),
+              "message": env.get("message"), "envelope": env}
+    return code, shaped, err, seconds
 
 
 def phase_run(work: Path, tag: str, *flags: str) -> tuple[int, dict, str, float]:
@@ -965,24 +991,23 @@ def rh1_dry(work: Path, ctx: dict, checks: Checks) -> None:
     checks.add("RH1 playlists.txt: one active line, left out before any request",
                len(lines) == 1 and all(sources.left_out(paths, line) for line in lines),
                f"{len(lines)} line, service {lines[0].service}")
+    read_playlists(work, "rh1")
     for attempt in (1, 2):
-        code, data, err, _ = run_cli(work, f"rh1-dry-{attempt}", "--dry-run", "--json", offline=True)
-        counts = data.get("counts") or {}
-        if not counts or attempt == 2:
+        code, env, _, _ = run_cli(work, f"rh1-dry-{attempt}", "sync", "run", "--dry-run", "--json", offline=True)
+        actions = planned_actions(env)
+        if not actions or attempt == 2:
             break
-        checks.note("RH1 first upgrade checks planned", f"{counts}: their next-check dates are set ahead")
+        checks.note("RH1 first upgrade checks planned", f"{len(actions)} actions: their next-check dates are set ahead")
         defer_checks(paths)
-    headers = re.findall(r"^\[\d+/\d+\]", err, re.M)
+    data = env.get("data") or {}
     block = data.get("auto_upgrade") or {}
-    checks.add("RH1 dry run: exit 0, ok, a dry run", code == 0 and data.get("ok") is True and data.get("dry_run") is True,
-               f"exit {code}")
+    checks.add("RH1 dry run: exit 0, ok, `sync run`'s answer",
+               code == 0 and env.get("outcome") == "ok" and env.get("command") == "sync run", f"exit {code}")
     checks.add("RH1 dry run: the action list is empty (no download, no search, no playlist read)",
-               not counts and not headers and "Logging in" not in err,
-               f"actions {counts or 'none'}, action lines {len(headers)}")
-    checks.note("RH1 the dry run's Auto-upgrade rows", f"{block.get('done')} done, "
-                f"{sum(1 for r in block.get('results', []) if r['state'] == 'would')} would")
-    if counts:
-        raise Refused(f"The dry run still plans actions ({counts}): stopped before any real run.")
+               not actions and data.get("groups") == [], f"actions {len(actions) or 'none'}")
+    checks.note("RH1 the dry run's Auto-upgrade part", f"{block.get('ready')} ready, {block.get('places')} places")
+    if actions:
+        raise Refused(f"The dry run still plans actions ({len(actions)}): stopped before any real run.")
 
 
 def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
@@ -995,8 +1020,8 @@ def rh2_off(work: Path, ctx: dict, checks: Checks, state: dict) -> None:
     before = snapshot(work, ctx)
     code, data, _, seconds = real_sync(work, "rh2-sync")
     state["off_seconds"] = seconds
-    checks.add("RH2 sync --yes --json: exit 0, the auto_upgrade block is null",
-               code == 0 and data.get("ok") is True and "auto_upgrade" in data and data["auto_upgrade"] is None,
+    checks.add("RH2 sync run --wait 3600 --json: exit 0, the report's auto_upgrade block is null (no key)",
+               code == 0 and data.get("ok") is True and data["report_read"] and data["auto_upgrade"] is None,
                f"exit {code}, {seconds:.1f} s")
     code, data, _, _ = phase_run(work, "rh2-phase")
     checks.add("RH2 sync run --auto-upgrade-only: exit 0, ok, no block, \"Auto-upgrade is off, so nothing was moved.\"",
@@ -1209,7 +1234,7 @@ def rehearse_sync(work: Path, no_analysis: str) -> int:
     """Plan stage C §7 RH. Over the copies `copy-db` and `copy-tracks` made: a scratch library with the copies as own
     songs and a parked same-edit upgrade each, the copy of rekordbox's library repointed at the copies, a
     playlists.txt that reads nothing, and the sync's last phase (`sync run --auto-upgrade-only --json`, every run with
-    the proxies closed; RH1 and RH2 also run the whole sync, `--yes`, and only after a dry run planned no action) in five states: RH1 a dry run plans no action; RH2 switch off changes nothing; RH3 dry run with
+    the proxies closed; RH1 and RH2 also run the whole sync (`sync read`, `sync run --wait 3600`), and only after a dry run planned no action) in five states: RH1 a dry run plans no action; RH2 switch off changes nothing; RH3 dry run with
     the switch on; RH4 the phase (all but `--no-analysis`'s track, whose analysis files are removed, are upgraded;
     stage B's checks per track, the backup and the report); RH5 a second sync decodes nothing; RH6 the analysis
     files are back, the track is tried again; RH7 Undo all from this sync. Prints PASS/FAIL per check, tracks by

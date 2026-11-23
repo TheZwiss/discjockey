@@ -312,6 +312,7 @@ def test_qobuz_problem_kinds(paths, monkeypatch):
     with pytest.raises(run.SetupProblem) as excinfo:
         run.open_qobuz(prep)
     assert excinfo.value.kind == "qobuz_login_failed"
+    assert library.load_state(paths)["qobuz_usage"]["signals"][0]["kind"] == "login_failed"  # recorded: it counts to the pause
 
 
 def test_stop_while_spotify_asks_to_wait(paths, monkeypatch):
@@ -605,14 +606,10 @@ def test_download_again_on_a_missing_playlist_song_with_a_parked_upgrade_plans_n
     assert e["upgrade"] is not None and e["file_gone"] == "2026-11-18" and e["missing_since"] is not None
 
 
-def test_a_dry_run_stores_no_scan_unless_asked_to(paths):
+def test_a_read_scans_the_library_and_stores_it_but_decides_nothing(paths):
     rel = placed(paths)
     (paths.root / rel).unlink()
-    prep = run.prepare(paths, read_only=True)  # the command line's: it plans on the last scan (issue 39 design §7.1)
-    assert library.load_state(paths)["tracks"]["t1"]["file_gone"] is None
-    assert prep.state["tracks"]["t1"]["path"] == rel
-    assert library.load_state(paths)["tracks"]["t1"]["missing_since"] is None
-    prep = run.prepare(paths, read_only=True, scan=True)  # the window's refresh asks for the scan
+    prep = run.prepare(paths, read_only=True)  # the window's refresh and `sync read`
     stored = library.load_state(paths)["tracks"]["t1"]
     assert stored["missing_since"] is not None and stored["file_gone"] is None  # it waits: nothing is decided
     assert prep.state["tracks"]["t1"]["path"] == rel and prep.state["tracks"]["t1"]["missing_since"] is not None
@@ -1512,19 +1509,6 @@ def test_the_real_rekordbox_services_are_the_default(tmp_path, monkeypatch):
     [options] = seen
     assert options["running"] is run.process.running and options["compare"] is run.align.compare_files
     assert options["place"] == run.locate() and callable(options["now"])
-
-
-def test_a_dry_run_with_extra_plans_with_it_but_saves_nothing(paths):
-    save_settings(paths.settings_file, Settings())
-    before = paths.settings_file.read_bytes()
-    base = run.prepare(paths, read_only=True)
-    room = lambda prep: run.Budget(prep.state, lambda: None, prep.settings).remaining()  # noqa: E731
-    prep = run.prepare(paths, read_only=True, extra=20)
-    assert paths.settings_file.read_bytes() == before  # the dry run granted nothing to today's real runs
-    assert (prep.settings.extra_date, prep.settings.extra_amount) == (date.today().isoformat(), 20)
-    assert room(prep) == room(base) + 20  # but its plan counts the extra
-    run.prepare(paths, extra=20)  # a real run still saves it
-    assert paths.settings_file.read_bytes() != before
 
 
 def test_fill_kbps_does_not_look_up_a_missing_or_offline_file():

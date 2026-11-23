@@ -284,10 +284,13 @@ def test_app_open_opens_the_window_in_its_own_process_without_holding_the_lock(t
     assert cli.main(["app", "open"]) == 0 and opened == [tmp_path]
 
 
-def test_the_launcher_starts_the_hub_without_caffeinate():
-    text = (__import__("pathlib").Path(__file__).parents[1] / "bin" / "discjockey").read_text()
-    hub = text.index('if [ "$1" = "app" ] && [ "$2" = "open" ]; then')
-    assert 'exec "$DIR/.venv/bin/python" -m discjockey "$@"' in text[hub:text.index("fi", hub)]
+def test_the_launcher_never_runs_under_caffeinate():
+    """Not for `app open`, not for any other line: a job's worker keeps the Mac awake itself (cli/worker.py)."""
+    lines = (__import__("pathlib").Path(__file__).parents[1] / "bin" / "discjockey").read_text().splitlines()
+    code = [ln for ln in lines if not ln.lstrip().startswith("#")]
+    assert not any("caffeinate" in ln for ln in code)
+    assert code.count('exec "$DIR/.venv/bin/python" -m discjockey "$@"') == 1  # the one way every line starts
+    assert not any(ln.lstrip().startswith("if") for ln in code)  # no line is treated apart
 
 
 def test_the_placeholder_page_prevents_the_browser_default_on_drop():

@@ -57,7 +57,15 @@ def scan(self):
         return {"mode": mode}
     return {"job_id": self._jobs.start("scan", work).id}
 
+def slow_read(self, url):  # a read job (RJ: the method answers when it is done), held at the same gate
+    pathlib.Path(marker).write_text("started")
+    end = time.monotonic() + 60
+    while time.monotonic() < end and not gate.exists():
+        time.sleep(0.02)
+    return {"ok": True}
+
 A.CliApi.rescan_library = A.bridge(scan)
+A.CliApi.add_playlist = A.bridge(slow_read)
 sys.exit(worker.main([job_id]))
 """
 
@@ -138,10 +146,11 @@ class Env:
         return {"music": str(self.paths.root), "support": str(self.paths.support),
                 "rekordbox": str(self.tmp / "rekordbox-scratch"), "sandbox": None, **over}
 
-    def start(self, mode="gate", *, wait_busy=None, roots=None, registry_in=None, via_shim=True):
+    def start(self, mode="gate", *, wait_busy=None, roots=None, registry_in=None, via_shim=True,
+              method="rescan_library", command="library scan", args=None):
         reg = Registry(registry_in) if registry_in else self.registry
-        files = reg.create("rescan_library", "library scan", {}, "terminal", roots or self.roots())
-        files.update(method="rescan_library", wait_busy=wait_busy)
+        files = reg.create(method, command, args or {}, "terminal", roots or self.roots())
+        files.update(method=method, wait_busy=wait_busy)
         files.flush()
         marker = self.tmp / f"marker-{len(self.workers)}"
         argv = [sys.executable, "-c", SHIM, files.id, mode, str(marker)] if via_shim else None
@@ -257,8 +266,10 @@ def test_killing_the_client_leaves_the_worker_running_and_finishing(env, tmp_pat
         client.wait(10)
 
 
-def test_a_write_job_runs_under_its_own_caffeinate(env):
-    w = env.start("gate")
+@pytest.mark.parametrize("method,command,args", [("rescan_library", "library scan", {}),  # a write job (J)
+                                                  ("add_playlist", "playlist check", {"url": "x"})])  # a read job (RJ)
+def test_a_write_job_and_a_read_job_each_run_under_their_own_caffeinate(env, method, command, args):
+    w = env.start("gate", method=method, command=command, args=args)
     wait_for(w.started)
     pid = w.state()["pid"]
     wait_for(lambda: any(f"caffeinate -i -w {pid}" in ln for ln in ps_lines()))

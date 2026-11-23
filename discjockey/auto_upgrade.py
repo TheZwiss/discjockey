@@ -71,7 +71,7 @@ from .rekordbox.eligible import Skip
 from .rekordbox.locate import Place
 from .rekordbox.offset import analysis_folder_files
 from .settings import Settings
-from .words import before_start_line, waiting_line  # the engine's words (`words.py`); console.py and the tests name them here
+from .words import before_start_line, waiting_line  # the engine's words (`words.py`); the tests name them here
 
 __all__ = ["ANLZ_REFUSALS", "FILE_REFUSALS", "PLACE_WAITS", "REFUSALS", "STEP", "WAITS", "Outcome", "Planned", "before_start_line",
            "file_stamps", "free_now", "plan", "refusal_holds", "run_phase", "stamps", "start_note", "waiting_line"]

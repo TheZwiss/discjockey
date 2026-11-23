@@ -92,7 +92,8 @@ def test_t2_the_switch_picks_its_entry_and_the_whole_run_is_the_other():
 
 
 @pytest.mark.parametrize("argv,where", [
-    ([], "legacy"), (["--dry-run"], "legacy"), (["--json"], "legacy"), (["--limit", "3"], "legacy"),
+    ([], "new"), (["--dry-run"], "new"), (["--json"], "new"), (["--limit", "3"], "new"), (["--yes", "update"], "new"),
+    (["update"], "legacy"), (["--verbose"], "new"),
     (["setup"], "legacy"), (["upgrade", "list", "--json"], "new"), (["--json", "upgrade", "list"], "new"),
     (["upgrade", "apply", "--all"], "new"), (["upgrade", "discard", "t1"], "new"),
     (["upgrade", "undo", "t1"], "new"), (["rekordbox", "checked", "t1"], "new"), (["upgrades"], "new"), (["track", "undo", "t1"], "new"),
@@ -108,6 +109,30 @@ def test_t2_the_switch_picks_its_entry_and_the_whole_run_is_the_other():
 ])
 def test_t2_the_route_of_a_line(argv, where):
     assert parser.route(argv) == where
+
+
+def test_t2_no_argument_is_the_short_help_and_the_catalogue_with_json(capsys):
+    from discjockey import cli
+    assert cli.main([]) == 0
+    out = capsys.readouterr().out
+    assert "help --json" in out and "job stop" in out
+    assert cli.main(["--json"]) == 0
+    env = json.loads(capsys.readouterr().out)
+    assert env["command"] == "help" and env["outcome"] == "ok" and env["data"]
+
+
+@pytest.mark.parametrize("argv", [["--dry-run"], ["--yes", "--json"], ["--verbose"], ["--limit", "3"], ["--extra", "5"],
+                                  ["--wait", "5"], ["--dry-run", "--yes"]])
+def test_t2_the_bare_syncs_flags_say_where_the_sync_went(argv, capsys):
+    from discjockey import cli
+    code = cli.main(argv)
+    captured = capsys.readouterr()
+    if "--json" in argv:
+        env = json.loads(captured.out)
+        assert (env["outcome"], env["reason"], env["message"]) == ("bad_args", "usage", parser.SYNC_MOVED_WORDS)
+        assert code == EXIT["bad_args"]
+    else:
+        assert code == EXIT["bad_args"] and parser.SYNC_MOVED_WORDS in captured.err
 
 
 # --- T3: the command line computes nothing ---
@@ -423,11 +448,9 @@ def test_a_dry_run_runs_the_entrys_dry_run_method(tmp_path, monkeypatch):
 
 # --- the old commands keep their words ---
 
-def test_the_bare_sync_goes_to_the_old_parser_unchanged(capsys):
-    code, out, err = run(["--dry-run", "--json"], capsys)
-    data = json.loads(out)
-    assert code == 2 and data["ok"] is False and data["kind"] == "refused" and data["reason"] == "no_library"
-    assert "ok" in data and "outcome" not in data  # the old shape until the replacement lands
+def test_update_goes_to_the_old_parser_unchanged(capsys):
+    code, out, err = run(["update"], capsys)
+    assert code == 2 and "doesn't know your music folder yet" in out and err == ""  # plain words, no envelope
 
 
 def test_the_support_folder_of_a_test_is_a_scratch_folder():

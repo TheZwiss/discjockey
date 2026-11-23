@@ -520,20 +520,20 @@ def test_the_report_has_the_section_after_swapped_and_the_run_summary_counts_it_
     assert summary["counts"]["lossless"] == 1
 
 
-def test_the_console_lists_placements_apart_from_the_upgrades():
-    from discjockey.console import upgrade_lines
+def test_the_start_note_says_placements_apart_from_the_upgrades_and_waits_only_for_rekordbox():
+    """The one rule of the placement clause (`auto_upgrade.start_note` / `place_clause`; the console's copy of these
+    lines went with the bare sync, V4.1b, and `sync plan`'s `start_note` carries them)."""
     row = lambda k, a, state="would": {"track": k, "name": k, "state": state, "reason": None, "message": None,  # noqa: E731
                                        "how": "placed" if a == "place" else "in_place", "action": a}
     block = {"results": [row("a", "place"), row("b", "same_track")]}
-    assert upgrade_lines(block, lambda k: f"Artist - {k}", full=True) == [
-        "At the end, 1 upgrade goes in place of your files; your cues stay.", "  Artist - b (in place)",
-        "a gets its better version at the end of the sync."]   # (FB b) one song: the clause names it, and (FC M8) only it
+    assert auto_upgrade.start_note(block) == (
+        f"{words.auto_plan_line(1)} a gets its better version at the end of the sync.")   # one song: the clause names it
     # the Sync page's rule: it waits only for rekordbox (a plain wait for another reason is no "once rekordbox is closed")
     waiting = lambda reason: {"results": [{**row("a", "place", "waiting"), "reason": reason}]}  # noqa: E731
-    assert upgrade_lines(waiting("rekordbox_open"), str, full=False)[0].endswith("once rekordbox is closed.")
-    assert upgrade_lines(waiting("space"), str, full=False)[0] == "a gets its better version at the end of the sync."
+    assert auto_upgrade.start_note(waiting("rekordbox_open")).endswith("once rekordbox is closed.")
+    assert auto_upgrade.start_note(waiting("space")) == "a gets its better version at the end of the sync."
     two = {"results": [row("a", "place"), row("b", "place")]}
-    assert upgrade_lines(two, str, full=False) == ["2 missing songs get their better version at the end of the sync."]
+    assert auto_upgrade.start_note(two) == "2 missing songs get their better version at the end of the sync."
 
 
 # --- the AIFF batch tables accept the new values after the schema step ---

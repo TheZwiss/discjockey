@@ -1,4 +1,4 @@
-"""User settings that the hub (and `discjockey --extra`) can change: settings.json
+"""User settings that the hub (and, for today's extra downloads, `limits set --extra-today`) can change: settings.json
 in the support folder."""
 from __future__ import annotations
 

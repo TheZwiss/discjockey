@@ -1,187 +1,21 @@
-import json
-import os
-import signal
-
+"""`setup` and `update`, the two words of the old command line that are left (`cli/legacy.py`; V4.8b and V4.7b remove
+them). The sync that used to run beside them is `sync run`: tests/test_cli_sync.py, test_cli_sync_phase.py."""
 import pytest
 
 import discjockey.cli.legacy as cli
-from audio_helpers import music, needs_ffmpeg, write_aiff
 from hub_helpers import choose_music
 
-from discjockey import REPO, config, library, run
+from discjockey import REPO, config, library
 from discjockey.sources import spotify
-from discjockey.sources.base import LoginState
-from discjockey.acquire import AcquireResult, Ready
-from discjockey.library import Paths, empty_state, run_lock, save_state
-from discjockey.models import FetchedPlaylist, SourceTrack
+from discjockey.library import Paths, run_lock
 from discjockey.settings import Settings, save_settings
 from discjockey.setup_cmd import TEMPLATE
-
-PLAYLISTS = "Hard_Bounce = https://open.spotify.com/playlist/0DiscjockeyExampleList\n"
 
 
 @pytest.fixture
 def root(tmp_path, monkeypatch):
     choose_music(tmp_path, monkeypatch)
     return tmp_path
-
-
-def fake_spotify(monkeypatch, tracks):
-    monkeypatch.setattr(spotify, "load_session", lambda paths: spotify.Session("cid", paths.spotify_token, {}))
-    monkeypatch.setattr(spotify, "login_state", lambda p: LoginState("ok"))
-    monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(tracks), []))
-
-
-def test_bad_playlists_file_exits_2(root, capsys):
-    (root / "playlists.txt").write_text("Bouncy =\n")
-    assert cli.main([]) == 2
-    assert "line 1" in capsys.readouterr().out
-    assert library.load_state(Paths(root, support=root / ".support"))["tracks"] == {}
-
-
-def test_lock_held_exits_3(root):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    with run_lock(Paths(root, support=root / ".support").lock):
-        assert cli.main([]) == 3
-
-
-def test_dry_run_changes_no_music_file_and_writes_no_report(root, monkeypatch, capsys):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    mine = root / "Library" / "Mine" / "Someone - Else.aiff"
-    mine.parent.mkdir(parents=True)
-    write_aiff(mine, music(1))
-    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file() and ".discjockey" not in p.parts}
-    fake_spotify(monkeypatch, [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
-    assert cli.main(["--dry-run"]) == 0
-    out = capsys.readouterr().out
-    assert "Download (new): 1" in out and "Dry run: no music files were changed and no report was written." in out
-    after = {p: p.read_bytes() for p in root.rglob("*") if p.is_file() and ".discjockey" not in p.parts}
-    assert after == before  # no music file moved, written or added (no Superseded/, no Upgrades ready/ either)
-    assert not (root / ".discjockey" / "reports").exists()
-    state = library.load_state(Paths(root, support=root / ".support"))
-    assert state["tracks"] == {} and state["files"] == []  # a dry run stores no scan: nothing was indexed
-
-
-def test_up_to_date(root, monkeypatch, capsys):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, [])
-    assert cli.main([]) == 0
-    assert "up to date" in capsys.readouterr().out
-
-
-def test_spotify_problem_exits_2(root, monkeypatch, capsys):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-
-    def no_session(paths):
-        raise spotify.SpotifyError("Spotify is not set up yet. Run: discjockey setup")
-
-    monkeypatch.setattr(spotify, "load_session", no_session)
-    assert cli.main([]) == 2
-    assert "setup" in capsys.readouterr().out
-
-
-def test_answering_no_changes_nothing(root, monkeypatch, capsys):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None)])
-
-    class FakeQobuz:
-        def close(self):
-            pass
-
-    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, paths: FakeQobuz()))
-    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
-    assert cli.main([]) == 0
-    assert "Nothing changed" in capsys.readouterr().out
-    assert library.load_state(Paths(root, support=root / ".support"))["tracks"] == {}
-
-
-class FakeQobuzSource:
-    def close(self):
-        pass
-
-
-class FakeAcquirer:
-    """ctrl_c=True presses Ctrl-C (a real SIGINT) while the first track is 'downloading'."""
-
-    def __init__(self, ctrl_c=0):
-        self.ctrl_c = ctrl_c  # how many SIGINTs one press delivers (uv/caffeinate forward it a second time)
-        self.calls = 0
-
-    def acquire(self, track, rejected, workdir, lossless_only, tracker, exact=None, upload=None):
-        self.calls += 1
-        for _ in range(self.ctrl_c):
-            os.kill(os.getpid(), signal.SIGINT)
-        p = workdir / "qobuz_q1.aiff"
-        p.write_bytes(b"audio")
-        return AcquireResult("ready", Ready(p, "lossless", "qobuz", "q1", "flac", None, "Qobuz FLAC · verified lossless"))
-
-
-TWO_TRACKS = [SourceTrack("t1", "Song", ("Artist",), "Al", None, 180000, None),
-              SourceTrack("t2", "Other", ("Artist",), "Al", None, 180000, None)]
-
-
-def full_run(root, monkeypatch, acquirer, args=("--yes",), tracks=TWO_TRACKS[:1]):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, tracks)
-    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, paths: FakeQobuzSource()))
-    monkeypatch.setattr(run, "Acquirer", lambda *a, **k: acquirer)
-    return cli.main(list(args))
-
-
-def test_full_run_places_files_and_writes_report(root, monkeypatch, capsys):
-    assert full_run(root, monkeypatch, FakeAcquirer()) == 0
-    assert (root / "Library" / "Hard_Bounce" / "Artist - Song.aiff").read_bytes() == b"audio"
-    pipeline = root / ".discjockey"
-    assert sorted(p.suffix for p in (pipeline / "reports").iterdir()) == [".json", ".md"]
-    assert (pipeline / "not_lossless.md").exists()
-    assert list((pipeline / ".tmp").iterdir()) == []
-    out = capsys.readouterr().out
-    assert "[1/1] Downloading [Hard_Bounce] Artist - Song" in out and "-> lossless" in out
-    assert "Qobuz today: 0 of 80 used" in out
-
-
-def test_ctrl_c_finishes_the_current_track_then_stops(root, monkeypatch, capsys):
-    acq = FakeAcquirer(ctrl_c=1)
-    assert full_run(root, monkeypatch, acq, tracks=TWO_TRACKS) == 130
-    assert acq.calls == 1  # the second track was never started
-    assert (root / "Library" / "Hard_Bounce" / "Artist - Song.aiff").exists()  # the first one was finished
-    pipeline = root / ".discjockey"
-    assert (pipeline / "library.db").exists()
-    assert len(list((pipeline / "reports").glob("*.md"))) == 1
-    assert "Stopping safely" in capsys.readouterr().out
-    assert signal.getsignal(signal.SIGINT) is signal.default_int_handler
-
-
-def test_one_press_delivered_twice_still_stops_safely(root, monkeypatch):
-    acq = FakeAcquirer(ctrl_c=2)
-    assert full_run(root, monkeypatch, acq, tracks=TWO_TRACKS) == 130
-    assert acq.calls == 1
-    assert (root / "Library" / "Hard_Bounce" / "Artist - Song.aiff").exists()  # not killed half-way
-
-
-def test_limit_must_be_positive(capsys):
-    with pytest.raises(SystemExit):
-        cli.parse_args(["--limit", "0"])
-
-
-def test_extra_allows_more_today(root, monkeypatch, capsys):
-    full_run(root, monkeypatch, FakeAcquirer(), args=("--yes", "--extra", "15"))
-    settings = json.loads((root / ".support" / "settings.json").read_text())
-    assert settings["extra_today"]["amount"] == 15
-    assert "of 95 used" in capsys.readouterr().out
-
-
-def test_qobuz_login_failure_is_recorded(root, monkeypatch):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, TWO_TRACKS[:1])
-
-    def refuse(cls, paths):
-        raise run.QobuzError("Qobuz did not accept your login. Run: discjockey setup")
-
-    monkeypatch.setattr(run.QobuzSource, "open", classmethod(refuse))
-    assert cli.main(["--yes"]) == 2
-    state = library.load_state(Paths(root, support=root / ".support"))
-    assert state["qobuz_usage"]["signals"][0]["kind"] == "login_failed"
 
 
 def test_template_has_no_active_lines():
@@ -260,35 +94,9 @@ def test_setup_with_a_google_qobuz_account_shows_the_password_steps(root, monkey
     assert "alias discjockey=" in out and str(REPO / "bin" / "discjockey") in out and "bin/discjockey" in out
 
 
-def test_sync_says_when_lossless_versions_wait(root, monkeypatch, capsys):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, TWO_TRACKS[:1])
-    f = root / "Library" / "Hard_Bounce" / "not_lossless" / "Artist - Song.aiff"
-    f.parent.mkdir(parents=True)
-    f.write_bytes(b"lossy")
-    state = empty_state()
-    state["tracks"]["t1"] = {
-        "aliases": [], "isrc": None, "artist": "Artist", "title": "Song", "duration_ms": 180000,
-        "folder": "Hard_Bounce", "path": "Library/Hard_Bounce/not_lossless/Artist - Song.aiff",
-        "status": "not_lossless", "source": "youtube_music", "source_id": "y1", "source_format": "opus",
-        "cutoff_hz": 20000, "rejected_sources": [], "in_playlists": True, "added": "2026-10-01T10:00:00",
-        "last_attempt": "2026-10-01", "last_upgrade_check": "2026-10-01",
-        "upgrade": {"file": "Upgrades ready/Hard_Bounce/Artist - Song.aiff", "source": "qobuz", "source_id": "q1",
-                    "source_format": "flac", "found": "2026-10-01",
-                    "alignment": {"result": "exact", "offset_samples": 0, "offset_ms": 0.0, "drift_ms": 0.0,
-                                  "text": "matches exactly"}}}
-    paths = Paths(root, support=root / ".support")
-    save_state(paths, state)
-    save_settings(paths.settings_file, Settings(auto_upgrade=False))  # switched on, the sync would put it in place
-    assert cli.main([]) == 0  # nothing to do: the parked upgrade stops further checks
-    out = capsys.readouterr().out
-    assert "1 better version is ready: run `discjockey upgrade list`." in out
-    assert "Better version ready" in (root / ".discjockey" / "not_lossless.md").read_text()
-
-
 def test_without_a_music_folder_the_console_says_where_to_choose_it(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(tmp_path / "support"))
-    for command in ([], ["update"], ["--dry-run"]):
+    for command in (["update"],):
         assert cli.main(command) == 2
         assert cli.NOT_CHOSEN_TEXT in capsys.readouterr().out
     assert not (tmp_path / "support" / "config.json").exists()
@@ -298,7 +106,7 @@ def test_a_missing_music_folder_changes_nothing(tmp_path, monkeypatch, capsys):
     from discjockey import library
     monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(tmp_path / "support"))
     library.write_music_folder(tmp_path / "support", tmp_path / "unplugged")
-    for command in ([], ["setup"]):
+    for command in (["update"], ["setup"]):
         assert cli.main(command) == 2
         assert "isn't there: " + str(tmp_path / "unplugged") in capsys.readouterr().out
     assert not (tmp_path / "unplugged").exists()
@@ -338,51 +146,6 @@ def test_setup_checks_the_music_folder_against_the_program_folder(tmp_path, monk
     assert paths.root == (tmp_path / "Music").resolve()  # the program folder itself was refused
 
 
-def lossless_song(key, title, rel):
-    return {"aliases": [], "isrc": None, "artist": "Artist", "title": title, "duration_ms": 180000,
-            "folder": "Hard_Bounce", "path": rel, "status": "lossless", "source": "qobuz", "source_id": key,
-            "source_format": "flac", "cutoff_hz": None, "rejected_sources": [], "in_playlists": True,
-            "added": "2026-10-01T10:00:00", "last_attempt": "2026-10-01", "last_upgrade_check": "2026-10-01"}
-
-
-@pytest.mark.parametrize("dry_run", [False, True])
-@pytest.mark.parametrize("elsewhere, line", [
-    (0, None),
-    (1, "1 file is not where the playlist order puts it; tidy up in the window."),
-    (2, "2 files are not where the playlist order puts them; tidy up in the window.")])
-def test_sync_says_how_many_files_a_tidy_up_would_move(root, monkeypatch, capsys, elsewhere, line, dry_run):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, TWO_TRACKS)
-    state = empty_state()
-    for i, t in enumerate(TWO_TRACKS):
-        rel = f"Library/{'Old' if i < elsewhere else 'Hard_Bounce'}/Artist - {t.title}.aiff"
-        (root / rel).parent.mkdir(parents=True, exist_ok=True)
-        (root / rel).write_bytes(f"audio {t.id}".encode())
-        state["tracks"][t.id] = lossless_song(t.id, t.title, rel)
-    save_state(Paths(root, support=root / ".support"), state)
-    assert cli.main(["--dry-run"] if dry_run else []) == 0
-    out = capsys.readouterr().out
-    assert ("No downloads needed." in out) is not dry_run
-    tidy_lines = [s for s in out.splitlines() if "tidy up in the window" in s]
-    assert tidy_lines == ([line] if line else [])
-
-
-def test_sync_says_which_songs_wait_for_an_answer_in_the_window(root, monkeypatch, capsys):
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, TWO_TRACKS[:1])
-    rel = "Library/Mine/Another Artist - Song.aiff"  # a file of the user's own: maybe the playlist's "Song"
-    (root / rel).parent.mkdir(parents=True)
-    (root / rel).write_bytes(b"audio mine")
-    state = empty_state()
-    state["tracks"]["local:1"] = lossless_song("local:1", "Song", rel) | {
-        "artist": "Another Artist", "folder": "", "in_playlists": False, "source": "manual", "source_id": None}
-    save_state(Paths(root, support=root / ".support"), state)
-    assert cli.main(["--dry-run"]) == 0
-    out = capsys.readouterr().out.splitlines()
-    assert "1 song waits for your answer in the window (Is this the same song?)." in out
-    assert not [s for s in out if "wait to be imported" in s]
-
-
 def test_setup_skips_spotify_on_an_empty_client_id(root, monkeypatch, capsys):
     from discjockey import qobuz, setup_cmd
     from discjockey.settings import load_settings
@@ -418,26 +181,6 @@ def test_a_client_id_connects_spotify_and_clears_the_skip(root, monkeypatch):
     assert not load_settings(paths.settings_file).spotify_skipped
 
 
-def test_a_qobuz_only_playlists_file_never_asks_for_spotify(root, monkeypatch, capsys):
-    from hub_helpers import QOBUZ_LINK, fake_qobuz, qobuz_track
-
-    (root / "playlists.txt").write_text(f"Example_Playlist = {QOBUZ_LINK}\n")
-    fake_qobuz(monkeypatch, [qobuz_track("900100001", "Example Song", "Example Artist")])  # no Spotify files at all
-    monkeypatch.setattr(spotify, "load_session", lambda paths: pytest.fail("Spotify was not asked for"))
-    assert cli.main(["--dry-run"]) == 0
-    out = capsys.readouterr().out
-    assert "Download (new): 1" in out and "Spotify" not in out
-
-
-def test_a_spotify_line_with_spotify_skipped_asks_to_set_it_up(root, monkeypatch, capsys):
-    from discjockey.settings import Settings, save_settings
-
-    (root / "playlists.txt").write_text(PLAYLISTS)
-    save_settings(Paths(root, support=root / ".support").settings_file, Settings(spotify_skipped=True))
-    assert cli.main(["--dry-run"]) == 2
-    assert "Spotify is not set up yet. Run: discjockey setup" in capsys.readouterr().out
-
-
 def test_setup_with_a_broken_settings_file_says_so(root, monkeypatch, capsys):
     from discjockey import setup_cmd
 
@@ -452,10 +195,6 @@ def test_setup_with_a_broken_settings_file_says_so(root, monkeypatch, capsys):
 # --- the parser of the words not rebuilt yet (`rekordbox status | preview` and `batch list | show` are the new
 # command line's: tests/test_cli_frame.py, test_cli_rekordbox.py, test_cli_batches.py) ---
 
-def run_json(argv, capsys):
-    code = cli.main(argv)
-    return code, json.loads(capsys.readouterr().out)
-
 
 def test_the_legacy_words_still_parse():
     for argv in (["setup"], ["update"]):
@@ -464,13 +203,13 @@ def test_the_legacy_words_still_parse():
         cli.parse_args(["convert", "--all", "lossless"])
 
 
-def test_the_sync_flags_work_before_and_after_a_command():
-    assert cli.parse_args(["--yes", "update"]).yes is True
-    assert cli.parse_args(["update", "--yes"]).yes is True
-    assert cli.parse_args(["--limit", "3", "update"]).limit == 3
-    assert cli.parse_args(["update", "--limit", "4"]).limit == 4
-    assert cli.parse_args(["--dry-run"]).command is None
-    assert cli.parse_args(["update"]).yes is False
+def test_the_sync_flags_went_with_the_bare_sync_and_one_word_is_needed(capsys):
+    for argv in ([], ["--dry-run"], ["--yes", "update"], ["update", "--yes"], ["--limit", "3", "setup"],
+                 ["--json", "setup"], ["update", "--json"]):
+        with pytest.raises(SystemExit) as e:
+            cli.parse_args(argv)
+        assert e.value.code == 2, argv
+    capsys.readouterr()
 
 
 def test_the_old_parser_has_no_word_of_the_removed_commands(capsys):
@@ -482,228 +221,6 @@ def test_the_old_parser_has_no_word_of_the_removed_commands(capsys):
     capsys.readouterr()
 
 
-# --- Auto-upgrade in the console (issue 33 stage C; plan stage C §2, §5 C3) ---
-
-import io  # noqa: E402
-
-from batch_helpers import make_lib, use  # noqa: E402
-from convert_helpers import EXACT  # noqa: E402
-from discjockey import align, db  # noqa: E402
-from discjockey.library import load_state  # noqa: E402
-from discjockey.rekordbox import process  # noqa: E402
-
-
-def upgrade_lib(tmp_path, monkeypatch, kinds, running=False):
-    """A library the console finds, whose songs are in a Spotify playlist that is read as they are (so the sync's plan
-    has no action) and whose parked upgrades are all the same edit; the fixture rekordbox holds them."""
-    lib = make_lib(tmp_path, monkeypatch, kinds)
-    use(lib, monkeypatch)
-    monkeypatch.setattr(align, "compare_files", lambda a, b: EXACT)
-    monkeypatch.setattr(process, "running", lambda: running)
-    (lib.paths.root / "playlists.txt").write_text("A = https://open.spotify.com/playlist/0DiscjockeyExampleList\n")
-    state = load_state(lib.paths)
-    fake_spotify(monkeypatch, [SourceTrack(key, state["tracks"][key]["title"], ("Artist",), "Album", None, 30000, None)
-                               for key in lib.tracks])
-    return lib
-
-
-def sync_json(argv, capsys):
-    code = cli.main(argv)
-    out = capsys.readouterr()
-    return code, json.loads(out.out), out.err        # exactly one JSON object on stdout
-
-
-def batches_in(lib) -> int:
-    with db.connect(lib.paths.db_file) as conn:
-        return db.aiff_batches(conn)[1]
-
-
-@needs_ffmpeg
-def test_the_syncs_json_is_one_object_and_the_human_lines_go_to_stderr(tmp_path, monkeypatch, capsys):
-    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
-    code, data, err = sync_json(["--yes", "--json"], capsys)
-    assert code == 0 and set(data) == {"ok", "exit_code", "dry_run", "report", "counts", "auto_upgrade"}
-    assert (data["ok"], data["exit_code"], data["dry_run"]) == (True, 0, False)
-    block = data["auto_upgrade"]
-    assert (block["done"], block["waiting"], block["refused"], block["failed"], block["stopped"]) == (2, 0, 0, 0, False)
-    assert [r["state"] for r in block["results"]] == ["done", "done"] and block["backup"] and block["batch"] == 1
-    report = json.loads(open(data["report"].replace(".md", ".json")).read())
-    assert report["auto_upgrade"] == block                                   # the run's block, as the report has it
-    assert data["counts"]["upgraded"] == 2 and "Upgraded (your cues stayed)" in open(data["report"]).read()
-    assert "At the end, 2 upgrades go in place of your files; your cues stay." in err
-    assert "Upgrading 1 of 2: Artist – Song 0" in err and "Upgraded 2 tracks; your cues stayed." in err
-    assert all(load_state(lib.paths)["tracks"][k]["upgrade"] is None for k in lib.tracks)
-
-
-@needs_ffmpeg
-def test_the_human_sync_says_its_plan_each_track_and_the_summary_line(tmp_path, monkeypatch, capsys):
-    upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
-    assert cli.main(["--yes"]) == 0
-    out = capsys.readouterr().out
-    lines = out.splitlines()
-    assert "At the end, 2 upgrades go in place of your files; your cues stay." in lines
-    assert "Upgrading 2 tracks at the end of the sync..." in lines
-    assert "Upgrading 1 of 2: Artist – Song 0" in lines and "Upgrading 2 of 2: Artist – Song 1" in lines
-    report_line = next(i for i, x in enumerate(lines) if x.startswith("No downloads needed. Report: "))
-    assert lines.index("Upgraded 2 tracks; your cues stayed.") > report_line      # the summary line comes last
-
-
-@needs_ffmpeg
-def test_a_sync_with_downloads_ends_with_the_phase_and_its_summary_line(tmp_path, monkeypatch, capsys):
-    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
-    state = load_state(lib.paths)
-    tracks = [SourceTrack(k, state["tracks"][k]["title"], ("Artist",), "Album", None, 30000, None) for k in lib.tracks]
-    fake_spotify(monkeypatch, [*tracks, SourceTrack("tnew", "Fresh", ("Artist",), "Al", None, 180000, None)])
-    monkeypatch.setattr(run.QobuzSource, "open", classmethod(lambda cls, paths: FakeQobuzSource()))
-    monkeypatch.setattr(run, "Acquirer", lambda *a, **k: FakeAcquirer())
-    code, data, err = sync_json(["--yes", "--json"], capsys)
-    assert code == 0 and data["counts"]["new_lossless"] == 1 and data["counts"]["upgraded"] == 2
-    assert data["auto_upgrade"]["done"] == 2 and data["auto_upgrade"]["batch"] == 1
-    lines = err.splitlines()
-    assert lines.index("Upgraded 2 tracks; your cues stayed.") > lines.index("Done.")
-    assert lines.index("[1/1] Downloading [A] Artist - Fresh") < lines.index("Upgrading 2 tracks at the end of the sync...")
-
-
-@needs_ffmpeg
-def test_json_needs_yes_or_dry_run_and_changes_nothing(tmp_path, monkeypatch, capsys):
-    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3"])
-    before = (lib.music(), lib.dump(), load_state(lib.paths)["tracks"])
-    code, data, err = sync_json(["--json"], capsys)
-    assert code == 1 and data == {"ok": False, "kind": "needs_yes", "message": cli.NEEDS_YES}
-    assert data["message"] == ("Add --yes to start the sync without a question, or --dry-run to look first. Nothing "
-                               "was changed.")
-    assert err == "" and (lib.music(), lib.dump(), load_state(lib.paths)["tracks"]) == before
-    assert not lib.paths.reports.exists() and batches_in(lib) == 0
-
-
-@needs_ffmpeg
-def test_the_dry_run_lists_the_upgrades_and_changes_nothing(tmp_path, monkeypatch, capsys):
-    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
-    before = (lib.music(), lib.dump(), load_state(lib.paths)["tracks"])
-    assert cli.main(["--dry-run"]) == 0
-    out = capsys.readouterr().out.splitlines()
-    assert "At the end, 2 upgrades go in place of your files; your cues stay." in out
-    assert "  Artist - Song 0 (new AIFF)" in out and "  Artist - Song 1 (in place)" in out
-    assert (lib.music(), lib.dump(), load_state(lib.paths)["tracks"]) == before and not lib.paths.reports.exists()
-    code, data, _ = sync_json(["--dry-run", "--json"], capsys)
-    assert code == 0 and (data["ok"], data["dry_run"], data["report"], data["counts"]) == (True, True, None, {})
-    block = data["auto_upgrade"]
-    assert (block["dry_run"], block["batch"], block["backup"], block["done"]) == (True, None, None, 0)
-    assert [(r["state"], r["how"]) for r in block["results"]] == [("would", "new_aiff"), ("would", "in_place")]
-    assert (lib.music(), lib.dump(), load_state(lib.paths)["tracks"]) == before and batches_in(lib) == 0
-
-
-@needs_ffmpeg
-def test_the_dry_run_lists_a_held_refusal_with_its_reason(tmp_path, monkeypatch, capsys):
-    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3_plain", "aiff"])
-    assert cli.main(["--yes"]) == 0                                       # the unanalysed one is refused and recorded
-    capsys.readouterr()
-    record = lib.entry(0)["upgrade"]["auto_refused"]
-    assert cli.main(["--dry-run"]) == 0
-    out = capsys.readouterr().out.splitlines()
-    assert out.count("Not tried this sync (refused before, and nothing changed since):") == 1
-    assert f"  Artist - Song 0: {record['message']}" in out
-    assert not any("(new AIFF)" in x or "(in place)" in x for x in out)    # nothing else is left to upgrade
-    code, data, _ = sync_json(["--dry-run", "--json"], capsys)
-    assert [(r["state"], r["reason"]) for r in data["auto_upgrade"]["results"]] == [("refused", "not_analysed")]
-
-
-@needs_ffmpeg
-def test_rekordbox_open_the_plan_says_so_and_the_sync_upgrades_nothing(tmp_path, monkeypatch, capsys):
-    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"], running=True)
-    before = (lib.music(), lib.dump())
-    assert cli.main(["--yes"]) == 0
-    out = capsys.readouterr().out.splitlines()
-    assert "rekordbox is open: quit it before the sync ends, so the sync can put 2 upgrades in place." in out
-    assert "2 upgrades wait for rekordbox to be closed." in out and "Upgrading 2 tracks at the end of the sync..." not in out
-    assert (lib.music(), lib.dump()) == before and batches_in(lib) == 0 and not (lib.paths.data / "rekordbox").exists()
-    assert all(lib.entry(i)["upgrade"]["auto_waits"] for i in (0, 1))
-    code, data, _ = sync_json(["--yes", "--json"], capsys)
-    assert code == 0 and data["ok"] is True and data["auto_upgrade"]["waiting"] == 2 and data["counts"] == {
-        "upgrade_waits": 2}
-
-
-@needs_ffmpeg
-def test_with_the_switch_off_the_sync_moves_no_file_and_says_nothing_of_upgrades(tmp_path, monkeypatch, capsys):
-    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff"])
-    save_settings(lib.paths.settings_file, Settings(auto_upgrade=False))  # the switch the new `settings set` writes
-    monkeypatch.setattr(cli, "locate", lambda: pytest.fail("looked for rekordbox"))
-    monkeypatch.setattr(process, "running", lambda: pytest.fail("asked whether rekordbox runs"))
-    before = (lib.music(), lib.dump())
-    code, data, err = sync_json(["--yes", "--json"], capsys)
-    assert code == 0 and data["auto_upgrade"] is None and "upgrade" not in err.lower().replace("upgrade list", "")
-    assert (lib.music(), lib.dump()) == before and batches_in(lib) == 0
-    assert "auto_upgrade" not in json.loads(open(data["report"].replace(".md", ".json")).read())
-
-
-@needs_ffmpeg
-def test_ctrl_c_in_the_phase_stops_between_tracks_with_130(tmp_path, monkeypatch, capsys):
-    lib = upgrade_lib(tmp_path, monkeypatch, ["mp3", "aiff", "mp3"])
-    calls = []
-
-    def compare(a, b):
-        calls.append(1)
-        if len(calls) == 1:
-            os.kill(os.getpid(), signal.SIGINT)
-        return EXACT
-
-    monkeypatch.setattr(align, "compare_files", compare)
-    code, data, err = sync_json(["--yes", "--json"], capsys)
-    assert code == 130 and (data["ok"], data["exit_code"]) == (True, 130)
-    block = data["auto_upgrade"]
-    assert block["stopped"] is True and block["done"] == 1
-    assert [(r["state"], r["reason"]) for r in block["results"]] == [
-        ("done", None), ("waiting", "not_reached"), ("waiting", "not_reached")]
-    assert "Stopped. Everything finished so far is saved." in err and "Stopping safely" in err
-    assert lib.entry(0)["upgrade"] is None and lib.entry(1)["upgrade"] and signal.getsignal(
-        signal.SIGINT) is signal.default_int_handler
-
-
-def test_the_syncs_json_answers_a_held_library_with_busy(tmp_path, monkeypatch, capsys):
-    paths = choose_music(tmp_path, monkeypatch)
-    with run_lock(paths.lock):
-        code, data, _ = sync_json(["--yes", "--json"], capsys)
-    assert code == 3 and data == {"ok": False, "kind": "busy", "message": cli.LOCK_HELD}
-
-
-def test_the_syncs_json_answers_a_setup_problem_and_a_missing_folder_with_exit_2(tmp_path, monkeypatch, capsys):
-    code, data, _ = sync_json(["--yes", "--json"], capsys)                     # no music folder chosen yet
-    assert code == 2 and (data["ok"], data["kind"], data["reason"]) == (False, "refused", "no_library")
-    assert data["message"] == cli.NOT_CHOSEN_TEXT
-    paths = choose_music(tmp_path, monkeypatch)
-    paths.playlists_file.write_text("Bouncy =\n")
-    code, data, _ = sync_json(["--dry-run", "--json"], capsys)
-    assert code == 2 and data["ok"] is False and "line 1" in data["message"] and data["kind"]
-
-
-def test_a_crash_in_the_phase_is_json_too(tmp_path, monkeypatch, capsys):
-    paths = choose_music(tmp_path, monkeypatch)
-    paths.playlists_file.write_text(PLAYLISTS)
-    fake_spotify(monkeypatch, [])
-
-    real = run.auto_upgrade.run_phase
-
-    def boom(*a, dry_run=False, **k):
-        if dry_run:
-            return real(*a, dry_run=True, **k)
-        raise RuntimeError("disk fell off")
-
-    monkeypatch.setattr(run.auto_upgrade, "run_phase", boom)
-    code, data, _ = sync_json(["--yes", "--json"], capsys)
-    assert code == 1 and (data["ok"], data["kind"]) == (False, "crashed") and "disk fell off" in data["message"]
-    assert "upgrading at the end of the sync" in open(data["report"]).read()
-    monkeypatch.setattr(cli.auto_upgrade, "run_phase", lambda *a, **k: 1 / 0)       # a bug in the plan's preview
-    code, data, _ = sync_json(["--yes", "--json"], capsys)
-    assert code == 1 and (data["ok"], data["kind"]) == (False, "failed") and "ZeroDivisionError" in data["message"]
-
-
-def test_json_belongs_to_the_sync(capsys):
-    for command in ("setup", "update", "upgrades"):
-        with pytest.raises(SystemExit):
-            cli.parse_args(["--json", command])
-    assert cli.parse_args(["--yes", "--json"]).json is True
-
-
 def test_hub_is_no_legacy_word_any_more(capsys):
     with pytest.raises(SystemExit):
         cli.parse_args(["hub"])
@@ -711,9 +228,8 @@ def test_hub_is_no_legacy_word_any_more(capsys):
     assert the_command_line.main(["hub"]) == 2 and "hub is not a command" in capsys.readouterr().err
 
 
-def test_a_busy_support_lock_in_the_terminals_update_and_the_sync_is_a_busy_answer_not_a_traceback(root, capsys, monkeypatch):
-    """The tail of the old settings test: the legacy `update` prints the busy words (exit 3) and the legacy sync's own
-    saves (`--extra`) answer `busy` with the reason `support_lock`."""
+def test_a_busy_support_lock_in_the_terminals_update_is_a_busy_answer_not_a_traceback(root, capsys, monkeypatch):
+    """The legacy `update` prints the busy words (exit 3), no traceback."""
     from discjockey import tool_updates
 
     def busy(support):
@@ -723,9 +239,6 @@ def test_a_busy_support_lock_in_the_terminals_update_and_the_sync_is_a_busy_answ
     assert cli.main(["update"]) == 3  # the terminal's update: busy words, no traceback
     out = capsys.readouterr()
     assert "Another Discjockey process" in out.out and "Traceback" not in out.out + out.err
-    monkeypatch.setattr(cli, "sync", lambda paths, args: busy(None))  # a sync's own saves (--extra)
-    code, data, _ = sync_json(["--yes", "--json"], capsys)
-    assert code == 3 and (data["kind"], data["reason"]) == ("busy", "support_lock") and data["ok"] is False
 
 
 @pytest.mark.parametrize("method", ["update_tools", "rollback_tools"])

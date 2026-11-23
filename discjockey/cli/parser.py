@@ -1,9 +1,9 @@
 """The parser, generated from the catalogue (issue 39, design §2.2): one command per built entry of
 `discjockey.hub.catalog.ENTRIES`, its flags made from the `HubApi` method's signature (`catalog.effective_params`),
 plus `call`. Global flags stand anywhere on the line and are read once (`split_globals`); a flag a command does not
-take is a usage error, never ignored. `route` decides whether a line belongs to the new commands or to the old ones in
-`legacy.py`, which keep their words until their replacements are built. The command line's own words (`help`, `where`,
-`app open`, `call`) are parsed here too but run no entry.
+take is a usage error, never ignored. `route` decides whether a line belongs to the new commands or to the two old
+words in `legacy.py` (`setup`, `update`), which keep theirs until their replacements are built. The command line's own
+words (`help`, `where`, `app open`, `call`) are parsed here too but run no entry.
 
 Not offered in phase 1: `--sandbox`, `--if-version`; `--jsonl`, `--wait`, `--detach` and `--wait-busy` are
 read here; only job commands take them, a command that answers at once refuses them (`call.refuse_job_flags`)."""
@@ -21,6 +21,10 @@ from ..hub.catalog import HOUSEKEEPING, Entry
 from .render.generic import DEFAULT_LIMIT
 
 LEGACY_WORDS = frozenset(("setup", "update"))
+# What a line with flags and no command word says (it was the bare sync: `--dry-run`, `--yes`, `--limit N`, `--extra N`,
+# `--verbose`): the sync is a command now
+SYNC_MOVED_WORDS = ("The sync is a command now: say `sync run` (`sync run --dry-run` to look first, `--how-many N` for "
+                    "at most N downloads). `--extra N` is `limits set qobuz <n> --extra-today N`.")
 # Old words that are gone: what the usage error tells a person (or an agent) who still types one (design §12)
 MOVED = {("upgrades",): "`upgrades` is not a command any more: say `upgrade …` (`upgrade list`, `upgrade apply`, "
                         "`upgrade discard`).",
@@ -146,8 +150,8 @@ def commands() -> dict[tuple[str, ...], list[Entry]]:
     return out
 
 
-def words_of(argv: list[str]) -> tuple[list[str], bool]:
-    """The command words at the front of `argv` (global flags skipped) and whether a flag came before any word."""
+def words_of(argv: list[str]) -> list[str]:
+    """The command words at the front of `argv` (global flags skipped): they stop at the first other flag."""
     words, i = [], 0
     while i < len(argv):
         token = argv[i]
@@ -157,20 +161,18 @@ def words_of(argv: list[str]) -> tuple[list[str], bool]:
         elif name in GLOBAL_VALUE:
             i += 1 if "=" in token else 2
         elif token.startswith("-"):
-            return words, not words
+            return words
         else:
             words.append(token)
             i += 1
-    return words, False
+    return words
 
 
 def route(argv: list[str]) -> str:
-    """`legacy` for a line the old parser still owns (a bare sync, a leading sync flag, a word whose replacement is not
-    built), else `new`. The line goes to the old parser unchanged."""
-    words, flag_first = words_of(argv)
-    if not words or flag_first:
-        return "legacy"
-    if tuple(words[:1]) == CALL or any(cmd[:2] == tuple(words[:2]) for cmd in commands() if len(words) > 1):
+    """`legacy` for a line whose command word is one the old parser still owns (`LEGACY_WORDS`), else `new`: a line with
+    no command word is `new` too (`parse` says where the bare sync went). The line goes to the old parser unchanged."""
+    words = words_of(argv)
+    if not words or tuple(words[:1]) == CALL or any(cmd[:2] == tuple(words[:2]) for cmd in commands() if len(words) > 1):
         return "new"
     return "legacy" if words[0] in LEGACY_WORDS else "new"
 
@@ -337,8 +339,6 @@ def _check_words(words: list[str]) -> None:
             raise UsageError(text)
     known = [*commands(), *HOUSEKEEPING]
     nouns = sorted({c[0] for c in known})
-    if not words:
-        raise UsageError("Say what to do: " + ", ".join(nouns) + ".")
     if words[0] not in nouns:
         raise UsageError(f"{words[0]} is not a command. The commands so far: {', '.join(nouns)}.")
     verbs = sorted({" ".join(c[1:2]) for c in known if c[0] == words[0]} - {""})
@@ -371,7 +371,9 @@ def _usage_words(words: list[str], e: UsageError) -> UsageError:
 def parse(argv: list[str]) -> Parsed:
     """Reads one line of the new commands. Raises `UsageError`."""
     flags, rest = split_globals(argv)
-    words, _ = words_of(rest)
+    words = words_of(rest)
+    if not words:  # `cli.main` answers a line of nothing or only `--json` with `help`: any other was the bare sync
+        raise UsageError(SYNC_MOVED_WORDS)
     _check_words(words)
     try:
         ns = vars(build().parse_args(rest))

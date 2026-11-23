@@ -425,9 +425,9 @@ when you ask for it on the **Playlists** page. Nothing is deleted, and every mov
   reached stay where they are. The **Tidy up files** button offers them again, and you can undo what did move. If
   the Mac loses power instead, the file being moved is finished or put back the next time Discjockey starts, and it
   tells you so.
-- **After a sync in the console,** Discjockey says how many files are not where the playlist order puts them. It
-  counts only files a tidy-up would tick by default, so files you chose to leave don't nag you. The console never
-  moves files.
+- **In the Terminal,** `discjockey doctor` (its `out_of_place` check) and `playlist list` (its `tidy.waiting` count)
+  say how many files are not where the playlist order puts them. They count only files a tidy-up would tick by
+  default, so files you chose to leave don't nag you. The Terminal's sync never moves files.
 
 Discjockey never renames a file when it moves it. rekordbox may show moved tracks as missing; its Relocate finds
 them again by file name (see [rekordbox](#rekordbox)).
@@ -715,8 +715,8 @@ waiting.
   tracks; your cues stayed. 3 wait for rekordbox to be closed." The batch is one line under **Check in rekordbox**,
   where you can undo a track or, with **Undo all from this sync**, all of them. **Stop safely** stops between tracks; the
   rest is tried at the next sync.
-- **In a script:** `--yes --json` after the program runs a sync and prints one JSON summary that includes these
-  upgrades (CONTRIBUTING.md lists it with the other commands).
+- **In a script:** `sync read`, then `sync run [--plan …] --json` runs a sync and prints one JSON answer that includes
+  these upgrades (CONTRIBUTING.md lists it with the other commands).
 
 **Several at once.** Select several tracks of **Upgrade ready** on the To-do page to replace or discard them
 together ("Replace 5 with lossless"): ⌘-click adds or removes a track, ⇧-click selects a range, ⌘A the whole group,
