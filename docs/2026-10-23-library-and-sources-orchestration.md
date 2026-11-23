@@ -1655,7 +1655,23 @@ Results:
         "Make the release now": v1.4.0 commit 4eaa05d0 on main (suite 6901 passed; verify last green on c3ebc31e,
         no hub-ui/static change since), CI on it running, then tag + draft; publish only on the user's word. Phase 4
         so far 4 314k.
-      - **RESUME HERE (LATEST, 2026-11-23, release v1.4.0 + V4.2a):** v1.4.0: CI on 4eaa05d0 green → `git tag v1.4.0
+      - Release v1.4.0: CI green on 4eaa05d0, tag pushed by name, release.yml green (signed app, self-test);
+        draft with Discjockey-1.4.0.dmg (111 MB) waits for the user's look and "publish". The user asked about clone
+        traffic: CI runs + crawlers, no referrer but github.com (answered from the traffic API and run counts).
+      - V4.2a done (Sonnet, `a2e6b4ab`, row 11): **316k** (exp. 220k: +96k; 117 calls, cache 23.9M, fresh 303k, out
+        111k, advisor 0k). bf7c2cf3, d583f07c, 9e79bb39 (contract commit), suite 7057 passed. Deviations: playlist
+        words in `discjockey/playlist_words.py` (words.py imports yt-dlp via convert, caught by the registry import
+        test); `views.save_offers(answer, renames=None)`; enable/disable undo restores the previous switch. Static was
+        left unbuilt by the agent: I ran `npm run build` (53 files, hash cascade) and committed `build(hub): static`.
+        Merged into `feat/cli-4-writes` 147697f6; CI watched. Hand-backs none. Phase 4 so far 4 630k. Record: a Sonnet
+        build with a contract commit + fake + window edits logs ~316k: V4.2b's ~200k is likely low.
+      - **RESUME HERE (LATEST, 2026-11-23, V4.2b):** v1.4.0 draft waits for the user's "publish" (then
+        `gh release edit v1.4.0 --draft=false` + memory `project_public_release.md`). Phase 4: CI on 147697f6, then
+        V4.2b (row 12) by `.claude/issue39/phase4/phase4-dispatch.md`, measured first (V4.2a overshot to 316k: split
+        if the record puts it over ~250k); its prompt says: a J entry's engine refusal → `CliApi.prejob_<method>`.
+        V4.3/V4.4 add `prejob_save_playlists` / `prejob_tidy_up`. Rules 12 + 14 in every prompt. Phase 4 so far
+        4 630k. No release beyond v1.4.0.
+      - RESUME HERE (superseded, 2026-11-23, release v1.4.0 + V4.2a): v1.4.0: CI on 4eaa05d0 green → `git tag v1.4.0
         4eaa05d0`, `git push origin v1.4.0` (by name), watch release.yml, give the user the draft link; publish only
         on the user's "publish", then memory `project_public_release.md`. Phase 4: merge `fix/cli-4-sync-prejob` into
         `feat/cli-4-writes` (cli4-3), CI; then V4.2a (row 11) by `.claude/issue39/phase4/phase4-dispatch.md`; V4.3/V4.4
