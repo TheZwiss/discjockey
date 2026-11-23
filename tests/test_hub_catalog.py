@@ -14,7 +14,7 @@ from discjockey.hub.catalog import Arg, Entry
 # The ceiling of entries that may still be `planned` (their command not built). Every group that builds a command lowers
 # the number; nothing may raise it. Phase 3 is finished: every row left is phase 4's (`planned` names the group), and
 # phase 4 lowers the ceiling as it builds them.
-PLANNED_CEILING = 52
+PLANNED_CEILING = 43
 # The phases that are finished: no row may be planned for one of them.
 FINISHED_PHASES = 3
 

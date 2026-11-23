@@ -54,7 +54,7 @@ NOUN_WORDS = {
     "job": "Long runs: list, show, follow, wait for, stop.",
     "tidy": "Files out of playlist order: see what a tidy-up would move.",
     "limits": "The daily download limits: what is used, what another limit would do.",
-    "playlist": "Your playlists: list them, check a link before you add it.",
+    "playlist": "Your playlists: list them, check a link, and add, remove, rename, move or switch one on or off.",
     "login": "The download logins: their state, the browsers that hold one.",
     "tools": "The programs Discjockey needs: are they there.",
     "setup": "Setup: what it still needs, whether a folder can be your music folder.",
@@ -79,6 +79,16 @@ UPDATE_NO_ANSWER_DEV = "No answer: this is a developer's version."  # `app info 
 UPDATE_NO_ANSWER_OFFLINE = "No answer: GitHub could not be reached."  # `app info --check` that asked and got nothing
 BAD_SINCE = ("--since takes today, yesterday, a number of days or hours (3d, 12h) or a date or time (2026-11-20, "
              "2026-11-20T18:00), not {text}.")
+
+# the playlist writes (`playlist add` ... `playlist edit`, issue 39 V4.2b): the words of their flags that are resolved
+LOCAL_PATH_MISSING = "Say which file, as a path."
+BAD_PLAYLIST_VERSION = ("--if-version takes the version that `playlist list` or a dry run shows: 64 letters and "
+                        "digits.")
+BAD_FILES_CHOICE = "--files is move or leave, not {text}."
+# the dry run's line that makes the change (`HubApi._apply_next`)
+APPLY_WHY = "makes this change, if playlists.txt is still as this preview read it"
+APPLY_MOVE_WHY = "makes this change and moves the files to where it puts them"
+APPLY_LEAVE_WHY = "makes this change and leaves the files where they are"
 
 # file facts (`library facts`, and the dry runs that read a few in memory: design §5.3, §7.1)
 FACTS_MISSING = ("{n} files have not been read yet, which is more than can be read at once ({most} at most). "

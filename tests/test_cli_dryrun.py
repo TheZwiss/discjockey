@@ -377,6 +377,7 @@ from convert_helpers import EXACT  # noqa: E402
 from discjockey import align  # noqa: E402
 from discjockey.rekordbox import process  # noqa: E402
 from test_cli_upgrade import inline_workers  # noqa: E402,F401 - the aiff dry runs are read jobs: a worker answers them
+from test_hub_api_playlists import SC_SET  # noqa: E402
 
 KINDS = ["mp3", "stale", "aiff", "mp3_plain"]
 
@@ -483,7 +484,15 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "sync run": [({}, {}), ({}, {"auto_upgrade_only": True})],
     "folder add": [({"path": "a-folder"}, {})],
     "folder remove": [({"folder_id": "a-watched-folder"}, {})],
+    "playlist add": [({"op.url": SC_SET, "op.folder": "New_set"}, {})],  # (SC_SET is not listed: the file holds A and B)
+    "playlist remove": [({"op.playlist": "B"}, {})],
+    "playlist rename": [({"op.playlist": "A", "op.folder": "A_new"}, {}), ({"op.playlist": "A", "op.folder": "A_new", "files.choice": "move"}, {})],
+    "playlist move": [({"op.playlist": "B", "op.to": 1}, {})],
+    "playlist enable": [({"op.playlist": "B"}, {})],
+    "playlist disable": [({"op.playlist": "A"}, {})],
+    "playlist edit": [({"op.file": "a-playlists-file"}, {})],
 }
+WITHOUT_ITEMS = {c for c in T9 if c.startswith("playlist ")}  # their answer lists no items until V4.3 gives the change preview `items`
 
 
 def t9_cases():
@@ -516,6 +525,14 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inl
         with db.connect(lib.paths.db_file) as conn:
             db.add_watched_folder(conn, watched, datetime(2026, 11, 16, 9, 0, 0))
         args["folder_id"] = str(watched)
+    if any(k.startswith("op.") for k in args):  # a playlists.txt of two lines: A on, B off (`#off# `; `playlist add` refuses a listed link)
+        from hub_helpers import ID1, QOBUZ_LINK
+        lib.paths.playlists_file.write_text(f"A = https://open.spotify.com/playlist/{ID1}\n#off# B = {QOBUZ_LINK}\n")
+    if args.get("op.file") == "a-playlists-file":  # a file holding the A line only (what `playlist edit` would put there)
+        from hub_helpers import ID1
+        file = tmp_path_factory.mktemp("edit") / "a-playlists.txt"
+        file.write_text(f"A = https://open.spotify.com/playlist/{ID1}\n")
+        args["op.file"] = str(file)
     entry = call.choose(parser.commands()[tuple(command.split())], given, args)  # the entry the line runs (`sync run` has two)
     if command == "sync run":  # the whole sync's dry run is `sync plan`'s answer: it plans on the stored read, never reads
         from hub_helpers import ID1, ID2, TRACKS, store_sync_read
@@ -536,7 +553,7 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inl
     assert after == before  # every byte and every file outside plans/, cache/ and jobs/, library.db and rekordbox included
     if not is_read_job:  # no job at all: a dry run that is not a read job leaves no record of one
         assert not (support / "jobs").exists()
-    if command in api_module.NO_PLAN_COMMANDS:  # Discard and Undo run on what is there when --yes comes: no plan, no file
+    if command in api_module.NO_PLAN_COMMANDS or command in WITHOUT_ITEMS:  # Discard and Undo run on what is there when --yes comes: no plan, no file
         assert "plan_id" not in env["data"] and not (support / "plans").exists()
     else:
         assert [p.name for p in (support / "plans").iterdir()] == [f"{env['data']['plan_id'][5:]}.json"]

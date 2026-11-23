@@ -239,18 +239,29 @@ def _derived(resolve: str, type: str = "str") -> Arg:
 TRACKS = _positional("track", many=True)
 TRACK = _positional("track")
 SCOPE = {"scope": _derived("aiff_scope", "dict")}
-LINES = {"lines": _derived("playlist_lines", "list")}
+GUARDS = {"loaded_version": Arg("--if-version", resolve="playlist_version"),
+          "files.choice": Arg("--files", resolve="files_choice")}
+# the words of each change of playlists.txt (`playlist <op>`): the keys of `PlaylistOp` it takes, and its example
+PLAYLIST_OPS = {
+    "add": ({"op.url": _positional(), "op.folder": Arg("--folder"), "op.at": Arg("--at", type="int"),
+             "op.off": Arg("--off", type="bool")},
+            "playlist add https://soundcloud.com/someone/sets/a-set --folder A_set --dry-run"),
+    "remove": ({"op.playlist": _positional()}, "playlist remove Powertrance --dry-run"),
+    "rename": ({"op.playlist": _positional(), "op.folder": _positional()},
+               "playlist rename Powertrance Power_Trance --dry-run"),
+    "move": ({"op.playlist": _positional(), "op.to": Arg("--to", type="int", required=True)},
+             "playlist move Powertrance --to 1 --dry-run"),
+    "enable": ({"op.playlist": _positional()}, "playlist enable Powertrance --dry-run"),
+    "disable": ({"op.playlist": _positional()}, "playlist disable Powertrance --dry-run"),
+    "edit": ({"op.file": Arg("--file", resolve="local_path", required=True)},
+             "playlist edit --file my-playlists.txt --dry-run"),
+}
 
 
 def _playlist_edits() -> list[Entry]:
-    edits = ("add", "remove", "rename", "move", "enable", "disable", "edit")
-    out = []
-    for op in edits:
-        params = {"lines": _derived(f"playlist_lines:{op}", "list"), "loaded_version": _derived("playlist_version"),
-                  "files": _derived(f"playlist_files:{op}", "dict")}
-        out.append(_e("save_playlists", f"playlist {op}", "J", params=params, dry_run="preview_playlist_change",
-                      planned="phase 4: V4.2"))
-    return out
+    return [_e("save_playlists", f"playlist {op}", "J", example, params={**words, **GUARDS},
+               fixed={"op.op": op, "lines": None}, dry_run="preview_playlist_change", built=True, locks={"library"})
+            for op, (words, example) in PLAYLIST_OPS.items()]
 
 
 def _crate_entries() -> list[Entry]:
@@ -335,10 +346,10 @@ ENTRIES: tuple[Entry, ...] = (
     _e("playlists", "playlist list", "R", "playlist list", built=True),
     _e("add_playlist", "playlist check", "RJ", "playlist check https://soundcloud.com/someone/sets/a-set",
        params={"url": _positional()}, built=True),
-    _e("preview_playlist_change", "", "R", params={"lines": _derived("playlist_lines", "list")}, planned="phase 4: V4.2"),
+    _e("preview_playlist_change", "", "R", fixed={"read_unread": False}, built=True),  # a dry run reads no network (T9)
     *_playlist_edits(),
     _e("set_read_liked_music", "settings set read-liked-music", "J", params={"on": _positional(type="bool")}, planned="phase 4: V4.8"),
-    _e("add_liked_music", "playlist add-liked", "J", planned="phase 4: V4.2"),
+    _e("add_liked_music", "playlist add-liked", "J", "playlist add-liked", built=True, locks={"library"}),
     _e("tidy_up", "tidy run", "J", params={"moves": _positional("tidy_moves", many=True, type="list")},
        dry_run="tidy_preview", planned="phase 4: V4.4"),
     _e("undo_moves", "batch undo", "J", params={"batch_id": _positional("moves", type="int")}, needs_yes=True,

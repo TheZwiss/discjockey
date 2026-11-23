@@ -5,8 +5,8 @@ take is a usage error, never ignored. `route` decides whether a line belongs to 
 words in `legacy.py` (`setup`, `update`), which keep theirs until their replacements are built. The command line's own
 words (`help`, `where`, `app open`, `call`) are parsed here too but run no entry.
 
-Not offered in phase 1: `--sandbox`, `--if-version`; `--jsonl`, `--wait`, `--detach` and `--wait-busy` are
-read here; only job commands take them, a command that answers at once refuses them (`call.refuse_job_flags`)."""
+`--sandbox` is not offered; `--if-version` is the playlist writes' version check (`GUARD_FLAGS`). `--jsonl`, `--wait`,
+`--detach` and `--wait-busy` are read here; only job commands take them, a command that answers at once refuses them (`call.refuse_job_flags`)."""
 from __future__ import annotations
 
 import argparse
@@ -200,6 +200,9 @@ SYNC_DRY_RUN_WORDS = ("sync run --dry-run shows the whole plan, as sync plan doe
                       "would run. Say it without action ids, --plan or --how-many.")
 
 
+GUARD_FLAGS = ("--if-version",)  # the flags that guard a change against what it was read from: a dry run changes nothing
+IF_VERSION_ON_DRY_RUN = ("--if-version guards a change, and a dry run changes nothing: leave it out. The dry run's Next: "
+                         "lines give the command that makes the change, with its version.")
 DRY_RUN_ONLY_WORDS = "{command} can only be tried for now: say --dry-run."  # a command whose write is not built (`catalog.dry_run_only`)
 
 SELECTION_FLAGS = {"--rows": ("rows", True, None), "--in": ("where", False, "COLLECTION"),
@@ -417,6 +420,8 @@ def parse(argv: list[str]) -> Parsed:
     if catalog.dry_run_only(command) and not flags.dry_run:
         raise UsageError(DRY_RUN_ONLY_WORDS.format(command=" ".join(command)))
     for name, arg in catalog.effective_params(primary, signature).items():
+        if flags.dry_run and arg.flag in GUARD_FLAGS and name in ns:
+            raise UsageError(IF_VERSION_ON_DRY_RUN, "conflicting_flags")
         if arg.positional and arg.many:
             if name in ns and not ns[name]:
                 del ns[name]

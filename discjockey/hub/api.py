@@ -140,10 +140,12 @@ LIBRARY_METHODS = frozenset((
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history", "rekordbox_match",
-                                 "library_superseded", "status_view", "prejob_start_sync"))  # `settings_view` needs none
+                                 "library_superseded", "status_view", "prejob_start_sync",
+                                 "prejob_save_playlists", "prejob_add_liked_music"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
 RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
-                 "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
+                 "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless",
+                 "local_path": "PATH", "playlist_version": "VERSION", "files_choice": "move|leave"}
 
 
 @dataclass
@@ -2007,10 +2009,25 @@ class HubApi:
             self._no_sync_running()
         loaded = pf.load(self._paths.playlists_file)
         base = loaded.rows if lines is None else rows_from(lines)
-        rows = base if op is None else pf.apply(base, self._op(op, base))
+        filled = None if op is None else self._op(op, base)
+        rows = base if filled is None else pf.apply(base, filled)
         if read_unread:
             self._read_unread(rows)
-        return self._change_answer(loaded.rows, rows, loaded.version)
+        answer = self._change_answer(loaded.rows, rows, loaded.version)
+        if filled is not None and lines is None and answer["problem"] is None:  # the line that makes this change, guarded
+            answer["next"] = [*answer.get("next", []), *self._apply_next(filled, loaded.version, answer["tidy"])]
+        return answer
+
+    @staticmethod
+    def _apply_next(op: dict, version: str, tidy: dict | None) -> list[dict]:
+        """The `next` lines that make the change `op` (checked, an add's folder filled): its command words
+        (`pf.op_words`, the one writer of them) guarded by `version`, the playlists file as it was read (no file: no
+        guard). A change that moves files gets one line for each answer to the save question."""
+        base = pf.op_words(op) + (["--if-version", version] if version else [])
+        if tidy is None:
+            return [{"run": shlex.join(base), "why": engine_words.APPLY_WHY}]
+        return [{"run": shlex.join([*base, "--files", "move"]), "why": engine_words.APPLY_MOVE_WHY},
+                {"run": shlex.join([*base, "--files", "leave"]), "why": engine_words.APPLY_LEAVE_WHY}]
 
     def _read_unread(self, rows: list[pf.Row]) -> None:
         """Reads once each switched-on playlist of `rows` the stored reads don't hold (one reader per service; a service
@@ -2121,6 +2138,46 @@ class HubApi:
                 old.unlink(missing_ok=True)
         return str(path)
 
+    def _save_checked(self, lines: list | None, files: SaveFiles | None, op: PlaylistOp | None
+                      ) -> tuple[SaveChoice | None, list[pf.Row] | None, dict | None]:
+        """What `save_playlists` decides before any job: `(choice, rows, filled)`, the save question's answer, the
+        window's rows (None for a change) and the change made ready (None for rows). `ValueError` / `BadId` with the
+        words when the call or the change can't be made."""
+        if lines is not None and op is not None:
+            raise ValueError(playlist_words.SAVE_LINES_OR_OP)
+        if lines is None and op is None:
+            raise ValueError(playlist_words.SAVE_NOTHING)
+        choice = save_choice(files)
+        if op is None:
+            return choice, rows_from(lines), None
+        now = pf.load(self._paths.playlists_file).rows
+        filled = self._op(op, now)
+        pf.apply(now, filled)  # refused here, before a job starts, when it can't be made
+        return choice, None, filled
+
+    def _save_gate(self, before: pf.Loaded, loaded_version: str | None, rows: list[pf.Row] | None, filled: dict | None,
+                   files: SaveFiles | None) -> tuple[list[pf.Row], dict | None]:
+        """The refusals of a save of `before` (the file as read): a version that is not the caller's, and a change that
+        would put files elsewhere with no `files` answer (`needs_choice`, whose `next` has the two `--files` lines).
+        Returns the rows after the save and, for a change asked without `files`, its preview. The job asks it under the
+        lock; `prejob_save_playlists` asks it before the job."""
+        if loaded_version is not None and before.version != loaded_version:
+            if filled is None:
+                raise pf.PlaylistsChanged(pf.CHANGED_ELSEWHERE)
+            raise OpProblem(playlist_words.PLAYLISTS_VERSION_CHANGED, "changed", reason="version_changed",
+                            next=[{"run": "playlist list", "why": playlist_words.PLAYLISTS_LIST_WHY}])
+        new_rows = rows if filled is None else pf.apply(before.rows, filled)  # no rows on the command line or in a job file
+        answer = None
+        if filled is not None and files is None:
+            answer = self._change_answer(before.rows, new_rows, before.version)
+            if answer["problem"] is None and answer["tidy"] is not None:
+                n = len(answer["tidy"]["rows"])
+                raise OpProblem(engine_words.plural(n, playlist_words.SAVE_NEEDS_CHOICE_ONE, playlist_words.SAVE_NEEDS_CHOICE), "refused",
+                                reason="needs_choice",
+                                data={k: v for k, v in answer.items() if k not in ("lines", "unknown", "next")},
+                                next=self._apply_next(filled, before.version, answer["tidy"]))
+        return new_rows, answer
+
     @bridge
     def save_playlists(self, lines: list | None = None, loaded_version: str | None = None,
                        files: SaveFiles | None = None, op: PlaylistOp | None = None) -> dict:
@@ -2135,35 +2192,12 @@ class HubApi:
         (`needs_choice`) with the change preview as its data. A save that changes the file is logged for `history` with
         the file as it was. The result is `{version, batches: [BatchResultJSON]}`; a Stop after the save still delivers
         the batches so far."""
-        if lines is not None and op is not None:
-            raise ValueError(playlist_words.SAVE_LINES_OR_OP)
-        if lines is None and op is None:
-            raise ValueError(playlist_words.SAVE_NOTHING)
-        choice = save_choice(files)
-        if op is None:
-            rows, filled = rows_from(lines), None
-        else:
-            now = pf.load(self._paths.playlists_file).rows
-            filled = self._op(op, now)
-            pf.apply(now, filled)  # refused here, before a job starts, when it can't be made
+        choice, rows, filled = self._save_checked(lines, files, op)
 
         def work(ctx) -> dict:
             path = self._paths.playlists_file
             before = pf.load(path)
-            if loaded_version is not None and before.version != loaded_version:
-                if filled is None:
-                    raise pf.PlaylistsChanged(pf.CHANGED_ELSEWHERE)
-                raise OpProblem(playlist_words.PLAYLISTS_VERSION_CHANGED, "changed", reason="version_changed",
-                                next=[{"run": "playlist list", "why": playlist_words.PLAYLISTS_LIST_WHY}])
-            new_rows = rows if filled is None else pf.apply(before.rows, filled)  # no rows on the command line or in a job file
-            answer = None
-            if filled is not None and files is None:
-                answer = self._change_answer(before.rows, new_rows, before.version)
-                if answer["problem"] is None and answer["tidy"] is not None:
-                    n = len(answer["tidy"]["rows"])
-                    raise OpProblem(engine_words.plural(n, playlist_words.SAVE_NEEDS_CHOICE_ONE, playlist_words.SAVE_NEEDS_CHOICE), "refused",
-                                    reason="needs_choice",
-                                    data={k: v for k, v in answer.items() if k not in ("lines", "unknown", "next")})
+            new_rows, answer = self._save_gate(before, loaded_version, rows, filled, files)
             picked = choice
             if choice is not None and choice.files == "move" and (files.get("renames") is None or files.get("moves") is None):
                 offers = views.save_offers(answer or self._change_answer(before.rows, new_rows, before.version),
@@ -3338,16 +3372,21 @@ class HubApi:
                                 f"(kind:retry, kind:weekly).", "refused")
         return list(dict.fromkeys(items))
 
+    def _liked_music_checked(self) -> pf.Loaded:
+        """`add_liked_music`'s refusals (`setting_off`, `exists`); the playlists file as read when it passes."""
+        self._need_liked_music()
+        loaded = pf.load(self._paths.playlists_file)
+        if pf.lists_liked_music(loaded.rows):
+            raise OpProblem(LIKED_LISTED, "exists")
+        return loaded
+
     @bridge
     def add_liked_music(self) -> dict:
         """"Add Liked music to Playlists" (sources-round D8): appends `Liked_music = <its link>` to the end of
         playlists.txt (YouTube Music shares no link for it). Refused with `setting_off` while the choice is off and
         `exists` when a Liked music line is listed already, on or off. Answers `{folder}`."""
         def work(ctx) -> dict:
-            self._need_liked_music()
-            loaded = pf.load(self._paths.playlists_file)
-            if pf.lists_liked_music(loaded.rows):
-                raise OpProblem(LIKED_LISTED, "exists")
+            loaded = self._liked_music_checked()
             taken = {fold(r.folder) for r in loaded.rows}
             folder, n = youtube_music.LIKED_MUSIC_FOLDER, 1
             while fold(folder) in taken:  # a folder of that name is another playlist's: add a number
@@ -4008,6 +4047,9 @@ def file_moves(moves) -> list[tuple[int, str]]:
     return out
 
 
+PLAYLIST_VERSION = re.compile(r"[0-9a-f]{64}")  # `pf.version_of`: a SHA-256
+
+
 def save_choice(files) -> SaveChoice | None:
     """The save question's answer from the page (`{choice, renames, moves}`; None: nothing was retargeted) as
     tidy.after_save takes it; ValueError (refused) for anything else."""
@@ -4070,7 +4112,9 @@ class CliApi(HubApi):
     RESOLVERS = {"track": "_resolve_track", "upgrade_way": "_resolve_upgrade_way", "aiff": "_resolve_aiff",
                  "collection": "_resolve_collection", "folder": "_resolve_folder", "batch": "_resolve_batch",
                  "report": "_resolve_report", "since": "_resolve_since", "moves": "_resolve_moves",
-                 "place": "_resolve_place", "report_file": "_resolve_report_file"}  # kind -> the method that makes it (grows per group)
+                 "place": "_resolve_place", "report_file": "_resolve_report_file",
+                 "local_path": "_resolve_local_path", "playlist_version": "_resolve_playlist_version",
+                 "files_choice": "_resolve_files_choice"}  # kind -> the method that makes it (grows per group)
     _resume_first = True
     _skipped_check_is_ok = True
     _via = "terminal"
@@ -4115,6 +4159,22 @@ class CliApi(HubApi):
         """`start_sync`'s refusals (an unknown or expired plan, action ids without a plan, a bad `how_many`, no stored
         read yet) answered before the job: `{ok: true}` when `start_sync` would start the sync."""
         self._sync_start_checked(plan_id, selected, how_many)
+        return {}
+
+    @_answering
+    def prejob_save_playlists(self, lines: list | None = None, loaded_version: str | None = None,
+                              files: SaveFiles | None = None, op: PlaylistOp | None = None) -> dict:
+        """`save_playlists`' refusals (a change that can't be made, a version that is not the file's, a change that
+        needs `files`) answered before the job: `{ok: true}` when the save would go ahead. The job asks again under
+        the lock, so a file that changes in between is still caught there."""
+        _, rows, filled = self._save_checked(lines, files, op)
+        self._save_gate(pf.load(self._paths.playlists_file), loaded_version, rows, filled, files)
+        return {}
+
+    @_answering
+    def prejob_add_liked_music(self) -> dict:
+        """`add_liked_music`' refusals (`setting_off`, `exists`) answered before the job."""
+        self._liked_music_checked()
         return {}
 
     @cli_first
@@ -4438,6 +4498,28 @@ class CliApi(HubApi):
         if found is None:
             raise BadId("usage", f"--way is same-track or new-track, not {text}.")
         return found
+
+    def _resolve_files_choice(self, text: str) -> str:
+        """`--files`: `move` or `leave` (any case), the save question's answer."""
+        found = text.strip().lower()
+        if found not in ("move", "leave"):
+            raise BadId("usage", engine_words.BAD_FILES_CHOICE.format(text=text))
+        return found
+
+    def _resolve_playlist_version(self, text: str) -> str:
+        """`--if-version`: the playlists file's version (`pf.version_of`: 64 hex digits, as `playlist list` and a dry
+        run print it), any case, as the bridge takes it."""
+        found = text.strip().lower()
+        if not PLAYLIST_VERSION.fullmatch(found):
+            raise BadId("usage", engine_words.BAD_PLAYLIST_VERSION)
+        return found
+
+    def _resolve_local_path(self, text: str) -> str:
+        """A path typed on the command line (`~` expanded) as an absolute one, against the folder this process runs in:
+        a worker never sees a relative path. Whether a file is there is the method's to say, not this."""
+        if not text.strip():
+            raise BadId("usage", engine_words.LOCAL_PATH_MISSING)
+        return os.path.abspath(os.path.expanduser(text))
 
     def _song_holding(self, text: str, state: dict | None = None) -> str | None:
         """The song key whose file is the path `text` (absolute, or relative to the music folder), else None."""
