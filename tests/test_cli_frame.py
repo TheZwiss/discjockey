@@ -65,6 +65,32 @@ def test_t2_every_built_entry_parses_and_every_parser_command_is_built_or_housek
     assert set(parser.HOUSEKEEPING) == set(catalog.HOUSEKEEPING)
 
 
+@pytest.mark.parametrize("line,args", [
+    ("sync read", {}), ("sync run", {}), ("sync run --auto-upgrade-only", {}),
+    ("sync run --plan plan:000000000000 --how-many 5", {"plan_id": "plan:000000000000", "how_many": "5"}),
+    ("sync run act:abc --plan plan:000000000000", {"selected": ["act:abc"], "plan_id": "plan:000000000000"}),
+])
+def test_t2_the_sync_words_parse(line, args):
+    parsed = parser.parse(shlex.split(line))
+    assert parsed.command == tuple(line.split()[:2]) and parsed.args == args
+    assert parsed.flags.auto_upgrade_only == ("--auto-upgrade-only" in line)
+
+
+@pytest.mark.parametrize("line", ["sync run --auto-upgrade-only --how-many 5", "sync run --auto-upgrade-only act:abc",
+                                  "sync run --dry-run --plan plan:000000000000", "sync run --dry-run --how-many 5"])
+def test_t2_a_switch_and_the_words_of_the_whole_run_that_clash_are_conflicting_flags(line, capsys):
+    code, env = run_json([*shlex.split(line), "--json"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (EXIT["bad_args"], "bad_args", "conflicting_flags")
+
+
+def test_t2_the_switch_picks_its_entry_and_the_whole_run_is_the_other():
+    entries = parser.commands()[("sync", "run")]
+    with_switch = call.choose(entries, parser.Flags(auto_upgrade_only=True), {})
+    without = call.choose(entries, parser.Flags(), {})
+    assert (with_switch.method, without.method) == ("auto_upgrade_run", "start_sync")
+    assert call.choose(entries, parser.Flags(auto_upgrade_only=True, dry_run=True), {"plan_id": "plan:000000000000"}).method == "auto_upgrade_run"
+
+
 @pytest.mark.parametrize("argv,where", [
     ([], "legacy"), (["--dry-run"], "legacy"), (["--json"], "legacy"), (["--limit", "3"], "legacy"),
     (["setup"], "legacy"), (["upgrade", "list", "--json"], "new"), (["--json", "upgrade", "list"], "new"),

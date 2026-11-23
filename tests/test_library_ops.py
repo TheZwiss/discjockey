@@ -388,6 +388,16 @@ def test_the_hub_probe_never_makes_its_own_job_fail(tmp_path):
         t.join()
 
 
+def test_the_hub_probe_is_a_look_and_makes_no_lock_file(tmp_path):
+    from discjockey.hub.jobs import lock_free
+    from discjockey.library import run_lock
+    lock = tmp_path / "discjockey.lock"
+    assert lock_free(lock) and not lock.exists()  # nothing ever held it: a dry run's look leaves no file behind
+    with run_lock(lock):
+        assert not lock_free(lock)
+    assert lock_free(lock)
+
+
 # --- a step with several entries (plan library stage 2, task 3.1) ---
 
 def two_songs_in(paths, folder):

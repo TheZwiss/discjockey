@@ -35,7 +35,8 @@ from . import select, shapes
 
 Kind = Literal["R", "RJ", "J", "J-control", "B", "W", "dropped"]
 
-LOCKS = ("library", "support", "rekordbox_w", "rekordbox_r")
+# `scan`: the library lock for a moment, only when it is free: a playlists read's scan (`Jobs.scan_lock`)
+LOCKS = ("library", "support", "rekordbox_w", "rekordbox_r", "scan")
 
 
 @dataclass(frozen=True)
@@ -115,10 +116,17 @@ ALL_METHOD: dict[str, str] = {"upgrade apply": "upgrade_all", "aiff convert": "m
 AIFF = ("aiff convert", "aiff rename")
 ALL_NARROWS: dict[str, tuple[str, ...]] = {"aiff convert": ("where", "todo"), "aiff rename": ("where",)}
 
-# A command that runs only with a switch of its own while the rest of it is not built (phase 1: `sync run` is the sync's last
-# phase alone; phase 4 lands the whole sync and removes this): `<command> -> the flag`. The parser offers the flag, and a line
-# without it is a usage error (`parser.PHASE_ONLY_WORDS`).
-PHASE_ONLY: dict[str, str] = {"sync run": "--auto-upgrade-only"}
+# A command with a switch that runs only part of it: `<command> -> (the flag, the method the switch runs)`. The parser offers
+# the flag, `call.choose` picks the switch's entry with it (the command's other entry without it) and `parser.SWITCH_ALONE_WORDS`
+# is what a line that mixes it with the whole run's words hears. `sync run --auto-upgrade-only` is the sync's last phase alone.
+SWITCHES: dict[str, tuple[str, str]] = {"sync run": ("--auto-upgrade-only", "auto_upgrade_run")}
+
+
+def switch_of(entry: "Entry") -> str | None:
+    """The flag whose entry `entry` is (`--auto-upgrade-only` for `auto_upgrade_run`), None for any other entry."""
+    flag, method = SWITCHES.get(" ".join(entry.command), (None, None))
+    return flag if entry.method == method else None
+
 
 # How a command with several non-read entries picks the one that runs, `<command> -> the rule in words` (every such command
 # has a row: tests/test_hub_catalog.py). The first four are in `call`/`parser` today; the rest are built by the groups that
@@ -128,7 +136,7 @@ DISPATCH: dict[str, str] = {
     "aiff convert": "`--all` runs make_aiff (ALL_METHOD), named songs or --rows run convert; --dry-run runs aiff_plan",
     "aiff rename": "rename runs the songs; --dry-run and `--all` run aiff_plan with only=rename",
     "upgrade apply": "`--all` runs upgrade_all (ALL_METHOD), named songs run upgrade with --way",
-    "sync run": "`--auto-upgrade-only` runs auto_upgrade_run; the whole sync (start_sync) is phase 4's",
+    "sync run": "`--auto-upgrade-only` runs auto_upgrade_run (SWITCHES), else start_sync",
     "batch undo": "the id kind of the first word: `aiff:N` runs batch_undo, `moves:N` runs undo_moves",
     "version use": "`--link URL` runs use_link, else a candidate runs use_candidate",
     "duplicate keep": "a file id as the second word runs keep_file, `--all` runs keep_duplicates",
@@ -293,9 +301,10 @@ ENTRIES: tuple[Entry, ...] = (
     _e("sync_preview", "sync plan", "R", "sync plan --search pegassi", params={"search": Arg("--search")}, built=True,
        locks={"rekordbox_r"}),  # the plan's Auto-upgrade count reads rekordbox's library, shared
     # --- sync and jobs
-    _e("refresh", "sync read", "J", planned="phase 4: V4.1"),
+    _e("refresh", "sync read", "J", "sync read --detach", fixed={"auto": False}, built=True, locks={"scan"}),
     _e("stop_refresh", "", "J-control", built=True),  # `job stop` writes the job's stop file (cli/follow.py)
-    _e("start_sync", "sync run", "J", params={"selected": _derived("selection", "list")}, dry_run="sync_preview", planned="phase 4: V4.1"),
+    _e("start_sync", "sync run", "J", "sync run --dry-run", params={"selected": _positional(None, many=True)},
+       dry_run="sync_preview", built=True, locks={"library", "rekordbox_r", "rekordbox_w"}, partial=("failed",)),
     _e("stop", "", "J-control", built=True),
     _e("stop_sign_in", "", "J-control", built=True),
     _e("never_download", "track never", "J", params={"track_id": TRACKS}, fixed={"never": True}, planned="phase 4: V4.6"),
@@ -462,8 +471,7 @@ ENTRIES: tuple[Entry, ...] = (
     _e("fill_facts", "library facts", "J", "library facts --dry-run", cli_first=True, dry_run="facts_preview", built=True,
        locks={"library"}),
     _e("facts_preview", "", "R", cli_first=True, built=True),
-    # `sync run` is built for the phase alone now (`--auto-upgrade-only`, the parser's `PHASE_ONLY`); `start_sync` is the
-    # whole sync (phase 4) and keeps its row planned
+    # `sync run --auto-upgrade-only` (`SWITCHES`) is the sync's last phase alone; `start_sync` is the whole sync
     _e("auto_upgrade_preview", "", "R", cli_first=True, built=True, locks={"rekordbox_r"}),
     _e("auto_upgrade_run", "sync run", "J", "sync run --auto-upgrade-only --dry-run", cli_first=True,
        dry_run="auto_upgrade_preview", built=True, locks={"library", "rekordbox_r", "rekordbox_w"},

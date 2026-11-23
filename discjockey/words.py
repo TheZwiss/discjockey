@@ -47,7 +47,7 @@ NOUN_WORDS = {
     "report": "The reports of past syncs: list them, show one.",
     "settings": "What Settings holds, and changing it.",
     "status": "What the Dashboard shows, the running jobs, and whether you're ready for a gig.",
-    "sync": "The sync: what it would do, its last phase.",
+    "sync": "The sync: read your playlists, see the plan, run it.",
     "todo": "Your to-do list.",
     "track": "One song: find it, show it, its spectrum, undo its last step.",
     "upgrade": "Better versions waiting: list, put in, throw away.",

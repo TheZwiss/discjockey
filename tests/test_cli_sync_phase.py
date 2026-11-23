@@ -3,7 +3,7 @@ phase alone, through the command line on a fixture library and a fixture rekordb
 
 The phase never plans and never reads the playlists (`run.auto_upgrade_only`); its job runs in this process
 (`test_cli_upgrade.inline_workers`: the same worker, spawn and registry). Its text page is pinned by
-`tests/cli_golden/sync_run.txt`; its dry run is a row of T9 (`test_cli_dryrun.T9`) and its locks a row of T10
+`tests/cli_golden/sync_run_auto_upgrade_only.txt`; its dry run is a row of T9 (`test_cli_dryrun.T9`) and its locks a row of T10
 (`test_cli_locks.DRIVERS`)."""
 from __future__ import annotations
 
@@ -246,23 +246,39 @@ def test_a_plan_with_a_settings_file_that_cannot_be_read_is_config_invalid_not_c
 
 # --- the line ---
 
-def test_without_the_switch_of_its_own_sync_run_is_a_usage_error_naming_the_whole_sync(lib, capsys):
+def test_the_switch_takes_no_action_ids_and_no_how_many_and_the_whole_sync_takes_none_with_a_dry_run(lib, capsys):
     lib(["mp3"])
-    for argv in (["sync", "run"], ["sync", "run", "--dry-run"], ["sync", "run", "--plan", "plan:000000000000"]):
+    for argv, words in ((["sync", "run", "act:abc", "--plan", "plan:000000000000", "--auto-upgrade-only"], parser.SWITCH_ALONE_WORDS),
+                        ([*PHASE, "--how-many", "5"], parser.SWITCH_ALONE_WORDS),
+                        (["sync", "run", "--dry-run", "--how-many", "5"], parser.SYNC_DRY_RUN_WORDS),
+                        (["sync", "run", "--dry-run", "--plan", "plan:000000000000"], parser.SYNC_DRY_RUN_WORDS),
+                        (["sync", "run", "--dry-run", "act:abc"], parser.SYNC_DRY_RUN_WORDS)):
         code, env = run_json(argv, capsys)
-        assert (code, env["outcome"], env["reason"]) == (BAD_ARGS, "bad_args", "usage"), argv
-        assert "--auto-upgrade-only" in env["message"] and "`discjockey --yes`" in env["message"]
+        assert (code, env["outcome"], env["reason"], env["message"]) == (BAD_ARGS, "bad_args", "conflicting_flags", words), argv
 
 
-def test_help_lists_the_phase_alone_with_its_flags_and_locks(capsys):
+def test_help_lists_the_sync_run_with_its_switch_and_its_locks(capsys):
     code, env = run_json(["help"], capsys)
     [entry] = [c for c in env["data"]["commands"] if c["command"] == "sync run"]
     assert entry["kind"] == "J" and entry["dry_run"] and not entry["needs_yes"]
-    assert {"--auto-upgrade-only", "--dry-run"} <= set(entry["flags"])
-    assert [a["word"] for a in entry["args"]] == ["--plan"]
-    assert set(entry["locks"]) == {"library", "rekordbox_r", "rekordbox_w"} and entry["example"] == catalog.entry_of(
-        "auto_upgrade_run", "sync run").example
+    assert {"--auto-upgrade-only", "--dry-run"} <= set(entry["flags"]) and entry["required_flags"] == []
+    assert {a["word"] for a in entry["args"]} == {"--plan", "SELECTED", "--how-many"}
+    assert set(entry["locks"]) == {"library", "rekordbox_r", "rekordbox_w"} and entry["example"] == "sync run --dry-run"
+    assert set(entry["methods"]) == {"start_sync", "auto_upgrade_run"} and entry["dry_run_method"] == "sync_preview"
+    assert catalog.entry_of("auto_upgrade_run", "sync run").example == "sync run --auto-upgrade-only --dry-run"
     assert parser.parse(PHASE).flags.auto_upgrade_only
+
+
+def test_the_phase_plan_is_saved_under_its_own_line_so_an_expired_one_names_that_dry_run(lib, capsys):
+    from datetime import datetime, timedelta
+
+    from discjockey.hub import plan_store
+    found = lib(["mp3"])
+    _, dry = run_json([*PHASE, "--dry-run"], capsys)
+    with pytest.raises(plan_store.PlanExpired) as raised:
+        plan_store.load(found.paths.support, dry["data"]["plan_id"], str(found.paths.root),
+                        now=datetime.now() + timedelta(days=2))
+    assert raised.value.next == [{"run": "sync run --auto-upgrade-only --dry-run", "why": "makes a new plan"}]
 
 
 # --- --plan ---
@@ -330,11 +346,11 @@ def test_golden_the_page_of_the_phase_alone(lib, capsys, tmp_path):
     from test_cli_golden import WRITES, check_golden
     lib(["mp3", "aiff"])
     code, out, err = run(PHASE, capsys)
-    assert code == OK and "sync_run" in WRITES
+    assert code == OK and "sync_run_auto_upgrade_only" in WRITES
     text = out.replace(str(tmp_path), "<tmp>")
     text = re.sub(r"report:\d{4}-\d{2}-\d{2}_\d{6}", "report:<stamp>", text)
     text = re.sub(r"\d{8}T\d{6}Z(?:-\d+)?", "<backup>", text)
-    check_golden("sync_run", text)
+    check_golden("sync_run_auto_upgrade_only", text)
     assert "Your turn: " in err and f"Next: {cmd('batch show aiff:1')}" in err
 
 

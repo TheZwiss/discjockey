@@ -33,7 +33,7 @@ from discjockey.hub import catalog
 
 GOLDEN = Path(__file__).parent / "cli_golden"
 READS = [e for e in parser.built() if e.kind == "R"]
-WRITES = ["library_facts", "aiff_convert", "aiff_rename", "upgrade_apply", "upgrade_discard", "track_undo", "check_done", "batch_resume", "batch_undo", "rekordbox_restore", "sync_run", "folder_add", "folder_remove", "settings_set", "missing_download", "missing_remove", "sync_scope_off"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
+WRITES = ["library_facts", "aiff_convert", "aiff_rename", "upgrade_apply", "upgrade_discard", "track_undo", "check_done", "batch_resume", "batch_undo", "rekordbox_restore", "sync_run", "sync_run_auto_upgrade_only", "folder_add", "folder_remove", "settings_set", "missing_download", "missing_remove", "sync_scope_off"]  # the writes with a golden page (their own tests run them: tests/test_cli_upgrade.py)
 
 
 GOLDEN_NAMES = {"undo_preview": "batch_undo_moves"}  # a read whose command has a write with a page of its own: `batch undo`'s AIFF write has batch_undo.txt

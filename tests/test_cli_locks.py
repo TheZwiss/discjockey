@@ -1,7 +1,8 @@
 """T10, the locks table (issue 39 design §6.1, §13): for every built catalogue entry, the locks a call takes equal its
 `locks` column. A fake lock layer replaces the four lock functions (`library.run_lock`, `library.support_lock`,
 `rekordbox.lock.writer_lock`, `rekordbox.lock.reader_lock`) in every module that holds a name for them with a recorder
-that notes the word and then takes the real lock. A command that lands later adds its driver below with its entry:
+that notes the word and then takes the real lock. The library lock a playlists read's scan takes (`Jobs.scan_lock`) is
+noted as `scan`: it is held for a moment and only when free, which no write is. A command that lands later adds its driver below with its entry:
 a built entry without a driver fails, so the column cannot be forgotten.
 
 The probes (`jobs.lock_free`, the console watch) are not takes: they never hold a lock for work."""
@@ -10,6 +11,7 @@ from __future__ import annotations
 import shutil
 import sys
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -17,7 +19,7 @@ import pytest
 import hub_helpers
 from hub_helpers import wait_job
 from discjockey import library
-from discjockey.hub import catalog, registry
+from discjockey.hub import catalog, jobs, registry
 from discjockey.hub.api import CliApi
 from discjockey.rekordbox import lock as rb_lock
 
@@ -32,6 +34,7 @@ class Recorder:
     def __init__(self):
         self.words: list[str] = []
         self.events: list[tuple[str, str, int]] = []
+        self.scanning: set[int] = set()  # the threads inside `Jobs.scan_lock`: the library lock they take is `scan`
 
 
 class Held:
@@ -66,10 +69,25 @@ def fake_locks(monkeypatch):
         real = originals[name]
 
         def take(*args, **kwargs):
-            rec.words.append(words[name])
-            return Held(real(*args, **kwargs), rec, words[name])
+            word = "scan" if name == "run_lock" and threading.get_ident() in rec.scanning else words[name]
+            rec.words.append(word)
+            return Held(real(*args, **kwargs), rec, word)
         take.__name__ = name
         return take
+
+    real_scan_lock = jobs.Jobs.scan_lock
+
+    @contextmanager
+    def scan_lock(self):
+        me = threading.get_ident()
+        rec.scanning.add(me)
+        try:
+            with real_scan_lock(self) as held:
+                rec.scanning.discard(me)  # what comes after the lock is taken is the read's own work
+                yield held
+        finally:
+            rec.scanning.discard(me)
+    monkeypatch.setattr(jobs.Jobs, "scan_lock", scan_lock)
 
     fakes = {name: recording(name) for name in originals}
     for module in [m for n, m in list(sys.modules.items()) if n.startswith("discjockey") and m is not None]:
@@ -138,6 +156,14 @@ def _plan(api, rec):
     assert api.sync_preview("pegassi")["groups"]
 
 
+def _read_playlists(api, rec):
+    """`sync read` on the hub fixture's two playlists, the services read by stubs (no network): the read stores its result
+    and scans the library only when the lock is free."""
+    with pytest.MonkeyPatch.context() as patch:
+        hub_helpers.fake_spotify(patch)
+        assert wait_job(api, rec, api.refresh()).ok
+
+
 def _spectrum(api, rec):
     """`track spectrum` on `t2`, whose file is made a real recording: it decodes the file and opens no library."""
     shutil.copyfile(CLICKS, api._paths.root / hub_helpers.LOSSY)
@@ -165,6 +191,14 @@ def _parked(api, rec, *, all_of_them: bool = False, phase: str | None = None):
         old.rename(mp3)
         state["tracks"]["t2"]["path"] = str(mp3.relative_to(api._paths.root))
         library.save_state(api._paths, state)
+    if phase == "sync":  # the whole sync with nothing chosen: it reads the playlists (stubbed), the phase upgrades the song
+        _read_playlists(api, rec)  # the stored read its plan comes from
+        plan_id = api.sync_preview()["plan_id"]
+        api.lock_recorder.words.clear()
+        with pytest.MonkeyPatch.context() as patch:
+            hub_helpers.fake_spotify(patch)
+            assert wait_job(api, rec, api.start_sync(plan_id, [])).ok
+        return
     if phase == "run":  # the sync's last phase alone: the plan reads rekordbox, the batch writes it
         answer = api.auto_upgrade_run()
     elif phase == "preview":  # its dry run: a read, no job
@@ -389,6 +423,8 @@ DRIVERS = {
     "upgrade:upgrade discard": _discard,  # a driver per command where two entries of one method take different locks
     "upgrade_all": lambda api, rec: _parked(api, rec, all_of_them=True),
     "auto_upgrade_run": lambda api, rec: _parked(api, rec, phase="run"),
+    "start_sync": lambda api, rec: _parked(api, rec, phase="sync"),  # `sync run` with no action chosen: the read and the phase
+    "refresh": _read_playlists,  # `sync read`: no lock of its own; its scan holds the library for a moment, only when free (`scan`)
     "auto_upgrade_preview": lambda api, rec: _parked(api, rec, phase="preview"),
     "undo_upgrade": _undo,
     "undo_upgrade_preview": lambda api, rec: api.undo_upgrade_preview(["t2"]),
@@ -476,7 +512,7 @@ def order_of(box, drive) -> list[str]:
     return list(rec.words)
 
 
-RANK = {"support": 0, "library": 1, "rekordbox_r": 2, "rekordbox_w": 2}  # the two rekordbox.lock takes are one rank
+RANK = {"support": 0, "library": 1, "scan": 1, "rekordbox_r": 2, "rekordbox_w": 2}  # the two rekordbox.lock takes are one rank; a read's scan is the library lock
 
 
 def disorder_of(events: list[tuple[str, str, int]]) -> str | None:

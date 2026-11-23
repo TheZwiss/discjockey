@@ -15,7 +15,7 @@ import pytest
 from hub_helpers import choose_music, make_root, services
 
 from discjockey import db, library, report as rep, run as run_mod
-from discjockey.cli import bind, call
+from discjockey.cli import bind, call, parser
 from discjockey.cli.parser import Flags
 from discjockey.hub import catalog, ids, plan_store
 from discjockey.hub.api import CliApi, cli_first
@@ -496,7 +496,7 @@ T9 = {  # command -> (what to run for its `--dry-run`: the arguments and flags)
     "library facts": [({}, {})],
     "aiff convert": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True}), ({}, {"all": True, "todo": "cdj"})],
     "aiff rename": [({"track_ids": "all-tracks"}, {}), ({}, {"all": True})],
-    "sync run": [({}, {"auto_upgrade_only": True})],
+    "sync run": [({}, {}), ({}, {"auto_upgrade_only": True})],
     "folder add": [({"path": "a-folder"}, {})],
     "folder remove": [({"folder_id": "a-watched-folder"}, {})],
 }
@@ -510,7 +510,7 @@ def t9_cases():
 @pytest.mark.parametrize("command,args,flags", t9_cases(), ids=lambda v: str(v) if isinstance(v, str) else "")
 def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inline_workers, tmp_path_factory, command, args, flags):
     lib = upgrades
-    entry = catalog.primary([e for e in catalog.ENTRIES if " ".join(e.command) == command and e.dry_run and e.planned is None])
+    given = Flags(dry_run=True, **flags)
     args = {k: (lib.tracks if v == "all-tracks" else v) for k, v in args.items()}
     if args.get("batch_id") == "a-batch":  # a batch of the first song, done (what an undo would look at)
         with db.connect(lib.paths.db_file) as conn:
@@ -532,6 +532,12 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inl
         with db.connect(lib.paths.db_file) as conn:
             db.add_watched_folder(conn, watched, datetime(2026, 11, 16, 9, 0, 0))
         args["folder_id"] = str(watched)
+    entry = call.choose(parser.commands()[tuple(command.split())], given, args)  # the entry the line runs (`sync run` has two)
+    if command == "sync run":  # the whole sync's dry run is `sync plan`'s answer: it plans on the stored read, never reads
+        from hub_helpers import ID1, ID2, TRACKS, store_sync_read
+        from discjockey.models import FetchedPlaylist, PlaylistLine
+        store_sync_read(lib.paths, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
+                                    FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])])
     support, music, rekordbox = lib.paths.support, lib.paths.root, lib.folder
     # (`jobs/` is the registry's record of a job, bookkeeping like plans/ and cache/: the dry run of a read job (kind RJ,
     # the aiff ones) is answered by a worker, so its job exists whatever it reads; the read itself writes nothing but the plan)
@@ -540,7 +546,7 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inl
     skip = (support / "plans", support / "cache", support / "jobs")
     before = [snapshot(f, skip) for f in (support, music, rekordbox)]
     assert not (support / "plans").exists()
-    env = call.run(entry, args, Flags(dry_run=True, **flags), api=bind.default())
+    env = call.run(entry, args, given, api=bind.default())
     assert env["outcome"] == "ok", env
     after = [snapshot(f, skip) for f in (support, music, rekordbox)]
     assert after == before  # every byte and every file outside plans/, cache/ and jobs/, library.db and rekordbox included

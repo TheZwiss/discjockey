@@ -21,8 +21,8 @@ from ..hub.catalog import Entry
 from ..rekordbox import lock as rb_lock
 from ..rekordbox.locate import locate
 from . import bind, envelope, follow, worker
-from .parser import (BATCH_SELECTION_WORDS, DRY_RUN_ONLY_WORDS, SELECTION_WORDS, Flags, UsageError, parameters_of, selects,
-                     signature_of)
+from .parser import (BATCH_SELECTION_WORDS, DRY_RUN_ONLY_WORDS, SELECTION_WORDS, SWITCH_ALONE_WORDS, SYNC_DRY_RUN_WORDS, Flags,
+                     UsageError, parameters_of, selects, signature_of)
 
 NOT_BUILT = "{command} is not built yet."
 JOB_FLAGS_WORDS = "{command} answers at once: {given} is for a command that runs as a job."
@@ -207,7 +207,8 @@ def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
     """The entry's `--dry-run` (design §7.1): its `dry_run` method on the last scan, answering `as_of.scanned_at` and,
     when a watched folder changed after that scan, `next: library scan`. An answer that lists its items (each with a
     `key`) is stored as a plan (`plan_store`: the plan file a dry run writes) and its id is `data.plan_id`, which
-    `--plan` runs. A read that stands in for a write nobody has built (`catalog.stands_in`) is its own dry run: it answers
+    `--plan` runs (a switch's entry saves it under the line with its flag: `sync run --auto-upgrade-only`, which an
+    expired plan says to repeat; the whole sync's plan is `sync_preview`'s own). A read that stands in for a write nobody has built (`catalog.stands_in`) is its own dry run: it answers
     as a read does (`as_of`, no plan; the scan hint only where the read plans on the last scan's files,
     `catalog.STAND_INS_ON_SCAN`: a limit's what-if or a folder check does not)."""
     method = entry.dry_run or entry.method
@@ -215,7 +216,8 @@ def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
     env = envelope.from_answer(command, answer, as_of=_as_of(api))
     if env["outcome"] == "ok":
         if not catalog.stands_in(entry):
-            if (plan_id := api.save_plan(command, answer, command)) is not None:
+            line = f"{command} {flag}" if (flag := catalog.switch_of(entry)) else command
+            if (plan_id := api.save_plan(command, answer, line)) is not None:
                 env["data"]["plan_id"] = plan_id
             words = api.result_words(method, answer)  # a dry run that has something to say beside its facts
             if words.get("ok") and words.get("message"):
@@ -399,11 +401,28 @@ def _as_of(api) -> dict | None:
 def choose(entries: list[Entry], flags: Flags, args: Mapping | None = None) -> Entry:
     """The entry of a noun-verb command that runs: the write when there is one (its `--dry-run` runs the entry's
     `dry_run` method), else the read. A command that dispatches by id kind (`catalog.BY_ID_KIND`: `batch undo`) runs the
-    entry of the typed id's kind. Raises `UsageError`."""
+    entry of the typed id's kind. A command with a switch (`catalog.SWITCHES`) runs the switch's entry with its flag, else
+    the command's other write. Raises `UsageError`."""
     command = " ".join(entries[0].command)
+    if command in catalog.SWITCHES:
+        return _by_switch(entries, command, flags, args or {})
     if command in catalog.BY_ID_KIND and args:
         return _by_id_kind(entries, command, args, flags)
     return catalog.primary(entries)
+
+
+def _by_switch(entries: list[Entry], command: str, flags: Flags, args: Mapping) -> Entry:
+    """The entry of a command with a switch (`sync run`): with the switch its own entry, which takes neither action ids nor
+    `--how-many` (a flag is never ignored, design §2.2); without it the whole run, whose `--dry-run` is `sync plan`'s answer
+    and so takes none of the words that choose what to run."""
+    switch_method = catalog.SWITCHES[command][1]
+    if flags.auto_upgrade_only:
+        if args.get("selected") or args.get("how_many") is not None:
+            raise UsageError(SWITCH_ALONE_WORDS, "conflicting_flags")
+        return next(e for e in entries if e.method == switch_method)
+    if flags.dry_run and (args.get("selected") or args.get("plan_id") is not None or args.get("how_many") is not None):
+        raise UsageError(SYNC_DRY_RUN_WORDS, "conflicting_flags")
+    return catalog.primary([e for e in entries if e.method != switch_method])
 
 
 def _by_id_kind(entries: list[Entry], command: str, args: Mapping, flags: Flags) -> Entry:

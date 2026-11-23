@@ -14114,7 +14114,7 @@
           "additionalProperties": {
             "type": "integer"
           },
-          "description": "Each report section with at least one result (its key, as `report show` says them): how many.",
+          "description": "Each report section with at least one result (its key, as `report show` says them): how many. Left out when the run's report cannot be read (a run that crashed before it wrote one).",
           "type": "object",
           "x-shown": true
         },
@@ -14124,7 +14124,7 @@
           "x-shown": true
         },
         "failed": {
-          "description": "The songs that failed, empty when none did.",
+          "description": "The songs that failed, empty when none did. Left out with `counts`.",
           "items": {
             "$ref": "#/$defs/SyncFailed"
           },
@@ -14149,9 +14149,7 @@
         "exit_code",
         "report",
         "actions",
-        "new_since_plan",
-        "counts",
-        "failed"
+        "new_since_plan"
       ],
       "type": "object"
     },

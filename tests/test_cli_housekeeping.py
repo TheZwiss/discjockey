@@ -272,9 +272,11 @@ def test_the_usage_of_a_flag_says_what_it_takes(capsys):
 
 
 def test_a_flag_a_command_cannot_run_without_has_no_brackets(capsys):
-    phase = _row(capsys, "sync", "run")
-    assert phase["required_flags"] == ["--auto-upgrade-only"]
-    assert " --auto-upgrade-only" in phase["usage"] and "[--auto-upgrade-only" not in phase["usage"]
+    tidy = _row(capsys, "tidy", "run")  # its write is not built: it can only be tried
+    assert tidy["required_flags"] == ["--dry-run"]
+    assert " --dry-run" in tidy["usage"] and "[--dry-run" not in tidy["usage"]
+    phase = _row(capsys, "sync", "run")  # the switch is a choice, not a requirement
+    assert phase["required_flags"] == [] and "[--auto-upgrade-only]" in phase["usage"]
 
 
 # --- the reasons of a command (C-3) ---

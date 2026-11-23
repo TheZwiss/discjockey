@@ -487,8 +487,8 @@ def test_a_writer_can_start_while_a_plan_read_is_past_its_lookups(tmp_path, monk
 
 # --- the catalogue's `locks` column ---
 
-def test_the_locks_words_are_the_four_of_the_design():
-    assert catalog.LOCKS == ("library", "support", "rekordbox_w", "rekordbox_r")
+def test_the_locks_words_are_the_four_of_the_design_and_the_reads_scan():
+    assert catalog.LOCKS == ("library", "support", "rekordbox_w", "rekordbox_r", "scan")
     assert all(e.locks <= set(catalog.LOCKS) for e in catalog.ENTRIES)
 
 

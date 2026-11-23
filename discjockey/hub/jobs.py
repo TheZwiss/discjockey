@@ -244,9 +244,10 @@ def keep_awake(reason: str):
 
 
 def lock_free(path) -> bool:
-    """True if nobody holds the engine lock right now (a non-blocking try, released at once)."""
+    """True if nobody holds the engine lock right now (a non-blocking try, released at once). A lock file that does not
+    exist is held by no one, and a look never makes it (a dry run writes nothing: T9)."""
     try:
-        fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
+        fd = os.open(path, os.O_RDWR)
     except OSError:
         return True
     with library.LOCK_PROBE:  # never at the same moment as this process's own run_lock (library.try_flock)

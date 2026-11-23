@@ -4470,10 +4470,13 @@ export type SyncFailed = {
 };
 /** The `data` of `sync run`: the result with what the report counted and which songs failed. */
 export type SyncRunData = SyncResult & {
-  /** Each report section with at least one result (its key, as `report show` says them): how many. */
-  counts: Record<string, number>;
-  /** The songs that failed, empty when none did. */
-  failed: SyncFailed[];
+  /**
+   * Each report section with at least one result (its key, as `report show` says them): how many. Left out
+   * when the run's report cannot be read (a run that crashed before it wrote one).
+   */
+  counts?: Record<string, number>;
+  /** The songs that failed, empty when none did. Left out with `counts`. */
+  failed?: SyncFailed[];
 };
 /** One track of `check done`. */
 export type CheckDoneRow = {

@@ -14,7 +14,7 @@ from discjockey.hub.catalog import Arg, Entry
 # The ceiling of entries that may still be `planned` (their command not built). Every group that builds a command lowers
 # the number; nothing may raise it. Phase 3 is finished: every row left is phase 4's (`planned` names the group), and
 # phase 4 lowers the ceiling as it builds them.
-PLANNED_CEILING = 54
+PLANNED_CEILING = 52
 # The phases that are finished: no row may be planned for one of them.
 FINISHED_PHASES = 3
 
@@ -121,7 +121,8 @@ def test_flags_are_made_from_the_signature():
     flags = {e.method: effective(e) for e in EXISTING if e.method in ("limits_what_if", "refresh", "todo", "library")}
     assert flags["limits_what_if"]["extra_today"].flag == "--extra-today"
     assert flags["limits_what_if"]["limit"].positional
-    assert flags["refresh"]["auto"].flag == "--auto"
+    assert catalog.generated_arg("auto", BRIDGE["refresh"].parameters["auto"]).flag == "--auto"
+    assert "auto" not in flags["refresh"]  # `sync read` fixes it: the window's own read is the one that says auto
     todo = effective(catalog.by_method("todo")[0])
     assert todo["filter"].flag == "--group" and todo["show_hidden"].flag == "--hidden"
     library = effective(catalog.by_method("library")[0])
@@ -171,6 +172,15 @@ def test_the_entries_are_well_formed():
         seen.add(key)
         assert e.planned is None or re.fullmatch(r"phase (\d): V\1\.\d+[a-z]?", e.planned), e
     assert {("help",), ("where",), ("app", "open"), ("call",)} <= set(catalog.HOUSEKEEPING)
+
+
+def test_a_switch_runs_a_method_that_is_an_entry_of_its_command():
+    for command, (flag, method) in catalog.SWITCHES.items():
+        entry = catalog.entry_of(method, command)
+        assert entry is not None and not entry.planned and flag.startswith("--"), (command, method)
+        assert catalog.switch_of(entry) == flag
+        others = [e for e in catalog.ENTRIES if e.command == tuple(command.split()) and e is not entry and e.kind == "J"]
+        assert others and all(catalog.switch_of(e) is None for e in others), command
 
 
 def test_the_planned_count_only_shrinks():
