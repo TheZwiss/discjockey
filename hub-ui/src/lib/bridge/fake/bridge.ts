@@ -3,7 +3,7 @@ import type { Bridge } from '../client';
 import type { HubEvent } from '../events';
 import type {
   BatchResult, Candidate, ChangePreview, CliFail, Fail, JobSnap, JobStart, LibraryFilter, LibrarySort, LibraryView, PlaylistInfo, PlaylistLine, PreviewGroupKey, ProblemKind, Res, Result,
-  AccountCheck, Browser, MissingAction, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, Todo, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
+  AccountCheck, Browser, MissingAction, PlaylistOp, PlaylistService, SaveFiles, SettingKey, FolderCheck, FolderProblem, QobuzUsage, Service, SignalKind, Todo, TodoFilter, TodoGroupKey, TodoItem, Which, SyncEstimate, AiffBatchResult, AiffScope, ItemResult as AiffItemResult, UndoItem } from '../types';
 import { LIBRARY_METHODS } from '../contract';
 import {
   FAKE_MUSIC, FAKE_NEWEST_YT_DLP, LINK_REFUSED, QOBUZ_UNREADABLE, SOUNDCLOUD_SET_LINK, SERVICE_NAME, SOUNDCLOUD_UNREADABLE, YOUTUBE_MIX_REFUSED, hintOf, playlistRef, serviceOfLink, budget, byQuality, checkStatus, checkView, coverUri, dateOnly, folderList, hash, isoLocal, makeState, nextStep,
@@ -32,7 +32,7 @@ import { BAD_MISSING_ACTION, MISSING_ACTIONS, itemDetail, missingAll, missingDet
   runMissing } from './missingFiles';
 import {
   NO_BATCH, NOTHING_CHOSEN, hasFile, planRename, planTidy, planUndo, renameOffers, retargets, runBatch, seedTidy,
-  tidyPreview, tidyRow, tidyWaiting, trackOfId, undoPreview, validMoves, validSaveFiles, moveBatches, outOfPlace,
+  tidyPreview, tidyRow, tidyWaiting, trackOfId, undoPreview, validMoves, validSaveFiles, filledFiles, moveBatches, outOfPlace, REKORDBOX, UNDO_NOTE,
   type MoveRun,
 } from './tidy';
 import { NONE_CHANGEABLE, NOTHING_TO_CHANGE, SKIP_WORDS as AIFF_SKIP_WORDS, applyItem, cdjAiff, cdjMembers, fileAnswer, heldInRekordbox,
@@ -1111,10 +1111,12 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       const p = undoPreview(s, batch_id);
       return p ? ok(p) : fail('refused', NO_BATCH);
     },
-    async preview_playlist_change(lines: PlaylistLine[]) {
+    // the window always sends its lines and `read_unread`; the command line's `op` is not part of the window's fake
+    async preview_playlist_change(lines: PlaylistLine[] | null, _op?: PlaylistOp | null, _read_unread?: boolean) {
       const block = networkBlock();
       if (block) return block;
-      return later(300, () => ok(changePreview(lines)));
+      const asked = lines ?? s.playlists.map((p) => ({ folder: p.folder, link: p.link, enabled: p.enabled }));
+      return later(300, () => ok(changePreview(asked)));
     },
 
     async start_sync(plan_id, selected, _how_many) {   // `how_many` is the command line's: the window sends its ticks
@@ -1145,18 +1147,22 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       }
       return ok({ stopped: false });
     },
-    async save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null) {
+    // the window always sends its lines and no `op`: a change by `op` is the command line's, which the fake does not make
+    async save_playlists(lines: PlaylistLine[] | null, loaded_version: string | null, files?: SaveFiles | null, _op?: PlaylistOp | null) {
+      if (lines === null) return fail('refused', 'Send the playlist rows or one change to save.');
       const problem = linesProblem(lines);
       if (problem) return fail('refused', problem);
-      const choice = validSaveFiles(files);
-      if (choice === 'bad') return fail('refused', 'Choose whether to move the files or leave them where they are.');
+      const asked = validSaveFiles(files);
+      if (asked === 'bad') return fail('refused', 'Choose whether to move the files or leave them where they are.');
       const wait: MoveRun = { stopped: false };
       const started = startJob('save_playlists', null, (finish) => {
         setTimeout(() => {
           if (savePending === wait) savePending = null;
-          if (loaded_version !== versionHash()) {
+          if (loaded_version !== null && loaded_version !== versionHash()) {
             return finish(false, null, 'changed', 'playlists.txt was changed elsewhere. Load it again before saving.');
           }
+          // as the engine: a key of `files` left out is every one the question offers (asked on the list as it is now)
+          const choice = asked && filledFiles(asked, () => changePreview(lines));
           const { renames, moved } = retargets(s, lines);
           const before = new Map(s.tracks.map((t) => [t.track_id, pathOf(t) ?? '']));
           const old = new Map(s.playlists.map((p) => [p.link, p]));
@@ -1815,7 +1821,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       : 'No downloads, no Qobuz quota used', 'Nothing is deleted',
     ...(moves ? ['Files move only if you choose to', 'Moves can be undone on this page'] : ['Happens at the next sync, not right away'])];
     const base = { folders: [], tidy: null, renames: [], reroutes: [], new_downloads: 0, days: 0, stopped: 0, unknown: [],
-      problem: linesProblem(lines) };
+      problem: linesProblem(lines), lines, version: versionHash() };
     const old = s.playlists;
     const added = lines.filter((l) => !old.some((o) => o.link === l.link));
     const off = lines.filter((l) => !l.enabled && old.some((o) => o.link === l.link && o.enabled));
@@ -1831,7 +1837,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
     const offers = renameOffers(s, renames, lines);
     const saveHeadline = rows.length === 1 ? '1 file would sit in a different folder'
       : `${rows.length} files would sit in a different folder`;
-    const tidy = rows.length ? { headline: saveHeadline, rows } : null;
+    const tidy = rows.length ? { headline: saveHeadline, rows, rekordbox: [...REKORDBOX], undo_note: UNDO_NOTE } : null;
     if (changed.length) {
       const fs = [...new Set(changed.flatMap((t) => [moved.get(t.track_id)!.to, t.folder]))];
       const folders = s.playlists.map((p) => p.folder).filter((f) => !fs.includes(f)).map((f) => {

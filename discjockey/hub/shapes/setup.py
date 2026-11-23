@@ -7,7 +7,7 @@ those of `docs/hub-bridge-contract.md` ("Tidy-up and the move log", "Read with n
 maps a job kind to the shape of its `JobFinished.result`."""
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 
-from .common import Empty, PlaylistService, Result, TrackRow
+from .common import Empty, FailNext, PlaylistLine, PlaylistService, Result, TrackRow
 from .kernel import F, alias, shape
 from .library import Browser, Crate, LibraryView, PlaylistInfo, PlaylistTrack, Service
 from .todo import AiffBatchResult, CdjWords, UndoResult
@@ -592,8 +592,11 @@ class SavePlaylistsResult(TypedDict):
 
 SaveFiles = _record("SaveFiles", "`save_playlists`' third argument: the answer to the save question.", {
     "choice": Annotated[Literal["leave", "move"], F("The answer to the save question.")],
-    "renames": Annotated[list[tuple[str, str]], F("The folder renames to do on disk, `[old, new]`.", shown=False)],
-    "moves": Annotated[list[tuple[int, str]], F("The files to move, `[file_id, from_path]`.", shown=False)],
+    "renames": NotRequired[Annotated[list[tuple[str, str]], F(
+        "The folder renames to do on disk, `[old, new]`; absent: every rename the question offers.", shown=False)]],
+    "moves": NotRequired[Annotated[list[tuple[int, str]], F(
+        "The files to move, `[file_id, from_path]`; absent: every file the question ticks that no offered rename "
+        "carries.", shown=False)]],
 })
 
 
@@ -623,13 +626,38 @@ class ChangePreviewTidy(TypedDict):
     """The files this change would put in another folder."""
     headline: Annotated[str, F("\"{n} files would sit in a different folder\".")]
     rows: Annotated[list[TidyRow], F("The files, each with `by_rename` set when a rename on disk would move it.")]
+    rekordbox: Annotated[list[str], F("What to tell the person about rekordbox when the files move (the same notes as "
+                                      "the tidy-up preview's).")]
+    undo_note: Annotated[str, F("That the move can be undone afterwards.")]
+
+
+@shape
+class PlaylistOp(TypedDict):
+    """One change to playlists.txt, as `preview_playlist_change` and `save_playlists` take it: `op` and the keys that
+    kind of change uses. `add` needs `url`; `remove`, `enable` and `disable` need `playlist`; `rename` needs `playlist`
+    and `folder`; `move` needs `playlist` and `to`; `edit` needs `file`. Any other key is refused."""
+    op: Annotated[Literal["add", "remove", "rename", "move", "enable", "disable", "edit"],
+                  F("What the change does: add a playlist, remove one, rename its folder, move it to another place, "
+                    "switch it on or off, or replace the whole list with a file's.")]
+    url: NotRequired[Annotated[str, F("`add`: the playlist's link, as it was copied (the clean link is what is "
+                                      "written).")]]
+    playlist: NotRequired[Annotated[str, F(
+        "The playlist the change is about: its folder name (any case), its link, or `playlist:<folder>` for a folder "
+        "that looks like a link or a flag.")]]
+    folder: NotRequired[Annotated[str, F("`add`: the new playlist's folder name. `rename`: its new folder name.")]]
+    at: NotRequired[Annotated[int, F("`add`: the place in the list, from 1 at the top; absent: the end.")]]
+    to: NotRequired[Annotated[int, F("`move`: the place to move to, from 1 at the top.")]]
+    off: NotRequired[Annotated[bool, F("`add`: put it in switched off.")]]
+    file: NotRequired[Annotated[str, F("`edit`: the full path of a playlists file whose lines replace the list; read "
+                                       "when the change is made.")]]
 
 
 @shape
 class ChangePreview(TypedDict):
-    """`preview_playlist_change(lines)`: what saving the playlist lines would do. A switched-on line not read yet is
-    read once through its service's reader; a service that is not connected, or a playlist its service won't show, is
-    skipped without an error."""
+    """`preview_playlist_change(lines, op, read_unread)`: what saving the playlist lines (or making the change `op` to
+    the file's lines) would do. With `read_unread` (the window) a switched-on line not read yet is read once through
+    its service's reader; a service that is not connected, or a playlist its service won't show, is skipped without an
+    error. Without it nothing is read: such a line is in `unknown`."""
     kind: Annotated[ChangeKind, F("What the edit does.")]
     headline: Annotated[str, F("Ready to show.")]
     folders: Annotated[list[ChangePreviewFolder], F("The folders whose file count changes (a switched-off playlist's "
@@ -643,6 +671,13 @@ class ChangePreview(TypedDict):
     unknown: Annotated[list[str], F("The lines whose playlist is not known.")]
     checklist: Annotated[list[str], F("Three or four lines for the confirmation.")]
     problem: Annotated[str | None, F("What is wrong with the lines (Save would be refused), else null.")]
+    lines: Annotated[list[PlaylistLine], F("The lines after the change: the lines asked about, or the file's lines "
+                                           "with the change `op` made.")]
+    version: Annotated[str, F("The version of playlists.txt this preview was made on: what `save_playlists` checks.",
+                              shown=False)]
+    next: NotRequired[Annotated[list[FailNext], F(
+        "What to run next on the command line: `playlist check <link>` for each line not read yet and, for a change "
+        "(`op`), the command that makes it. The window ignores it.")]]
 
 
 # --- watched folders and the import ---

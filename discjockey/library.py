@@ -123,6 +123,11 @@ class Paths(SupportPaths):
         return self.data / "state.json"
 
     @property
+    def playlist_copies(self) -> Path:
+        """playlists.txt as it was before each change that `history` can undo by putting the file back (newest 20)."""
+        return self.data / "playlists"
+
+    @property
     def tmp(self) -> Path:
         return self.data / ".tmp"
 

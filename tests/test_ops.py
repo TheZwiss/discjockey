@@ -762,3 +762,31 @@ def test_a_version_used_lands_next_to_a_file_kept_elsewhere(paths):
     assert result.path == state["tracks"]["t1aaaaaaa"]["path"] == "Library/Sets/2024/Artist - Song.aiff"
     assert (paths.root / "Library/Sets/2024/Artist - Song.aiff").read_bytes() == b"new audio"
     assert (paths.root / "Superseded/Sets/2024/x.aiff").read_bytes() == b"old audio"
+
+
+def test_log_change_writes_a_line_that_belongs_to_no_song(tmp_path):
+    paths = Paths(tmp_path, support=tmp_path / ".support")
+    ops.log_change(paths, NOW, "playlists", "playlist_add", "Added the playlist Q at place 1.",
+                   ["playlist", "remove", "playlist:Q"], version="abc")
+    ops.log_change(paths, NOW, "playlists", "playlist_edit", "Replaced.", None)
+    first, second = (json.loads(line) for line in paths.operations_log.read_text(encoding="utf-8").splitlines())
+    assert first == {"time": "2026-10-20T12:00:00", "track_id": "", "artist": None, "title": None,
+                     "operation": "playlist_add", "result": "done", "message": "Added the playlist Q at place 1.",
+                     "group": "playlists", "undo": ["playlist", "remove", "playlist:Q"], "version": "abc"}
+    assert (second["undo"], second["version"], second["group"]) == (None, None, "playlists")
+
+
+def test_log_change_refuses_an_unknown_group(tmp_path):
+    paths = Paths(tmp_path, support=tmp_path / ".support")
+    with pytest.raises(ValueError):
+        ops.log_change(paths, NOW, "colours", "x", "y", None)
+    assert not paths.operations_log.exists()
+    assert ops.GROUPS == ("playlists",)
+
+
+def test_log_operation_lines_have_no_group_fields(tmp_path):
+    paths = Paths(tmp_path, support=tmp_path / ".support")
+    ops.log_operation(paths, NOW, "t1", {"artist": "A", "title": "B"}, "hide", "done", "hidden")
+    assert json.loads(paths.operations_log.read_text(encoding="utf-8")) == {
+        "time": "2026-10-20T12:00:00", "track_id": "t1", "artist": "A", "title": "B", "operation": "hide",
+        "result": "done", "message": "hidden"}

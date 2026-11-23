@@ -23,7 +23,7 @@ def moves(row):
 def swapped_preview(api, rec):
     """The save preview of the swapped playlists, after the hub has read them: its tidy rows."""
     refreshed(api, rec)
-    return api.preview_playlist_change(SWAPPED)["tidy"]["rows"]
+    return api.preview_playlist_change(SWAPPED, read_unread=True)["tidy"]["rows"]
 
 
 def place_elsewhere(root, *keys):
@@ -248,7 +248,7 @@ def test_save_can_rename_the_folder_on_disk_and_move_the_rest(root):
     refreshed(api, rec)
     renamed = [{"folder": "Hard_New", "link": HARD[1], "enabled": True}, {"folder": "Powertrance", "link": POWER[1],
                                                                           "enabled": True}]
-    change = api.preview_playlist_change(renamed)
+    change = api.preview_playlist_change(renamed, read_unread=True)
     assert [(r["from"], r["to"], r["offered"]) for r in change["renames"]] == [("Hard_Bounce", "Hard_New", True)]
     assert {r["by_rename"] for r in change["tidy"]["rows"]} == {"Hard_Bounce"}
     sent = [m for r in change["tidy"]["rows"] for m in moves(r)]
@@ -277,3 +277,89 @@ def test_a_save_passes_every_rename_of_the_change_to_the_engine_not_only_the_cho
     assert f.ok
     assert seen["all"] == [("Hard_Bounce", "Hard_New"), ("Powertrance", "Power_New")]
     assert (root.library / "Hard_New").is_dir()
+
+
+# --- a change by `op` that puts files elsewhere (issue 39 V4.2a) ---
+
+SWAP = {"op": "move", "playlist": "Powertrance", "to": 1}
+RENAME = {"op": "rename", "playlist": "Hard_Bounce", "folder": "Hard_New"}
+
+
+def job_text(api, finished):
+    """The job's `result.json` as the file holds it: private links stay out of it (design: job files)."""
+    return (api._jobs.registry.get(finished.job_id).dir / "result.json").read_text()
+
+
+def test_a_change_that_puts_files_elsewhere_is_refused_until_the_files_are_answered(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    f = wait_job(api, rec, api.save_playlists(op=SWAP))
+    assert (f.ok, f.problem) == (False, "refused")
+    assert f.message == ("This change puts 1 file in another folder: say whether to move it or leave it where it is. "
+                         "Nothing was done.")
+    envelope = api._jobs.registry.get(f.job_id).result()
+    assert (envelope["outcome"], envelope["reason"]) == ("refused", "needs_choice")
+    asked = api.preview_playlist_change(op=SWAP)["tidy"]
+    assert envelope["data"]["tidy"] == asked and envelope["data"]["kind"] == "moves"
+    assert not {"lines", "unknown", "next"} & set(envelope["data"])
+    text = job_text(api, f)
+    assert not any(secret in text for secret in (ID1, ID2, HARD[1], POWER[1]))
+    assert root.playlists_file.read_text() == PLAYLISTS and load_state(root)["tracks"]["t2"]["path"] == LOSSY
+
+
+def test_several_files_say_how_many(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    f = wait_job(api, rec, api.save_playlists(op=RENAME))  # t1 and t2 sit in the folder the rename carries
+    assert f.problem == "refused" and f.message.startswith("This change puts 2 files in another folder:")
+
+
+def test_a_change_with_no_files_to_move_needs_no_answer(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    f = wait_job(api, rec, api.save_playlists(op={"op": "disable", "playlist": "Powertrance"}))
+    assert f.ok
+
+
+def test_move_without_a_list_moves_what_the_window_would_tick(root):
+    api, rec = make_api(root)
+    place_elsewhere(root, "t1")  # a second file out of place: the question offers only the one the swap retargets
+    ticked = [r for r in swapped_preview(api, rec) if r["ticked"] and not r["skip"]]
+    f = wait_job(api, rec, api.save_playlists(op=SWAP, files={"choice": "move"}))
+    assert f.ok
+    [batch] = f.result["batches"]
+    assert batch["title"] == "Saved playlists" and batch["moved"] == len(ticked) == 1
+    assert load_state(root)["tracks"]["t2"]["path"].startswith("Library/Powertrance/")
+    assert load_state(root)["tracks"]["t1"]["path"].startswith("Library/Elsewhere/")  # not offered, so not moved
+
+
+def test_move_without_a_list_renames_the_offered_folder_and_leaves_the_files_it_carries_to_it(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    f = wait_job(api, rec, api.save_playlists(op=RENAME, files={"choice": "move"}))
+    assert f.ok and [b["title"] for b in f.result["batches"]] == ["Renamed Hard_Bounce to Hard_New"]
+    assert (root.library / "Hard_New").is_dir() and not (root.library / "Hard_Bounce").exists()
+
+
+def test_a_key_that_is_there_is_taken_as_it_is_and_the_other_is_filled_to_fit_it(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    # no rename chosen: the files the rename would have carried move one by one
+    f = wait_job(api, rec, api.save_playlists(op=RENAME, files={"choice": "move", "renames": []}))
+    assert f.ok and [(b["title"], b["moved"]) for b in f.result["batches"]] == [("Saved playlists", 2)]
+    assert load_state(root)["tracks"]["t2"]["path"].startswith("Library/Hard_New/")
+
+
+def test_leave_without_a_list_makes_the_files_the_users_own(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    f = wait_job(api, rec, api.save_playlists(op=SWAP, files={"choice": "leave"}))
+    assert f.ok and f.result["batches"] == [] and load_state(root)["tracks"]["t2"]["path"] == LOSSY
+    assert api.tidy_preview()["rows"][0]["yours"] is True
+
+
+def test_the_windows_own_save_may_leave_the_lists_out_too(root):
+    api, rec = make_api(root)
+    ticked = [r for r in swapped_preview(api, rec) if r["ticked"]]
+    f = wait_job(api, rec, api.save_playlists(SWAPPED, api.playlists()["version"], {"choice": "move"}))
+    assert f.ok and f.result["batches"][0]["moved"] == len(ticked)

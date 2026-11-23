@@ -7,14 +7,19 @@ the batch's start and end, and the operation is one an AIFF batch writes): the b
 batch folds nothing: `tidy.py` writes no operations-log line.
 
 An undo is offered as a command only when the catalogue has built it (`built`): one that is still planned says so
-(`words.UNDO_NOT_YET`), so a later phase's verb appears in `history` by itself when it lands."""
+(`words.UNDO_NOT_YET`), so a later phase's verb appears in `history` by itself when it lands.
+
+A line of the operations log with a `group` (`ops.log_change`: a change to playlists.txt) is a step of its own: its text
+is its message, its undo the words the line holds. Only the newest done line of its group offers the undo, and only while
+the group's file is as that line left it (`current`), and the offered command carries the version it was offered for
+(`GUARD`), so a change made in between is never overwritten."""
 from __future__ import annotations
 
 import shlex
 from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import UTC, datetime
 
-from .. import batches as batch_rule, folders, report, words
+from .. import batches as batch_rule, folders, playlists_file as pf, report, words
 from ..upgrades import can_undo
 from . import since as since_mod, views
 
@@ -37,19 +42,25 @@ _CANT = {
     "add_bought_file": words.NEW_VERSION_CANT, "use_candidate": words.NEW_VERSION_CANT, "use_link": words.NEW_VERSION_CANT,
     "reject_current": words.UNKNOWN_CANT,
 }
-# Every operation name the code writes to the log (tests/test_hub_history.py pins this against the writers).
-OPERATIONS = _TRACK_UNDO | _SWITCHES.keys() | _CANT.keys()
+# Every operation name the code writes to the log (tests/test_hub_history.py pins this against the writers). The
+# changes of a group (`ops.log_change`) carry their undo in the line itself.
+OPERATIONS = (_TRACK_UNDO | _SWITCHES.keys() | _CANT.keys() | {*pf.LOGGED.values(), pf.SAVED, pf.LIKED_ADDED})
 # What an AIFF batch writes to the log: its steps are folded into the batch.
 _BATCH_STEPS = frozenset((*batch_rule.OPERATIONS.values(), *batch_rule.UNDO_OPERATIONS.values()))
 _EPOCH = datetime.fromtimestamp(0, UTC)
 
-Built = Callable[[str, str], bool]
+# `built(method, command)`: whether the catalogue has the command built; `method` None asks about the command alone (the
+# undo words of a group's line name no method).
+Built = Callable[[str | None, str], bool]
+# The flag that keeps a group's undo to the file it was offered for: `--if-version <version>` on the command line.
+GUARD = {"playlists": "--if-version"}
 
 
 def entries(runs: Sequence[Mapping], batches: Sequence[Mapping], operations: Sequence[tuple[int, Mapping]], *,
             tracks: Mapping[str, Mapping], batch_tracks: Mapping[int, Collection[str]],
             batch_actions: Mapping[int, Collection[str]], move_undoable: Mapping[int, int],
-            finished_order: Mapping[str, int], built: Built, now: datetime, since: str | None) -> list[dict]:
+            finished_order: Mapping[str, int], built: Built, now: datetime, since: str | None,
+            current: Mapping[str, str] | None = None) -> list[dict]:
     """Every run, batch and single step from `since` on, newest first (equal times: runs, then batches, then steps, a
     step of a later log line first). `runs`: `views.runs` rows; `batches`: `batches` rows of both kinds; `operations`:
     `(line number, line)` of the operations log, the numbering of `finished_order` (track -> the line of its latest
@@ -61,10 +72,10 @@ def entries(runs: Sequence[Mapping], batches: Sequence[Mapping], operations: Seq
     out += [_batch(b, built, batch_actions.get(b["batch"], ()), move_undoable) for b in batches
             if since_mod.after(b["started"], since)]
     spans = _spans(batches, batch_tracks, now)
-    undone, latest_switch = _undone_steps(operations), _latest_switches(operations)
+    undone, latest_switch, latest_change = _undone_steps(operations), _latest_switches(operations), _latest_changes(operations)
     for n, op in sorted(operations, key=lambda numbered: numbered[0], reverse=True):
         if op.get("result") == "done" and since_mod.after(op.get("time"), since) and not _folded(op, spans):
-            out.append(_step(n, op, tracks, finished_order, built, undone, latest_switch))
+            out.append(_step(n, op, tracks, finished_order, built, undone, latest_switch, latest_change, current or {}))
     return sorted(out, key=lambda e: _moment(e["at"]), reverse=True)
 
 
@@ -101,6 +112,13 @@ def _latest_switches(operations: Sequence[tuple[int, Mapping]]) -> dict[tuple[st
         if op.get("result") == "done" and op.get("track_id") and found:
             latest[(op["track_id"], found[0])] = n
     return latest
+
+
+def _latest_changes(operations: Sequence[tuple[int, Mapping]]) -> dict[str, int]:
+    """`group -> line` of the latest done line of each group of changes (`ops.log_change`), whatever `since` says: a
+    line before it is no longer the one to undo."""
+    return {op["group"]: n for n, op in sorted(operations, key=lambda numbered: numbered[0])
+            if op.get("result") == "done" and op.get("group")}
 
 
 def _moment(at: str | None) -> datetime:
@@ -182,12 +200,17 @@ def _folded(op: Mapping, spans: Sequence[tuple[datetime, datetime, Collection[st
 
 
 def _step(n: int, op: Mapping, tracks: Mapping[str, Mapping], finished_order: Mapping[str, int],
-          built: Built, undone: Collection[int], latest_switch: Mapping[tuple[str, str], int]) -> dict:
+          built: Built, undone: Collection[int], latest_switch: Mapping[tuple[str, str], int],
+          latest_change: Mapping[str, int], current: Mapping[str, str]) -> dict:
     name = _step_name(op)
     artist, title = op.get("artist"), op.get("title")
     said = words.OPERATION_WORDS.get(name, name)
-    text = f"{artist} - {title}: {said}" if artist and title else said
     track_id = op.get("track_id") or None
+    if op.get("group"):
+        text = op.get("message") or said
+        undo, cant = _change_undo(n, op, built, latest_change, current)
+        return _entry("operation", None, op.get("time") or "", text, undo, cant)
+    text = f"{artist} - {title}: {said}" if artist and title else said
     undo, cant = _step_undo(name, n, track_id, tracks, finished_order, built, undone, latest_switch)
     return _entry("operation", None, op.get("time") or "", text, undo, cant, track_id=track_id, artist=artist, title=title)
 
@@ -214,3 +237,21 @@ def _step_undo(name: str, n: int, track_id: str | None, tracks: Mapping[str, Map
             return None, words.LATER_STEP
         return _command(built, method, command, track_id)
     return None, _CANT.get(name, words.UNKNOWN_CANT)
+
+
+def _change_undo(n: int, op: Mapping, built: Built, latest_change: Mapping[str, int],
+                 current: Mapping[str, str]) -> tuple[str | None, str | None]:
+    """The undo of a line of a group of changes, or why it has none: the checks run in this order, the first that fails
+    answers."""
+    group, undo, version = op["group"], op.get("undo"), op.get("version")
+    if (not undo or not isinstance(undo, list) or group not in words.LATER_CHANGE
+            or not all(isinstance(word, str) for word in undo)):
+        return None, words.UNKNOWN_CANT
+    if latest_change.get(group) != n:
+        return None, words.LATER_CHANGE[group]
+    if version is not None and version != current.get(group):
+        return None, words.CHANGED_SINCE[group]
+    line = [*undo, GUARD[group], version] if group in GUARD and version is not None else list(undo)
+    if any(built(None, " ".join(undo[:k])) for k in range(len(undo), 0, -1)):
+        return shlex.join(line), None
+    return None, words.UNDO_NOT_YET.format(command=shlex.join(line))

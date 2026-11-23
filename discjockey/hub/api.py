@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -30,7 +31,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path, PurePosixPath
 from stat import S_ISREG
 import time
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 from urllib.parse import quote
 
 from .. import __version__, align, browsers, candidates, config, db, library, ops, planner, playlists_file as pf, qobuz
@@ -53,7 +54,7 @@ from ..models import (SERVICE_NAMES as PLAYLIST_SERVICES, SOURCE_NAMES, AiffBatc
 from ..names import fold, search_fold
 from ..words import SCAN_OLDER, preview_words, rekordbox_words
 from ..ops import OpProblem
-from .. import pending_signs, words as engine_words
+from .. import pending_signs, playlist_words, words as engine_words
 from ..pacing import Budget, SharedPacer, streak_stopped
 from ..qobuz import QobuzError, QobuzLoginRejected, QobuzNotSetUp, QobuzSource, config_file, login_problem
 from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, SettingsError, extra_json, is_scope_target,
@@ -61,6 +62,9 @@ from ..settings import (MAX_DAILY_LIMIT, MAX_EXTRA, SCOPE_KINDS, Settings, Setti
 from ..setup_cmd import TOOL_HINTS
 from ..words import MISSING, NOT_CHOSEN  # the gate's words (`doctor` says them too)
 from ..sources.spotify import REDIRECT_URI
+
+if TYPE_CHECKING:
+    from .shapes.setup import PlaylistOp
 from . import catalog, doctor as doctor_mod, history as history_mod, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
@@ -100,6 +104,8 @@ BATCH_OR_TRACKS = "Name the tracks or a batch, not both."
 NO_PLAN_COMMANDS = frozenset(("upgrade discard", "track undo", "batch undo", "rekordbox restore", "library facts", "folder add", "folder remove",
                          "missing download", "missing remove"))  # run on what is there when --yes comes: no plan to run
 QOBUZ_PAUSED_NOTE = "Qobuz was not searched: it is paused after 3 failed requests in a row."
+PLAYLIST_COPIES = 20  # how many earlier copies of playlists.txt are kept for the undo that puts one back
+COPY_NAME = re.compile(r"(\d{4}-\d{2}-\d{2}_\d{6})(?:_(\d+))?\.txt")  # `HubApi._keep_copy`'s file names
 SYNC_RUNNING = "Not while a sync runs: Discjockey keeps its requests to Qobuz and YouTube paced."
 AUTO_READ_DONE = "Your playlists were read by themselves once this session already. Use ↻ Read playlists to read them again."
 NO_FILE = "There is no file at {path}."
@@ -241,7 +247,7 @@ def _answering(fn):
             return out
         except BadId as e:
             out = {"ok": False, "kind": "bad_args", "message": e.message, "outcome": "bad_args", "reason": e.reason,
-                   "next": [], "person_steps": [], "data": None}
+                   "next": list(e.next), "person_steps": [], "data": None}
             shapes.note_fail(fn.__name__, out)  # test mode only: a failure must fit `Fail`
             return out
         except plan_store.UnknownPlan as e:  # `--plan` with an id no dry run made (or one pruned long ago)
@@ -1958,8 +1964,7 @@ class HubApi:
             raise sources.SourceError(NOT_CONNECTED.format(name=PLAYLIST_SERVICES[service]), "not_set_up", service)
         liked = ref == pf.LIKED_MUSIC_REF
         if liked:  # signs in, so it is a choice in Settings (D9); the reader keeps off a paused account (D6)
-            if not self._settings().reads_liked_music:
-                raise sources.SourceError(youtube_music.SETTING_OFF, "setting_off", service, youtube_music.SETTING)
+            self._need_liked_music()
         reader = source.open(self._support, CancelToken())
         signs: list[tuple[str, str, str]] = []
         reader.on_signal = lambda *sign: signs.append(sign)
@@ -1991,17 +1996,31 @@ class HubApi:
                 "hint": None if info.readable else source.UNREADABLE_HINT}
 
     @bridge
-    def preview_playlist_change(self, lines: list) -> dict:
-        """"What this change does" for edited (unsaved) lines: the pure planner on the last playlists read, plus a
-        one-time read of a playlist that was not read yet. No file changes."""
-        self._no_sync_running()
-        rows = rows_from(lines)
+    def preview_playlist_change(self, lines: list | None = None, op: PlaylistOp | None = None,
+                                read_unread: bool = False) -> dict:
+        """"What this change does": the pure planner on the last playlists read, for edited (unsaved) `lines` or, with
+        `lines` None, for the file's rows now; with `op` (one change, `PlaylistOp`) the rows after that change. No file
+        changes. Only with `read_unread` (the window) a switched-on line not read yet is read once and stored, and a
+        running sync refuses the preview; without it nothing goes to the network, library.db is not written, and the
+        lines not read yet are named in `unknown` and `next`. The answer is `_change_answer`'s."""
+        if read_unread:
+            self._no_sync_running()
+        loaded = pf.load(self._paths.playlists_file)
+        base = loaded.rows if lines is None else rows_from(lines)
+        rows = base if op is None else pf.apply(base, self._op(op, base))
+        if read_unread:
+            self._read_unread(rows)
+        return self._change_answer(loaded.rows, rows, loaded.version)
+
+    def _read_unread(self, rows: list[pf.Row]) -> None:
+        """Reads once each switched-on playlist of `rows` the stored reads don't hold (one reader per service; a service
+        that is not connected, a playlist it won't show and your SoundCloud likes are skipped) and stores what it found."""
         tracks = self._tracks_by_id()
         unread = [r for r in rows if r.enabled and r.ref not in tracks]
         paused = self._paused_accounts()
         signs: list[tuple[str, str, str]] = []
         try:
-            for service in dict.fromkeys(r.service for r in unread):  # one reader per service; a failing one is skipped
+            for service in dict.fromkeys(r.service for r in unread):
                 source = sources.SOURCES[service]
                 if not source.login_state(self._support).connected:
                     continue
@@ -2025,8 +2044,13 @@ class HubApi:
                     self._close(reader)
         finally:
             self._record_signs(signs)
-        if unread:
-            tracks = self._tracks_by_id()
+
+    def _change_answer(self, old: list[pf.Row], rows: list[pf.Row], version: str) -> dict:
+        """The answer of a change preview (`ChangePreview`), also what a save that needs a choice hands back: what the
+        change from `old` (the file's rows, whose `version` it is) to `rows` does to the library on the last playlists
+        read, with `problem` (what would make the save refuse), `lines` (the rows after the change) and, when a line's
+        playlist is not read yet, `next`: the command that reads it."""
+        tracks = self._tracks_by_id()
         problem = None
         try:
             pf.validate(rows)
@@ -2034,34 +2058,138 @@ class HubApi:
             problem = str(e)
         state = self._state()
         money = views.gate(views.moneys(state, self._settings(), self._today()))
-        old = pf.load(self._paths.playlists_file).rows
         change = views.playlist_change(old, rows, tracks, state, state["files"], self._today(), money,
                                        self._cover(self._images(self._plan())), library_dirs=tidy.library_dirs(self._paths),
                                        rename_offer=tidy.rename_offer, placement=pf.placement(rows, tracks, state),
                                        retargeted=pf.retargeted(old, rows, tracks, state))
-        return {**change, "problem": problem}
+        answer = {**change, "problem": problem, "version": version,
+                  "lines": [{"folder": r.folder, "link": r.link, "enabled": r.enabled} for r in rows]}
+        if change["unknown"]:
+            link_of: dict[str, str] = {}
+            for r in rows:
+                link_of.setdefault(r.ref, r.link)
+            answer["next"] = [{"run": shlex.join(["playlist", "check", link_of[ref]]), "why": playlist_words.PLAYLIST_CHECK_COUNT_WHY}
+                              for ref in dict.fromkeys(change["unknown"])]
+        return answer
+
+    def _need_liked_music(self) -> None:
+        """Liked music is read through the YouTube login, so it is a choice in Settings (D9): `setting_off` while it is off."""
+        if not self._settings().reads_liked_music:
+            raise sources.SourceError(youtube_music.SETTING_OFF, "setting_off", youtube_music.SERVICE, youtube_music.SETTING)
+
+    def _op(self, op: object, rows: list[pf.Row]) -> dict:
+        """The change `op` made ready to apply to `rows`: checked, and for an add its folder filled (the suggested one of
+        the playlist's stored read) and the refusals that need Settings, the library or the stored reads said before any
+        job starts. Pure of the network: a link that names no playlist before it is opened is told to `playlist check`."""
+        checked = pf.check_op(op)
+        if checked["op"] != "add":
+            return checked
+        url = checked["url"]
+        try:
+            link = pf.clean_link(url)
+        except ValueError:  # a short link names no playlist until it is opened, and a preview opens nothing
+            raise BadId("usage", playlist_words.PLAYLIST_ADD_LINK,
+                        next=[{"run": shlex.join(["playlist", "check", url]), "why": playlist_words.PLAYLIST_CHECK_LINK_WHY}]) from None
+        if pf.listed(rows, link) is not None:
+            raise ValueError(playlist_words.PLAYLIST_LISTED)
+        ref = token(*sources.recognise(link))
+        if ref == pf.LIKED_MUSIC_REF:
+            self._need_liked_music()
+        if "folder" in checked:
+            return checked
+        info = self._stored_playlists()[1].get(ref)
+        if info is None:
+            raise BadId("usage", playlist_words.PLAYLIST_ADD_NEEDS_FOLDER,
+                        next=[{"run": shlex.join(["playlist", "check", url]), "why": playlist_words.PLAYLIST_CHECK_NAME_WHY}])
+        return {**checked, "folder": suggest_folder(info.name)}
+
+    def _keep_copy(self, data: bytes) -> str:
+        """Keeps `data` (playlists.txt as it was) in `<music>/.discjockey/playlists/<stamp>.txt` for the undo that puts it
+        back, `<stamp>_2.txt` ... when the second is taken, and the newest `PLAYLIST_COPIES` of them (by stamp, then
+        number: `_10` comes after `_2`). Returns the absolute path."""
+        folder = self._paths.playlist_copies
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = self._svc.now().strftime("%Y-%m-%d_%H%M%S")
+        n, path = 1, folder / f"{stamp}.txt"
+        while path.exists():
+            n += 1
+            path = folder / f"{stamp}_{n}.txt"
+        path.write_bytes(data)
+        kept = sorted(((m[1], int(m[2] or 1), f) for f in folder.iterdir() if (m := COPY_NAME.fullmatch(f.name))))
+        for _, _, old in kept[:-PLAYLIST_COPIES]:
+            if old != path:
+                old.unlink(missing_ok=True)
+        return str(path)
 
     @bridge
-    def save_playlists(self, lines: list, loaded_version: str, files: dict | None = None) -> dict:
-        """Writes playlists.txt. `files` is the answer to the save question when the change retargets files: `{choice:
-        "leave"|"move", renames: [[old, new]], moves: [[file_id, from_path]]}`. "move" renames the chosen folders on
+    def save_playlists(self, lines: list | None = None, loaded_version: str | None = None, files: dict | None = None,
+                       op: PlaylistOp | None = None) -> dict:
+        """Writes playlists.txt: the rows `lines` (the window's whole list), or one change `op` (`PlaylistOp`) made to
+        the file's rows under the lock; exactly one of the two. `loaded_version` is the file's version the caller read:
+        a different one refuses the save (None: no check). `files` is the answer to the save question when the change
+        retargets files: `{choice: "leave"|"move", renames: [[old, new]], moves: [[file_id, from_path]]}`; an absent
+        `renames` is every folder rename the question offers; an absent `moves` is every ticked file that no chosen rename
+        carries (`views.save_offers`). "move" renames the chosen folders on
         disk and moves the chosen files (move batches, undoable); "leave" makes the files this save would have moved
-        the user's own placement (P1). The result is `{version, batches: [BatchResultJSON]}`; a Stop after the save
-        still delivers the batches so far."""
-        rows = rows_from(lines)
+        the user's own placement (P1). A change `op` that would put files elsewhere with no `files` is refused
+        (`needs_choice`) with the change preview as its data. A save that changes the file is logged for `history` with
+        the file as it was. The result is `{version, batches: [BatchResultJSON]}`; a Stop after the save still delivers
+        the batches so far."""
+        if lines is not None and op is not None:
+            raise ValueError(playlist_words.SAVE_LINES_OR_OP)
+        if lines is None and op is None:
+            raise ValueError(playlist_words.SAVE_NOTHING)
         choice = save_choice(files)
+        if op is None:
+            rows, filled = rows_from(lines), None
+        else:
+            now = pf.load(self._paths.playlists_file).rows
+            filled = self._op(op, now)
+            pf.apply(now, filled)  # refused here, before a job starts, when it can't be made
 
         def work(ctx) -> dict:
+            path = self._paths.playlists_file
+            before = pf.load(path)
+            if loaded_version is not None and before.version != loaded_version:
+                if filled is None:
+                    raise pf.PlaylistsChanged(pf.CHANGED_ELSEWHERE)
+                raise OpProblem(playlist_words.PLAYLISTS_VERSION_CHANGED, "changed", reason="version_changed",
+                                next=[{"run": "playlist list", "why": playlist_words.PLAYLISTS_LIST_WHY}])
+            new_rows = rows if filled is None else pf.apply(before.rows, filled)  # no rows on the command line or in a job file
+            answer = None
+            if filled is not None and files is None:
+                answer = self._change_answer(before.rows, new_rows, before.version)
+                if answer["problem"] is None and answer["tidy"] is not None:
+                    n = len(answer["tidy"]["rows"])
+                    raise OpProblem(engine_words.plural(n, playlist_words.SAVE_NEEDS_CHOICE_ONE, playlist_words.SAVE_NEEDS_CHOICE), "refused",
+                                    reason="needs_choice",
+                                    data={k: v for k, v in answer.items() if k not in ("lines", "unknown", "next")})
+            picked = choice
+            if choice is not None and choice.files == "move" and (files.get("renames") is None or files.get("moves") is None):
+                offers = views.save_offers(answer or self._change_answer(before.rows, new_rows, before.version),
+                                           files.get("renames"))
+                picked = save_choice({"renames": offers[0], "moves": offers[1], **files})
             retargeted, all_renames = {}, []
-            if choice is not None:  # the targets before the save are what the save changes
-                before = pf.load(self._paths.playlists_file).rows
-                retargeted = pf.retargeted(before, rows, self._tracks_by_id(), self._state())
-                all_renames = pf.renames(before, rows)
-            version = pf.save(self._paths.playlists_file, rows, loaded_version or "")
-            if choice is None:
+            if picked is not None:  # the targets before the save are what the save changes
+                retargeted = pf.retargeted(before.rows, new_rows, self._tracks_by_id(), self._state())
+                all_renames = pf.renames(before.rows, new_rows)
+            data = path.read_bytes() if path.exists() else b""
+            copy = self._keep_copy(data) if filled is None or filled["op"] == "edit" else None
+            try:
+                version = pf.save(path, new_rows, before.version)
+            except BaseException:
+                if copy is not None:
+                    Path(copy).unlink(missing_ok=True)
+                raise
+            if version != before.version:
+                operation, message, undo = pf.change_log(before.rows, filled, copy)
+                ops.log_change(self._paths, self._svc.now(), "playlists", operation, message, undo, version=version)
+            elif copy is not None:  # nothing changed: nothing to undo
+                Path(copy).unlink(missing_ok=True)
+            if picked is None:
                 return {"version": version, "batches": []}
             try:
-                done = tidy.after_save(self._paths, retargeted, choice, emit=ctx.emit, token=ctx.token,
+                done = tidy.after_save(self._paths, retargeted, picked, emit=ctx.emit, token=ctx.token,
                                        now=self._svc.now, all_renames=all_renames)
             except tidy.Stopped as stopped:
                 ctx.failed_result = {"version": version, "batches": self._batch_results(stopped.results)}
@@ -3216,9 +3344,7 @@ class HubApi:
         playlists.txt (YouTube Music shares no link for it). Refused with `setting_off` while the choice is off and
         `exists` when a Liked music line is listed already, on or off. Answers `{folder}`."""
         def work(ctx) -> dict:
-            if not self._settings().reads_liked_music:
-                raise sources.SourceError(youtube_music.SETTING_OFF, "setting_off", youtube_music.SERVICE,
-                                          youtube_music.SETTING)
+            self._need_liked_music()
             loaded = pf.load(self._paths.playlists_file)
             if pf.lists_liked_music(loaded.rows):
                 raise OpProblem(LIKED_LISTED, "exists")
@@ -3228,7 +3354,9 @@ class HubApi:
                 n += 1
                 folder = f"{youtube_music.LIKED_MUSIC_FOLDER}_{n}"
             link = youtube_music.canonical_link(youtube_music.LIKED_MUSIC)
-            pf.save(self._paths.playlists_file, [*loaded.rows, pf.Row(folder, link)], loaded.version)
+            version = pf.save(self._paths.playlists_file, [*loaded.rows, pf.Row(folder, link)], loaded.version)
+            operation, message, undo = pf.change_log(loaded.rows, {"op": "add", "url": link, "folder": folder}, None)
+            ops.log_change(self._paths, self._svc.now(), "playlists", operation, message, undo, version=version)
             return {"folder": folder}
 
         return {"job_id": self._jobs.start("add_liked_music", work).id}
@@ -4893,8 +5021,12 @@ class CliApi(HubApi):
         steps of the operations log that no AIFF batch made (`history.entries` holds the rule). `since` is an ISO time
         (the command line's `--since` resolves to one). An entry: `kind` (`run` | `batch` | `operation`), `id` (what the
         commands take; null for a step), `at`, `text`, `undo` (the command that undoes it) or `cant_text` (why nothing
-        does: exactly one is set), and for a step `track_id`, `artist`, `title`."""
-        def built(method: str, command: str) -> bool:
+        does: exactly one is set), and for a step `track_id`, `artist`, `title`. A change to playlists.txt is a step whose
+        `text` is its logged message and whose `undo` carries `--if-version <the file's version>`."""
+        def built(method: str | None, command: str) -> bool:
+            if method is None:  # the words of a change's undo name no method: a command the line runs, not a dry run alone
+                return any(" ".join(e.command) == command and not e.planned and e.kind not in ("W", "dropped")
+                           and not catalog.stands_in(e) for e in catalog.ENTRIES)
             entry = catalog.entry_of(method, command)
             return entry is not None and entry.planned is None
 
@@ -4908,7 +5040,8 @@ class CliApi(HubApi):
         found = history_mod.entries(
             views.runs(self._reports()), rows, self._operations(), tracks=self._state()["tracks"],
             batch_tracks=batch_tracks, batch_actions=batch_actions, move_undoable=move_undoable,
-            finished_order=batches.finished_order(paths), built=built, now=self._svc.now(), since=since)
+            finished_order=batches.finished_order(paths), built=built, now=self._svc.now(), since=since,
+            current={"playlists": pf.load(paths.playlists_file).version})
         return {"entries": found, "since": since}
 
     def _operations(self) -> list[tuple[int, dict]]:

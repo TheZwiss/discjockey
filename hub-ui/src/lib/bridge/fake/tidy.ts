@@ -2,7 +2,8 @@
 // views.py's, verbatim. A file's target is its track's `folder`; where it sits is `at ?? folder`.
 import type { HubEvent } from '../events';
 import type {
-  BatchResult, MoveBatch, MoveBatches, RenameOffer, SaveFiles, SkippedMove, TidyPreview, TidyRow, UndoPreview,
+  BatchResult, ChangePreview, MoveBatch, MoveBatches, RenameOffer, SaveFiles, SkippedMove, TidyPreview, TidyRow,
+  UndoPreview,
 } from '../types';
 import { isoLocal, pathOf, trackRow, type FakeBatch, type FakeMove, type FakeState, type FakeTrack } from './data';
 
@@ -16,9 +17,9 @@ export const NO_BATCH = 'Discjockey has no record of these moves.';
 export const NOTHING_CHOSEN = 'No files were chosen to move.';
 const FOLDER_TAKEN = (name: string) => `A folder called ${name} is already in your Library.`;
 const EMPTY = 'Every file is where the playlist order puts it.';
-const REKORDBOX = ['rekordbox may show the moved tracks as missing.',
+export const REKORDBOX = ['rekordbox may show the moved tracks as missing.',
   'Its Relocate finds them again by file name: Discjockey never renames them.'];
-const UNDO_NOTE = 'You can undo this afterwards.';
+export const UNDO_NOTE = 'You can undo this afterwards.';
 const SKIPPED_TEXT = { offline: SKIP_OFFLINE, not_found: SKIP_NOT_FOUND } as const;
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many.replace('{n}', String(n)));
@@ -296,16 +297,38 @@ export function planRename(s: FakeState, old: string, now: string): Planned {
 
 // ---------- the save question ----------
 
-/** `[old, new]` pairs and the choice, or null when `files` is malformed (null is allowed: nothing to ask) */
+/** The choice and the `[old, new]` pairs and `[file_id, from_path]` moves it carries (a key left out stays out: it means
+ *  every one the question offers), or null when `files` is null, or 'bad' when it is malformed */
 export function validSaveFiles(files: unknown): SaveFiles | null | 'bad' {
   if (files === null || files === undefined) return null;
   const f = files as Partial<SaveFiles>;
   if (typeof f !== 'object' || (f.choice !== 'leave' && f.choice !== 'move')) return 'bad';
-  const renames = f.renames ?? [];
-  if (!Array.isArray(renames) || renames.some((r) => !Array.isArray(r) || r.length !== 2
-    || typeof r[0] !== 'string' || typeof r[1] !== 'string' || !/^[\w .-]+$/.test(r[0]) || !/^[\w .-]+$/.test(r[1]))) return 'bad';
-  const moves = validMoves(f.moves ?? []);
-  return moves ? { choice: f.choice, renames, moves } : 'bad';
+  const { renames } = f;
+  if (renames !== undefined && (!Array.isArray(renames) || renames.some((r) => !Array.isArray(r) || r.length !== 2
+    || typeof r[0] !== 'string' || typeof r[1] !== 'string' || !/^[\w .-]+$/.test(r[0]) || !/^[\w .-]+$/.test(r[1])))) return 'bad';
+  const moves = f.moves === undefined ? undefined : validMoves(f.moves);
+  if (moves === null) return 'bad';
+  return { choice: f.choice, ...(renames === undefined ? {} : { renames }), ...(moves === undefined ? {} : { moves }) };
+}
+
+/** What the save question asks by default, from a change preview (the engine's `views.save_offers`): `renames` (the
+ *  chosen ones, else every offered folder rename) and every ticked file that can move and no chosen rename carries. */
+export function saveOffers(preview: ChangePreview, chosen?: [string, string][]): { renames: [string, string][]; moves: [number, string][] } {
+  const renames: [string, string][] = chosen ?? preview.renames.filter((r) => r.offered).map((r) => [r.from, r.to]);
+  const carried = new Set(renames.map(([from]) => from));
+  const rows = preview.tidy?.rows ?? [];
+  return {
+    renames,
+    moves: rows.filter((r) => r.ticked && !r.skip && !(r.by_rename && carried.has(r.by_rename))).map((r) => [r.file_id, r.from_path]),
+  };
+}
+
+/** `files` with every key the caller left out filled in: for "move" the preview's offers, for "leave" nothing */
+export function filledFiles(files: SaveFiles, preview: () => ChangePreview): Required<SaveFiles> {
+  if (files.renames && files.moves) return { choice: files.choice, renames: files.renames, moves: files.moves };
+  if (files.choice === 'leave') return { choice: 'leave', renames: files.renames ?? [], moves: files.moves ?? [] };
+  const offers = saveOffers(preview(), files.renames);
+  return { choice: 'move', renames: offers.renames, moves: files.moves ?? offers.moves };
 }
 
 /** The target folder of every song under the order of `lines`: its first switched-on playlist (the others keep it). */

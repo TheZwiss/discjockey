@@ -2739,10 +2739,10 @@ def playlists(loaded: pf.Loaded, tracks_by_id: dict, infos: dict, state: dict, c
     """The playlist page. `liked_music_on`: Settings' Liked music choice is on and can be read; a listed Liked music
     line while it is not says so in `needs_setting` (the choice's settings.json key), else null."""
     rows = []
-    for i, r in enumerate(loaded.rows):
+    for i, r in enumerate(loaded.rows, start=1):
         tracks = tracks_by_id.get(r.ref)
         info = infos.get(r.ref)
-        rows.append({"index": i, "folder": r.folder, "link": r.link, "playlist_id": r.ref,
+        rows.append({"place": i, "folder": r.folder, "link": r.link, "playlist_id": r.ref,
                      "service": r.service, "service_name": PLAYLIST_SERVICES[r.service], "enabled": r.enabled,
                      "info": info_dict(info), "needs_setting": None if r.ref != pf.LIKED_MUSIC_REF or liked_music_on
                      else LIKED_MUSIC_SETTING,
@@ -2786,6 +2786,19 @@ def _rename_items(pairs: list[tuple[str, str]], rows: list, files: list[str], li
                       "why_not": None if why is None else text.get(why), "option": RENAME_OPTION,
                       "detail": f"One folder move instead of {n} file move{'s' if n != 1 else ''}."})
     return items
+
+
+def save_offers(answer: Mapping, renames: Iterable[Sequence[str]] | None = None) -> tuple[list[list[str]], list[list]]:
+    """What the save question asks by default, from a change preview `answer`: `(renames, moves)` as `save_playlists`'
+    `files` takes them (the window's own `initialQuestion`). `renames`: the folder renames chosen as `[old, new]`, or None
+    for every one that is offered. The renames are those (`[old, new]`); the moves are every ticked file that can move and
+    is not carried by one of the renames, `[file_id, from_path]`."""
+    offered = [r for r in answer["renames"] if r["offered"]]
+    chosen = [[r["from"], r["to"]] for r in offered] if renames is None else [list(pair) for pair in renames]
+    carried = {old for old, _ in chosen}
+    rows = answer["tidy"]["rows"] if answer["tidy"] else []
+    return chosen, [[r["file_id"], r["from_path"]] for r in rows
+                    if r["ticked"] and not r["skip"] and r["by_rename"] not in carried]
 
 
 def _by_rename(row: TidyRow, pairs: list[tuple[str, str]]) -> str | None:
@@ -2855,7 +2868,8 @@ def playlist_change(old: list, new: list, tracks_by_id: dict, state: dict, files
     checklist.append(CHECK_NOTHING_DELETED)
     checklist += [CHECK_CHOICE, CHECK_UNDO] if kind in ("moves", "rename") else [CHECK_NEXT_SYNC]
     tidy = {"headline": save_headline, "rows": [tidy_row(r, tracks[r.track_id], cover, _by_rename(r, renames))
-                                                for r in tidy_list]} if tidy_list else None
+                                                for r in tidy_list],
+            "rekordbox": list(REKORDBOX_NOTES), "undo_note": UNDO_NOTE} if tidy_list else None
     return {"kind": kind, "headline": headline,
             "folders": [{"folder": f, "before": c.before.get(f, 0), "after": c.after.get(f, 0)} for f in folders],
             "tidy": tidy, "renames": rename_items, "reroutes": reroutes, "new_downloads": len(c.new), "days": days,

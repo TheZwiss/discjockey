@@ -20,7 +20,7 @@ A bare path where a track or a file is meant is `Ident("path", text)` for `resol
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from ..models import SERVICE_NAMES
@@ -44,12 +44,13 @@ COLLECTION_WORDS = ("all", "unlisted")
 
 class BadId(Exception):
     """An id that can't be used: `reason` is `unknown_id` (nothing it could name) or `bad_id_kind` (an id of another
-    kind than the command takes); both are `bad_args`."""
+    kind than the command takes) or `usage`; all are `bad_args`. `next`: the commands that move on (`{run, why}`)."""
 
-    def __init__(self, reason: str, message: str):
+    def __init__(self, reason: str, message: str, next: Iterable[Mapping] = ()):
         super().__init__(message)
         self.reason = reason
         self.message = message
+        self.next = tuple(next)
 
 
 @dataclass(frozen=True)

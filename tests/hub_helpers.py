@@ -260,10 +260,11 @@ def made_apis() -> list:
     return made
 
 
-def make_api(paths, **kw):
-    """A hub bound to `paths` without its background services (no console watch, no Spotify read)."""
+def make_api(paths, *, api_class=HubApi, **kw):
+    """A hub bound to `paths` without its background services (no console watch, no Spotify read). `api_class`: `CliApi`
+    for the command line's methods (`history`)."""
     rec = Recorder()
-    api = HubApi(paths.support, rec, services(**kw))
+    api = api_class(paths.support, rec, services(**kw))
     _MADE.append(api)
     api._attach(paths)
     api._jobs.keep_awake = _no_awake

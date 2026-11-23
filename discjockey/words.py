@@ -164,6 +164,15 @@ OPERATION_WORDS = {
     "use_candidate": "another version downloaded",
     "use_link": "downloaded from a link",
     "reject_current": "its version turned down",
+    "playlist_add": "playlist added",
+    "playlist_remove": "playlist removed",
+    "playlist_rename": "playlist renamed",
+    "playlist_move": "playlist moved",
+    "playlist_enable": "playlist switched on",
+    "playlist_disable": "playlist switched off",
+    "playlist_edit": "playlists replaced from a file",
+    "playlist_saved": "playlists saved in the window",
+    "liked_music_add": "Liked music added",
 }
 UNDO_NOT_YET = "Undoing this comes in a later version ({command})."
 RUN_CANT = "A sync's downloads stay: Discjockey never deletes music."
@@ -184,6 +193,11 @@ DOWNLOAD_CANT = "A download is not undone: Discjockey never deletes music."
 REMOVED_CANT = "A removed song comes back when its file is added again."
 NEW_VERSION_CANT = "A new version stays: Discjockey never deletes music."
 UNKNOWN_CANT = "Discjockey can't undo this step."
+# a group of changes (`ops.log_change`), by its name: why an undo older than the group's newest change, or than a change
+# made to its file since, is not offered
+LATER_CHANGE = {"playlists": "A later change to your playlists comes first: undo that one."}
+CHANGED_SINCE = {"playlists": "playlists.txt was changed again since, by hand or by undoing a folder rename, so this "
+                              "undo is no longer offered."}
 
 
 def plural(n: int, one: str, many: str) -> str:

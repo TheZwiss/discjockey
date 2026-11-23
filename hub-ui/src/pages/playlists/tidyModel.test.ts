@@ -156,7 +156,7 @@ describe('the save question', () => {
       moves: [[away.file_id, away.from_path]] });
     const off = toggleRename(q, 'Powertrance');
     expect(saveFiles(off, 'move').renames).toEqual([]);
-    expect(saveFiles(off, 'move').moves.map((m) => m[0])).toEqual([p1.file_id, p2.file_id, away.file_id]);
+    expect(saveFiles(off, 'move').moves!.map((m) => m[0])).toEqual([p1.file_id, p2.file_id, away.file_id]);
   });
   it('the save\'s moves in the order they happen: folders first, then files', () => {
     const q = initialQuestion(rows, [offer('Powertrance', 'Powertrance_2026')]);

@@ -97,7 +97,7 @@ export function playlistRows(s: FakeState): PlaylistRow[] {
     const songs = new Map((read?.held ?? []).map((h) => [h.key, h.t]));
     const quality = byQuality([...songs.values()].filter((t): t is FakeTrack => t !== null));
     quality.missing += [...songs.values()].filter((t) => t === null).length;
-    return { index, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
+    return { place: index + 1, folder: p.folder, link: p.link, playlist_id: playlistRef(p.link), service,
       service_name: SERVICE_NAME[service], enabled: p.enabled, info: p.info,
       tracks: read ? songs.size : p.info?.track_count ?? null, quality, needs_setting: needsSetting(s, p.link) };
   });
