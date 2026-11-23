@@ -359,28 +359,14 @@ def library_rows(paths) -> tuple:
                 conn.execute("SELECT MAX(last_scan) FROM watched_folders").fetchone()[0])
 
 
-def test_prepare_in_a_dry_run_stores_no_scan_unless_asked(lib):
+def test_a_read_stores_the_scan_the_plans_that_only_look_do_not(lib):
+    """`prepare(read_only=True)` (the window's refresh, `sync read`) scans Library/ and stores it; `sync plan` and the other
+    previews never call it: they plan on the last scan (issue 39 design §7.1)."""
     (lib.root / "Library" / "Hard_Bounce" / "New Artist - New Song.aiff").write_bytes(b"new audio")
     before = library_rows(lib)
-    log = rep.RunLog(datetime.now())
-    state = run_mod._open(lib, log, lambda e: None, read_only=True, scan=False)
-    assert not any("New Artist - New Song" in path for path in state["files"])  # the plan is on the last scan
-    assert library_rows(lib) == before
-    run_mod._open(lib, log, lambda e: None, read_only=True, scan=True)  # the window's refresh asks for the scan
+    run_mod._open(lib, rep.RunLog(datetime.now()), lambda e: None, read_only=True)
     after = library_rows(lib)
     assert any("New Artist - New Song" in row[1] for row in after[0]) and after != before
-
-
-def test_prepare_decides_the_scan_from_read_only_unless_told(lib, monkeypatch):
-    seen = []
-    monkeypatch.setattr(run_mod, "_open", lambda paths, log, emit, *, read_only, scan: seen.append((read_only, scan))
-                        or library.load_state(paths))
-    for kwargs in ({}, {"read_only": True}, {"read_only": True, "scan": True}):
-        try:
-            run_mod.prepare(lib, **kwargs)
-        except run_mod.SetupProblem:
-            pass  # the playlists cannot be read in a test: the scan decision came first
-    assert seen == [(False, True), (True, False), (True, True)]
 
 
 # --- the dry run of `upgrade apply` (part b): the engine's preview, through the real catalogue rows ---
