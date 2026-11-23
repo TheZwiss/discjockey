@@ -199,38 +199,6 @@ LATER_CHANGE = {"playlists": "A later change to your playlists comes first: undo
 CHANGED_SINCE = {"playlists": "playlists.txt was changed again since, by hand or by undoing a folder rename, so this "
                               "undo is no longer offered."}
 
-# The rules of playlists.txt (`playlists_file`): one sentence for each way a folder name, a link or a change can be wrong.
-# The first four are the window's own (`addRowModel.ts` `folderProblem`).
-FOLDER_NEEDED = "A folder name is needed."
-FOLDER_SLASH = 'A folder name can\'t contain "/".'
-FOLDER_PICK_ANOTHER = "Pick another folder name."
-FOLDER_USED = "Another playlist already uses the folder {folder}."
-PLAYLIST_LISTED = "This playlist is already in your list."
-PLAYLIST_NOT_FOUND = "None of your playlists is called {name}."
-PLAYLIST_TWO = "{name} names more than one of your playlists: say its folder name."
-PLAYLIST_OP_NEEDS = "A {op} change needs {fields}."
-PLAYLIST_OP_UNKNOWN = "Discjockey can't make the change {op} to your playlists."
-PLAYLIST_OP_FIELD = "{field} is not part of a {op} change."
-PLAYLIST_OP_TYPE = "{field} in a playlist change takes {kind}."
-PLAYLIST_OP_KINDS = {"int": "a whole number", "bool": "true or false", "str": "text"}  # the words of PLAYLIST_OP_TYPE's kind
-PLAYLIST_PLACE = "A place in your playlists goes from 1 to {n}."
-PLAYLIST_FILE_FULL_PATH = "Give the playlists file as a full path."
-PLAYLIST_FILE_MISSING = "There is no file at {path}."
-# What a change to playlists.txt says in `history` (`playlists_file.change_log`), by the operation's name in the log;
-# `{folder}`, `{at}`, `{old}`, `{new}`, `{to}` and `{file}` are filled from the change.
-PLAYLIST_LOGGED = {
-    "playlist_add": "Added the playlist {folder} at place {at}.",
-    "playlist_remove": "Removed the playlist {folder}. Its files stay in your library.",
-    "playlist_rename": "Renamed the playlist {old} to {new}.",
-    "playlist_move": "Moved the playlist {folder} from place {old} to place {to}.",
-    "playlist_enable": "Switched the playlist {folder} on.",
-    "playlist_disable": "Switched the playlist {folder} off. Its files stay.",
-    "playlist_edit": "Replaced your playlists with the list in {file}.",
-    "playlist_saved": "Saved your playlists in the window.",
-    "liked_music_add": "Added Liked music as the playlist {folder}.",
-}
-PLAYLIST_LOGGED_ADD_OFF = "Added the playlist {folder} at place {at}, switched off."
-
 
 def plural(n: int, one: str, many: str) -> str:
     """`one` when `n` is 1, else `many` with its `{n}` filled: the one helper for the count texts ("1 file moved", "3 files

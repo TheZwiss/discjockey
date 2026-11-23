@@ -4,9 +4,9 @@ Overlaps  none
 Empty     none
 
 Rows
-Index  Folder       Link                                                      Playlist id             Service  Service name  Enabled  Info  Needs setting  Tracks  Quality
-0      Hard_Bounce  https://open.spotify.com/playlist/0DiscjockeyExampleList  0DiscjockeyExampleList  spotify  Spotify       yes      none  none           none    lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0
-1      Powertrance  https://open.spotify.com/playlist/3DiscjockeyExampleList  3DiscjockeyExampleList  spotify  Spotify       yes      none  none           none    lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0
+Place  Folder       Link                                                      Playlist id             Service  Service name  Enabled  Info  Needs setting  Tracks  Quality
+1      Hard_Bounce  https://open.spotify.com/playlist/0DiscjockeyExampleList  0DiscjockeyExampleList  spotify  Spotify       yes      none  none           none    lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0
+2      Powertrance  https://open.spotify.com/playlist/3DiscjockeyExampleList  3DiscjockeyExampleList  spotify  Spotify       yes      none  none           none    lossless: 0, good_lossy: 0, weak: 0, fake: 0, missing: 0
 2 of 2 shown
 
 Tidy

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
-from . import config, sources, words
+from . import config, playlist_words, sources
 from .library import fsync_dir, full_fsync
 from .models import FetchedPlaylist, PlaylistLine, SourceTrack, split_token, token
 from .names import fold
@@ -179,13 +179,13 @@ def folder_problem(name: str, rows: list[Row], own_ref: str | None = None) -> st
     may keep its own name (a case-only rename is fine)."""
     n = name.strip()
     if not n:
-        return words.FOLDER_NEEDED
+        return playlist_words.FOLDER_NEEDED
     if "/" in n:
-        return words.FOLDER_SLASH
+        return playlist_words.FOLDER_SLASH
     if n in (".", ".."):
-        return words.FOLDER_PICK_ANOTHER
+        return playlist_words.FOLDER_PICK_ANOTHER
     other = next((r for r in rows if r.ref != own_ref and fold(r.folder) == fold(n)), None)
-    return words.FOLDER_USED.format(folder=other.folder) if other else None
+    return playlist_words.FOLDER_USED.format(folder=other.folder) if other else None
 
 
 def listed(rows: list[Row], link: str) -> Row | None:
@@ -210,9 +210,9 @@ def find(rows: list[Row], playlist: str) -> int:
         name = text
         hits = [i for i, r in enumerate(rows) if fold(r.folder) == fold(name)]
     if not hits:
-        raise ValueError(words.PLAYLIST_NOT_FOUND.format(name=name))
+        raise ValueError(playlist_words.PLAYLIST_NOT_FOUND.format(name=name))
     if len(hits) > 1:
-        raise ValueError(words.PLAYLIST_TWO.format(name=name))
+        raise ValueError(playlist_words.PLAYLIST_TWO.format(name=name))
     return hits[0]
 
 
@@ -222,27 +222,27 @@ def check_op(op: object) -> dict:
     a missing key, a key this change doesn't use, a value of the wrong kind. Checks the shape only; `apply` checks the
     values against the rows."""
     if not isinstance(op, dict) or "op" not in op:
-        raise ValueError(words.PLAYLIST_OP_NEEDS.format(op="playlist", fields="op"))
+        raise ValueError(playlist_words.PLAYLIST_OP_NEEDS.format(op="playlist", fields="op"))
     name = op["op"]
     if name not in OPS:
-        raise ValueError(words.PLAYLIST_OP_UNKNOWN.format(op=name))
+        raise ValueError(playlist_words.PLAYLIST_OP_UNKNOWN.format(op=name))
     missing = [k for k in _NEEDS[name] if k not in op]
     if missing:
-        raise ValueError(words.PLAYLIST_OP_NEEDS.format(op=name, fields=" and ".join(missing)))
+        raise ValueError(playlist_words.PLAYLIST_OP_NEEDS.format(op=name, fields=" and ".join(missing)))
     allowed = ("op", *_NEEDS[name], *_MAY.get(name, ()))
     for key in op:
         if key not in allowed:
-            raise ValueError(words.PLAYLIST_OP_FIELD.format(field=key, op=name))
+            raise ValueError(playlist_words.PLAYLIST_OP_FIELD.format(field=key, op=name))
     for key, value in op.items():
         kind = _KINDS.get(key)
         if kind is not None and (not isinstance(value, kind) or (kind is int and isinstance(value, bool))):
-            raise ValueError(words.PLAYLIST_OP_TYPE.format(field=key, kind=words.PLAYLIST_OP_KINDS[kind.__name__]))
+            raise ValueError(playlist_words.PLAYLIST_OP_TYPE.format(field=key, kind=playlist_words.PLAYLIST_OP_KINDS[kind.__name__]))
     return op
 
 
 def _place(n: int, last: int) -> int:
     if not 1 <= n <= last:
-        raise ValueError(words.PLAYLIST_PLACE.format(n=last))
+        raise ValueError(playlist_words.PLAYLIST_PLACE.format(n=last))
     return n
 
 
@@ -255,9 +255,9 @@ def apply(rows: list[Row], op: dict) -> list[Row]:
     if name == "add":
         link = clean_link(op["url"])
         if listed(rows, link) is not None:
-            raise ValueError(words.PLAYLIST_LISTED)
+            raise ValueError(playlist_words.PLAYLIST_LISTED)
         if "folder" not in op:
-            raise ValueError(words.PLAYLIST_OP_NEEDS.format(op="add", fields="folder"))
+            raise ValueError(playlist_words.PLAYLIST_OP_NEEDS.format(op="add", fields="folder"))
         folder = _name(op["folder"])
         if problem := folder_problem(folder, rows):
             raise ValueError(problem)
@@ -266,9 +266,9 @@ def apply(rows: list[Row], op: dict) -> list[Row]:
     elif name == "edit":
         path = Path(op["file"])
         if not path.is_absolute():
-            raise ValueError(words.PLAYLIST_FILE_FULL_PATH)
+            raise ValueError(playlist_words.PLAYLIST_FILE_FULL_PATH)
         if not path.is_file():
-            raise ValueError(words.PLAYLIST_FILE_MISSING.format(path=path))
+            raise ValueError(playlist_words.PLAYLIST_FILE_MISSING.format(path=path))
         loaded = load(path)
         if loaded.problem:
             raise ValueError(loaded.problem)
@@ -357,13 +357,13 @@ def change_log(before: list[Row], op: dict | None, copy: str | None) -> tuple[st
     music is logged as its own operation, whichever way it was added."""
     undo = op_words(undo_op(before, op, copy))
     if op is None:
-        return SAVED, words.PLAYLIST_LOGGED[SAVED], undo
+        return SAVED, playlist_words.PLAYLIST_LOGGED[SAVED], undo
     found = sources.recognise(op["url"].strip()) if op["op"] == "add" else None
     if found is not None and token(*found) == LIKED_MUSIC_REF:
-        return LIKED_ADDED, words.PLAYLIST_LOGGED[LIKED_ADDED].format(folder=_name(op["folder"])), undo
+        return LIKED_ADDED, playlist_words.PLAYLIST_LOGGED[LIKED_ADDED].format(folder=_name(op["folder"])), undo
     operation, fields = _said(before, op)
     switched_off = operation == LOGGED["add"] and op.get("off")
-    template = words.PLAYLIST_LOGGED_ADD_OFF if switched_off else words.PLAYLIST_LOGGED[operation]
+    template = playlist_words.PLAYLIST_LOGGED_ADD_OFF if switched_off else playlist_words.PLAYLIST_LOGGED[operation]
     return operation, template.format(**fields), undo
 
 

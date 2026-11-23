@@ -25,7 +25,7 @@ export function loadedFrom(p: Pick<Playlists, 'version' | 'rows'>): Loaded {
 
 /** Draft rows from the loaded rows. Keys stay stable for the same row of the same file. */
 export function draftFrom(loaded: Loaded): DraftRow[] {
-  return loaded.rows.map((r) => ({ key: `r${r.index}:${r.link}`, folder: r.folder, link: r.link, enabled: r.enabled,
+  return loaded.rows.map((r) => ({ key: `r${r.place}:${r.link}`, folder: r.folder, link: r.link, enabled: r.enabled,
     info: r.info, tracks: r.tracks, quality: r.quality, isNew: false, service: r.service,
     serviceName: r.service_name, needsSetting: r.needs_setting ?? null }));
 }

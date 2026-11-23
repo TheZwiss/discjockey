@@ -11,6 +11,9 @@ committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when
 `views.REKORDBOX_NOTES` / `views.UNDO_NOTE`, the panel shows them, `R1`/`R2`/`U1` go; shape, fake, contract and the
 vitest data of `ChangePreviewTidy` change in one commit. Until then `U1` holds the engine's current word.
 
+Engine half done (issue 39 V4.2a): `ChangePreviewTidy` carries `rekordbox` and `undo_note`, with shape, fake, contract and
+the vitest data. The panel showing them and `R1`/`R2`/`U1` going: phase 6.
+
 ## 42. The sync's own login-file saves take the support lock inside the library lock (V1.14 review, 2026-11-16)
 
 Lock order is support, library, `rekordbox.lock` (CLAUDE.md). Every settings write follows it now (`_settings_job`,

@@ -1,7 +1,7 @@
 // The only bridge to Python. Only this file touches window.pywebview (plan 64.4).
 import type {
   AddedPlaylist, Empty, Opened, Stopped, Runs, RunAnswer, SpectrumAnswer, AppUpdate, Candidate, Candidates, ChangePreview, Dashboard, Fail, JobEvents, JobStart, JobStatus, Library,
-  Limits, LibraryFilter, MoveBatches, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res,
+  Limits, LibraryFilter, MoveBatches, PlaylistOp, SaveFiles, TidyPreview, UndoPreview, LibrarySort, PlaylistLine, Playlists, ProblemKind, QobuzUsage, Res,
   SetupStatus, SetupTools, Sidebar, SyncPreview, Todo, TodoFilter, TrackAnswer, WhatIf, Which,
   Browser, DownloadsView, FindLogins, OpResult, Service, FolderCheck, MusicStatus, ImportFolderCheck,
   RemovalPreview, MissingAction, MissingPreview, WatchedFolders, LibraryView, FavouritesSaved, CrateSaved, CratesSaved, RekordboxStatus, RekordboxStatusAnswer, SyncScope, AiffPlan, AiffScope,
@@ -56,14 +56,18 @@ export interface Bridge {
   search_candidates(track_id: string): Promise<Res<Candidates>>;
   preview(track_id: string, candidate: Candidate): Promise<Res<PreviewAnswer>>;
   add_playlist(url: string): Promise<Res<AddedPlaylist>>;
-  preview_playlist_change(lines: PlaylistLine[]): Promise<Res<ChangePreview>>;
+  /** The window sends its lines and `read_unread` true (a switched-on line not read yet is read once); `lines` null is the
+   *  file's own lines, `op` one change to them: the command line's ways, which read nothing without `read_unread` */
+  preview_playlist_change(lines: PlaylistLine[] | null, op?: PlaylistOp | null, read_unread?: boolean): Promise<Res<ChangePreview>>;
   // write jobs (outcome = JobFinished with the same job_id)
   /** the window always sends its ticks; `how_many` (5, 10, 25, 50, `fits`, `all` or a number) is the command line's
    *  other way to choose, in place of `selected` */
   start_sync(plan_id: string | null, selected: string[], how_many?: string | null): Promise<JobStart>;
   /** with a `job_id`: Stop safely for a job another process runs (a Terminal sync); without: the window's own write job */
   stop(job_id?: string): Promise<Res<Stopped>>;
-  save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null): Promise<JobStart>;
+  /** the window sends its lines, the version it loaded and the save question's answer; the command line sends one change
+   *  (`op`) in place of the lines, may leave the version out (no check) and may leave out the `files` keys (every offer) */
+  save_playlists(lines: PlaylistLine[] | null, loaded_version: string | null, files?: SaveFiles | null, op?: PlaylistOp | null): Promise<JobStart>;
   tidy_up(moves: [number, string][]): Promise<JobStart>;   undo_moves(batch_id: number): Promise<JobStart>;
   add_watched_folder(path: string): Promise<JobStart>;   remove_watched_folder(folder_id: number): Promise<JobStart>;
   start_import(): Promise<JobStart>;

@@ -3027,7 +3027,7 @@
     },
     "ChangePreview": {
       "additionalProperties": false,
-      "description": "`preview_playlist_change(lines)`: what saving the playlist lines would do. A switched-on line not read yet is read once through its service's reader; a service that is not connected, or a playlist its service won't show, is skipped without an error.",
+      "description": "`preview_playlist_change(lines, op, read_unread)`: what saving the playlist lines (or making the change `op` to the file's lines) would do. With `read_unread` (the window) a switched-on line not read yet is read once through its service's reader; a service that is not connected, or a playlist its service won't show, is skipped without an error. Without it nothing is read: such a line is in `unknown`.",
       "properties": {
         "checklist": {
           "description": "Three or four lines for the confirmation.",
@@ -3060,9 +3060,25 @@
           "description": "What the edit does.",
           "x-shown": true
         },
+        "lines": {
+          "description": "The lines after the change: the lines asked about, or the file's lines with the change `op` made.",
+          "items": {
+            "$ref": "#/$defs/PlaylistLine"
+          },
+          "type": "array",
+          "x-shown": true
+        },
         "new_downloads": {
           "description": "How many tracks are new to download.",
           "type": "integer",
+          "x-shown": true
+        },
+        "next": {
+          "description": "What to run next on the command line: `playlist check <link>` for each line not read yet and, for a change (`op`), the command that makes it. The window ignores it.",
+          "items": {
+            "$ref": "#/$defs/FailNext"
+          },
+          "type": "array",
           "x-shown": true
         },
         "problem": {
@@ -3117,6 +3133,11 @@
           },
           "type": "array",
           "x-shown": true
+        },
+        "version": {
+          "description": "The version of playlists.txt this preview was made on: what `save_playlists` checks.",
+          "type": "string",
+          "x-shown": false
         }
       },
       "required": [
@@ -3131,7 +3152,9 @@
         "stopped",
         "unknown",
         "checklist",
-        "problem"
+        "problem",
+        "lines",
+        "version"
       ],
       "type": "object"
     },
@@ -3171,6 +3194,14 @@
           "type": "string",
           "x-shown": true
         },
+        "rekordbox": {
+          "description": "What to tell the person about rekordbox when the files move (the same notes as the tidy-up preview's).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
         "rows": {
           "description": "The files, each with `by_rename` set when a rename on disk would move it.",
           "items": {
@@ -3178,11 +3209,18 @@
           },
           "type": "array",
           "x-shown": true
+        },
+        "undo_note": {
+          "description": "That the move can be undone afterwards.",
+          "type": "string",
+          "x-shown": true
         }
       },
       "required": [
         "headline",
-        "rows"
+        "rows",
+        "rekordbox",
+        "undo_note"
       ],
       "type": "object"
     },
@@ -8756,6 +8794,64 @@
       ],
       "type": "object"
     },
+    "PlaylistOp": {
+      "additionalProperties": false,
+      "description": "One change to playlists.txt, as `preview_playlist_change` and `save_playlists` take it: `op` and the keys that kind of change uses. `add` needs `url`; `remove`, `enable` and `disable` need `playlist`; `rename` needs `playlist` and `folder`; `move` needs `playlist` and `to`; `edit` needs `file`. Any other key is refused.",
+      "properties": {
+        "at": {
+          "description": "`add`: the place in the list, from 1 at the top; absent: the end.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "file": {
+          "description": "`edit`: the full path of a playlists file whose lines replace the list; read when the change is made.",
+          "type": "string",
+          "x-shown": true
+        },
+        "folder": {
+          "description": "`add`: the new playlist's folder name. `rename`: its new folder name.",
+          "type": "string",
+          "x-shown": true
+        },
+        "off": {
+          "description": "`add`: put it in switched off.",
+          "type": "boolean",
+          "x-shown": true
+        },
+        "op": {
+          "description": "What the change does: add a playlist, remove one, rename its folder, move it to another place, switch it on or off, or replace the whole list with a file's.",
+          "enum": [
+            "add",
+            "remove",
+            "rename",
+            "move",
+            "enable",
+            "disable",
+            "edit"
+          ],
+          "x-shown": true
+        },
+        "playlist": {
+          "description": "The playlist the change is about: its folder name (any case), its link, or `playlist:<folder>` for a folder that looks like a link or a flag.",
+          "type": "string",
+          "x-shown": true
+        },
+        "to": {
+          "description": "`move`: the place to move to, from 1 at the top.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "url": {
+          "description": "`add`: the playlist's link, as it was copied (the clean link is what is written).",
+          "type": "string",
+          "x-shown": true
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
     "PlaylistOverlap": {
       "additionalProperties": false,
       "description": "A track that is in several switched-on playlists.",
@@ -8855,11 +8951,6 @@
           "type": "string",
           "x-shown": true
         },
-        "index": {
-          "description": "The line's place.",
-          "type": "integer",
-          "x-shown": false
-        },
         "info": {
           "anyOf": [
             {
@@ -8888,6 +8979,11 @@
           ],
           "description": "A listed Liked music line while Settings' choice is off (or no YouTube login): the choice it needs, else null.",
           "x-shown": true
+        },
+        "place": {
+          "description": "The line's place in your playlists, from 1 at the top: the number `--at`, `--to` and the undo words take.",
+          "type": "integer",
+          "x-shown": false
         },
         "playlist_id": {
           "anyOf": [
@@ -8930,7 +9026,7 @@
         }
       },
       "required": [
-        "index",
+        "place",
         "folder",
         "link",
         "playlist_id",
@@ -11823,7 +11919,7 @@
           "x-shown": true
         },
         "moves": {
-          "description": "The files to move, `[file_id, from_path]`.",
+          "description": "The files to move, `[file_id, from_path]`; absent: every file the question ticks that no offered rename carries.",
           "items": {
             "items": false,
             "maxItems": 2,
@@ -11842,7 +11938,7 @@
           "x-shown": false
         },
         "renames": {
-          "description": "The folder renames to do on disk, `[old, new]`.",
+          "description": "The folder renames to do on disk, `[old, new]`; absent: every rename the question offers.",
           "items": {
             "items": false,
             "maxItems": 2,
@@ -11862,9 +11958,7 @@
         }
       },
       "required": [
-        "choice",
-        "renames",
-        "moves"
+        "choice"
       ],
       "type": "object"
     },

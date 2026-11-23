@@ -71,6 +71,7 @@ def test_the_closed_list_of_the_design():
     assert by_outcome["stopped"] == {"stop", "stop_now"}
     assert by_outcome["running"] == {"still_running"}
     assert {"no_library", "needs_yes", "plan_expired", "sandbox_no_accounts", "refused"} <= by_outcome["refused"]
+    assert {"rev_changed", "version_changed", "needs_choice"} <= by_outcome["refused"]  # a write's own refusals (issue 39 V4.2a)
 
 
 def test_the_reasons_of_one_item_come_from_the_rekordbox_list():

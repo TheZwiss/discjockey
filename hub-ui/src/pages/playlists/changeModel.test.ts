@@ -13,10 +13,10 @@ const info = (name: string, n: number) => ({ name, owner_name: 'DJ One', yours: 
 const EXAMPLE: Playlists = {
   version: '481d45b7d451c816dd949d1a86b559bf9083ef5d02f69831f870dafbccffc36b', problem: null, empty: null, tidy: { waiting: 0 },
   rows: [
-    { index: 0, folder: 'Hard_Bounce', link: 'https://open.spotify.com/playlist/0DiscjockeyExampleList',
+    { place: 1, folder: 'Hard_Bounce', link: 'https://open.spotify.com/playlist/0DiscjockeyExampleList',
       playlist_id: '0DiscjockeyExampleList', service: 'spotify', service_name: 'Spotify', enabled: true, info: info('Name of 0Dis', 4), tracks: 4,
       quality: { lossless: 1, good_lossy: 0, weak: 1, fake: 0, missing: 2 }, needs_setting: null },
-    { index: 1, folder: 'Powertrance', link: 'https://open.spotify.com/playlist/3DiscjockeyExampleList',
+    { place: 2, folder: 'Powertrance', link: 'https://open.spotify.com/playlist/3DiscjockeyExampleList',
       playlist_id: '3DiscjockeyExampleList', service: 'spotify', service_name: 'Spotify', enabled: true, info: info('Name of 3Dis', 2), tracks: 2,
       quality: { lossless: 0, good_lossy: 0, weak: 1, fake: 0, missing: 1 }, needs_setting: null },
   ],
@@ -66,7 +66,7 @@ describe('dirty state', () => {
 
 describe('reorder', () => {
   const d = draftFrom(loadedFrom({ version: 'v', rows: ['A', 'B', 'C', 'D'].map((f, i) => ({ ...EXAMPLE.rows[0],
-    index: i, folder: f, link: `https://open.spotify.com/playlist/${f}id` })) }));
+    place: i + 1, folder: f, link: `https://open.spotify.com/playlist/${f}id` })) }));
   const names = (x: typeof d) => x.map((r) => r.folder).join('');
   it('moves by from and to index', () => {
     expect(names(reorder(d, 1, 0))).toBe('BACD');
@@ -178,6 +178,7 @@ const MOVES: PreviewAnswer = {
   folders: [{ folder: 'Powertrance', before: 1, after: 2 }, { folder: 'Hard_Bounce', before: 4, after: 3 }],
   tidy: null, renames: [], reroutes: [], new_downloads: 0, days: 0, stopped: 0, unknown: [],
   checklist: ['No downloads, no Qobuz quota used', 'Nothing is deleted'], problem: null,
+  lines: [], version: '481d45b7d451c816dd949d1a86b559bf9083ef5d02f69831f870dafbccffc36b',
 };
 const ready = (a: PreviewAnswer): PreviewState => ({ loading: false, answer: a });
 const as = (kind: 'add' | 'rename' | 'switch_off' | 'unknown' | 'none', extra = {}): PreviewAnswer =>

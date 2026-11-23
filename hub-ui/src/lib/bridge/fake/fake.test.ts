@@ -704,6 +704,43 @@ describe('fake tidy-up', () => {
     expect(undo.moving).toBe(carried);
   });
 
+  it('the preview carries the lines after the change, the file version and the tidy notes; rows number their place from 1', async () => {
+    const { f } = make();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    expect(pl.rows.map((r) => r.place)).toEqual(pl.rows.map((_, i) => i + 1));
+    const lines = pl.rows.map((r) => ({ folder: r.folder, link: r.link, enabled: r.enabled }));
+    const swapped = [lines[1], lines[0], ...lines.slice(2)];
+    const c = await f.preview_playlist_change(swapped, null, true);
+    if (!c.ok) throw new Error();
+    expect(c.lines).toEqual(swapped);
+    expect(c.version).toBe(pl.version);
+    expect(c.tidy!.rekordbox).toEqual(['rekordbox may show the moved tracks as missing.',
+      'Its Relocate finds them again by file name: Discjockey never renames them.']);
+    expect(c.tidy!.undo_note).toBe('You can undo this afterwards.');
+    // `lines` null is the file's own lines
+    const own = await f.preview_playlist_change(null);
+    if (!own.ok) throw new Error();
+    expect(own.lines).toEqual(lines);
+  });
+
+  it('a save that leaves out the renames and moves takes every one the question offers', async () => {
+    const { f, evs } = make();
+    const pl = await f.playlists();
+    if (!pl.ok) throw new Error();
+    const lines = pl.rows.map((r) => ({ folder: r.folder, link: r.link, enabled: r.enabled }));
+    const swapped = [lines[1], lines[0], ...lines.slice(2)];
+    const c = await f.preview_playlist_change(swapped);
+    if (!c.ok) throw new Error();
+    const offered = c.tidy!.rows.filter((r) => r.ticked && !r.skip).length;
+    expect(offered).toBeGreaterThan(0);
+    const save = await f.save_playlists(swapped, pl.version, { choice: 'move' });
+    if (!save.ok) throw new Error();
+    const done = await finished(evs, save.job_id);
+    expect(done.ok).toBe(true);
+    expect(done.result.batches[0]).toMatchObject({ moved: offered });
+  });
+
   it('a Stop during the save wait saves the file, runs no batch and ends stopped with the new version', async () => {
     const { f, evs } = make();
     const pl = await f.playlists();

@@ -54,7 +54,7 @@
   let preview = $state<PreviewState>(NO_PREVIEW);
 
   async function ask(ls: PlaylistLine[], id: number) {
-    const r = await api.preview_playlist_change(ls);
+    const r = await api.preview_playlist_change(ls, null, true);  // the window reads a line not read yet
     if (req.isLatest(id)) preview = { loading: false, answer: r };
   }
 

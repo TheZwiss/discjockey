@@ -2495,8 +2495,10 @@ export type PlaylistInfo = {
 };
 /** One line of playlists.txt on the playlists page (top = highest priority). */
 export type PlaylistRow = {
-  /** The line's place. */
-  index: number;
+  /**
+   * The line's place in your playlists, from 1 at the top: the number `--at`, `--to` and the undo words take.
+   */
+  place: number;
   /** The playlist's folder name. */
   folder: string;
   /** The playlist's link. */
@@ -3551,10 +3553,13 @@ export type SavePlaylistsResult = {
 export type SaveFiles = {
   /** The answer to the save question. */
   choice: 'leave' | 'move';
-  /** The folder renames to do on disk, `[old, new]`. */
-  renames: [string, string][];
-  /** The files to move, `[file_id, from_path]`. */
-  moves: [number, string][];
+  /** The folder renames to do on disk, `[old, new]`; absent: every rename the question offers. */
+  renames?: [string, string][];
+  /**
+   * The files to move, `[file_id, from_path]`; absent: every file the question ticks that no offered rename
+   * carries.
+   */
+  moves?: [number, string][];
 };
 /** The result of `keep_file`, also of a job that stopped after some moves (then `kept_track` is null). */
 export type KeepFileResult = {
@@ -3585,11 +3590,46 @@ export type ChangePreviewTidy = {
   headline: string;
   /** The files, each with `by_rename` set when a rename on disk would move it. */
   rows: TidyRow[];
+  /** What to tell the person about rekordbox when the files move (the same notes as the tidy-up preview's). */
+  rekordbox: string[];
+  /** That the move can be undone afterwards. */
+  undo_note: string;
 };
 /**
- * `preview_playlist_change(lines)`: what saving the playlist lines would do. A switched-on line not read yet
- * is read once through its service's reader; a service that is not connected, or a playlist its service won't
- * show, is skipped without an error.
+ * One change to playlists.txt, as `preview_playlist_change` and `save_playlists` take it: `op` and the keys
+ * that kind of change uses. `add` needs `url`; `remove`, `enable` and `disable` need `playlist`; `rename`
+ * needs `playlist` and `folder`; `move` needs `playlist` and `to`; `edit` needs `file`. Any other key is
+ * refused.
+ */
+export type PlaylistOp = {
+  /**
+   * What the change does: add a playlist, remove one, rename its folder, move it to another place, switch it
+   * on or off, or replace the whole list with a file's.
+   */
+  op: 'add' | 'remove' | 'rename' | 'move' | 'enable' | 'disable' | 'edit';
+  /** `add`: the playlist's link, as it was copied (the clean link is what is written). */
+  url?: string;
+  /**
+   * The playlist the change is about: its folder name (any case), its link, or `playlist:<folder>` for a
+   * folder that looks like a link or a flag.
+   */
+  playlist?: string;
+  /** `add`: the new playlist's folder name. `rename`: its new folder name. */
+  folder?: string;
+  /** `add`: the place in the list, from 1 at the top; absent: the end. */
+  at?: number;
+  /** `move`: the place to move to, from 1 at the top. */
+  to?: number;
+  /** `add`: put it in switched off. */
+  off?: boolean;
+  /** `edit`: the full path of a playlists file whose lines replace the list; read when the change is made. */
+  file?: string;
+};
+/**
+ * `preview_playlist_change(lines, op, read_unread)`: what saving the playlist lines (or making the change `op`
+ * to the file's lines) would do. With `read_unread` (the window) a switched-on line not read yet is read once
+ * through its service's reader; a service that is not connected, or a playlist its service won't show, is
+ * skipped without an error. Without it nothing is read: such a line is in `unknown`.
  */
 export type ChangePreview = {
   /** What the edit does. */
@@ -3619,6 +3659,15 @@ export type ChangePreview = {
   checklist: string[];
   /** What is wrong with the lines (Save would be refused), else null. */
   problem: string | null;
+  /** The lines after the change: the lines asked about, or the file's lines with the change `op` made. */
+  lines: PlaylistLine[];
+  /** The version of playlists.txt this preview was made on: what `save_playlists` checks. */
+  version: string;
+  /**
+   * What to run next on the command line: `playlist check <link>` for each line not read yet and, for a change
+   * (`op`), the command that makes it. The window ignores it.
+   */
+  next?: FailNext[];
 };
 /** A phase of the import (`ImportProgress` events). */
 export type ImportPhase = 'scan' | 'facts' | 'tags' | 'sound' | 'link';

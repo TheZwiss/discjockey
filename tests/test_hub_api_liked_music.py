@@ -276,7 +276,7 @@ def test_a_bot_check_met_by_the_change_preview_is_recorded_as_the_accounts_warni
     settings(root)
     LikedYDL.error = Exception("Sign in to confirm you're not a bot")
     rows = [{"folder": "Liked_music", "link": LM_LINK, "enabled": True}]
-    assert api.preview_playlist_change(rows)["ok"]
+    assert api.preview_playlist_change(rows, read_unread=True)["ok"]
     assert [s["kind"] for s in library.load_state(root)["youtube_usage"]["signals"]] == ["bot_check"]
     assert pacing.account_paused(library.load_state(root), "youtube", datetime.now().date())  # the real clock here
 
@@ -326,7 +326,7 @@ def test_a_waiting_sign_already_pauses_the_account_and_survives_a_restart(root, 
     assert stored_kinds(root) == []
     answer = api2.add_playlist(LM_LINK)  # still waiting for the lock, and the account is still paused
     assert (answer["kind"], answer["message"]) == ("offline", youtube_music.LIKED_RESTING)
-    api2.preview_playlist_change([{"folder": "Liked_music", "link": LM_LINK, "enabled": True}])
+    api2.preview_playlist_change([{"folder": "Liked_music", "link": LM_LINK, "enabled": True}], read_unread=True)
     assert len(LikedYDL.requested) == 1  # no second request to YouTube
     assert len(pending_signs.load(root)) == 1  # and not recorded twice
 
@@ -377,7 +377,7 @@ def test_a_changed_plan_preview_does_not_read_a_liked_music_line_that_is_off(roo
     api, _ = make_api(root)
     settings(root, on=False)
     rows = [{"folder": "Liked_music", "link": LM_LINK, "enabled": True}]
-    answer = api.preview_playlist_change(rows)
+    answer = api.preview_playlist_change(rows, read_unread=True)
     assert answer["ok"] and LikedYDL.requested == []
     assert not any("cookiesfrombrowser" in o for o in LikedYDL.created)
 

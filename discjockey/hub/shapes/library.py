@@ -753,7 +753,8 @@ class PlaylistInfo(TypedDict):
 @shape
 class PlaylistRow(TypedDict):
     """One line of playlists.txt on the playlists page (top = highest priority)."""
-    index: Annotated[int, F("The line's place.", shown=False)]
+    place: Annotated[int, F("The line's place in your playlists, from 1 at the top: the number `--at`, `--to` and the "
+                            "undo words take.", shown=False)]
     folder: Annotated[str, F("The playlist's folder name.")]
     link: Annotated[str, F("The playlist's link.")]
     playlist_id: Annotated[str | None, F(

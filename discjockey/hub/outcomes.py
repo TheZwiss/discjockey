@@ -81,6 +81,9 @@ REASONS: dict[str, Reason] = {
         "needs_yes": "This changes things, so it needs --yes. Nothing was done.",
         "changed": "Things changed since the plan was made, so nothing was done.",
         "rev_changed": "This song changed since it was read, so nothing was done. Read it again for its new rev.",
+        "version_changed": "Your playlists changed since that version was read, so nothing was done. List them again "
+                           "for the new version.",
+        "needs_choice": "This needs a choice only you can make. Nothing was done.",
         "not_stopped": "That job is not stopped, so it cannot be carried on.",
         "not_running": "Nothing is running, so there is nothing to stop.",
         "plan_expired": "That plan is more than a day old. Make a new one.",

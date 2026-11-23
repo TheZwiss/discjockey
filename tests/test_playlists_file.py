@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from discjockey import playlists_file as pf, words
+from discjockey import playlist_words, playlists_file as pf
 from discjockey.config import ConfigError, parse_playlists
 from discjockey.models import SourceTrack
 from discjockey.planner import ENTRY_KEYS
@@ -490,7 +490,7 @@ def test_an_add_of_liked_music_is_logged_as_its_own_operation_by_either_path():
 
 
 def test_the_logged_names_are_the_ones_history_knows():
-    assert set(pf.LOGGED) == set(pf.OPS) and set(words.PLAYLIST_LOGGED) == {*pf.LOGGED.values(), pf.SAVED, pf.LIKED_ADDED}
+    assert set(pf.LOGGED) == set(pf.OPS) and set(playlist_words.PLAYLIST_LOGGED) == {*pf.LOGGED.values(), pf.SAVED, pf.LIKED_ADDED}
 
 
 ROUND_TRIP = [op for op, _ in WORDS if op["op"] != "edit"] + [
