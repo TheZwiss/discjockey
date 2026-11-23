@@ -64,7 +64,7 @@ from ..words import MISSING, NOT_CHOSEN  # the gate's words (`doctor` says them 
 from ..sources.spotify import REDIRECT_URI
 
 if TYPE_CHECKING:
-    from .shapes.setup import PlaylistOp
+    from .shapes.setup import PlaylistOp, SaveFiles
 from . import catalog, doctor as doctor_mod, history as history_mod, media as media_mod, plan_store, registry, select, shapes, since as since_mod, spectrum as spec, views
 from .ids import BATCH_KINDS, BadId, parse as parse_id
 from . import outcomes
@@ -2122,8 +2122,8 @@ class HubApi:
         return str(path)
 
     @bridge
-    def save_playlists(self, lines: list | None = None, loaded_version: str | None = None, files: dict | None = None,
-                       op: PlaylistOp | None = None) -> dict:
+    def save_playlists(self, lines: list | None = None, loaded_version: str | None = None,
+                       files: SaveFiles | None = None, op: PlaylistOp | None = None) -> dict:
         """Writes playlists.txt: the rows `lines` (the window's whole list), or one change `op` (`PlaylistOp`) made to
         the file's rows under the lock; exactly one of the two. `loaded_version` is the file's version the caller read:
         a different one refuses the save (None: no check). `files` is the answer to the save question when the change
