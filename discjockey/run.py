@@ -182,8 +182,8 @@ def _best_effort_write(paths: Paths, what: str, write: Callable[[sqlite3.Connect
 def store_read(paths: Paths, read: StoredRead, *, keep: Collection[str] | None) -> int | None:
     """Stores a playlists read in library.db (`db.store_read`; issue 39 phase 2), so the window and the command line
     show a playlist's songs and counts, offline, for switched-off playlists, and the Sync plan can be worked out
-    again from it with no new read. Every read passes through here: a sync run's, the window's read and `sync read`,
-    its sync and the import's linking (prepare), a failed refresh, the Playlists page's pasted links (`kind`
+    again from it with no new read. Every read passes through here: a sync run's, the window's read, `sync read`,
+    the import's linking (prepare), a failed refresh, the Playlists page's pasted links (`kind`
     "check"). Returns the stored read's id, or None when it was not stored. `keep` (a sync read's: the refs of every
     playlists.txt line, on or off) drops the records of the others; a check read and a failed read pass None. The
     records aren't library state, so this takes no library lock and also runs when the caller couldn't get it, and in

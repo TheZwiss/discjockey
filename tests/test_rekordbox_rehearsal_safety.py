@@ -73,21 +73,43 @@ def test_the_rehearsal_playlists_line_reads_nothing(script, tmp_path):
     assert script.sources.left_out(paths, lines[0])
 
 
-def test_a_real_sync_runs_only_after_a_dry_run_planned_no_action(script, tmp_path, monkeypatch):
+def test_a_real_sync_reads_first_and_runs_only_after_a_dry_run_planned_no_action(script, tmp_path, monkeypatch):
     calls = []
+    planned = {"data": {"groups": [{"actions": [{"id": "act:1"}]}]}}
 
     def fake_cli(work, tag, *args, offline=False):
         calls.append((tag, args, offline))
-        return 0, {"counts": {"upgrade": 1}}, "", 0.1
+        return 0, ({"outcome": "ok"} if args[:2] == ("sync", "read") else planned), "", 0.1
 
     monkeypatch.setattr(script, "run_cli", fake_cli)
     with pytest.raises(script.Refused, match="no real run"):
         script.real_sync(tmp_path, "rh9-sync")
-    assert calls == [("rh9-sync-guard", ("--dry-run", "--json"), True)]
-    monkeypatch.setattr(script, "run_cli", lambda work, tag, *args, offline=False: (calls.append(tag), (0, {}, "", 0.1))[1])
+    assert calls == [("rh9-sync-read", ("sync", "read", "--wait", "900", "--json"), True),
+                     ("rh9-sync-guard", ("sync", "run", "--dry-run", "--json"), True)]  # offline, and no run after it
     calls.clear()
-    script.real_sync(tmp_path, "rh9-sync")
-    assert calls == ["rh9-sync-guard", "rh9-sync"]
+    report = tmp_path / "r.md"
+    report.write_text("", encoding="utf-8")
+    report.with_suffix(".json").write_text("{}", encoding="utf-8")  # the report has no auto_upgrade key: the phase's null
+
+    def quiet_cli(work, tag, *args, offline=False):
+        calls.append((tag, args, offline))
+        env = {"outcome": "ok", "data": {"groups": [], "report": str(report), "counts": {}}}
+        return 0, env, "", 0.1
+
+    monkeypatch.setattr(script, "run_cli", quiet_cli)
+    code, data, _, _ = script.real_sync(tmp_path, "rh9-sync")
+    assert [c[0] for c in calls] == ["rh9-sync-read", "rh9-sync-guard", "rh9-sync"]  # read, guard, run
+    assert calls[-1][1:] == (("sync", "run", "--wait", "3600", "--json"), True)
+    assert (code, data["ok"], data["report_read"], data["auto_upgrade"]) == (0, True, True, None)
+
+
+def test_a_failed_read_stops_the_real_sync_before_its_guard(script, tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(script, "run_cli", lambda work, tag, *args, offline=False: (
+        calls.append(tag), (1, {"outcome": "failed", "reason": "offline"}, "", 0.1))[1])
+    with pytest.raises(script.Refused, match="sync read"):
+        script.real_sync(tmp_path, "rh9-sync")
+    assert calls == ["rh9-sync-read"]
 
 
 def test_rehearse_convert_needs_the_mark_the_right_picks_and_a_fresh_work_folder(script, tmp_path, monkeypatch):
