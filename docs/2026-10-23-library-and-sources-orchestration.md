@@ -1644,7 +1644,24 @@ Results:
         query's 400s counted toward the Qobuz 3-failure pause). 1e57d571, suite 6901 passed. Merged into main 1d3cc4e5
         and main into `feat/cli-4-writes` 8a4d331b (touched tests 229 passed); CI watched on both. Reaches the user's
         app only with a release (user's go).
-      - **RESUME HERE (LATEST, 2026-11-23, V4.1 pre-job fix):** SoundCloud fix merged (main 1d3cc4e5; release waits for
+      - V4.1 pre-job fix round done (Sonnet, `a4299c48`): **116k** (exp. 150k; 35 calls, cache 3.0M, fresh 103k, out
+        21k, advisor 0k). The window already refused before `_jobs.start`; the gap was `call.run` sending every J/RJ
+        entry to `start_job`. Fix: `HubApi._sync_start_checked` (shared by `start_sync`), `CliApi.prejob_start_sync`,
+        `call._prejob` runs `prejob_<method>` before any job when the api has one (generic; only `start_sync` uses it).
+        Tests: every refusal (incl. rehearsal 6b's `conflicting_flags`) leaves no job, worker or plan file. Suite 6923
+        passed. Rehearse-V4.2/3/4 briefs got the V4.1 lessons. 1edbfed3 on `fix/cli-4-sync-prejob`. Hand-back decided
+        by the rules: each J entry gets its `prejob_<method>` from its owning group (V4.3 `save_playlists`, V4.4
+        `tidy_up`: their build prompts say so; `convert`/`rename` OWNED by their later group). Meanwhile the user said
+        "Make the release now": v1.4.0 commit 4eaa05d0 on main (suite 6901 passed; verify last green on c3ebc31e,
+        no hub-ui/static change since), CI on it running, then tag + draft; publish only on the user's word. Phase 4
+        so far 4 314k.
+      - **RESUME HERE (LATEST, 2026-11-23, release v1.4.0 + V4.2a):** v1.4.0: CI on 4eaa05d0 green → `git tag v1.4.0
+        4eaa05d0`, `git push origin v1.4.0` (by name), watch release.yml, give the user the draft link; publish only
+        on the user's "publish", then memory `project_public_release.md`. Phase 4: merge `fix/cli-4-sync-prejob` into
+        `feat/cli-4-writes` (cli4-3), CI; then V4.2a (row 11) by `.claude/issue39/phase4/phase4-dispatch.md`; V4.3/V4.4
+        build prompts add `prejob_save_playlists` / `prejob_tidy_up`. Every prompt carries checklist rules 12 + 14.
+        Phase 4 so far 4 314k. No release beyond v1.4.0.
+      - RESUME HERE (superseded, 2026-11-23, V4.1 pre-job fix): SoundCloud fix merged (main 1d3cc4e5; release waits for
         the user's go). Next: a Sonnet V4.1 fix round (engine-decided `sync run` refusals answered before the job: no
         worker, no job record; `.claude/issue39/phase4/rehearsal-V4.1.md`), then V4.2a (row 11) by
         `.claude/issue39/phase4/phase4-dispatch.md`. Every prompt carries checklist rules 12 + 14. Phase 4 so far
