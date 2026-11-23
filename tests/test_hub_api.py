@@ -163,7 +163,7 @@ def test_sync_preview_gives_every_action_an_id_and_stores_its_plan(root):
     assert body["items"] == {"act:acquire:t4:1": {"kind": "acquire", "track_id": "t4", "to_dir": "Library/Hard_Bounce"},
                              "act:acquire:t5:2": {"kind": "acquire", "track_id": "t5", "to_dir": "Library/Powertrance"}}
     assert body["kind"] == "sync" and body["root"] == str(root.root) and body["extra"]["read_id"] == "read:1"
-    assert isinstance(body["extra"]["generation"], int) and "command" not in body["extra"]
+    assert isinstance(body["extra"]["generation"], int) and body["extra"]["command"] == "sync run"  # what an expired one says to repeat
     assert [(x["key"], x["downloads"], x["selected"]) for x in p["presets"]] == [
         ("all", 2, ["act:acquire:t4:1", "act:acquire:t5:2"])] and p["default_how_many"] == "all"
 

@@ -1169,6 +1169,11 @@ class HubApi:
         the actions of `groups` to the songs the Library's search finds by that artist and title (`views.matches_search`),
         a group left with none is left out, and `search` says the words. Everything else, the counts, the estimate, the
         presets, `never`, `ambiguous`, `dropped` and `plan_id`, stays the whole plan's: a search only picks what to look at."""
+        return self._sync_preview_view(search)
+
+    def _sync_preview_view(self, search: str = "") -> dict:
+        """`sync_preview`'s answer, for the bridge method and for `start_sync` (which plans on it): it stores the plan
+        it shows (`_store_sync_plan`), `plan_id` None while nothing was read."""
         state = self._state()
         with self._move_log() as conn:
             folders, overrides = (db.watched_folders(conn), db.crate_overrides(conn)) if conn is not None else ([], {})
@@ -1205,7 +1210,7 @@ class HubApi:
             last = self._saved_plan
         if last is None or last[0] != identifier or last[1] != items or now - last[2] > PLAN_RESAVE:
             plan_store.save(self._support.support, SYNC_PLAN, root, items,
-                            {"read_id": preview["read_id"], "generation": generation}, now=now)
+                            {"read_id": preview["read_id"], "generation": generation, "command": "sync run"}, now=now)
             with self._lock:
                 self._saved_plan = (identifier, items, now)
         return identifier
@@ -2229,24 +2234,76 @@ class HubApi:
     # --- write jobs (one at a time; each returns {"job_id"} at once, the outcome comes as JobFinished) ---
 
     @bridge
-    def start_sync(self, plan_id: str | None = None, selected: list | None = None) -> dict:
+    def start_sync(self, plan_id: str | None = None, selected: list | None = None, how_many: str | None = None) -> dict:
         """Starts the sync of the plan `plan_id` (a Sync preview's, `_store_sync_plan`) that runs only the actions
         `selected` (their ids in the plan); the rest of the plan is left out of the run, and what the run's fresh plan
-        has that the plan did not is `new_since_plan` in its result. No plan id: nothing was read yet. A plan that is
-        unknown or expired answers `bad_args` / `refused` (the window then reads a new preview)."""
-        if plan_id is None:
-            raise ValueError("Read your playlists first (↻), so you can check the plan before it starts.")
-        plan = plan_store.load(self._support.support, plan_id, self._plan_root())
-        planned = self._planned_actions(plan)
+        has that the plan did not is `new_since_plan` in its result. No plan id: the plan of a fresh preview
+        (`_sync_preview_view`, which plans on the stored read), `not_set_up` while nothing was read. No `selected`: what
+        `how_many` ticks of the plan's actions as the window's chip does (`views.ticks`: 5, 10, 25, 50, `fits` today's
+        allowance, `all`, or a number of downloads; every other action of the plan is in), the preview's default chip
+        when none is given. `selected` belongs to a plan (`plan_id`) and not with `how_many`. A plan that is unknown or
+        expired answers `bad_args` / `refused` (the window then reads a new preview). A Terminal sync's registry record
+        says the plan and the ids chosen (`job_status().last_sync`), not the words of its command line."""
         if selected is not None and not isinstance(selected, (list, tuple)):
             raise ValueError("`selected` is a list of action ids of the plan.")
-        chosen = list(selected or [])
-        for act in chosen:
-            if not isinstance(act, str) or act not in planned:
-                raise ValueError(f"{act!r} is not an action of the plan {plan_id}.")
+        if selected is not None and plan_id is None:
+            raise BadId("usage", engine_words.SYNC_IDS_NEED_PLAN)
+        if selected is not None and how_many is not None:
+            raise BadId("conflicting_flags", engine_words.SYNC_IDS_OR_HOW_MANY)
+        n = self._how_many_n(how_many)
+        preview = None
+        if plan_id is None or selected is None:
+            preview = self._sync_preview_view()
+            plan_id = plan_id or preview["plan_id"]
+            if plan_id is None:
+                raise OpProblem(engine_words.SYNC_NEEDS_READ, "refused", reason="not_set_up",
+                                next=[{"run": "sync read", "why": "reads your playlists, so there is a plan"}])
+        plan = plan_store.load(self._support.support, plan_id, self._plan_root())
+        planned = self._planned_actions(plan)
+        if selected is None:
+            chosen = self._ticked_by_how_many(preview, planned, how_many, n)
+        else:
+            chosen = list(selected)
+            for act in chosen:
+                if not isinstance(act, str) or act not in planned:
+                    raise ValueError(f"{act!r} is not an action of the plan {plan_id}.")
+        if (files := self._jobs.inline) is not None:  # a Terminal sync: its record says what runs, not what the line typed
+            files.update(args={"plan_id": plan_id, "selected": chosen, **({"how_many": how_many} if how_many is not None else {})})
+            files.flush()
         job = self._jobs.start("sync", sync_work(self._paths, planned, chosen, self._svc.now,
                                                  self._rekordbox_services(), pacer=self._svc.pacer))
         return {"job_id": job.id}
+
+    @staticmethod
+    def _how_many_n(how_many: str | None) -> int | str | None:
+        """`start_sync`'s `how_many` checked: None, `fits`, `all` or a whole number (as a number, or its digits)."""
+        if how_many is None:
+            return None
+        text = str(how_many).strip().lower()
+        if text in ("fits", "all"):
+            return text
+        if not re.fullmatch(r"[0-9]+", text):
+            raise BadId("usage", engine_words.BAD_HOW_MANY)
+        return int(text)
+
+    def _ticked_by_how_many(self, preview: Mapping, planned: Mapping, how_many: str | None, n: int | str | None
+                            ) -> list[str]:
+        """The ids `start_sync` runs when it is given no list: what `views.ticks` ticks of the preview's rows that the
+        plan holds. `n`: `_how_many_n`'s answer. None: the preview's default chip (its downloads; no chip means nothing
+        is in scope, so nothing runs); `fits`: what today's allowance leaves (no daily limit: every download);
+        `all`: every download."""
+        rows = [a for g in preview["groups"] for a in g["actions"] if a["id"] in planned]
+        if how_many is None:
+            chip = next((p for p in preview["presets"] if p["key"] == preview["default_how_many"]), None)
+            if chip is None:
+                return []
+            n = chip["downloads"]
+        elif n == "fits":
+            n = preview["estimate"]["left"] if preview["estimate"] is not None else None
+        elif n == "all":
+            n = None
+        settings = self._settings()
+        return views.ticks(rows, n, settings.scope_off, settings.weekly_off)
 
     @bridge
     def stop(self, job_id: str | None = None) -> dict:
@@ -3490,6 +3547,8 @@ class HubApi:
             return self._restore_words(result)
         if method == "auto_upgrade_run" and "auto_upgrade" in result:
             return self._phase_words(result)
+        if method == "start_sync" and isinstance(result.get("report"), str):
+            return self._sync_words(result)
         if method == "auto_upgrade_preview" and "auto_upgrade" in result:
             return {"message": engine_words.AUTO_UPGRADE_OFF} if result["auto_upgrade"] is None else {}
         if method == "set_auto_upgrade" and isinstance(result.get("auto_upgrade"), bool):
@@ -3512,6 +3571,26 @@ class HubApi:
         if method in ("convert", "rename", "make_aiff") and isinstance(result.get("results"), list) and result.get("total"):
             return self._upgrade_words(result, aiff=True)
         return {}
+
+    @staticmethod
+    def _sync_words(result: dict) -> dict:
+        """`sync run`'s words, from the run's report (`report.write_run`'s `.json` beside the `.md` the result names):
+        `data.counts` (each report section with a result: its key -> how many), `data.failed` (the `errors` section's
+        results, `text` the result's note) and the outcome by the failures: `partial` when something was done too
+        (`report.DONE_SECTIONS`), `failed` when nothing was; no failures, no `outcome` (the run's own). A report that
+        cannot be read says nothing."""
+        try:
+            data = json.loads(Path(result["report"]).with_suffix(".json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        rows = [r for r in data.get("results") or [] if isinstance(r, dict)]
+        counts = {key: n for key, _ in rep.SECTIONS if (n := sum(1 for r in rows if r.get("section") == key))}
+        failed = [{"track_id": r.get("track_id"), "artist": r.get("artist") or "", "title": r.get("title") or "",
+                   "text": r.get("note") or ""} for r in rows if r.get("section") == "errors"]
+        out: dict = {"data": {"counts": counts, "failed": failed}}
+        if failed:
+            out["outcome"] = "partial" if rep.DONE_SECTIONS & counts.keys() else "failed"
+        return out
 
     def _phase_words(self, result: dict) -> dict:
         """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
@@ -3853,8 +3932,9 @@ class CliApi(HubApi):
         items = plan_store.items_of(answer)
         if items is None and isinstance(answer.get("plan"), Mapping):
             items = self._aiff_items(answer["plan"])
-        if items is None and isinstance(answer.get("auto_upgrade"), Mapping):  # the phase alone: its rows, keyed by song
-            items = {r["track"]: dict(r) for r in answer["auto_upgrade"]["results"]}
+        phase = answer.get("auto_upgrade")  # the phase alone (`Outcome`): its rows, keyed by song; `sync_preview`'s is a summary
+        if items is None and isinstance(phase, Mapping) and isinstance(phase.get("results"), list):
+            items = {r["track"]: dict(r) for r in phase["results"]}
         if items is None or kind in NO_PLAN_COMMANDS:
             return None
         extra = {**(answer.get("plan_extra") or {}), "command": command}

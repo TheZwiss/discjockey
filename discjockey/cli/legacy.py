@@ -155,7 +155,7 @@ def sync(paths: library.Paths, args: argparse.Namespace) -> tuple[int, dict]:
     stdout, which `main` points at stderr for `--json`)."""
     printer = ConsolePrinter(verbose=args.verbose)
     try:
-        prep = run.prepare(paths, dry_run=args.dry_run, extra=args.extra, emit=printer)
+        prep = run.prepare(paths, read_only=args.dry_run, extra=args.extra, emit=printer)
     except run.SetupProblem as e:
         print(e)
         return 2, _problem(e.kind, str(e))

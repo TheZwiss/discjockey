@@ -220,13 +220,13 @@ def test_a_step_that_could_not_be_finished_keeps_its_downloaded_file(paths, monk
 def test_prepare_says_which_playlist_it_reads(paths):
     paths.playlists_file.write_text(PLAYLISTS + "Bouncy = https://open.spotify.com/playlist/3DiscjockeyExampleList\n")
     events = []
-    run.prepare(paths, dry_run=True, emit=events.append)
+    run.prepare(paths, read_only=True, emit=events.append)
     assert [e for e in events if isinstance(e, ReadingPlaylist)] == [
         ReadingPlaylist(1, 2, "Hard_Bounce"), ReadingPlaylist(2, 2, "Bouncy")]
 
 
 def test_prepare_keeps_the_fetched_playlists(paths):
-    prep = run.prepare(paths, dry_run=True)
+    prep = run.prepare(paths, read_only=True)
     assert [fp.line.folder for fp in prep.fetched] == ["Hard_Bounce"]
     assert [t.id for t in prep.fetched[0].tracks] == ["t1", "t2", "t3"]
     assert [line.folder for line in prep.lines] == ["Hard_Bounce"]
@@ -328,7 +328,7 @@ def test_stop_while_spotify_asks_to_wait(paths, monkeypatch):
     threading.Timer(0.2, token.cancel).start()
     started = time.monotonic()
     with pytest.raises(Cancelled):
-        run.prepare(paths, dry_run=True, token=token)
+        run.prepare(paths, read_only=True, token=token)
     assert time.monotonic() - started < 2
 
 
@@ -345,7 +345,7 @@ def test_stop_between_playlists(paths, monkeypatch):
 
     monkeypatch.setattr(spotify, "fetch_playlist", fetch)
     with pytest.raises(Cancelled):
-        run.prepare(paths, dry_run=True, token=token)
+        run.prepare(paths, read_only=True, token=token)
     assert read == ["Hard_Bounce"]
 
 
@@ -360,7 +360,7 @@ def test_action_key():
 
 
 def test_select_actions_runs_only_ticked_ones_and_lists_the_rest(paths):
-    prep = run.prepare(paths, dry_run=True)
+    prep = run.prepare(paths, read_only=True)
     keys = [run.action_key(a) for a in prep.plan.actions]
     previewed = set(keys[:2])  # the third track was added in Spotify after the preview
     run.select_actions(prep, previewed, {keys[0]})
@@ -371,7 +371,7 @@ def test_select_actions_runs_only_ticked_ones_and_lists_the_rest(paths):
 
 def test_select_actions_decides_whether_qobuz_is_needed(paths, monkeypatch):
     from discjockey.models import Action
-    prep = run.prepare(paths, dry_run=True)
+    prep = run.prepare(paths, read_only=True)
     bought = Action("adopt_bought", "t9", "Hard_Bounce", TRACKS[0], (0, 0), src="Library/B/x.aiff",
                     dest_dir="Library/Hard_Bounce")
     prep.plan.actions.append(bought)
@@ -383,7 +383,7 @@ def test_select_actions_decides_whether_qobuz_is_needed(paths, monkeypatch):
 
 def test_a_bought_file_whose_target_changed_is_not_run(paths):
     from discjockey.models import Action
-    prep = run.prepare(paths, dry_run=True)
+    prep = run.prepare(paths, read_only=True)
     seen = ("adopt_bought", "t1", "Library/Old_Target")
     prep.plan.actions = [Action("adopt_bought", "t1", "Hard_Bounce", TRACKS[0], (0, 0), src="Library/B/x.aiff",
                                 dest_dir="Library/Hard_Bounce")]
@@ -608,11 +608,11 @@ def test_download_again_on_a_missing_playlist_song_with_a_parked_upgrade_plans_n
 def test_a_dry_run_stores_no_scan_unless_asked_to(paths):
     rel = placed(paths)
     (paths.root / rel).unlink()
-    prep = run.prepare(paths, dry_run=True)  # the command line's: it plans on the last scan (issue 39 design §7.1)
+    prep = run.prepare(paths, read_only=True)  # the command line's: it plans on the last scan (issue 39 design §7.1)
     assert library.load_state(paths)["tracks"]["t1"]["file_gone"] is None
     assert prep.state["tracks"]["t1"]["path"] == rel
     assert library.load_state(paths)["tracks"]["t1"]["missing_since"] is None
-    prep = run.prepare(paths, dry_run=True, scan=True)  # the window's refresh asks for the scan
+    prep = run.prepare(paths, read_only=True, scan=True)  # the window's refresh asks for the scan
     stored = library.load_state(paths)["tracks"]["t1"]
     assert stored["missing_since"] is not None and stored["file_gone"] is None  # it waits: nothing is decided
     assert prep.state["tracks"]["t1"]["path"] == rel and prep.state["tracks"]["t1"]["missing_since"] is not None
@@ -625,7 +625,7 @@ def test_without_the_lock_the_plan_reads_the_last_scan_and_writes_nothing(paths)
     @contextmanager
     def taken():
         yield False
-    prep = run.prepare(paths, dry_run=True, lock=taken)
+    prep = run.prepare(paths, read_only=True, lock=taken)
     assert library.load_state(paths)["tracks"]["t1"]["path"] == rel  # not scanned: nothing written
     assert prep.state["tracks"]["t1"]["path"] == rel
 
@@ -638,7 +638,7 @@ def test_prepare_builds_only_the_snapshots_it_needs(paths, monkeypatch):
     run.prepare(paths)
     assert len(built) == 2  # one for finishing interrupted steps, one after the scan for the plan
     built.clear()
-    run.prepare(paths, dry_run=True)
+    run.prepare(paths, read_only=True)
     assert len(built) == 1
 
 
@@ -652,7 +652,7 @@ def test_a_dry_run_on_a_library_not_yet_migrated_finishes_no_pending_step(paths)
                                  "status": "lossless", "source": "qobuz", "source_id": "q1"}}]}
     library.write_json_atomic(paths.state_file, v1, indent=2)
     before = paths.state_file.read_bytes()
-    prep = run.prepare(paths, dry_run=True)
+    prep = run.prepare(paths, read_only=True)
     assert tmp.exists() and not (paths.library / "A" / "x.aiff").exists()  # no music file was changed
     assert paths.state_file.read_bytes() == before and not paths.db_file.exists()  # recording the read made none
     assert len(prep.state["pending"]) == 1
@@ -667,7 +667,7 @@ def test_the_scan_waits_while_a_step_is_pending(paths):
                              "entry": None})
     save_state(paths, state)
     (paths.root / rel).unlink()
-    run.prepare(paths, dry_run=True)  # a dry run doesn't finish the step: its files are between two places
+    run.prepare(paths, read_only=True)  # a dry run doesn't finish the step: its files are between two places
     assert library.load_state(paths)["tracks"]["t1"]["path"] == rel
 
 
@@ -675,7 +675,7 @@ def test_an_ambiguous_result_carries_the_song_key_not_the_tracks_own_id(paths, m
     qobuz_track = SourceTrack("900000001", "Song", ("Artist",), "Al", None, 180000, None, service="qobuz")
     monkeypatch.setattr(run.planner, "plan", lambda *a, **k: Plan(
         {"tracks": {}}, [], [("t1", qobuz_track, "Hard_Bounce", ["Library/A/x.aiff"])], []))
-    prep = run.prepare(paths, dry_run=True)
+    prep = run.prepare(paths, read_only=True)
     assert [(r.track_id, r.title) for r in prep.log.section("ambiguous")] == [("t1", "Song")]
 
 
@@ -701,7 +701,7 @@ def test_prepare_and_replan_plan_with_the_first_check_room(paths, monkeypatch):
     seen = []
     real = run.planner.plan
     monkeypatch.setattr(run.planner, "plan", lambda *a, **k: seen.append(k.get("first_checks")) or real(*a, **k))
-    prep = run.prepare(paths, dry_run=True)  # the preview shows what the run does (W9)
+    prep = run.prepare(paths, read_only=True)  # the preview shows what the run does (W9)
     run.replan(prep)
     assert seen == [25, 25]
 
@@ -816,7 +816,7 @@ def test_prepare_stores_a_sync_read_with_its_lines_and_unread_and_says_its_id(pa
     loaded = stored_read(paths)
     assert loaded.id == 1 and loaded.lines == prep.lines and loaded.unread == []
     assert [fp.tracks for fp in loaded.fetched] == [fp.tracks for fp in prep.fetched]
-    dry = run.prepare(paths, dry_run=True)  # a dry run stores one too
+    dry = run.prepare(paths, read_only=True)  # a dry run stores one too
     assert dry.read_id == stored_read(paths).id == 2
 
 
@@ -885,14 +885,14 @@ def test_the_derived_plan_holds_with_a_private_soundcloud_track_and_its_token_is
 
 def test_a_dry_run_keeps_its_read_too_with_or_without_the_lock(paths, monkeypatch):
     save_state(paths, empty_state())  # a library with library.db
-    run.prepare(paths, dry_run=True)
+    run.prepare(paths, read_only=True)
     assert recorded(paths) == {BOUNCE: ["t1", "t2", "t3"]}
 
     @contextmanager
     def taken():
         yield False
     monkeypatch.setattr(spotify, "fetch_playlist", lambda s, line: FetchedPlaylist(line, list(TRACKS[:1]), []))
-    run.prepare(paths, dry_run=True, lock=taken)  # the window's read while a job holds the lock
+    run.prepare(paths, read_only=True, lock=taken)  # the window's read while a job holds the lock
     assert recorded(paths) == {BOUNCE: ["t1"]}
 
 
@@ -925,7 +925,7 @@ def test_a_failing_record_never_fails_the_read(paths, monkeypatch, caplog):
     def locked(*a, **kw):
         raise sqlite3.OperationalError("database is locked")
     monkeypatch.setattr(db, "store_read", locked)
-    prep = run.prepare(paths, dry_run=True)
+    prep = run.prepare(paths, read_only=True)
     assert [a.kind for a in prep.plan.actions] == ["acquire"] * 3
     [warning] = [r for r in caplog.records if "couldn't keep the playlists' read records" in r.getMessage()]
     assert warning.exc_info is not None  # unexpected: with its traceback
@@ -933,7 +933,7 @@ def test_a_failing_record_never_fails_the_read(paths, monkeypatch, caplog):
 
 def test_records_of_another_version_are_one_warning_line(paths, caplog):
     run.prepare(paths)
-    fetched = run.prepare(paths, dry_run=True).fetched  # (prepare itself then refuses the records before reading)
+    fetched = run.prepare(paths, read_only=True).fetched  # (prepare itself then refuses the records before reading)
     with db.connect(paths.db_file) as conn:
         conn.execute("UPDATE meta SET value = ? WHERE key = 'schema_version'", (str(db.SCHEMA_VERSION + 1),))
     assert run.store_read(paths, StoredRead("sync", datetime.now(), fetched), keep=None) is None
@@ -953,7 +953,7 @@ def test_a_long_job_transaction_holds_the_read_up_briefly_not_for_the_full_wait(
         yield False
     start = time.monotonic()
     try:
-        prep = run.prepare(paths, dry_run=True, lock=taken)
+        prep = run.prepare(paths, read_only=True, lock=taken)
     finally:
         other.execute("ROLLBACK")
         other.close()
@@ -1517,9 +1517,9 @@ def test_the_real_rekordbox_services_are_the_default(tmp_path, monkeypatch):
 def test_a_dry_run_with_extra_plans_with_it_but_saves_nothing(paths):
     save_settings(paths.settings_file, Settings())
     before = paths.settings_file.read_bytes()
-    base = run.prepare(paths, dry_run=True)
+    base = run.prepare(paths, read_only=True)
     room = lambda prep: run.Budget(prep.state, lambda: None, prep.settings).remaining()  # noqa: E731
-    prep = run.prepare(paths, dry_run=True, extra=20)
+    prep = run.prepare(paths, read_only=True, extra=20)
     assert paths.settings_file.read_bytes() == before  # the dry run granted nothing to today's real runs
     assert (prep.settings.extra_date, prep.settings.extra_amount) == (date.today().isoformat(), 20)
     assert room(prep) == room(base) + 20  # but its plan counts the extra

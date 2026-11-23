@@ -58,7 +58,9 @@ export interface Bridge {
   add_playlist(url: string): Promise<Res<AddedPlaylist>>;
   preview_playlist_change(lines: PlaylistLine[]): Promise<Res<ChangePreview>>;
   // write jobs (outcome = JobFinished with the same job_id)
-  start_sync(plan_id: string | null, selected: string[]): Promise<JobStart>;
+  /** the window always sends its ticks; `how_many` (5, 10, 25, 50, `fits`, `all` or a number) is the command line's
+   *  other way to choose, in place of `selected` */
+  start_sync(plan_id: string | null, selected: string[], how_many?: string | null): Promise<JobStart>;
   /** with a `job_id`: Stop safely for a job another process runs (a Terminal sync); without: the window's own write job */
   stop(job_id?: string): Promise<Res<Stopped>>;
   save_playlists(lines: PlaylistLine[], loaded_version: string, files?: SaveFiles | null): Promise<JobStart>;

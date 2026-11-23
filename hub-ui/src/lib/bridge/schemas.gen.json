@@ -13651,6 +13651,46 @@
       ],
       "type": "object"
     },
+    "SyncFailed": {
+      "additionalProperties": false,
+      "description": "One song `sync run` could not finish (the report's Errors section).",
+      "properties": {
+        "artist": {
+          "description": "The artist, empty for an error that is no song's.",
+          "type": "string",
+          "x-shown": true
+        },
+        "text": {
+          "description": "What went wrong, in the report's words.",
+          "type": "string",
+          "x-shown": true
+        },
+        "title": {
+          "description": "The title, empty for an error that is no song's.",
+          "type": "string",
+          "x-shown": true
+        },
+        "track_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The song's key; null for an error that is no song's.",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "track_id",
+        "artist",
+        "title",
+        "text"
+      ],
+      "type": "object"
+    },
     "SyncPreset": {
       "additionalProperties": false,
       "description": "One of the \"how many\" choices of a plan.",
@@ -14037,6 +14077,58 @@
         "exit_code": {
           "description": "How the run ended: 0 well, 130 stopped.",
           "type": "integer",
+          "x-shown": true
+        },
+        "new_since_plan": {
+          "description": "The actions the run's fresh plan has that the plan you started from did not, by their ids in the fresh plan; left for the next sync.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-shown": true
+        },
+        "report": {
+          "description": "The report's absolute .md path.",
+          "type": "string",
+          "x-shown": false
+        }
+      },
+      "required": [
+        "exit_code",
+        "report",
+        "actions",
+        "new_since_plan"
+      ],
+      "type": "object"
+    },
+    "SyncRunData": {
+      "additionalProperties": false,
+      "description": "The `data` of `sync run`: the result with what the report counted and which songs failed.",
+      "properties": {
+        "actions": {
+          "description": "How many actions it ran; 0 when it crashed before the plan.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "description": "Each report section with at least one result (its key, as `report show` says them): how many. Left out when the run's report cannot be read (a run that crashed before it wrote one).",
+          "type": "object",
+          "x-shown": true
+        },
+        "exit_code": {
+          "description": "How the run ended: 0 well, 130 stopped.",
+          "type": "integer",
+          "x-shown": true
+        },
+        "failed": {
+          "description": "The songs that failed, empty when none did. Left out with `counts`.",
+          "items": {
+            "$ref": "#/$defs/SyncFailed"
+          },
+          "type": "array",
           "x-shown": true
         },
         "new_since_plan": {
@@ -17922,6 +18014,7 @@
     "rekordbox_checked": "CheckDoneData",
     "rekordbox_preview": "RekordboxPreviewData",
     "rename": "UpgradeRunData",
+    "start_sync": "SyncRunData",
     "status_view": "StatusData",
     "upgrade": "UpgradeRunData",
     "upgrade_all": "UpgradeRunData",

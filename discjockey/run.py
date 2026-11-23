@@ -87,28 +87,31 @@ def lock_held():
     yield True
 
 
-def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, emit: Emit = no_emit,
+def prepare(paths: Paths, *, read_only: bool = False, extra: int | None = None, emit: Emit = no_emit,
             token: CancelToken | None = None, want_info: bool = False,
             lock: Callable[[], AbstractContextManager[bool]] = lock_held, scan: bool | None = None) -> Prepared:
-    """`token`: Stop while reading the playlists (also while waiting out a rate limit) raises events.Cancelled.
+    """`read_only`: a playlists read, no run: no recovery of interrupted steps, no `extra` saved, signs stored only when
+    the lock is ours. It scans Library/ only when its caller asks (`scan`; None is "not in a read": a run scans) and the
+    lock is free; the window's refresh and `sync read` ask, `sync plan` and the other previews do not (issue 39 design
+    §7.1: they store no scan, plan on the last one and say how old it is). It stores the read and its signs (`store_read`).
+    Its callers besides the runs: `jobs.refresh_work`. `extra` and `_open`'s `read_only and not scan` branch stay only
+    as long as `cli/legacy.py` calls them (V4.1b deletes both with that caller).
+    `token`: Stop while reading the playlists (also while waiting out a rate limit) raises events.Cancelled.
     Before the playlists are read, the library's records are opened for writing (migrated if needed), interrupted steps
-    are finished (not in a dry run) and Library/ is scanned, so the plan works on the files as they are. `scan`: None
-    is "not in a dry run"; a dry run scans (spec library-and-sources §6.4) only when its caller asks for it: the
-    window's refresh does, the command line's dry runs do not (issue 39 design §7.1: they store no scan, plan on the
-    last one and say how old it is). `lock()` yields whether the library lock is held for that: a reader
-    (the window's preview) that can't get it (a terminal run, a hub job) plans on the records as the last scan
-    left them and writes nothing. `want_info`: the hub's read also takes the playlists' names, owners and covers from
-    what reading the tracks told (FetchedPlaylist.info), so it needs no second login to ask."""
+    are finished (not in a read) and Library/ is scanned, so the plan works on the files as they are. `lock()` yields
+    whether the library lock is held for that: a reader that can't get it (a terminal run, a hub job) plans on the
+    records as the last scan left them and writes nothing. `want_info`: the hub's read also takes the playlists' names,
+    owners and covers from what reading the tracks told (FetchedPlaylist.info), so it needs no second login to ask."""
     token = token or CancelToken()
     log = rep.RunLog(datetime.now())
     try:
         lines = config.load_playlists(paths.playlists_file)
         settings = load_settings(paths.settings_file)
         with lock() as held:
-            state = (_open(paths, log, emit, dry_run=dry_run, scan=scan if scan is not None else not dry_run)
+            state = (_open(paths, log, emit, read_only=read_only, scan=scan if scan is not None else not read_only)
                      if held else library.load_state(paths))
             if held:  # signs a read outside a run met while the lock was not ours are recorded first (they pause)
-                state = record_pending(paths, state, lock_held, dry_run)
+                state = record_pending(paths, state, lock_held, read_only)
         import_waiting = library.import_left(paths)
     except config.ConfigError as e:
         raise SetupProblem(str(e), e.kind) from None
@@ -118,7 +121,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         if not 1 <= extra <= MAX_EXTRA:
             raise SetupProblem(f"The extra amount must be between 1 and {MAX_EXTRA}.", "config_invalid")
         grant = lambda s: replace(s, extra_date=date.today().isoformat(), extra_amount=extra)  # noqa: E731
-        if dry_run:  # the dry run plans with the extra in memory; saving it would grant it to the real runs of today
+        if read_only:  # the dry run plans with the extra in memory; saving it would grant it to the real runs of today
             settings = grant(settings)
             emit(Message("info", f"Planning with {extra} extra Qobuz downloads today (a dry run saves nothing)."))
         else:
@@ -137,7 +140,7 @@ def prepare(paths: Paths, *, dry_run: bool = False, extra: int | None = None, em
         raise SetupProblem(str(e), e.kind, e.service) from None
     finally:
         if signs:
-            state = record_signs(paths, state, signs, lock, dry_run)
+            state = record_signs(paths, state, signs, lock, read_only)
     token.check()  # a read stopped meanwhile (a slow request answered late) stores nothing
     read_id = store_read(paths, StoredRead("sync", read_started, fetched, lines, [line.ref for line in unread]),
                          keep=_listed_refs(paths))
@@ -265,17 +268,17 @@ def first_check_room(state: dict, settings: Settings) -> int:
     return min(FIRST_CHECKS_PER_RUN, Budget(state, lambda: None, settings).remaining() // 2)
 
 
-def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool, scan: bool) -> dict:
+def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, read_only: bool, scan: bool) -> dict:
     """The writer's part of prepare (the lock is held): open (and migrate), recover (not in a dry run), scan, then
     the snapshot the plan works on. A dry run needs no snapshot before the scan (scan_library opens the records
     itself, and leaves a pending step's files alone). A dry run changes no music file: a library not yet moved into
     library.db whose state.json has steps pending is neither migrated (that finishes them) nor scanned; it plans
     from state.json as it is. A dry run without `scan` (the command line's: issue 39 design §7.1) stores no scan and
     migrates nothing: it plans on the records as the last scan left them (`load_state`, read-only)."""
-    if dry_run and not scan:
+    if read_only and not scan:
         return library.load_state(paths)
     recovered: list[tuple[str, bool]] = []
-    if not dry_run:
+    if not read_only:
         migrated: list[tuple[str, bool]] = []  # steps finished while state.json moved into library.db (said already)
         state = library.open_state(paths, emit, recovered=migrated)
         for message, ok in migrated:
@@ -285,7 +288,7 @@ def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, dry_run: bool, scan: boo
             log.add_text("recovered" if ok else "errors", message)
             emit(Message("info" if ok else "warning", message))
         library.clear_tmp(paths, state)  # keeps what a step that could not be finished yet still needs
-    library.scan_library(paths, emit, recover=not dry_run, shown=[m for m, _ in recovered])
+    library.scan_library(paths, emit, recover=not read_only, shown=[m for m, _ in recovered])
     return library.load_state(paths)
 
 
@@ -404,7 +407,7 @@ def select_actions(prep: Prepared, previewed: set[tuple[str, str, str]], ticked:
 
 
 def record_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str]],
-                  lock: Callable[[], AbstractContextManager[bool]], dry_run: bool) -> dict:
+                  lock: Callable[[], AbstractContextManager[bool]], read_only: bool) -> dict:
     """Records the warning signs a read made with an account's login met, as a download's would be (sources-round D6:
     the account is then paused for the next Liked music reads, and Settings shows the sign). Needs the library lock
     like any state write; where the caller couldn't get it (a preview while a terminal run holds it) or there is no
@@ -412,7 +415,7 @@ def record_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str]],
     caller that holds the lock (record_pending). Returns the snapshot to plan on: the stored one again after a
     write, since a save bumps its generation."""
     now = datetime.now()
-    state, stored = _store_signs(paths, state, [(s, k, m, now) for s, k, m in signs], lock, dry_run)
+    state, stored = _store_signs(paths, state, [(s, k, m, now) for s, k, m in signs], lock, read_only)
     if not stored:
         pending_signs.add(paths, signs, now)
         for service, kind, message in signs:
@@ -421,14 +424,14 @@ def record_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str]],
 
 
 def _store_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str, datetime]],
-                 lock: Callable[[], AbstractContextManager[bool]], dry_run: bool) -> tuple[dict, bool]:
+                 lock: Callable[[], AbstractContextManager[bool]], read_only: bool) -> tuple[dict, bool]:
     """Writes the signs ((service, kind, message, time met)) into library.db under `lock`. Returns the stored
     snapshot and True, or `state` as it was and False when nothing could be written."""
     if paths.db_file.exists():
         try:
             with lock() as held:
                 if held:
-                    on_disk = library.open_state(paths) if not dry_run else library.load_state(paths)
+                    on_disk = library.open_state(paths) if not read_only else library.load_state(paths)
                     for service, kind, message, met in signs:
                         record_signal(on_disk, kind, message, met, service)
                     library.save_state(paths, on_disk)
@@ -438,7 +441,7 @@ def _store_signs(paths: Paths, state: dict, signs: list[tuple[str, str, str, dat
     return state, False
 
 
-def record_pending(paths: Paths, state: dict, lock: Callable[[], AbstractContextManager[bool]], dry_run: bool) -> dict:
+def record_pending(paths: Paths, state: dict, lock: Callable[[], AbstractContextManager[bool]], read_only: bool) -> dict:
     """Writes the signs that waited for the library lock (pending_signs.py) into library.db, with the time they were
     met, and clears them from the file once stored. Called wherever the lock is held: a run's prepare, a hub job's
     start, the hub's start, a paste or preview. Where nothing can be written they stay in the file. Returns the
@@ -453,7 +456,7 @@ def record_pending(paths: Paths, state: dict, lock: Callable[[], AbstractContext
         except ValueError:
             met = datetime.now()
         entries.append((str(s["service"]), str(s["kind"]), str(s["message"]), met))
-    state, stored = _store_signs(paths, state, entries, lock, dry_run)
+    state, stored = _store_signs(paths, state, entries, lock, read_only)
     if stored:
         pending_signs.remove(paths, waiting)
     return state

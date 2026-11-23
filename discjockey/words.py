@@ -47,7 +47,7 @@ NOUN_WORDS = {
     "report": "The reports of past syncs: list them, show one.",
     "settings": "What Settings holds, and changing it.",
     "status": "What the Dashboard shows, the running jobs, and whether you're ready for a gig.",
-    "sync": "The sync: what it would do, its last phase.",
+    "sync": "The sync: read your playlists, see the plan, run it.",
     "todo": "Your to-do list.",
     "track": "One song: find it, show it, its spectrum, undo its last step.",
     "upgrade": "Better versions waiting: list, put in, throw away.",
@@ -113,6 +113,13 @@ WOULD_MISSING = ("{n} of your rekordbox tracks would point at files that Discjoc
 # when it meets rekordbox open at the end of a sync, `AUTO_UPGRADE_OFF` what the phase alone says with the switch off.
 AUTO_UPGRADE_OFF = "Auto-upgrade is off, so nothing was moved."
 AUTO_UPGRADE_NOTHING = "No upgrade was waiting, so nothing was moved."
+
+# `sync run` (`HubApi.start_sync`): what it refuses before a job starts.
+SYNC_IDS_NEED_PLAN = "Action ids belong to a plan: say --plan with the plan_id of the sync plan that showed them."
+SYNC_IDS_OR_HOW_MANY = "Say the actions or how many, not both."
+SYNC_NEEDS_READ = "Your playlists have not been read yet, so there is no plan to run."
+BAD_HOW_MANY = "--how-many takes 5, 10, 25, 50, fits, all or a number."
+SYNC_READING = "A sync is running; it reads your playlists itself."
 
 
 # What the openers say (`Opened.text`: `show_in_finder`, `reveal`, `open_report`, `open_licenses`, `open_external`,

@@ -96,7 +96,7 @@ def choose(entries: list[Entry]) -> Entry:
 
 
 LOCK_REASONS = {"library": ("library_lock",), "support": ("support_lock",), "rekordbox_w": ("rekordbox_lock", "rekordbox_open"),
-                "rekordbox_r": ()}  # the reasons a lock of the catalogue's `locks` column answers with
+                "rekordbox_r": (), "scan": ()}  # the reasons a lock of the catalogue's `locks` column answers with
 LINE_REASONS = ("usage", "crashed", "conflicting_flags")  # every line can get these
 JOB_REASONS = ("still_running", "stop", "stop_now", "worker_lost")  # a command that runs as a job
 PLAN_REASONS = ("changed", "plan_expired", "unknown_id")  # a command that takes `--plan`
@@ -233,7 +233,7 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
     values = _flag_values(entries, args, flags)
     songs = _songs(entries, args, flags)
     dry_only = catalog.dry_run_only(command)
-    required = [f for f in flags if f in catalog.PHASE_ONLY.values() or (dry_only and f == "--dry-run")]
+    required = [f for f in flags if dry_only and f == "--dry-run"]
     return {"command": " ".join(command), "kind": primary.kind, "writes": primary.kind in WRITES,
             "job": primary.kind in JOBS, "pages": primary.pages, "args": args, "flags": flags,
             "needs_yes": any(e.needs_yes for e in entries),

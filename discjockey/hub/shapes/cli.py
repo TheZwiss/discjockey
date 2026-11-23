@@ -15,7 +15,7 @@ from typing import Annotated, Literal, NotRequired, TypedDict
 
 from .common import FailNext, FailPersonStep
 from .kernel import F, alias, shape
-from .library import Browser, Dashboard
+from .library import Browser, Dashboard, SyncResult
 from .setup import AiffPlanAnswer, LastCheck
 from .todo import (AiffBatchResult, AutoUpgradeBlock, AutoUpgradePreviewAnswer, CheckedResult, ItemResult,
                    RekordboxPreviewAnswer, UndoUpgradePreviewAnswer, UpgradePreviewAnswer)
@@ -460,6 +460,25 @@ class UpgradeRunData(AiffBatchResult):
 
 
 @shape
+class SyncFailed(TypedDict):
+    """One song `sync run` could not finish (the report's Errors section)."""
+    track_id: Annotated[str | None, F("The song's key; null for an error that is no song's.", shown=False)]
+    artist: Annotated[str, F("The artist, empty for an error that is no song's.")]
+    title: Annotated[str, F("The title, empty for an error that is no song's.")]
+    text: Annotated[str, F("What went wrong, in the report's words.")]
+
+
+@shape
+class SyncRunData(SyncResult):
+    """The `data` of `sync run`: the result with what the report counted and which songs failed."""
+    counts: NotRequired[Annotated[dict[str, int], F("Each report section with at least one result (its key, as `report "
+                                                    "show` says them): how many. Left out when the run's report "
+                                                    "cannot be read (a run that crashed before it wrote one).")]]
+    failed: NotRequired[Annotated[list[SyncFailed], F("The songs that failed, empty when none did. Left out with "
+                                                      "`counts`.")]]
+
+
+@shape
 class CheckDoneRow(TypedDict):
     """One track of `check done`."""
     track: Annotated[str, F("The song's key.", shown=False)]
@@ -523,6 +542,6 @@ CLI_DATA: dict[str, str] = {
     "auto_upgrade_preview:dry_run": "AutoUpgradePreviewDryRun",
     "upgrade": "UpgradeRunData", "upgrade_all": "UpgradeRunData", "batch_resume": "UpgradeRunData",
     "convert": "UpgradeRunData", "rename": "UpgradeRunData", "make_aiff": "UpgradeRunData",
-    "rekordbox_checked": "CheckDoneData", "auto_upgrade_run": "AutoUpgradeRunData",
+    "rekordbox_checked": "CheckDoneData", "auto_upgrade_run": "AutoUpgradeRunData", "start_sync": "SyncRunData",
     "rekordbox_preview": "RekordboxPreviewData", "status_view": "StatusData",
 }

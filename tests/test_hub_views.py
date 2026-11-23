@@ -3000,6 +3000,20 @@ def test_a_preset_ticks_every_non_download_in_scope_and_the_first_downloads_in_r
     assert labels_of(rows, None, [S_B], ["weekly"]) == ["All 2"]
 
 
+def test_ticks_is_what_each_preset_ticks_and_any_other_number_and_none_is_every_download():
+    rows = [srow("adopt_bought", "m", 0, [S_A]), srow("acquire", "a", 1, [S_A], "new"), srow("acquire", "b", 2, [S_B], "new"),
+            srow("acquire", "c", 3, [S_A], "new"), srow("upgrade", "u", 4, [S_A])]
+    for presets_rows, off in ((n_downloads(60), []), (rows, [S_B])):
+        for p in views.how_many(presets_rows, 10, off, [])[0]:
+            assert views.ticks(list(reversed(presets_rows)), p["downloads"], off, []) == p["selected"]
+    names = lambda ids: [i.split(":")[2] for i in ids]  # noqa: E731
+    assert names(views.ticks(rows, 2, [], [])) == ["m", "a", "b"]  # the run order; the upgrade check is a download too
+    assert names(views.ticks(rows, 0, [], [])) == ["m"]  # what is no download is ticked whatever n
+    assert names(views.ticks(rows, None, [], [])) == ["m", "a", "b", "c", "u"]
+    assert names(views.ticks(rows, None, [S_B], ["weekly"])) == ["m", "a", "c"]  # what is left out stays left out
+    assert views.ticks([], 5, [], []) == []
+
+
 def test_sync_preview_gives_every_action_an_id_and_the_presets_of_the_scope():
     lines = [PlaylistLine("A", "pa", 1), PlaylistLine("B", "pb", 2)]
     st = state()

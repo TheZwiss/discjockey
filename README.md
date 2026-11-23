@@ -469,6 +469,12 @@ new downloads, bought files to add, and tracks no longer in any playlist. Untick
 - **A sync started in the Terminal** (by you or an agent) shows on the Sync page as one started here does, track by
   track, marked "In the Terminal", and ends on its results. **Stop safely** stops it from the window too.
 - `discjockey sync plan [--search <words>]` prints the plan the Sync page shows, narrowed to the songs that match.
+- `discjockey sync read` reads your playlists again, as **Read playlists** does, and stores the read: the plan comes from it.
+  `sync run` runs the sync on that plan, as **Start sync** does: with no more words it runs what the plan's **how many**
+  chip would, `--how-many <5|10|25|50|fits|all|n>` picks how many downloads, and action ids with `--plan <plan id>` run those
+  actions of the plan `sync plan` printed. `sync run` has no plan until `sync read` has stored a read, and says so;
+  `sync run --dry-run` shows the plan and writes nothing but the plan itself. `sync run --auto-upgrade-only` runs only the
+  last phase, Auto-upgrade, with no playlist read. Both commands take `--detach` to leave the job running, and `job follow` / `job wait` to look at it again.
 
 **Qobuz limit.** Discjockey downloads at most 60 tracks a day from Qobuz. Up to a third of
 yesterday's unused amount is added on top. The **Download limits** page changes the daily limit and can allow some

@@ -86,7 +86,7 @@ class Flags:
     todo: str | None = None
     search: str | None = None
     quality: str | None = None
-    auto_upgrade_only: bool = False  # `sync run --auto-upgrade-only`: the phase alone (`catalog.PHASE_ONLY`)
+    auto_upgrade_only: bool = False  # `sync run --auto-upgrade-only`: the phase alone (`catalog.SWITCHES`)
 
 
 @dataclass
@@ -193,8 +193,9 @@ def _option_type(arg: catalog.Arg):
     return {"int": int, "float": float}.get(arg.type, str)
 
 
-PHASE_ONLY_WORDS = ("{command} runs only the sync's last phase for now: say {flag}. The whole sync is still "
-                    "`discjockey --yes` (or `discjockey --dry-run` to look first).")
+SWITCH_ALONE_WORDS = ("--auto-upgrade-only runs only the sync's last phase: it takes no action ids and no --how-many.")
+SYNC_DRY_RUN_WORDS = ("sync run --dry-run shows the whole plan, as sync plan does; its presets say what each --how-many "
+                      "would run. Say it without action ids, --plan or --how-many.")
 
 
 DRY_RUN_ONLY_WORDS = "{command} can only be tried for now: say --dry-run."  # a command whose write is not built (`catalog.dry_run_only`)
@@ -245,8 +246,8 @@ def extra_flags(entries: list[Entry], taken: Collection[str] = ()) -> list[str]:
     answers it, `--yes` when an entry needs it, `--limit` and `--offset` on a command with a read entry (unless the method's own flags took
     the word). The parser and `help --json` both read this."""
     flags = _selection_flags(entries, taken)
-    if (switch := catalog.PHASE_ONLY.get(" ".join(entries[0].command))) is not None:
-        flags.append(switch)
+    if (switch := catalog.SWITCHES.get(" ".join(entries[0].command))) is not None:
+        flags.append(switch[0])
     if any(e.dry_run for e in entries) or catalog.dry_run_only(entries[0].command):
         flags.append("--dry-run")
     if any(e.needs_yes for e in entries):
@@ -286,7 +287,7 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
             field_name, switch, _ = SELECTION_FLAGS[flag]
             leaf.add_argument(flag, dest=f"_sel_{field_name}", action="store_true" if switch else "store",
                               default=argparse.SUPPRESS)
-        elif flag in catalog.PHASE_ONLY.values():
+        elif flag in (switch for switch, _ in catalog.SWITCHES.values()):
             leaf.add_argument(flag, dest=f"_{flag[2:].replace('-', '_')}", action="store_true", default=argparse.SUPPRESS)
         elif flag in ("--dry-run", "--yes"):
             leaf.add_argument(flag, dest=f"_{flag[2:].replace('-', '_')}", action="store_true", default=argparse.SUPPRESS)
@@ -402,8 +403,6 @@ def parse(argv: list[str]) -> Parsed:
     entries = commands()[command]
     primary = catalog.primary(entries)
     signature = signature_of(primary.method)
-    if (switch := catalog.PHASE_ONLY.get(" ".join(command))) is not None and not flags.auto_upgrade_only:
-        raise UsageError(PHASE_ONLY_WORDS.format(command=" ".join(command), flag=switch))
     if catalog.dry_run_only(command) and not flags.dry_run:
         raise UsageError(DRY_RUN_ONLY_WORDS.format(command=" ".join(command)))
     for name, arg in catalog.effective_params(primary, signature).items():
