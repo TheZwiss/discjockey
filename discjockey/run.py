@@ -35,7 +35,7 @@ from .pacing import Budget, SharedPacer, paused_accounts, record_signal
 from .qobuz import QobuzError, QobuzNotSetUp, QobuzSource
 from .rekordbox import process
 from .rekordbox.locate import locate
-from .settings import MAX_EXTRA, Settings, SettingsError, load_settings, update_settings
+from .settings import Settings, SettingsError, load_settings
 
 logger = logging.getLogger(__name__)  # not `log`: that is a run's RunLog here
 T = TypeVar("T")
@@ -87,15 +87,13 @@ def lock_held():
     yield True
 
 
-def prepare(paths: Paths, *, read_only: bool = False, extra: int | None = None, emit: Emit = no_emit,
+def prepare(paths: Paths, *, read_only: bool = False, emit: Emit = no_emit,
             token: CancelToken | None = None, want_info: bool = False,
-            lock: Callable[[], AbstractContextManager[bool]] = lock_held, scan: bool | None = None) -> Prepared:
-    """`read_only`: a playlists read, no run: no recovery of interrupted steps, no `extra` saved, signs stored only when
-    the lock is ours. It scans Library/ only when its caller asks (`scan`; None is "not in a read": a run scans) and the
-    lock is free; the window's refresh and `sync read` ask, `sync plan` and the other previews do not (issue 39 design
-    §7.1: they store no scan, plan on the last one and say how old it is). It stores the read and its signs (`store_read`).
-    Its callers besides the runs: `jobs.refresh_work`. `extra` and `_open`'s `read_only and not scan` branch stay only
-    as long as `cli/legacy.py` calls them (V4.1b deletes both with that caller).
+            lock: Callable[[], AbstractContextManager[bool]] = lock_held) -> Prepared:
+    """`read_only`: a playlists read, no run: no recovery of interrupted steps, signs stored only when the lock is ours.
+    It scans Library/ while the lock is ours and stores the read and its signs (`store_read`); the plans that only look
+    (`sync plan` and the other previews) do not call it: they plan on the stored read and the last scan and say how old
+    they are (issue 39 design §7.1). Its caller besides the runs: `jobs.refresh_work` (the window's refresh, `sync read`).
     `token`: Stop while reading the playlists (also while waiting out a rate limit) raises events.Cancelled.
     Before the playlists are read, the library's records are opened for writing (migrated if needed), interrupted steps
     are finished (not in a read) and Library/ is scanned, so the plan works on the files as they are. `lock()` yields
@@ -108,8 +106,7 @@ def prepare(paths: Paths, *, read_only: bool = False, extra: int | None = None, 
         lines = config.load_playlists(paths.playlists_file)
         settings = load_settings(paths.settings_file)
         with lock() as held:
-            state = (_open(paths, log, emit, read_only=read_only, scan=scan if scan is not None else not read_only)
-                     if held else library.load_state(paths))
+            state = _open(paths, log, emit, read_only=read_only) if held else library.load_state(paths)
             if held:  # signs a read outside a run met while the lock was not ours are recorded first (they pause)
                 state = record_pending(paths, state, lock_held, read_only)
         import_waiting = library.import_left(paths)
@@ -117,17 +114,6 @@ def prepare(paths: Paths, *, read_only: bool = False, extra: int | None = None, 
         raise SetupProblem(str(e), e.kind) from None
     except (StateError, SettingsError) as e:
         raise SetupProblem(str(e), "config_invalid") from None
-    if extra is not None:
-        if not 1 <= extra <= MAX_EXTRA:
-            raise SetupProblem(f"The extra amount must be between 1 and {MAX_EXTRA}.", "config_invalid")
-        grant = lambda s: replace(s, extra_date=date.today().isoformat(), extra_amount=extra)  # noqa: E731
-        if read_only:  # the dry run plans with the extra in memory; saving it would grant it to the real runs of today
-            settings = grant(settings)
-            emit(Message("info", f"Planning with {extra} extra Qobuz downloads today (a dry run saves nothing)."))
-        else:
-            settings = update_settings(paths.settings_file, grant)
-            emit(Message("info", f"Allowing {extra} extra Qobuz downloads today."))
-
     emit(Message("info", "Reading your playlists..."))
     signs: list[tuple[str, str, str]] = []  # warning signs a login-using read met (Liked music), recorded below
     unread: list[PlaylistLine] = []  # lines not read because of a pause: like a failed read, their songs stay in
@@ -268,15 +254,10 @@ def first_check_room(state: dict, settings: Settings) -> int:
     return min(FIRST_CHECKS_PER_RUN, Budget(state, lambda: None, settings).remaining() // 2)
 
 
-def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, read_only: bool, scan: bool) -> dict:
-    """The writer's part of prepare (the lock is held): open (and migrate), recover (not in a dry run), scan, then
-    the snapshot the plan works on. A dry run needs no snapshot before the scan (scan_library opens the records
-    itself, and leaves a pending step's files alone). A dry run changes no music file: a library not yet moved into
-    library.db whose state.json has steps pending is neither migrated (that finishes them) nor scanned; it plans
-    from state.json as it is. A dry run without `scan` (the command line's: issue 39 design §7.1) stores no scan and
-    migrates nothing: it plans on the records as the last scan left them (`load_state`, read-only)."""
-    if read_only and not scan:
-        return library.load_state(paths)
+def _open(paths: Paths, log: rep.RunLog, emit: Emit, *, read_only: bool) -> dict:
+    """The writer's part of prepare (the lock is held): open (and migrate), recover (not in a read), scan, then
+    the snapshot the plan works on. A read needs no snapshot before the scan (scan_library opens the records
+    itself, and leaves a pending step's files alone)."""
     recovered: list[tuple[str, bool]] = []
     if not read_only:
         migrated: list[tuple[str, bool]] = []  # steps finished while state.json moved into library.db (said already)

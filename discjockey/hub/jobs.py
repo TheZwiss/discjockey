@@ -903,7 +903,7 @@ def refresh_work(paths: Paths, now: Callable[[], datetime] = datetime.now,
         started = datetime.now()  # the clock `prepare` stamps its reads with: the stored reads' order is by start
         try:
             prep = run.prepare(paths, read_only=True, emit=ctx.emit, token=ctx.token, lock=lock,
-                               want_info=infos is not None, scan=True)
+                               want_info=infos is not None)
         except run.SetupProblem as e:
             message = hub_message(e.kind, str(e), e.service)
             if not ctx.token.cancelled:

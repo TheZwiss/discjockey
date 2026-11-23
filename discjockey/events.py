@@ -19,7 +19,7 @@ class Cancelled(BaseException):
     """The user asked to stop. A BaseException so that `except Exception` handlers never swallow it."""
 
 
-CTRL_C_REPEAT_S = 1.0  # uv and caffeinate forward one Ctrl-C a second time: a second press sooner than this is ignored
+CTRL_C_REPEAT_S = 1.0  # uv forwards one Ctrl-C a second time: a second press sooner than this is ignored
 STOP_CHECK_S = 0.5  # how often a stop file is looked for at most, and the longest step of a sleep
 
 

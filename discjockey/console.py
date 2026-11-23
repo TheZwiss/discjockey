@@ -1,10 +1,8 @@
-"""The console front end: turns core events into terminal lines."""
+"""The console front end: turns core events into terminal lines (`follow.py` prints a job's events with it)."""
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
 
-from .auto_upgrade import before_start_line, place_clause
 from .events import ActionFinished, ActionStarted, BatchProgress, Message, Progress, StepChanged, Waiting
 from .report import folder_label
 
@@ -16,59 +14,6 @@ SHORT = {"new_lossless": "lossless", "new_not_lossless": "not lossless", "fake":
          "bought": "bought file added",
          "redownloaded": "downloaded again", "missing": "not found",
          "queued": "waiting for the next run", "errors": "error"}
-
-
-# what only the window does (plan library stage 4, D13, W10): the console never imports nor asks
-IMPORT_WAITING = ("{n} files in your watched folders wait to be imported. Open the window to import them.",
-                  "1 file in your watched folders waits to be imported. Open the window to import it.")
-QUESTIONS_WAITING = ("{n} songs wait for your answer in the window (Is this the same song?).",
-                     "1 song waits for your answer in the window (Is this the same song?).")
-
-
-def waiting_lines(import_waiting: int, questions: int) -> list[str]:
-    """The console's lines for files waiting to be imported and songs held for "Is this the same song?" (run.Prepared
-    has both counts); none at 0."""
-    lines = []
-    for n, (many, one) in ((import_waiting, IMPORT_WAITING), (questions, QUESTIONS_WAITING)):
-        if n > 0:
-            lines.append(one if n == 1 else many.format(n=n))
-    return lines
-
-
-# Auto-upgrade in the printed plan (plan stage C §2, §3): what the sync's last phase will do
-UPGRADE_PLAN = ("At the end, {n} upgrades go in place of your files; your cues stay.",
-                "At the end, 1 upgrade goes in place of your files; your cues stay.")
-UPGRADE_HOW = {"in_place": "in place", "new_aiff": "new AIFF"}
-UPGRADE_HELD = "Not tried this sync (refused before, and nothing changed since):"
-
-
-def upgrade_lines(block: dict | None, name_of: Callable[[str], str], *, full: bool) -> list[str]:
-    """The console's Auto-upgrade lines for the plan, from the dry-run block (`auto_upgrade.run_phase(...,
-    dry_run=True).to_dict()`, None when nothing may run): how many upgrades go in at the end, the Sync page's
-    before-start line when rekordbox is open, and with `full` (the dry run) each upgrade with its way and the held
-    refusals with their reason. The placements for missing files (issue 43, D9) are told apart: their own clause
-    (`words.place_plan_line`) and, with `full`, each song. `name_of(song key)` is "Artist - Title". None or nothing to
-    do: no lines."""
-    rows = (block or {}).get("results") or []
-    coming = [r for r in rows if r["state"] in ("would", "waiting") and r.get("action") != "place"]
-    placing = [r for r in rows if r["state"] in ("would", "waiting") and r.get("action") == "place"]
-    held = [r for r in rows if r["state"] == "refused"]
-    lines: list[str] = []
-    if coming:
-        n = len(coming)
-        lines.append(UPGRADE_PLAN[1] if n == 1 else UPGRADE_PLAN[0].format(n=n))
-        if any(r["state"] == "waiting" and r["reason"] == "rekordbox_open" for r in coming):
-            lines.append(before_start_line(n))
-        if full:
-            lines += [f"  {name_of(r['track'])} ({UPGRADE_HOW.get(r['how'], r['how'])})" for r in coming]
-    if placing:
-        lines.append(place_clause(placing))
-        if full and len(placing) > 1:  # one song: the clause names it already (issue 43 FC, M8)
-            lines += [f"  {name_of(r['track'])}" for r in placing]
-    if full and held:
-        lines.append(UPGRADE_HELD)
-        lines += [f"  {name_of(r['track'])}: {r['message']}" for r in held]
-    return lines
 
 
 def _size(n: float) -> str:

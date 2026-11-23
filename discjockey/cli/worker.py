@@ -93,8 +93,9 @@ class Ticker(threading.Thread):
 
 
 class Caffeinate:
-    """`caffeinate -i -w <own pid>` for a write job: the Mac does not go to sleep under it, and the process ends by
-    itself when the worker does. Nothing if the program is not there."""
+    """`caffeinate -i -w <own pid>` for a write job (`J`) and a read job (`RJ`: an agent's minute-long read must not sleep
+    under it either): the Mac does not go to sleep under it, and the process ends by itself when the worker does.
+    Nothing if the program is not there. The launcher (`bin/discjockey`) wraps nothing: each worker keeps the Mac awake."""
 
     def __init__(self, wanted: bool):
         self.process = None
@@ -248,8 +249,9 @@ def _run(files: registry.JobFiles) -> int:
         sink = Sink(writer, registry.ProgressReducer(files))
         api = bind.headless(bind.from_roots(roots), events=sink, job=files)
         entries = catalog.by_method(record["method"])
-        caffeinate = Caffeinate(bool(entries) and entries[0].kind == "J")
-        read = bool(entries) and entries[0].kind == "RJ"
+        kind = entries[0].kind if entries else None
+        caffeinate = Caffeinate(kind in ("J", "RJ"))
+        read = kind == "RJ"
         ticker = Ticker(files, bind.job_token(api), interrupt=read)
         ticker.start()
         with StopSignals(bind.job_token(api), at_once=read) as signals:
