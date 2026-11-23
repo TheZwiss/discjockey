@@ -134,7 +134,7 @@ LIBRARY_METHODS = frozenset((
 ))
 # the command line's own methods (`cli_first`; the window's HubApi has none of them) that need a music folder too
 CLI_LIBRARY_METHODS = frozenset(("auto_upgrade_preview", "auto_upgrade_run", "history", "rekordbox_match",
-                                 "library_superseded", "status_view"))  # `settings_view` needs none
+                                 "library_superseded", "status_view", "prejob_start_sync"))  # `settings_view` needs none
 # What a person types for a flag whose value `CliApi.resolve` turns into the method's own (`help` prints it as the flag's value)
 RESOLVE_WORDS = {"upgrade_way": "same-track|new-track", "since": "today|yesterday|Nd|Nh|DATE",
                  "place": "all|playlist:NAME|folder:PATH|PATH", "report_file": "report:STAMP|last|not-lossless"}
@@ -2244,6 +2244,19 @@ class HubApi:
         when none is given. `selected` belongs to a plan (`plan_id`) and not with `how_many`. A plan that is unknown or
         expired answers `bad_args` / `refused` (the window then reads a new preview). A Terminal sync's registry record
         says the plan and the ids chosen (`job_status().last_sync`), not the words of its command line."""
+        plan_id, planned, chosen = self._sync_start_checked(plan_id, selected, how_many)
+        if (files := self._jobs.inline) is not None:  # a Terminal sync: its record says what runs, not what the line typed
+            files.update(args={"plan_id": plan_id, "selected": chosen, **({"how_many": how_many} if how_many is not None else {})})
+            files.flush()
+        job = self._jobs.start("sync", sync_work(self._paths, planned, chosen, self._svc.now,
+                                                 self._rekordbox_services(), pacer=self._svc.pacer))
+        return {"job_id": job.id}
+
+    def _sync_start_checked(self, plan_id: str | None, selected: list | None, how_many: str | None
+                            ) -> tuple[str, dict[str, tuple[str, str, str]], list[str]]:
+        """Everything `start_sync` refuses before a job exists, and what it runs: the plan's id, its actions by id
+        (`_planned_actions`) and the ids chosen. The Terminal asks it first (`CliApi.prejob_start_sync`), so a refusal
+        starts no worker and leaves no job record. Raises what `start_sync` answers as a problem."""
         if selected is not None and not isinstance(selected, (list, tuple)):
             raise ValueError("`selected` is a list of action ids of the plan.")
         if selected is not None and plan_id is None:
@@ -2267,12 +2280,7 @@ class HubApi:
             for act in chosen:
                 if not isinstance(act, str) or act not in planned:
                     raise ValueError(f"{act!r} is not an action of the plan {plan_id}.")
-        if (files := self._jobs.inline) is not None:  # a Terminal sync: its record says what runs, not what the line typed
-            files.update(args={"plan_id": plan_id, "selected": chosen, **({"how_many": how_many} if how_many is not None else {})})
-            files.flush()
-        job = self._jobs.start("sync", sync_work(self._paths, planned, chosen, self._svc.now,
-                                                 self._rekordbox_services(), pacer=self._svc.pacer))
-        return {"job_id": job.id}
+        return plan_id, planned, chosen
 
     @staticmethod
     def _how_many_n(how_many: str | None) -> int | str | None:
@@ -3969,6 +3977,17 @@ class CliApi(HubApi):
         if not isinstance(rows, list) or not all(isinstance(r, Mapping) and isinstance(r.get("track"), str) for r in rows):
             return None
         return {r["track"]: dict(r) for r in rows}
+
+    # --- the checks before a job (`call._prejob`): a write job's own refusals answered before any job is made. `prejob_<m>`
+    # is `<m>`'s checks alone, answered like a method (`{ok: true}` or the problem), changing nothing: a refusal starts
+    # no worker and leaves no job record, as the window's refusal starts no job. Plain methods (the window has none).
+
+    @_answering
+    def prejob_start_sync(self, plan_id: str | None = None, selected: list | None = None, how_many: str | None = None) -> dict:
+        """`start_sync`'s refusals (an unknown or expired plan, action ids without a plan, a bad `how_many`, no stored
+        read yet) answered before the job: `{ok: true}` when `start_sync` would start the sync."""
+        self._sync_start_checked(plan_id, selected, how_many)
+        return {}
 
     @cli_first
     def result_words(self, method: str, result: dict) -> dict:

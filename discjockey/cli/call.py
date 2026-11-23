@@ -298,7 +298,7 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     if entry.needs_yes and not flags.yes:
         return _needs_yes(entry, command, kwargs, api)
     if entry.kind in ("J", "RJ"):
-        return start_job(entry, kwargs, command, flags)
+        return _prejob(entry, command, kwargs, api) or start_job(entry, kwargs, command, flags)
     if (refused := refuse_job_flags(flags, command)) is not None:  # an R or B method answers at once
         return refused
     answer = getattr(api, entry.method)(**kwargs)
@@ -319,6 +319,18 @@ def paged(entry: Entry, env: dict, flags: Flags) -> dict:
     page = {"list": entry.pages, "offset": flags.offset, "limit": flags.limit, "total": len(whole),
             "next_offset": flags.offset + len(rows) if flags.offset + len(rows) < len(whole) else None}
     return {**env, "data": {**env["data"], entry.pages: rows}, "page": page}
+
+
+def _prejob(entry: Entry, command: str, kwargs: Mapping, api) -> dict | None:
+    """The refusal of a write job that the engine decides before the job (design §6.3): a method `prejob_<method>` on the
+    api (`CliApi.prejob_start_sync`) answers what the method would refuse, changing nothing, and a refusal is the
+    command's answer at once: no job record, no worker, no plan (the window's refusal starts no job either). None when
+    the entry has no check, or its check passes: the job then starts, and the worker asks the method itself."""
+    check = getattr(api, f"prejob_{entry.method}", None)
+    if check is None:
+        return None
+    answer = check(**{k: v for k, v in kwargs.items() if k in parameters_of(entry.method)})
+    return None if answer.get("ok") else envelope.from_answer(command, answer)
 
 
 def worker_argv(job_id: str) -> list[str]:
