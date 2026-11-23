@@ -176,3 +176,47 @@ def test_golden_the_page_of_a_sync_run(synced, capsys, tmp_path):
     text = out.replace(str(tmp_path), "<tmp>")
     text = re.sub(r"reports/\d{4}-\d{2}-\d{2}_\d{6}\.md", "reports/<stamp>.md", text)  # the clock of the run
     check_golden("sync_run", text)
+
+
+# --- what the console's sync (deleted in V4.1b) pinned that no other test did ---
+
+def test_sync_read_with_a_playlists_file_that_cannot_be_read_is_config_invalid_and_stores_nothing(synced, capsys):
+    found = synced(["mp3", "aiff"])
+    found.paths.playlists_file.write_text("Bouncy =\n")
+    code, env = run_json(["sync", "read"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (1, "failed", "config_invalid") and "line 1" in env["message"], env
+    assert run_json(["sync", "plan"], capsys)[1]["data"]["read_id"] is None
+
+
+def test_sync_read_and_sync_run_are_busy_while_another_run_holds_the_library(synced, capsys):
+    found = synced(["mp3", "aiff"])
+    assert run_json(["sync", "read"], capsys)[0] == OK
+    with library.run_lock(found.paths.lock):
+        for line in (["sync", "read"], ["sync", "run"]):
+            code, env = run_json(line, capsys)
+            assert (code, env["outcome"]) == (3, "busy"), (line, env)
+
+
+def test_sync_read_of_a_spotify_playlist_without_a_spotify_login_says_to_set_it_up(synced, monkeypatch, capsys):
+    from discjockey.sources import spotify
+
+    def no_session(paths):
+        raise spotify.SpotifyError("Spotify is not set up yet. Run: discjockey setup")
+    synced(["mp3", "aiff"])
+    monkeypatch.setattr(spotify, "load_session", no_session)
+    code, env = run_json(["sync", "read"], capsys)
+    assert code != OK and env["outcome"] == "failed" and "Spotify is not set up yet" in env["message"], env
+
+
+def test_sync_read_of_a_qobuz_only_playlists_file_never_asks_for_spotify(synced, monkeypatch, capsys):
+    from hub_helpers import QOBUZ_LINK, fake_qobuz, qobuz_track
+    from discjockey.sources import spotify
+
+    found = synced(["mp3", "aiff"])
+    found.paths.playlists_file.write_text(f"Example_Playlist = {QOBUZ_LINK}\n")
+    fake_qobuz(monkeypatch, [qobuz_track("900100001", "Example Song", "Example Artist")])
+    monkeypatch.setattr(spotify, "load_session", lambda paths: pytest.fail("Spotify was not asked for"))
+    code, env = run_json(["sync", "read"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert [a["reason"] for g in run_json(["sync", "plan"], capsys)[1]["data"]["groups"] for a in g["actions"]] == ["new"]
+

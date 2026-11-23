@@ -312,6 +312,7 @@ def test_qobuz_problem_kinds(paths, monkeypatch):
     with pytest.raises(run.SetupProblem) as excinfo:
         run.open_qobuz(prep)
     assert excinfo.value.kind == "qobuz_login_failed"
+    assert library.load_state(paths)["qobuz_usage"]["signals"][0]["kind"] == "login_failed"  # recorded: it counts to the pause
 
 
 def test_stop_while_spotify_asks_to_wait(paths, monkeypatch):
