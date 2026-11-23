@@ -128,7 +128,7 @@ def test_sync_run_reads_nothing_and_runs_nothing_without_a_read(synced, capsys):
     code, dry = run_json(["sync", "run", "--dry-run"], capsys)  # the dry run is `sync plan`'s answer: it says nothing was read
     assert code == OK and dry["data"] == run_json(["sync", "plan"], capsys)[1]["data"] and dry["data"]["plan_id"] is None
     assert not found.paths.support.joinpath("plans").exists()
-    assert [s["method"] for s in job_states(found)] == ["start_sync"]  # the refused run's job; no read ran
+    assert not job_states(found)  # a refused run starts no job; no read ran
 
 
 def test_sync_run_runs_the_last_phase_when_the_plan_has_no_action_and_counts_what_it_did(synced, capsys):
@@ -255,6 +255,74 @@ def test_golden_the_page_of_a_sync_run(synced, capsys, tmp_path):
 
 
 # --- what the console's sync (deleted in V4.1b) pinned that no other test did ---
+
+def plan_files(found) -> list[str]:
+    return sorted(p.name for p in found.paths.support.joinpath("plans").glob("*")) if found.paths.support.joinpath("plans").exists() else []
+
+
+@pytest.fixture
+def spawned(monkeypatch):
+    """The workers the command line starts (it is `inline_workers`' spawn, counted)."""
+    from discjockey.cli import call
+    started = []
+    real = call.spawn_worker
+    monkeypatch.setattr(call, "spawn_worker", lambda *a, **k: (started.append(a), real(*a, **k))[1])
+    return started
+
+
+def test_every_refusal_the_engine_decides_for_sync_run_is_answered_before_any_job_starts(two_to_download, stubbed_sync,
+                                                                                         spawned, capsys):
+    """A refused write changes nothing: no worker, no job record or folder, no plan file (the window's refusal starts no
+    job either). The words, outcome and exit code are the engine's own."""
+    found = two_to_download()
+    unknown = "plan:000000000000"
+    refusals = [  # (line, exit, outcome, reason, words)
+        (["sync", "run"], 7, "refused", "not_set_up", words.SYNC_NEEDS_READ),  # nothing read yet
+        (["sync", "run", "act:x"], 2, "bad_args", "usage", words.SYNC_IDS_NEED_PLAN),
+        (["sync", "run", "--how-many", "many"], 2, "bad_args", "usage", words.BAD_HOW_MANY),
+        (["sync", "run", "--plan", unknown], 2, "bad_args", "unknown_id", None),
+        (["sync", "run", "act:x", "--how-many", "5", "--plan", unknown], 2, "bad_args", "conflicting_flags",
+         words.SYNC_IDS_OR_HOW_MANY),
+    ]
+
+    def check_all():
+        for line, exit_code, outcome, reason, text in refusals:
+            code, env = run_json(line, capsys)
+            assert (code, env["outcome"], env["reason"]) == (exit_code, outcome, reason), (line, env)
+            assert env["job"] is None and (text is None and unknown in env["message"] or env["message"] == text), (line, env)
+            assert not job_states(found) and not spawned and not list(found.paths.support.joinpath("jobs").glob("*")), line
+            assert plan_files(found) == [], line
+    check_all()
+    assert run_json(["sync", "run"], capsys)[1]["next"][0]["run"].endswith("sync read")
+    assert run_json(["sync", "read"], capsys)[0] == OK
+    spawned.clear()
+    plan_id, ids = plan_of(run_json(["sync", "run", "--dry-run"], capsys)[1])
+    stored = plan_files(found)
+    for line, outcome in ((["sync", "run", "act:nope", "--plan", plan_id], "refused"),  # an id the plan has not
+                          (["sync", "run", "--plan", unknown], "bad_args")):
+        code, env = run_json(line, capsys)
+        assert env["outcome"] == outcome and code != OK, (line, env)
+        assert env["job"] is None and len(spawned) == 0, line
+    assert plan_files(found) == stored
+    assert [s["method"] for s in job_states(found)] == ["refresh"]  # the read's job, and no other
+
+
+def test_a_check_before_a_job_belongs_to_a_write_job_method_of_the_catalogue():
+    """`call._prejob` finds `prejob_<method>` on the api: each one is the check of a J / RJ entry's method."""
+    from discjockey.hub import catalog
+    checks = [n[len("prejob_"):] for n in dir(api_mod.CliApi) if n.startswith("prejob_") and callable(getattr(api_mod.CliApi, n))]
+    assert checks
+    for method in checks:
+        assert any(e.kind in ("J", "RJ") for e in catalog.by_method(method)), method
+
+
+def test_a_sync_run_that_passes_the_check_starts_its_job_once(two_to_download, stubbed_sync, spawned, capsys):
+    found = two_to_download()
+    assert run_json(["sync", "read"], capsys)[0] == OK
+    spawned.clear()
+    code, env = run_json(["sync", "run", "--how-many", "1"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok") and len(spawned) == 1 and len(sync_states(found)) == 1, env
+
 
 def test_sync_read_with_a_playlists_file_that_cannot_be_read_is_config_invalid_and_stores_nothing(synced, capsys):
     found = synced(["mp3", "aiff"])
