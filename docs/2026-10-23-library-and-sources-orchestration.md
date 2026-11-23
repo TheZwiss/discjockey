@@ -1665,7 +1665,18 @@ Results:
         left unbuilt by the agent: I ran `npm run build` (53 files, hash cascade) and committed `build(hub): static`.
         Merged into `feat/cli-4-writes` 147697f6; CI watched. Hand-backs none. Phase 4 so far 4 630k. Record: a Sonnet
         build with a contract commit + fake + window edits logs ~316k: V4.2b's ~200k is likely low.
-      - **RESUME HERE (LATEST, 2026-11-23, V4.2b):** v1.4.0 draft waits for the user's "publish" (then
+      - V4.2b split before dispatch (brief 200k × V4.2a's 1.44 overshoot = 288k > 250k) at its commit boundary:
+        part 1 = §2.1 mechanism + commit (1); part 2 = §2.2-2.6 + commits (2)-(3), same branch
+        `feat/cli-4-playlist-commands` (WT cli4-2b). V4.2b-1 done (Sonnet, `a14fc633`): **165k** (exp. 150k; 36 calls,
+        cache 4.3M, fresh 163k, out 40k, advisor 0k). 47473ef1, suite 7075 passed. Hand-off for part 2 in
+        `.claude/issue39/phase4/handoff-V4.2b-1.md`. No hand-backs. Phase 4 so far 4 795k.
+      - **RESUME HERE (LATEST, 2026-11-23, V4.2b-2):** v1.4.0 draft waits for the user's "publish" (then
+        `gh release edit v1.4.0 --draft=false` + memory `project_public_release.md`). V4.2b-2 (Sonnet, exp. 200k, WT
+        cli4-2b on top of 47473ef1, brief V4.2b.md §2.2-2.6 + commits (2)-(3) + handoff-V4.2b-1.md) running; then
+        merge `feat/cli-4-playlist-commands` into `feat/cli-4-writes`, CI, rows 13-16 (V4.2 reviews A/B, fix,
+        rehearsal) by `.claude/issue39/phase4/phase4-dispatch.md`. V4.3/V4.4 add `prejob_save_playlists` /
+        `prejob_tidy_up`. Rules 12 + 14 in every prompt. Phase 4 so far 4 795k. No release beyond v1.4.0.
+      - RESUME HERE (superseded, 2026-11-23, V4.2b): v1.4.0 draft waits for the user's "publish" (then
         `gh release edit v1.4.0 --draft=false` + memory `project_public_release.md`). Phase 4: CI on 147697f6, then
         V4.2b (row 12) by `.claude/issue39/phase4/phase4-dispatch.md`, measured first (V4.2a overshot to 316k: split
         if the record puts it over ~250k); its prompt says: a J entry's engine refusal → `CliApi.prejob_<method>`.
