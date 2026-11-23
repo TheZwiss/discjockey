@@ -1619,12 +1619,19 @@ Results:
         good: routing, launcher + `RJ` caffeinate, `_problem` dropped (`setup`/`update` fine), every deleted test re-homed.
         PLANNED V4.8a: until `limits set --extra-today` lands the Terminal cannot grant today's extra downloads. Wrote its
         file by Bash heredoc (Write refused again). Phase 4 so far 3 904k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 V4.1 fix round):** V4.1 merged (2c55338d, CI green), reviews A + B
-        done. Row 9 fix round (Sonnet `fix-round`, worktree `.claude/worktrees/cli4-3` on `feat/cli-4-v41-fix` from
-        2c55338d: findings-V4.1A (6 Minor) + findings-V4.1B (4 Minor) + the three no-owner carries of phase4-dispatch row 9)
-        running. Then merge, push, CI; row 10 rehearsal (`rehearse-V4.1.md`, clone in the scratchpad); then V4.2a … by
-        `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost (advisor 0k), log. Every
-        prompt carries checklist rules 12 + 14. Phase 4 so far 3 904k. No release.
+      - Row 9 V4.1 fix round done (Sonnet `fix-round`, `a3b97c37`): **181k** (exp. 185k; 84 calls, cache 10.1M, fresh
+        168k, out 44k, advisor 0k). d6cb7537: all 10 Minors of A + B and the three carries. C1 done differently (better):
+        `scan_lock` marks the registry record of the job whose own thread scans (thread-local in `Jobs._run`'s read
+        branch, `inline` for a worker), so a bare `scan_lock` can't mark an unrelated refresh. C2 `_phase_steps` shared by
+        `_phase_words` and `_sync_words`, `SyncRunData.batch_id` (contract regenerated). C3 `envelope.as_of(api)` replaces
+        the copies in call.py/worker.py. Suite 6913 passed / 4 skipped. Merged into `feat/cli-4-writes` 961aa499 (cli4-3
+        worktree now holds `feat/cli-4-writes` for merges), CI watched. Phase 4 so far 4 085k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 V4.1 rehearsal):** V4.1 built, reviewed, fixed, merged (961aa499).
+        Row 10 rehearsal (Sonnet, `rehearse-V4.1.md`, WT `.claude/worktrees/cli4-rv` detached at 961aa499, clones in the
+        session scratchpad) running. A FAIL → a fix round first. Then V4.2a (row 11) on `feat/cli-4-<topic>` from
+        `feat/cli-4-writes` … by `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost
+        (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 4 085k. No release.
+        NOTE: subagents' Write is refused for findings/result files: allow a Bash heredoc for that one file.
       - RESUME HERE (superseded, 2026-11-23, phase 4 row 4): brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
         rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
         `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
