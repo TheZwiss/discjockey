@@ -6,9 +6,8 @@ import pytest
 
 from discjockey.events import Result
 from discjockey.library import Paths
-from discjockey.models import Action, Plan, SourceTrack
 from discjockey.report import (
-    SECTIONS, RunLog, auto_upgrade_line, check_text, render_line, render_not_lossless, render_plan, render_report,
+    PLAN_LABELS, SECTIONS, RunLog, auto_upgrade_line, check_text, render_line, render_not_lossless, render_report,
     summary, upgrades_waiting, write_not_lossless, write_run,
 )
 
@@ -71,47 +70,10 @@ def test_not_lossless_md_when_everything_is_lossless(tmp_path):
     assert "Every track in your playlists is lossless" in paths.not_lossless_md.read_text()
 
 
-def act(kind, id, reason="", **kw):
-    return Action(kind, id, "A", SourceTrack(id, f"Song {id}", ("Artist",), "Al", None, 1, None), (0, 0),
-                  reason=reason, **kw)
-
-
-def test_render_plan_counts_and_truncates():
-    actions = [act("acquire", f"t{i}", reason="new") for i in range(25)] + [
-        act("adopt_bought", "m1", src="Library/A/Artist - Song m1.wav")]
-    text = render_plan(Plan({"tracks": {}}, actions, [], [], []), full=False)
-    assert "Download (new): 25" in text and "... and 5 more" in text
-    assert "Add a bought file: 1" in text and "[A] Artist - Song m1" in text
-    assert "... and" not in render_plan(Plan({"tracks": {}}, actions, [], [], []), full=True)
-
-
 def test_a_song_of_the_users_own_is_labelled_your_music():
-    own = SourceTrack("1", "Night Drive", ("Example Artist",), "", None, 200000, None, service="local")
-    plan = Plan({"tracks": {}}, [Action("upgrade", "local:1", "", own, (1, 0))], [], [], [])
-    text = render_plan(plan, full=True)
-    assert "    [your music] Example Artist - Night Drive" in text and "[]" not in text
     line = render_line(Result("checked", "", "Example Artist", "Night Drive", "local:1", "no better version yet"))
     assert line == "- [your music] Example Artist - Night Drive — no better version yet"
     assert render_line(Result("checked", "A", "Artist", "Song", "t1")).startswith("- [A] Artist - Song")
-
-
-def test_the_plan_names_an_own_songs_folder_as_its_run_report_does():
-    """The dry run's lines file an own song under the folder its file sits in, as the run report does (result_folder,
-    leftovers C2): "your music" only when that can't be told."""
-    own = SourceTrack("1", "Night Drive", ("Example Artist",), "", None, 200000, None, service="local")
-    action = Action("upgrade", "local:1", "", own, (1, 0))
-    state = {"tracks": {"local:1": {"path": "/Users/dj/Music/Rekordbox/Hard/Night Drive.mp3"}}}
-    where = {"/Users/dj/Music/Rekordbox/Hard/Night Drive.mp3": "Rekordbox › Hard"}.get
-    text = render_plan(Plan(state, [action], [], [], []), full=True, where=lambda p: where(p) or "")
-    assert "    [Rekordbox › Hard] Example Artist - Night Drive" in text and "your music" not in text
-    unknown = render_plan(Plan(state, [action], [], [], []), full=True, where=lambda p: "")
-    assert "    [your music] Example Artist - Night Drive" in unknown
-    pl = act("acquire", "t1", reason="new")  # a playlist song keeps its playlist folder, whatever `where` says
-    assert f"    [{pl.folder}] " in render_plan(Plan({"tracks": {}}, [pl], [], [], []), full=True, where=lambda p: "X")
-
-
-def test_render_plan_up_to_date():
-    assert "up to date" in render_plan(Plan({"tracks": {}}, [], [], [], []), full=False)
 
 
 def test_parked_upgrades_are_listed_near_the_top_of_the_report():
@@ -260,12 +222,12 @@ def test_a_report_links_a_track_of_every_playlist_service():
 
 def test_a_redownload_is_worded_for_a_missing_file():
     """Issue 43 §3: the plan line and the run's section say the file was missing, not gone."""
-    plan = render_plan(Plan({"tracks": {}}, [act("acquire", "t1", reason="redownload")], [], [], []), full=True)
-    assert "Download again (its file is missing): 1" in plan
+    label = dict(PLAN_LABELS)["acquire:redownload"]
+    assert label == "Download again (its file is missing)"
     log = RunLog(STARTED)
     log.add(Result("redownloaded", "A", "Artist", "Song", "t1", "q"))
     assert "Downloaded again (its file was missing)" in render_report(log, FINISHED)
-    assert "gone" not in plan
+    assert "gone" not in label
 
 
 def test_the_sections_no_run_makes_any_more_are_gone():

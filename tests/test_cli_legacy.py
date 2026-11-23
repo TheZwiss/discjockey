@@ -94,11 +94,10 @@ def test_setup_with_a_google_qobuz_account_shows_the_password_steps(root, monkey
     assert "alias discjockey=" in out and str(REPO / "bin" / "discjockey") in out and "bin/discjockey" in out
 
 
-def test_without_a_music_folder_the_console_says_where_to_choose_it(tmp_path, monkeypatch, capsys):
+def test_without_a_music_folder_update_says_where_to_choose_it(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("DISCJOCKEY_SUPPORT", str(tmp_path / "support"))
-    for command in (["update"],):
-        assert cli.main(command) == 2
-        assert cli.NOT_CHOSEN_TEXT in capsys.readouterr().out
+    assert cli.main(["update"]) == 2
+    assert cli.NOT_CHOSEN_TEXT in capsys.readouterr().out
     assert not (tmp_path / "support" / "config.json").exists()
 
 

@@ -211,7 +211,10 @@ def _work(files: registry.JobFiles, record: dict, sink: Sink, api, signals: Stop
             return _stopped_reason(envelope.from_answer(command, answer, job=files.id), signals)
         if job is None or job.finished is None:  # the job ended without its JobFinished (a stop in the very first moment)
             return envelope.problem(command, "failed", "worker_lost", job=files.id)
-        return _stopped_reason(envelope.noted(api._job_envelope(command, method, job, files.id), method), signals)
+        env = api._job_envelope(command, method, job, files.id)
+        if env["outcome"] == "ok" and entries and "scan" in entries[0].locks:
+            env["as_of"] = {**env["as_of"], **(envelope.as_of(api) or {})}  # a read that scans: as a read says how fresh it is now
+        return _stopped_reason(envelope.noted(env, method), signals)
     except (ev.Cancelled, KeyboardInterrupt):
         return _stopped_reason(envelope.problem(command, "stopped", "stop", job=files.id), signals)
 
@@ -222,9 +225,7 @@ def _read_job(files: registry.JobFiles, command: str, method: str, args: dict, a
     a read has nothing to finish safely, and its plan is saved only after the method returns."""
     files.update(status="running")
     answer = _call(api, method, args)
-    fresh = api.freshness()
-    as_of = {key: fresh[key] for key in ("scanned_at", "read_at")} if fresh.get("ok") else None
-    env = envelope.from_answer(command, answer, job=files.id, as_of=as_of if answer.get("ok") else None)
+    env = envelope.from_answer(command, answer, job=files.id, as_of=envelope.as_of(api) if answer.get("ok") else None)
     entry = catalog.entry_of(method, command)
     if env["outcome"] == "ok" and entry is not None and entry.dry_run == method:
         # the read is a command's `--dry-run` (`aiff_plan`): its plan is saved like any dry run's (call._dry_run)

@@ -1,4 +1,4 @@
-"""One sync run, independent of how it is shown. The console (now) and the hub (later) both use these steps:
+"""One sync run, independent of how it is shown. The command line's jobs and the window both use these steps:
 
     prep = prepare(paths, ...)        load, recover, read the playlists, plan      (raises SetupProblem -> exit 2)
     ... the front end shows prep.plan and asks for confirmation ...
@@ -71,7 +71,6 @@ class Prepared:
     log: rep.RunLog
     lines: list[PlaylistLine] = field(default_factory=list)
     fetched: list[FetchedPlaylist] = field(default_factory=list)  # as read from the playlist services (the playlist page uses it)
-    import_waiting: int = 0  # files the next import works through (library.import_left; the console's W10 line)
     unread_folders: frozenset[str] = frozenset()  # folders of lines not read this time (paused Liked music); replan keeps them
     unread_members: dict = field(default_factory=dict)  # of those, folder -> track tokens of its last stored read
     read_id: int | None = None  # the stored read this plan is from (`store_read`'s answer; None: it could not be stored)
@@ -109,7 +108,6 @@ def prepare(paths: Paths, *, read_only: bool = False, emit: Emit = no_emit,
             state = _open(paths, log, emit, read_only=read_only) if held else library.load_state(paths)
             if held:  # signs a read outside a run met while the lock was not ours are recorded first (they pause)
                 state = record_pending(paths, state, lock_held, read_only)
-        import_waiting = library.import_left(paths)
     except config.ConfigError as e:
         raise SetupProblem(str(e), e.kind) from None
     except (StateError, SettingsError) as e:
@@ -143,8 +141,7 @@ def prepare(paths: Paths, *, read_only: bool = False, emit: Emit = no_emit,
         log.add(Result("dropped", e["folder"], e["artist"], e["title"], key))
     for key, track, folder, files in plan.ambiguous:
         log.add(Result("ambiguous", folder, track.first_artist, track.title, key, "; ".join(files)))
-    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, import_waiting, unread_folders,
-                    unread_members, read_id)
+    return Prepared(paths, plan.state, settings, plan, log, lines, fetched, unread_folders, unread_members, read_id)
 
 
 # How long recording a read waits for another writer (a job's transaction, e.g. an import's scan): long enough to
@@ -283,7 +280,7 @@ def replan(prep: Prepared) -> Prepared:
     plan = planner.plan(prep.fetched, state, state["files"], date.today(), first_checks=first_check_room(state, settings),
                         unread_folders=prep.unread_folders, unread_members=prep.unread_members)
     return Prepared(prep.paths, plan.state, settings, plan, rep.RunLog(datetime.now()), prep.lines, prep.fetched,
-                    library.import_left(prep.paths), prep.unread_folders, prep.unread_members, prep.read_id)
+                    prep.unread_folders, prep.unread_members, prep.read_id)
 
 
 def prepared_from_read(paths: Paths, loaded: LoadedRead) -> Prepared:
@@ -300,7 +297,7 @@ def prepared_from_read(paths: Paths, loaded: LoadedRead) -> Prepared:
                         first_checks=first_check_room(state, settings), unread_folders=unread_folders,
                         unread_members=unread_members)
     return Prepared(paths, plan.state, settings, plan, rep.RunLog(datetime.now()), loaded.lines, loaded.fetched,
-                    library.import_left(paths), unread_folders, unread_members, loaded.id)
+                    unread_folders, unread_members, loaded.id)
 
 
 def link_only(paths: Paths, prep: Prepared, emit: Emit = no_emit) -> Prepared:
@@ -352,7 +349,7 @@ def action_ids(prep: Prepared) -> dict[tuple[str, str, str], str]:
 
 def folder_names(prep: Prepared) -> Callable[[str], str] | None:
     """A file's path -> the name of the folder it sits in, as Sync names it (`hub.views.Sites.place`): what the run
-    report, the console's plan and the dry run file an own song under (it has no playlist). None when the records
+    report and the dry run file an own song under (it has no playlist). None when the records
     can't be read: they then say "your music"."""
     return folder_places(prep.paths, prep.state, prep.lines)
 

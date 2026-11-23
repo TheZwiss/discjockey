@@ -4477,6 +4477,11 @@ export type SyncRunData = SyncResult & {
   counts?: Record<string, number>;
   /** The songs that failed, empty when none did. Left out with `counts`. */
   failed?: SyncFailed[];
+  /**
+   * The batch the run's Auto-upgrade phase made, `aiff:<n>`; missing when it made none (the steps for you in
+   * rekordbox are the envelope's `person_steps`).
+   */
+  batch_id?: string;
 };
 /** One track of `check done`. */
 export type CheckDoneRow = {

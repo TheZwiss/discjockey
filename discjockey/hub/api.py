@@ -2252,15 +2252,15 @@ class HubApi:
             raise BadId("conflicting_flags", engine_words.SYNC_IDS_OR_HOW_MANY)
         n = self._how_many_n(how_many)
         preview = None
-        if plan_id is None or selected is None:
+        if plan_id is None:  # `selected` is None too: the stored read's plan, as a fresh preview shows it
             preview = self._sync_preview_view()
-            plan_id = plan_id or preview["plan_id"]
-            if plan_id is None:
+            if (plan_id := preview["plan_id"]) is None:
                 raise OpProblem(engine_words.SYNC_NEEDS_READ, "refused", reason="not_set_up",
                                 next=[{"run": "sync read", "why": "reads your playlists, so there is a plan"}])
-        plan = plan_store.load(self._support.support, plan_id, self._plan_root())
-        planned = self._planned_actions(plan)
+        # the plan it was given is checked before anything is planned: a refused start stores no plan
+        planned = self._planned_actions(plan_store.load(self._support.support, plan_id, self._plan_root()))
         if selected is None:
+            preview = preview or self._sync_preview_view()
             chosen = self._ticked_by_how_many(preview, planned, how_many, n)
         else:
             chosen = list(selected)
@@ -3572,17 +3572,18 @@ class HubApi:
             return self._upgrade_words(result, aiff=True)
         return {}
 
-    @staticmethod
-    def _sync_words(result: dict) -> dict:
+    def _sync_words(self, result: dict) -> dict:
         """`sync run`'s words, from the run's report (`report.write_run`'s `.json` beside the `.md` the result names):
-        `data.counts` (each report section with a result: its key -> how many), `data.failed` (the `errors` section's
+        `data.counts` (each report section with a result: its key -> how many), `data.failed` (the errors section's
         results, `text` the result's note) and the outcome by the failures: `partial` when something was done too
-        (`report.DONE_SECTIONS`), `failed` when nothing was; no failures, no `outcome` (the run's own). A report that
-        cannot be read says nothing."""
+        (`report.DONE_SECTIONS`), `failed` when nothing was; no failures, no `outcome` (the run's own). The Auto-upgrade
+        phase's batch, the steps only a person can do in rekordbox for it and what to run next are the phase alone's
+        (`_phase_steps`). A report that cannot be read says nothing, except that a run that ended with a failing exit
+        code is `failed` (it must not answer `ok`)."""
         try:
             data = json.loads(Path(result["report"]).with_suffix(".json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return {}
+            return {"outcome": "failed"} if result.get("exit_code") else {}
         rows = [r for r in data.get("results") or [] if isinstance(r, dict)]
         counts = {key: n for key, _ in rep.SECTIONS if (n := sum(1 for r in rows if r.get("section") == key))}
         failed = [{"track_id": r.get("track_id"), "artist": r.get("artist") or "", "title": r.get("title") or "",
@@ -3590,31 +3591,49 @@ class HubApi:
         out: dict = {"data": {"counts": counts, "failed": failed}}
         if failed:
             out["outcome"] = "partial" if rep.DONE_SECTIONS & counts.keys() else "failed"
+        if isinstance(data.get("auto_upgrade"), dict):
+            steps = self._phase_steps(data["auto_upgrade"])
+            out["data"].update(steps.get("data") or {})
+            out.update({key: steps[key] for key in ("next", "person_steps") if steps.get(key)})
         return out
 
-    def _phase_words(self, result: dict) -> dict:
-        """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
-        (`report.auto_upgrade_line`), the run's outcome (`partial` or `failed` by the tracks that failed only: a track
-        that waits or was refused is not a failure), its batch (`batch_id`), the steps only a person can do in rekordbox
-        (the upgrade batch's own words, `_upgrade_words`) and the report to read."""
-        block = result["auto_upgrade"]
-        if block is None:
-            return {"message": engine_words.AUTO_UPGRADE_OFF}
+    def _phase_steps(self, block: dict) -> dict:
+        """The Auto-upgrade phase's batch (`data.batch_id`), what to run next (`next`) and the steps only a person can do
+        in rekordbox (`person_steps`: the upgrade batch's own words, `_upgrade_words`), each left out when there is none.
+        `block` is `auto_upgrade.Outcome.to_dict()`. `sync run --auto-upgrade-only` (`_phase_words`) and a whole
+        `sync run` (`_sync_words`) say them through this one rule."""
         rows = block["results"]
-        out: dict = {"outcome": outcomes.run_outcome(rows, catalog.AUTO_UPGRADE_PARTIAL),
-                     "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
         batch = {"batch": block["batch"], "done": block["done"], "total": len(rows), "skipped": 0,
                  "failed": block["failed"], "results": [{"track": r["track"], "state": r["state"],
                                                          "action": r.get("action", "same_track")}
                                                         for r in rows if r["state"] in ("done", "failed")]}
         words = self._upgrade_words(batch) if isinstance(block["batch"], int) else {}
+        out: dict = {}
         if "batch_id" in (words.get("data") or {}):
             out["data"] = {"batch_id": words["data"]["batch_id"]}
-        out["next"] = [*(words.get("next") or ())]
-        if result.get("report"):
-            out["next"].append({"run": f"report show {result['report']}", "why": "what this run did, track by track"})
+        if words.get("next"):
+            out["next"] = [*words["next"]]
         if words.get("person_steps"):
             out["person_steps"] = words["person_steps"]
+        return out
+
+    def _phase_words(self, result: dict) -> dict:
+        """`sync run --auto-upgrade-only`: with the switch off, that nothing was moved (`ok`); else the phase's one line
+        (`report.auto_upgrade_line`), the run's outcome (`partial` or `failed` by the tracks that failed only: a track
+        that waits or was refused is not a failure), its batch, steps and next (`_phase_steps`) and the report to read."""
+        block = result["auto_upgrade"]
+        if block is None:
+            return {"message": engine_words.AUTO_UPGRADE_OFF}
+        out: dict = {"outcome": outcomes.run_outcome(block["results"], catalog.AUTO_UPGRADE_PARTIAL),
+                     "message": rep.auto_upgrade_line(block) or engine_words.AUTO_UPGRADE_NOTHING}
+        steps = self._phase_steps(block)
+        if steps.get("data"):
+            out["data"] = steps["data"]
+        out["next"] = [*(steps.get("next") or ())]
+        if result.get("report"):
+            out["next"].append({"run": f"report show {result['report']}", "why": "what this run did, track by track"})
+        if steps.get("person_steps"):
+            out["person_steps"] = steps["person_steps"]
         return out
 
     @staticmethod

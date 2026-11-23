@@ -313,7 +313,7 @@ def start_note(block: dict | None) -> str | None:
 def place_clause(placing: Sequence[dict]) -> str | None:
     """The before-start clause for the placements (`words.place_plan_line`) from their dry-run rows, None without any:
     it waits when a row waits for rekordbox (open, or a library that can't be read), and with one song it names it (the
-    row's `name`). The Sync page (`start_note`) and the console's plan lines say it through this one rule."""
+    row's `name`). The Sync page (`start_note`) and `sync plan` say it through this one rule."""
     if not placing:
         return None
     waits = any(r["state"] == "waiting" and r["reason"] in ("rekordbox_open", "rekordbox_unreadable") for r in placing)

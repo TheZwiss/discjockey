@@ -208,6 +208,9 @@ SELECTION_FLAGS = {"--rows": ("rows", True, None), "--in": ("where", False, "COL
 VALUE_FLAGS = {"--limit": "N", "--offset": "N"}  # the flags of a read that take a number (value word)
 
 
+SYNC_RUN_FORMS = {"selected": "action", "how_many": "how_many"}  # parameter -> key of `ids.FORMS`
+
+
 def form_of(name: str, arg: catalog.Arg, command: tuple[str, ...] = ()) -> str:
     """What a person types for this argument (or for a flag's value), as `help` and the usage errors write it: the
     `--way` words, the id kind's form (`ids.FORMS`), `plan:ID` for a plan, `on|off` for a switch word, else the
@@ -222,6 +225,8 @@ def form_of(name: str, arg: catalog.Arg, command: tuple[str, ...] = ()) -> str:
         return ids.FORMS[kind]
     if name == "plan_id":
         return ids.FORMS["plan"]
+    if name in SYNC_RUN_FORMS:  # `sync run`'s action ids and its `--how-many` amount
+        return ids.FORMS[SYNC_RUN_FORMS[name]]
     return "on|off" if arg.type == "bool" else name.upper()
 
 

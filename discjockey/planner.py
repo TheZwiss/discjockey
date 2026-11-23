@@ -162,7 +162,7 @@ def tidy_rows(state: dict, folders: Mapping[str, str] | None = None, *,
 
 
 def out_of_place(state: dict) -> int:
-    """Files a tidy-up would move by default (the console line and the Playlists page count): user- or
+    """Files a tidy-up would move by default (the Playlists page count, `doctor`'s `out_of_place`): user- or
     import-placed files and rows that can't move don't count (plan stage 2, P1)."""
     return sum(1 for r in tidy_rows(state) if r.ticked)
 

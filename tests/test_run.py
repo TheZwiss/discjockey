@@ -738,18 +738,6 @@ def test_link_only_saves_the_links_and_downloads_nothing(paths, monkeypatch):
     assert library.load_state(paths)["tracks"]["local:1"]["last_attempt"] == "2026-10-02"  # the other write stays
 
 
-def test_files_waiting_to_be_imported_reach_prepared(paths, tmp_path_factory):
-    run.prepare(paths)  # makes library.db
-    assert run.prepare(paths).import_waiting == 0
-    mine = tmp_path_factory.mktemp("mine")
-    write_aiff(mine / "Example Artist - Night Drive.aiff", music(2))
-    with db.connect(paths.db_file) as conn:
-        db.add_watched_folder(conn, mine, datetime.now())
-    prep = run.prepare(paths)  # its scan finds the file
-    assert prep.import_waiting == 1
-    assert run.replan(prep).import_waiting == 1
-
-
 def test_an_import_links_its_files_with_the_real_link_only_from_a_stale_read(paths, tmp_path_factory, monkeypatch):
     from discjockey import importer
     from discjockey.quality import AudioInfo

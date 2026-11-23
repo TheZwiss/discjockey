@@ -63,7 +63,7 @@ export function clampLimit(v: number, max: number): number {
   return Math.min(max, Math.max(1, Math.round(v)));
 }
 /** The extra-for-today choices: None, +5, +10, +20, +40 (up to the max), plus the saved amount when it is another
- * one (set from the console with --extra), so the strip always shows what is set. */
+ * one (another amount can be saved from the Terminal), so the strip always shows what is set. */
 export function extraOptions(saved: number, max: number): { key: string; label: string }[] {
   const amounts = [...new Set([0, 5, 10, 20, 40, saved])].filter((n) => n <= max).sort((a, b) => a - b);
   return amounts.map((n) => ({ key: String(n), label: n ? `+${n}` : 'None' }));

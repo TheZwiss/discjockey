@@ -12,6 +12,14 @@ from ..hub.outcomes import EXIT, NO_AS_OF, REASONS, VERSION, envelope  # noqa: F
 YOUR_TURN = "Your turn: "  # what starts each line of `person_steps` on stderr (`cli/__init__.py` notices, `follow.py`)
 
 
+def as_of(api) -> dict | None:
+    """How fresh the index and the playlist read are (`HubApi.freshness`, from the stored records), for the envelope of
+    a read and of a finished `sync read`. A freshness that cannot be had (a damaged library.db) leaves both null: it never
+    fails the answer."""
+    fresh = api.freshness()
+    return {key: fresh[key] for key in ("scanned_at", "read_at")} if fresh.get("ok") else None
+
+
 def noted(env: dict, method: str, dry: bool = False) -> dict:
     """`env` as it is, after the check of an ok envelope's final `data` against the shape `help --json` prints for it
     (`shapes.note_cli_data`; test mode only)."""

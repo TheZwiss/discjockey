@@ -1484,10 +1484,10 @@ def library_counts(conn: sqlite3.Connection) -> ImportCounts:
 
 
 def import_left(conn: sqlite3.Connection) -> int:
-    """The files the next import works through (the console's W10 line, plan library stage 4): in any watched folder
+    """The files the next import works through (plan library stage 4): in any watched folder
     (Library/ too: a file moved there before the import finished it, import_waiting), online, not held, not read yet
     (`new`) or read but not judged (`identified`). Unreadable ones are left out: the import tries them again, but
-    they wait for no one (the console would ask for them every run)."""
+    they wait for no one."""
     return conn.execute(
         "SELECT COUNT(*) FROM files f "
         "WHERE f.online = 1 AND f.held = 0 AND f.import_state IN ('new', 'identified')").fetchone()[0]
