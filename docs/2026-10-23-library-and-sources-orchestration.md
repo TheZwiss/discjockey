@@ -1544,12 +1544,20 @@ Results:
         link → `bad_args` + `playlist check`; `op_words`/`undo_op` built in V4.2a; history's undo line gains
         `--if-version`; commits 3+4 merged (shape check). V4.2a → ~220k, V4.2b ~191k. Record: one-brief check ~275k
         (the smallest unit; checks 2b/3a/3b ~275k each). Wave A ≈ 6.1M, phase 4 ≈ 12.9M. Phase 4 so far 1 926k.
+      - Brief check V4.2b done (Opus, `a473b622`): **267k** (exp. 275k; 89 calls, cache 15.6M, fresh 253k, out 89k,
+        advisor 0k). check-V4.2b.md: 0 Critical, 5 Important (all only here: `--way` would show required in help --json
+        beside `--all`; usage line order/brackets; the dry run's apply line isn't always last (`library scan` can follow)
+        → test picks by words, "Next: lines"; fixtures had no stored read so needs_choice/files tests couldn't happen;
+        `call` refusal had no words), 14 Minor; nothing handed back. Deviation 4 kept with a true reason; T1 pins the
+        TypedDict params + `NOT_OFFERED_YET` (V4.3 removes it and `WITHOUT_ITEMS`); V4.2b now needs no contract commit.
+        V4.2b → ~200k; wave A builds 1 345k. Correction: phase 4 ≈ 13.1M (dispatch table; the V4.2a entry said 12.9M).
+        Phase 4 so far 2 193k.
       - **RESUME HERE (LATEST, 2026-11-23, phase 4 brief checks):** run `.claude/issue39/phase4/phase4-dispatch.md` rows
-        in order, one at a time: 2a done; 2b (brief check V4.2b) running → 3a → 3b, each
+        in order, one at a time: 2a, 2b done; 3a (brief check V4.3) running → 3b, each
         Opus fresh by `brief-check.md`, measured < ~250k. On each notice: ps, agent-cost (advisor 0k), log, a hand-back
         → one warm-cache question at once. Then row 4 (Sonnet, review + rehearsal files), then `feat/cli-4-writes` from
         main and the builds (5a/5b = V4.1a in two parts). Every prompt carries checklist rules 12 + 14. Phase 4 so far
-        1 926k. No release.
+        2 193k. No release.
       - RESUME HERE (superseded, 2026-11-22, phase 4 detailing wave A running): user "go" for phase 4 (open-scope Decided).
         Sizing (me): `.claude/issue39/phase4/size_writes.py` → sizing-writes.md (54 planned entries, V4.1-V4.8),
         size.py + groups.json → sizing.md. Two detailing waves (8 groups too big for one run; phase 3's one run for 3
