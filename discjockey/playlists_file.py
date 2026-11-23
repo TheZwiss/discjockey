@@ -10,11 +10,11 @@ import hashlib
 import os
 import unicodedata
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
-from . import config, sources
+from . import config, sources, words
 from .library import fsync_dir, full_fsync
 from .models import FetchedPlaylist, PlaylistLine, SourceTrack, split_token, token
 from .names import fold
@@ -151,6 +151,220 @@ def save(path: Path, rows: list[Row], loaded_version: str) -> str:
         tmp.unlink(missing_ok=True)
     fsync_dir(path.parent)
     return version_of(new)
+
+
+# --- rules of the list and the single changes to it ---
+
+OPS = ("add", "remove", "rename", "move", "enable", "disable", "edit")
+# What each change needs, in the order its refusal names the missing ones, and what else it may carry (`add` only).
+_NEEDS = {"add": ("url",), "remove": ("playlist",), "rename": ("playlist", "folder"), "move": ("playlist", "to"),
+          "enable": ("playlist",), "disable": ("playlist",), "edit": ("file",)}
+_MAY = {"add": ("folder", "at", "off")}
+_KINDS = {"url": str, "playlist": str, "folder": str, "file": str, "at": int, "to": int, "off": bool}
+# The operation names a change is logged under (`history` reads them), the window's whole-list save and Liked music
+LOGGED = {"add": "playlist_add", "remove": "playlist_remove", "rename": "playlist_rename", "move": "playlist_move",
+          "enable": "playlist_enable", "disable": "playlist_disable", "edit": "playlist_edit"}
+SAVED = "playlist_saved"
+LIKED_ADDED = "liked_music_add"
+FOLDER_PREFIX = "playlist:"  # `playlist:<folder>` names a playlist by its folder, never as a link or a flag
+
+
+def _name(folder: str) -> str:
+    """A folder name as the list keeps it: NFC (macOS may hand back NFD) and trimmed."""
+    return unicodedata.normalize("NFC", folder).strip()
+
+
+def folder_problem(name: str, rows: list[Row], own_ref: str | None = None) -> str | None:
+    """Why `name` can't be a playlist's folder, in the window's own words, or None. The playlist whose ref is `own_ref`
+    may keep its own name (a case-only rename is fine)."""
+    n = name.strip()
+    if not n:
+        return words.FOLDER_NEEDED
+    if "/" in n:
+        return words.FOLDER_SLASH
+    if n in (".", ".."):
+        return words.FOLDER_PICK_ANOTHER
+    other = next((r for r in rows if r.ref != own_ref and fold(r.folder) == fold(n)), None)
+    return words.FOLDER_USED.format(folder=other.folder) if other else None
+
+
+def listed(rows: list[Row], link: str) -> Row | None:
+    """The row that lists the playlist `link` names (the same playlist by its ref, however the link is written), or None."""
+    found = sources.recognise(link.strip())
+    ref = token(*found) if found else None
+    return next((r for r in rows if ref is not None and r.ref == ref), None)
+
+
+def find(rows: list[Row], playlist: str) -> int:
+    """The index of the row `playlist` names: `playlist:<folder>` is a folder (never read as a link), else a link a
+    source recognises names the row with its ref, else the text is a folder name (compared as `fold` does).
+    `ValueError` when none or more than one row fits."""
+    text = playlist.strip()
+    if text.startswith(FOLDER_PREFIX):
+        name = text[len(FOLDER_PREFIX):].strip()
+        hits = [i for i, r in enumerate(rows) if fold(r.folder) == fold(name)]
+    elif (found := sources.recognise(text)) is not None:
+        name, ref = text, token(*found)
+        hits = [i for i, r in enumerate(rows) if r.ref == ref]
+    else:
+        name = text
+        hits = [i for i, r in enumerate(rows) if fold(r.folder) == fold(name)]
+    if not hits:
+        raise ValueError(words.PLAYLIST_NOT_FOUND.format(name=name))
+    if len(hits) > 1:
+        raise ValueError(words.PLAYLIST_TWO.format(name=name))
+    return hits[0]
+
+
+
+def check_op(op: object) -> dict:
+    """The change `op` as a dict, or `ValueError` saying what is wrong with it: no `op`, an `op` Discjockey doesn't know,
+    a missing key, a key this change doesn't use, a value of the wrong kind. Checks the shape only; `apply` checks the
+    values against the rows."""
+    if not isinstance(op, dict) or "op" not in op:
+        raise ValueError(words.PLAYLIST_OP_NEEDS.format(op="playlist", fields="op"))
+    name = op["op"]
+    if name not in OPS:
+        raise ValueError(words.PLAYLIST_OP_UNKNOWN.format(op=name))
+    missing = [k for k in _NEEDS[name] if k not in op]
+    if missing:
+        raise ValueError(words.PLAYLIST_OP_NEEDS.format(op=name, fields=" and ".join(missing)))
+    allowed = ("op", *_NEEDS[name], *_MAY.get(name, ()))
+    for key in op:
+        if key not in allowed:
+            raise ValueError(words.PLAYLIST_OP_FIELD.format(field=key, op=name))
+    for key, value in op.items():
+        kind = _KINDS.get(key)
+        if kind is not None and (not isinstance(value, kind) or (kind is int and isinstance(value, bool))):
+            raise ValueError(words.PLAYLIST_OP_TYPE.format(field=key, kind=words.PLAYLIST_OP_KINDS[kind.__name__]))
+    return op
+
+
+def _place(n: int, last: int) -> int:
+    if not 1 <= n <= last:
+        raise ValueError(words.PLAYLIST_PLACE.format(n=last))
+    return n
+
+
+def apply(rows: list[Row], op: dict) -> list[Row]:
+    """Pure (but for `edit`, which reads its file): the rows after one change. `ValueError` with the words when the
+    change can't be made to these rows."""
+    op = check_op(op)
+    rows = list(rows)
+    name = op["op"]
+    if name == "add":
+        link = clean_link(op["url"])
+        if listed(rows, link) is not None:
+            raise ValueError(words.PLAYLIST_LISTED)
+        if "folder" not in op:
+            raise ValueError(words.PLAYLIST_OP_NEEDS.format(op="add", fields="folder"))
+        folder = _name(op["folder"])
+        if problem := folder_problem(folder, rows):
+            raise ValueError(problem)
+        at = _place(op.get("at", len(rows) + 1), len(rows) + 1)
+        rows.insert(at - 1, Row(folder, link, not op.get("off", False)))
+    elif name == "edit":
+        path = Path(op["file"])
+        if not path.is_absolute():
+            raise ValueError(words.PLAYLIST_FILE_FULL_PATH)
+        if not path.is_file():
+            raise ValueError(words.PLAYLIST_FILE_MISSING.format(path=path))
+        loaded = load(path)
+        if loaded.problem:
+            raise ValueError(loaded.problem)
+        rows = loaded.rows
+    else:
+        i = find(rows, op["playlist"])
+        if name == "remove":
+            del rows[i]
+        elif name == "rename":
+            folder = _name(op["folder"])
+            if problem := folder_problem(folder, rows, own_ref=rows[i].ref):
+                raise ValueError(problem)
+            rows[i] = replace(rows[i], folder=folder)
+        elif name == "move":
+            rows.insert(_place(op["to"], len(rows)) - 1, rows.pop(i))
+        else:
+            rows[i] = replace(rows[i], enabled=name == "enable")
+    return rows
+
+
+# --- the change log: the words of a change, its undo and what `history` says of it ---
+
+def op_words(op: dict) -> list[str]:
+    """The command words that make the change `op` (checked, and for `add` with its folder): the one writer of them, for
+    the undo `history` offers and for a dry run's lines."""
+    name = op["op"]
+    if name == "add":
+        out = ["playlist", "add", op["url"]]
+        if "folder" in op:
+            out += ["--folder", op["folder"]]
+        if "at" in op:
+            out += ["--at", str(op["at"])]
+        return out + (["--off"] if op.get("off") else [])
+    if name == "rename":
+        return ["playlist", "rename", op["playlist"], op["folder"]]
+    if name == "move":
+        return ["playlist", "move", op["playlist"], "--to", str(op["to"])]
+    if name == "edit":
+        return ["playlist", "edit", "--file", op["file"]]
+    return ["playlist", name, op["playlist"]]
+
+
+def undo_op(before: list[Row], op: dict | None, copy: str | None) -> dict:
+    """The change that puts `before` (the rows the change `op` was made to) back. `op` None (the window's whole-list
+    save) or `edit` can only be undone by replacing the list with `copy`, the file as it was. The playlist in it is
+    always `playlist:<folder>`, so no folder is read as a flag or a link."""
+    if op is None or op["op"] == "edit":
+        if copy is None:
+            raise ValueError("Undoing a replaced list needs the copy of the file as it was.")
+        return {"op": "edit", "file": copy}
+    name = op["op"]
+    if name == "add":
+        return {"op": "remove", "playlist": FOLDER_PREFIX + _name(op["folder"])}
+    i = find(before, op["playlist"])
+    row = before[i]
+    if name == "remove":
+        back: dict = {"op": "add", "url": row.link, "folder": row.folder, "at": i + 1}
+        return back | ({} if row.enabled else {"off": True})
+    if name == "rename":
+        return {"op": "rename", "playlist": FOLDER_PREFIX + _name(op["folder"]), "folder": row.folder}
+    if name == "move":
+        return {"op": "move", "playlist": FOLDER_PREFIX + row.folder, "to": i + 1}
+    # enable / disable: the switch back as it was (a switch already so changes nothing and is never logged)
+    return {"op": "enable" if row.enabled else "disable", "playlist": FOLDER_PREFIX + row.folder}
+
+
+def _said(before: list[Row], op: dict) -> tuple[str, dict]:
+    """The operation's name and the words' fields of the change `op` (not an add of Liked music)."""
+    name = op["op"]
+    if name == "add":
+        return LOGGED[name], {"folder": _name(op["folder"]), "at": op.get("at", len(before) + 1)}
+    if name == "edit":
+        return LOGGED[name], {"file": op["file"]}
+    i = find(before, op["playlist"])
+    fields = {"folder": before[i].folder}
+    if name == "rename":
+        fields |= {"old": before[i].folder, "new": _name(op["folder"])}
+    elif name == "move":
+        fields |= {"old": i + 1, "to": op["to"]}
+    return LOGGED[name], fields
+
+
+def change_log(before: list[Row], op: dict | None, copy: str | None) -> tuple[str, str, list[str]]:
+    """`(operation, message, undo words)` for the change `op` made to `before` (`op` None: the window's whole-list
+    save, `copy` the file as it was). What `ops.log_change` writes and `history` offers; an add of YouTube Music's Liked
+    music is logged as its own operation, whichever way it was added."""
+    undo = op_words(undo_op(before, op, copy))
+    if op is None:
+        return SAVED, words.PLAYLIST_LOGGED[SAVED], undo
+    found = sources.recognise(op["url"].strip()) if op["op"] == "add" else None
+    if found is not None and token(*found) == LIKED_MUSIC_REF:
+        return LIKED_ADDED, words.PLAYLIST_LOGGED[LIKED_ADDED].format(folder=_name(op["folder"])), undo
+    operation, fields = _said(before, op)
+    switched_off = operation == LOGGED["add"] and op.get("off")
+    template = words.PLAYLIST_LOGGED_ADD_OFF if switched_off else words.PLAYLIST_LOGGED[operation]
+    return operation, template.format(**fields), undo
 
 
 # --- what a change does ---

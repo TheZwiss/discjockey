@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from discjockey import playlists_file as pf
+from discjockey import playlists_file as pf, words
 from discjockey.config import ConfigError, parse_playlists
 from discjockey.models import SourceTrack
 from discjockey.planner import ENTRY_KEYS
@@ -250,3 +250,289 @@ def test_renames_by_playlist_in_the_new_order_without_case_only_ones():
     new = [Row("Trance", OLD[1].link, False), Row("Hard Bounce", f"spotify:playlist:{ID1}")]
     assert pf.renames(OLD, new) == [("Powertrance", "Trance"), ("Hard_Bounce", "Hard Bounce")]
     assert pf.renames(OLD, OLD) == [] and pf.renames(OLD, []) == []
+
+
+# --- the rules of the list and the single changes to it (issue 39 V4.2a) ---
+
+SC = "https://soundcloud.com/some-dj/sets/warm-up"
+QB = "https://open.qobuz.com/playlist/1234567"
+LIKED = "https://music.youtube.com/playlist?list=LM"
+LIST = [Row("Hard_Bounce", pf.clean_link(URL1)), Row("Old", f"spotify:playlist:{ID3}", False),
+        Row("Powertrance", pf.clean_link(f"https://open.spotify.com/playlist/{ID2}"))]
+
+
+def shape(rows):
+    return [(r.folder, r.ref, r.enabled) for r in rows]
+
+
+def raised(fn, *args):
+    with pytest.raises(ValueError) as e:
+        fn(*args)
+    return str(e.value)
+
+
+@pytest.mark.parametrize("name, own, said", [
+    ("  ", None, "A folder name is needed."),
+    ("a/b", None, 'A folder name can\'t contain "/".'),
+    (" . ", None, "Pick another folder name."),
+    ("..", None, "Pick another folder name."),
+    ("powertrance", None, "Another playlist already uses the folder Powertrance."),
+    ("POWERTRANCE", ID2, None),  # its own folder, other case: a case-only rename
+    ("powertrance", ID1, "Another playlist already uses the folder Powertrance."),
+    ("Fresh", None, None),
+])
+def test_folder_problem(name, own, said):
+    assert pf.folder_problem(name, LIST, own) == said
+
+
+def test_folder_problem_compares_folded_names():
+    rows = [Row("Café", pf.clean_link(URL1))]  # NFC
+    assert pf.folder_problem("Café", rows)  # NFD spelling of the same name
+
+
+@pytest.mark.parametrize("link", [URL1, f"spotify:playlist:{ID1}", f"https://open.spotify.com/playlist/{ID1}?si=zzz"])
+def test_listed_finds_a_spotify_playlist_whatever_the_link_looks_like(link):
+    assert pf.listed(LIST, link) is LIST[0]
+
+
+@pytest.mark.parametrize("link", [SC, QB, LIKED])
+def test_listed_by_ref_for_every_service(link):
+    rows = [*LIST, Row("X", pf.clean_link(link))]
+    assert pf.listed(rows, link) is rows[-1]
+    assert pf.listed(LIST, link) is None
+
+
+def test_listed_is_none_for_a_link_nobody_knows():
+    assert pf.listed(LIST, "https://example.com/x") is None
+
+
+def test_find_by_folder_ignores_case_and_spelling():
+    assert pf.find(LIST, "powertrance") == 2
+    assert pf.find(LIST, "  Old ") == 1
+
+
+def test_find_with_the_playlist_prefix_reads_a_folder_never_a_link():
+    assert pf.find(LIST, "playlist:Powertrance") == 2
+    rows = [Row("spotify:playlist:" + ID1, pf.clean_link(URL1)), Row("Other", pf.clean_link(f"https://open.spotify.com/playlist/{ID2}"))]
+    assert pf.find(rows, "playlist:spotify:playlist:" + ID1) == 0
+    assert pf.find(rows, "spotify:playlist:" + ID2) == 1  # without the prefix it is a link
+
+
+def test_find_by_link_including_a_si_variant():
+    assert pf.find(LIST, URL1) == 0
+    assert pf.find(LIST, f"spotify:playlist:{ID3}") == 1
+
+
+def test_find_names_none_and_two():
+    assert raised(pf.find, LIST, "Nothing") == "None of your playlists is called Nothing."
+    assert raised(pf.find, LIST, "playlist:Nothing") == "None of your playlists is called Nothing."
+    assert raised(pf.find, LIST, "https://open.spotify.com/playlist/0Unlisted") == (
+        "None of your playlists is called https://open.spotify.com/playlist/0Unlisted.")
+    twins = [Row("Same", pf.clean_link(URL1)), Row("same", pf.clean_link(f"https://open.spotify.com/playlist/{ID2}"))]
+    assert raised(pf.find, twins, "SAME") == "SAME names more than one of your playlists: say its folder name."
+
+
+@pytest.mark.parametrize("op", ["add", None, 5, {"playlist": "x"}])
+def test_check_op_needs_an_op_key(op):
+    assert raised(pf.check_op, op) == "A playlist change needs op."
+
+
+def test_check_op_refusals():
+    assert raised(pf.check_op, {"op": "merge"}) == "Discjockey can't make the change merge to your playlists."
+    assert raised(pf.check_op, {"op": "add"}) == "A add change needs url."
+    assert raised(pf.check_op, {"op": "rename"}) == "A rename change needs playlist and folder."
+    assert raised(pf.check_op, {"op": "move", "at": 2}) == "A move change needs playlist and to."
+    assert raised(pf.check_op, {"op": "edit"}) == "A edit change needs file."
+    assert raised(pf.check_op, {"op": "remove", "playlist": "x", "to": 2}) == "to is not part of a remove change."
+    assert raised(pf.check_op, {"op": "add", "url": URL1, "playlist": "x"}) == "playlist is not part of a add change."
+    assert raised(pf.check_op, {"op": "enable", "playlist": "x", "off": True}) == "off is not part of a enable change."
+
+
+@pytest.mark.parametrize("op, said", [
+    ({"op": "add", "url": 5}, "url in a playlist change takes text."),
+    ({"op": "add", "url": URL1, "at": "2"}, "at in a playlist change takes a whole number."),
+    ({"op": "add", "url": URL1, "at": True}, "at in a playlist change takes a whole number."),
+    ({"op": "move", "playlist": "x", "to": 1.5}, "to in a playlist change takes a whole number."),
+    ({"op": "add", "url": URL1, "off": "yes"}, "off in a playlist change takes true or false."),
+    ({"op": "rename", "playlist": "x", "folder": None}, "folder in a playlist change takes text."),
+])
+def test_check_op_types(op, said):
+    assert raised(pf.check_op, op) == said
+
+
+def test_apply_add_at_the_end_with_its_folder_trimmed_and_normalised():
+    rows = pf.apply(LIST, {"op": "add", "url": f"  {SC}?x=1 ", "folder": "  Warm\u0075\u0308p "})
+    assert rows[-1] == Row("Warm\u00fcp", pf.clean_link(SC), True)  # NFC, trimmed, the clean link, switched on
+    assert shape(rows[:3]) == shape(LIST) and len(LIST) == 3  # the input is untouched
+
+
+def test_apply_add_at_a_place_and_switched_off():
+    rows = pf.apply(LIST, {"op": "add", "url": QB, "folder": "Q", "at": 2, "off": True})
+    assert [(r.folder, r.enabled) for r in rows] == [("Hard_Bounce", True), ("Q", False), ("Old", False), ("Powertrance", True)]
+    assert [r.folder for r in pf.apply(LIST, {"op": "add", "url": QB, "folder": "Q", "at": 1})][0] == "Q"
+    assert pf.apply(LIST, {"op": "add", "url": QB, "folder": "Q", "at": 4})[-1].folder == "Q"
+
+
+@pytest.mark.parametrize("at", [0, 5, -1])
+def test_apply_add_refuses_a_place_outside_the_list(at):
+    assert raised(pf.apply, LIST, {"op": "add", "url": QB, "folder": "Q", "at": at}) == (
+        "A place in your playlists goes from 1 to 4.")
+
+
+def test_apply_add_refusals_come_in_order():
+    assert raised(pf.apply, LIST, {"op": "add", "url": "https://example.com/x", "folder": "Q"}).startswith(
+        "That isn't a playlist link")
+    assert raised(pf.apply, LIST, {"op": "add", "url": URL1, "folder": "Q"}) == "This playlist is already in your list."
+    assert raised(pf.apply, LIST, {"op": "add", "url": URL1}) == "This playlist is already in your list."
+    assert raised(pf.apply, LIST, {"op": "add", "url": QB}) == "A add change needs folder."
+    assert raised(pf.apply, LIST, {"op": "add", "url": QB, "folder": "old"}) == (
+        "Another playlist already uses the folder Old.")
+    assert raised(pf.apply, LIST, {"op": "add", "url": QB, "folder": " "}) == "A folder name is needed."
+
+
+def test_apply_remove_rename_move_and_the_switches():
+    assert [r.folder for r in pf.apply(LIST, {"op": "remove", "playlist": "old"})] == ["Hard_Bounce", "Powertrance"]
+    renamed = pf.apply(LIST, {"op": "rename", "playlist": "Old", "folder": "Older"})
+    assert [(r.folder, r.link, r.enabled) for r in renamed] == [(r.folder if r.folder != "Old" else "Older", r.link, r.enabled)
+                                                                for r in LIST]
+    assert pf.apply(LIST, {"op": "rename", "playlist": "Powertrance", "folder": "POWERTRANCE"})[2].folder == "POWERTRANCE"
+    assert [r.folder for r in pf.apply(LIST, {"op": "move", "playlist": "Powertrance", "to": 1})] == [
+        "Powertrance", "Hard_Bounce", "Old"]
+    assert [r.folder for r in pf.apply(LIST, {"op": "move", "playlist": "Hard_Bounce", "to": 3})] == [
+        "Old", "Powertrance", "Hard_Bounce"]
+    assert [r.enabled for r in pf.apply(LIST, {"op": "enable", "playlist": "Old"})] == [True, True, True]
+    assert [r.enabled for r in pf.apply(LIST, {"op": "disable", "playlist": "Old"})] == [True, False, True]
+    assert pf.apply(LIST, {"op": "enable", "playlist": "Hard_Bounce"}) == LIST  # already on: nothing changes
+
+
+def test_apply_refusals_of_the_other_changes():
+    assert raised(pf.apply, LIST, {"op": "rename", "playlist": "Old", "folder": "powertrance"}) == (
+        "Another playlist already uses the folder Powertrance.")
+    assert raised(pf.apply, LIST, {"op": "rename", "playlist": "Old", "folder": "a/b"}) == 'A folder name can\'t contain "/".'
+    assert raised(pf.apply, LIST, {"op": "move", "playlist": "Old", "to": 4}) == "A place in your playlists goes from 1 to 3."
+    assert raised(pf.apply, LIST, {"op": "move", "playlist": "Old", "to": 0}) == "A place in your playlists goes from 1 to 3."
+    assert raised(pf.apply, LIST, {"op": "remove", "playlist": "Zed"}) == "None of your playlists is called Zed."
+    assert raised(pf.apply, LIST, {"op": "nonsense"}) == "Discjockey can't make the change nonsense to your playlists."
+
+
+def test_apply_edit_takes_the_rows_of_a_file(tmp_path, path):
+    rows = pf.apply([Row("Z", pf.clean_link(QB))], {"op": "edit", "file": str(path)})
+    assert shape(rows) == shape(pf.load(path).rows)
+
+
+def test_apply_edit_refusals(tmp_path):
+    assert raised(pf.apply, LIST, {"op": "edit", "file": "relative.txt"}) == "Give the playlists file as a full path."
+    gone = tmp_path / "gone.txt"
+    assert raised(pf.apply, LIST, {"op": "edit", "file": str(gone)}) == f"There is no file at {gone}."
+    bad = tmp_path / "bad.txt"
+    bad.write_text("Same = " + URL1 + "\nSame = " + URL1 + "\n", encoding="utf-8")
+    assert raised(pf.apply, LIST, {"op": "edit", "file": str(bad)}) == pf.load(bad).problem
+
+
+# (the op, the words that make it)
+WORDS = [
+    ({"op": "add", "url": QB, "folder": "Q"}, ["playlist", "add", QB, "--folder", "Q"]),
+    ({"op": "add", "url": QB, "folder": "Q", "at": 2, "off": True},
+     ["playlist", "add", QB, "--folder", "Q", "--at", "2", "--off"]),
+    ({"op": "add", "url": QB, "folder": "Q", "off": False}, ["playlist", "add", QB, "--folder", "Q"]),
+    ({"op": "remove", "playlist": "Old"}, ["playlist", "remove", "Old"]),
+    ({"op": "enable", "playlist": "Old"}, ["playlist", "enable", "Old"]),
+    ({"op": "disable", "playlist": "Old"}, ["playlist", "disable", "Old"]),
+    ({"op": "rename", "playlist": "Old", "folder": "Older"}, ["playlist", "rename", "Old", "Older"]),
+    ({"op": "move", "playlist": "Old", "to": 3}, ["playlist", "move", "Old", "--to", "3"]),
+    ({"op": "edit", "file": "/x/y.txt"}, ["playlist", "edit", "--file", "/x/y.txt"]),
+]
+
+
+@pytest.mark.parametrize("op, said", WORDS)
+def test_op_words(op, said):
+    assert pf.op_words(op) == said
+
+
+# (the op, the message, the undo words) for LIST
+LOG = [
+    ({"op": "add", "url": QB, "folder": "Q"}, "playlist_add", "Added the playlist Q at place 4.",
+     ["playlist", "remove", "playlist:Q"]),
+    ({"op": "add", "url": QB, "folder": "Q", "at": 2, "off": True}, "playlist_add",
+     "Added the playlist Q at place 2, switched off.", ["playlist", "remove", "playlist:Q"]),
+    ({"op": "remove", "playlist": "Powertrance"}, "playlist_remove",
+     "Removed the playlist Powertrance. Its files stay in your library.",
+     ["playlist", "add", f"https://open.spotify.com/playlist/{ID2}", "--folder", "Powertrance", "--at", "3"]),
+    ({"op": "remove", "playlist": "Old"}, "playlist_remove",
+     "Removed the playlist Old. Its files stay in your library.",
+     ["playlist", "add", f"spotify:playlist:{ID3}", "--folder", "Old", "--at", "2", "--off"]),
+    ({"op": "rename", "playlist": "Old", "folder": "Older"}, "playlist_rename", "Renamed the playlist Old to Older.",
+     ["playlist", "rename", "playlist:Older", "Old"]),
+    ({"op": "move", "playlist": "Powertrance", "to": 1}, "playlist_move",
+     "Moved the playlist Powertrance from place 3 to place 1.", ["playlist", "move", "playlist:Powertrance", "--to", "3"]),
+    ({"op": "enable", "playlist": "old"}, "playlist_enable", "Switched the playlist Old on.",
+     ["playlist", "disable", "playlist:Old"]),
+    ({"op": "disable", "playlist": "Powertrance"}, "playlist_disable",
+     "Switched the playlist Powertrance off. Its files stay.", ["playlist", "enable", "playlist:Powertrance"]),
+    ({"op": "edit", "file": "/x/new.txt"}, "playlist_edit", "Replaced your playlists with the list in /x/new.txt.",
+     ["playlist", "edit", "--file", "/x/copy.txt"]),
+    (None, "playlist_saved", "Saved your playlists in the window.", ["playlist", "edit", "--file", "/x/copy.txt"]),
+]
+
+
+@pytest.mark.parametrize("op, operation, message, undo", LOG)
+def test_change_log(op, operation, message, undo):
+    assert pf.change_log(LIST, op, "/x/copy.txt") == (operation, message, undo)
+    if op is not None and op["op"] != "edit":
+        assert undo == pf.op_words(pf.undo_op(LIST, op, "/x/copy.txt"))
+
+
+def test_an_add_of_liked_music_is_logged_as_its_own_operation_by_either_path():
+    for op in ({"op": "add", "url": LIKED, "folder": "Liked_music"},
+               {"op": "add", "url": LIKED, "folder": "Liked_music", "at": 1, "off": True}):
+        assert pf.change_log(LIST, op, None) == ("liked_music_add", "Added Liked music as the playlist Liked_music.",
+                                                 ["playlist", "remove", "playlist:Liked_music"])
+
+
+def test_the_logged_names_are_the_ones_history_knows():
+    assert set(pf.LOGGED) == set(pf.OPS) and set(words.PLAYLIST_LOGGED) == {*pf.LOGGED.values(), pf.SAVED, pf.LIKED_ADDED}
+
+
+ROUND_TRIP = [op for op, _ in WORDS if op["op"] != "edit"] + [
+    {"op": "remove", "playlist": "Powertrance"}, {"op": "remove", "playlist": "Old"},
+    {"op": "rename", "playlist": "Powertrance", "folder": "POWERTRANCE"},
+    {"op": "move", "playlist": "Hard_Bounce", "to": 3}, {"op": "move", "playlist": "Powertrance", "to": 1},
+    {"op": "enable", "playlist": "Old"}, {"op": "disable", "playlist": "Hard_Bounce"},
+    {"op": "add", "url": QB, "folder": "Q", "at": 1}]
+
+
+@pytest.mark.parametrize("op", ROUND_TRIP, ids=lambda op: " ".join(pf.op_words(op)))
+def test_a_change_and_its_undo_leave_the_list_as_it_was(op):
+    after = pf.apply(LIST, op)
+    undo = pf.undo_op(LIST, op, "/unused")
+    assert shape(pf.apply(after, undo)) == shape(LIST)
+
+
+def test_an_edit_and_a_window_save_are_undone_by_the_copy(tmp_path):
+    copy = tmp_path / "copy.txt"
+    copy.write_text(pf.render("", LIST), encoding="utf-8")
+    other = tmp_path / "other.txt"
+    other.write_text(f"Z = {QB}\n", encoding="utf-8")
+    for op in ({"op": "edit", "file": str(other)}, None):
+        after = pf.apply(LIST, {"op": "edit", "file": str(other)})
+        undo = pf.undo_op(LIST, op, str(copy))
+        assert undo == {"op": "edit", "file": str(copy)}
+        assert shape(pf.apply(after, undo)) == shape(LIST)
+
+
+def test_an_undone_remove_brings_back_a_clean_link(tmp_path):
+    rows = [Row("A", URL1), Row("B", pf.clean_link(QB))]  # A was written with ?si=
+    op = {"op": "remove", "playlist": "A"}
+    after = pf.apply(rows, op)
+    undo = pf.undo_op(rows, op, None)
+    assert undo["url"] == URL1
+    back = pf.apply(after, undo)
+    assert back[0].link == f"https://open.spotify.com/playlist/{ID1}" and shape(back) == shape(rows)
+
+
+def test_undo_words_name_the_playlist_by_its_folder_even_when_the_folder_looks_like_a_flag_or_a_link():
+    rows = [Row("--to", pf.clean_link(URL1)), Row(f"spotify:playlist:{ID2}", pf.clean_link(QB))]
+    for op in ({"op": "disable", "playlist": "playlist:--to"}, {"op": "move", "playlist": f"playlist:spotify:playlist:{ID2}", "to": 1}):
+        undo = pf.undo_op(rows, op, None)
+        assert undo["playlist"].startswith("playlist:")
+        assert shape(pf.apply(pf.apply(rows, op), undo)) == shape(rows)
