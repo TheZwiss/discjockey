@@ -166,7 +166,7 @@ class Acquirer:
             steps = []
             if track.isrc and qobuz_search:
                 steps.append(("ISRC", track.isrc, lambda c: isrc_match(track, c, skip)))
-            if qobuz_search:
+            if qobuz_search and track.named:
                 steps.append(("name", f"{track.first_artist} {track.title}", lambda c: qobuz_match(track, c, skip)))
             how = {"ISRC": "isrc", "name": "name"}
             searched = 0

@@ -160,6 +160,8 @@ class FallbackSource:
         out = []
         if track.isrc:
             out.append(("youtube_music", f"{YTM_SEARCH}{quote_plus(track.isrc)}#songs", 3))
+        if not track.named:  # a search by name for no title finds nothing worth taking
+            return out
         out += [
             ("youtube_music", f"{YTM_SEARCH}{quote_plus(q)}#songs", 3),
             ("soundcloud", f"scsearch5:{q}", 5),
@@ -172,6 +174,8 @@ class FallbackSource:
         queries(). A DRM-protected upload is left out: it can never be used. `sources`: only these."""
         queries = [q for q in self.queries(track) if sources is None or q[0] in sources]
         errors: list[str] = []
+        if not queries:  # a track without a title and without an ISRC: nothing to ask
+            return [], errors
 
         def run(q: tuple[str, str, int]) -> dict | Exception:
             source, url, _ = q

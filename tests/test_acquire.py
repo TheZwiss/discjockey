@@ -638,3 +638,16 @@ def test_the_source_is_known_before_the_protection_pause(tmp_path):
     a.acquire(T, set(), tmp_path, False, tracker)
     names = [e if isinstance(e, str) else type(e).__name__ for e in events]
     assert names.index("SourceChosen") < names.index("between") < names.index("StepChanged", names.index("between"))
+
+
+def test_a_track_without_a_title_is_never_searched_by_name(tmp_path):
+    """A nameless track once sent a blank query: Qobuz answered 400 and the failures paused the whole run."""
+    q = FakeQobuz()
+    f = FakeFallback()
+    a, state = acquirer(q, f)
+    nameless = SourceTrack("soundcloud:9", "", (), "", None, 0, None, service="soundcloud")
+    r = a.acquire(nameless, set(), tmp_path, lossless_only=False)
+    assert q.searches == [] and r.kind == "missing" and r.errors == [] and used(state) == 0
+    with_isrc = SourceTrack("soundcloud:9", " ", (), "", None, 0, "DE1", service="soundcloud")
+    a.acquire(with_isrc, set(), tmp_path, lossless_only=False)
+    assert q.searches == ["DE1"]  # the ISRC search stays: it needs no name

@@ -153,6 +153,12 @@ class SourceTrack:
         return self.artists[0] if self.artists else ""
 
     @property
+    def named(self) -> bool:
+        """Whether the track has a title. Without one a search by name asks for nothing (Qobuz answers 400, which
+        counts as a failed request toward its auto-stop), so every name search is left out for such a track."""
+        return bool(self.title.strip())
+
+    @property
     def key(self) -> str:
         return token(self.service, self.id)
 

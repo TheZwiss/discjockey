@@ -95,7 +95,10 @@ def search(track: SourceTrack, entry: dict, qobuz, fallback,
     pace_error: list[BaseException] = []  # what the pacer raised (Stop, or its file failing): re-raised in the caller
 
     def search_qobuz() -> None:
-        for query in ([track.isrc] if track.isrc else []) + [f"{track.first_artist} {track.title}"]:
+        queries = [track.isrc] if track.isrc else []
+        if track.named:
+            queries.append(f"{track.first_artist} {track.title}")
+        for query in queries:
             if pace is not None:
                 try:
                     pace()

@@ -84,6 +84,17 @@ def test_search_reports_failed_searches():
     assert notes[0].startswith("Qobuz search failed:") and notes[1] == "SoundCloud search failed: HTTP Error 403"
 
 
+def test_search_by_name_is_left_out_for_a_track_without_a_title():
+    nameless = SourceTrack("soundcloud:9", "", (), "", None, 0, None, service="soundcloud")
+    qobuz = FakeQobuz({})
+    found, notes = candidates.search(nameless, entry(), qobuz, FakeFallback([]))
+    assert qobuz.queries == [] and found == [] and notes == []
+    qobuz = FakeQobuz({})
+    candidates.search(SourceTrack("soundcloud:9", "", (), "", None, 0, "DE1", service="soundcloud"), entry(), qobuz,
+                      FakeFallback([]))
+    assert qobuz.queries == ["DE1"]
+
+
 def test_search_waits_for_its_slot_before_each_qobuz_request():
     order = []
 

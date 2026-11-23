@@ -1579,11 +1579,76 @@ Results:
         a stored read; V4.4 makes out-of-place files with `playlist rename --files leave`. Gaps it saw (for the builds, no
         owner needed): exit code of `partial`/`failed` (outcomes.py answers it); V4.2a's copy for ops other than a lines
         save / `edit`. Phase 4 so far 2 842k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 builds):** brief checks and row 4 done. `feat/cli-4-writes` from main;
-        row 5a (V4.1a part 1: §6 commits (1)-(2), Sonnet, worktree `.claude/worktrees/cli4-1` on `feat/cli-4-sync`)
-        running. Then 5b (commit (3) on the same branch), merge into `feat/cli-4-writes` (--no-ff), push, CI, then row 6
-        V4.1b, … by `.claude/issue39/phase4/phase4-dispatch.md`, one at a time, each measured at dispatch. Per agent: ps,
-        agent-cost (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 2 842k. No release.
+      - Row 5a V4.1a part 1 done (Sonnet, `ab24e303`): **193k** (exp. 190k; 82 calls, cache 10.4M, fresh 192k, out 54k,
+        advisor 0k). `feat/cli-4-sync` 60090f41 (engine: `views.ticks`, `prepare(read_only)`, adopted `start_refresh`,
+        `scan_lock` registry mark, `start_sync(how_many)`, `save_plan` guard, `_sync_words`) + cf548988 (contract:
+        `SyncRunData`, client.ts, fake, shapes, doc). Suite 6905 passed / 1 failed → test fixed by amend, file re-run green
+        (full suite again in 5b). Decided: `dry_run` → `read_only` through `_open`/`record_signs`/`record_pending` too; new
+        words `SYNC_IDS_NEED_PLAN`, `SYNC_IDS_OR_HOW_MANY`, `SYNC_NEEDS_READ`, `BAD_HOW_MANY`, `SYNC_READING`; the window's
+        `start_sync(None, [])` now says the ids belong to a plan (Start is disabled without a plan). Notes for 5b passed
+        on. Phase 4 so far 3 035k.
+      - Row 5b V4.1a part 2 done (Sonnet, `a515a86e`): **219k** (exp. 170k, 1.29x; 68 calls, cache 10.6M, fresh 205k,
+        out 44k, advisor 0k). f1712915: catalogue `SWITCHES` + `switch_of` (`PHASE_ONLY` gone), `call._by_switch`, lock
+        word `scan` (T10 wraps `Jobs.scan_lock`), `SyncRunData.counts/failed` NotRequired, goldens (`sync_run.txt` the
+        whole sync, the phase page `git mv` to `sync_run_auto_upgrade_only.txt`), `PLANNED_CEILING` 52, test_cli_sync.py
+        8 tests, README. Suite 6932 passed / 4 skipped over all three commits. Root fix: `jobs.lock_free` opened the lock
+        with `O_CREAT` (a dry run left an empty `.lock`); pinned in test_library_ops. Deviation: `sync run --dry-run`
+        without a stored read answers ok with `plan_id` null (it is `sync plan`'s answer). Two no-owner gaps (scope-check:
+        NO OWNER) → row 9 (V4.1 fix round): `sync run`'s envelope lacks the phase's batch id / rekordbox check
+        `person_steps` / `next`; a finished `sync read` has `as_of` null. Merged `feat/cli-4-sync` into
+        `feat/cli-4-writes` b847de55 (V4.1a diff base 4e3e7fe5, tip f1712915), pushed; worktree cli4-1 + branch removed;
+        CI watched. Phase 4 so far 3 254k.
+      - Row 6 V4.1b done (Sonnet, `a7afb031`): **243k** (exp. 208k; 84 calls, cache 13.9M, fresh 228k, out 51k, advisor
+        0k). Five commits f17eccb5..e864eba1: bare sync gone (`parse` answers `SYNC_MOVED_WORDS` for a line with no
+        command), console sync lines / `prepare(extra=, scan=)` / launcher `caffeinate` out, docs, `rehearse-sync` on
+        `sync read` + `sync run`, scan tests re-pinned. Every deleted legacy test re-homed (list in its report); `--extra`
+        not re-pinned (V4.8a owns `limits set --extra-today`). Suite 6904 passed / 2 failed → fixed, file re-run green
+        (CI runs the full suite). Merged into `feat/cli-4-writes` 2c55338d (V4.1b diff base b847de55, tip e864eba1);
+        worktree cli4-2 + branch removed. CI on b847de55 green; on 2c55338d watched. Review diffs measured: A 125 KB ≈
+        31k, B 134 KB ≈ 33k (both ≤ ~40k). Phase 4 so far 3 497k.
+      - Row 7 V4.1 review A done (Sonnet, `a161f885`): **231k** (exp. 160k, 1.44x; 63 calls, cache 9.1M, fresh 214k, out
+        67k, advisor 0k; 879 touched tests + five scratch scenarios). 0 Critical, 0 Important, 6 Minor: M1 `help` usage
+        forms for `--how-many`/`act:ID`; M2 the fake's old `start_sync(null)` word; M3 a refused `start_sync --plan <bad>`
+        stores a fresh plan first; M4 unreadable report + exit ≠ 0 answers ok; M5 three pinned behaviours untested; M6
+        `scan_lock` marks `library_lock` true with no lock. PLANNED V4.3 (plan command check), V4.7b (issue 42). Its Write
+        was refused ("subagents should return findings as text"): I saved `findings-V4.1A.md` from its message. CI green
+        on 2c55338d. Record: a Sonnet review of a ~31k diff ≈ 230k (not 160k). Phase 4 so far 3 728k.
+      - Row 8 V4.1 review B done (Sonnet, `ae882676`): **176k** (exp. 230k; 58 calls, cache 6.4M, fresh 162k, out 41k,
+        advisor 0k). 0 Critical, 0 Important, 4 Minor (dead `report.render_plan` / `Prepared.import_waiting` /
+        `library.import_left`; nine stale comments; a test name claiming more than it pins; a one-element loop). Judged
+        good: routing, launcher + `RJ` caffeinate, `_problem` dropped (`setup`/`update` fine), every deleted test re-homed.
+        PLANNED V4.8a: until `limits set --extra-today` lands the Terminal cannot grant today's extra downloads. Wrote its
+        file by Bash heredoc (Write refused again). Phase 4 so far 3 904k.
+      - Row 9 V4.1 fix round done (Sonnet `fix-round`, `a3b97c37`): **181k** (exp. 185k; 84 calls, cache 10.1M, fresh
+        168k, out 44k, advisor 0k). d6cb7537: all 10 Minors of A + B and the three carries. C1 done differently (better):
+        `scan_lock` marks the registry record of the job whose own thread scans (thread-local in `Jobs._run`'s read
+        branch, `inline` for a worker), so a bare `scan_lock` can't mark an unrelated refresh. C2 `_phase_steps` shared by
+        `_phase_words` and `_sync_words`, `SyncRunData.batch_id` (contract regenerated). C3 `envelope.as_of(api)` replaces
+        the copies in call.py/worker.py. Suite 6913 passed / 4 skipped. Merged into `feat/cli-4-writes` 961aa499 (cli4-3
+        worktree now holds `feat/cli-4-writes` for merges), CI watched. Phase 4 so far 4 085k.
+      - Row 10 V4.1 rehearsal done (Sonnet, `a9729c56`, cut by the 5-hour limit once, resumed by SendMessage):
+        **113k** (exp. 120k; 46 calls, cache 3.2M, fresh 202k, out 35k, advisor 0k). CI green on 961aa499. 10 PASS, 3
+        SKIPPED (2, 6, 9: the clone has no stored read; an offline read can't be made), 5 FAIL = one finding: every
+        engine-decided `sync run` refusal (unknown plan, ids without `--plan`, bad `--how-many`, not read yet) starts a
+        `job _worker` and leaves a done job record; words/outcomes/exits right. Decided (mine, by review A M3 "a refused
+        write changes nothing" and V4.3's "before the job" pattern): validate before the job is made → a small V4.1 fix
+        round. B1 held during the steps; the real library changed meanwhile by the user's running app (pid 54193), not
+        us. B2 clean. Then the user reported a live SoundCloud bug (private set: ~30 of 35 tracks nameless, Qobuz search
+        400 x3): investigation agent (Sonnet, branch `fix/soundcloud-set-tracks` from main, worktree fix-sc) dispatched
+        first. Phase 4 so far 4 198k.
+      - **RESUME HERE (LATEST, 2026-11-23, SoundCloud fix, then V4.1 pre-job fix):** the user's live SoundCloud bug
+        first: Sonnet investigation+fix on `fix/soundcloud-set-tracks` (worktree `.claude/worktrees/fix-sc`, from main)
+        running. On its notice: ps, agent-cost, log; merge into main (public check, push, CI), then main into
+        `feat/cli-4-writes`. Release only on the user's go. Next: a Sonnet V4.1 fix round (engine-decided `sync run`
+        refusals before the job: no worker, no job record; rehearsal-V4.1.md), then V4.2a (row 11) by
+        `.claude/issue39/phase4/phase4-dispatch.md`. Every prompt carries checklist rules 12 + 14. Phase 4 so far
+        4 198k. No release.
+      - RESUME HERE (superseded, 2026-11-23, phase 4 V4.1 rehearsal): V4.1 built, reviewed, fixed, merged (961aa499).
+        Row 10 rehearsal (Sonnet, `rehearse-V4.1.md`, WT `.claude/worktrees/cli4-rv` detached at 961aa499, clones in the
+        session scratchpad) running. A FAIL → a fix round first. Then V4.2a (row 11) on `feat/cli-4-<topic>` from
+        `feat/cli-4-writes` … by `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost
+        (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 4 085k. No release.
+        NOTE: subagents' Write is refused for findings/result files: allow a Bash heredoc for that one file.
       - RESUME HERE (superseded, 2026-11-23, phase 4 row 4): brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
         rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
         `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
