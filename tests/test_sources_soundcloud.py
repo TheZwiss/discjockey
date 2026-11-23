@@ -384,6 +384,75 @@ def test_a_batch_answer_keeps_a_full_track_with_an_empty_title(world, paths, mon
     assert [t.id for t in fetched.tracks] == ["900000201"] and fetched.skipped == []
 
 
+# SoundCloud lists a set's first tracks in full and every other one as `{id, kind, monetization_model, policy}`: a
+# `policy` is no sign of a full track (the live bug: all of those tracks were read as full and came out nameless)
+STUB = {"kind": "track", "monetization_model": "AD_SUPPORTED", "policy": "MONETIZE"}
+
+
+def stubbed_set(world, monkeypatch, ids, private_tracks=(), unknown=()):
+    """A private set whose first track is full and whose `ids` are stubs; the batch answers every id but `unknown`
+    in full (the ones in `private_tracks` are private tracks that name no token of their own)."""
+    full = {"id": 900000401, "kind": "track", "title": "Example Artist - First", "policy": "ALLOW",
+            "user": {"username": "Example Label"}, "permalink_url": "https://soundcloud.com/example-label/first"}
+    listing = {"id": 900000001, "kind": "playlist", "title": "S", "user": {}, "sharing": "private",
+               "tracks": [full] + [{"id": i, **STUB} for i in ids]}
+
+    def answer(i):
+        return {"id": i, "kind": "track", "title": f"Example Artist - Title {i}", "policy": "MONETIZE",
+                "sharing": "private" if i in private_tracks else "public",
+                "user": {"username": "Example Label"}, "artwork_url": f"https://i1.sndcdn.com/artworks-{i}-large.jpg",
+                "permalink_url": f"https://soundcloud.com/example-label/title-{i}"}
+
+    def serve(url, query):
+        if "resolve" in url:
+            return listing
+        assert url == API + "tracks"
+        return [answer(int(i)) for i in query["ids"].split(",") if int(i) not in unknown]
+    monkeypatch.setattr(world, "serve", serve)
+
+
+def test_a_stub_that_carries_a_policy_is_still_a_stub():
+    assert source._is_stub({"id": 900000996, **STUB})
+    assert not source._is_stub({"id": 900000996, "title": "T", "policy": "ALLOW", "user": {"id": 1}})
+    assert not source._is_stub({"id": 900000996, "permalink_url": "https://soundcloud.com/a/b", "policy": "ALLOW"})
+
+
+def test_a_set_with_full_tracks_and_stubs_names_every_track(world, paths, monkeypatch):
+    stubbed_set(world, monkeypatch, [900000402, 900000403, 900000404])
+    fetched = read(paths)
+    assert [t.id for t in fetched.tracks] == ["900000401", "900000402", "900000403", "900000404"]
+    assert fetched.skipped == [] and len(world.calls) == 2  # the resolve and one batch
+    assert world.calls[1][1]["ids"] == "900000402,900000403,900000404"  # the stubs only, not the full track
+    for t in fetched.tracks:
+        assert t.title and t.artists and t.link and t.service == "soundcloud"
+    filled = fetched.tracks[2]
+    assert (filled.artists, filled.title) == (("Example Artist",), "Title 900000403")
+    assert filled.image_url == "https://i1.sndcdn.com/artworks-900000403-t500x500.jpg"
+    assert filled.link == "https://soundcloud.com/example-label/title-900000403"
+
+
+def test_a_private_sets_stubs_are_fetched_with_its_token_and_carry_it(world, paths, monkeypatch):
+    stubbed_set(world, monkeypatch, [900000402, 900000403], private_tracks={900000403})
+    line = PlaylistLine("House", SET_ID + "/s-SetTok123", 3, "soundcloud")
+    fetched = read(paths, line)
+    batch = world.calls[1][1]
+    assert batch["playlistSecretToken"] == "s-SetTok123" and batch["playlistId"] == "900000001"
+    assert [t.secret() for t in fetched.tracks] == [None, None, "s-SetTok123"]  # only the private one needs it
+    import dataclasses
+    shown = repr(fetched.tracks) + repr([dataclasses.asdict(t) for t in fetched.tracks]) + repr(fetched.skipped)
+    assert "SetTok123" not in shown
+
+
+def test_a_stub_that_cannot_be_filled_is_skipped_never_a_nameless_track(world, paths, monkeypatch):
+    stubbed_set(world, monkeypatch, [900000402, 900000403, 900000404], unknown={900000403})
+    line = PlaylistLine("House", SET_ID + "/s-SetTok123", 3, "soundcloud")
+    fetched = read(paths, line)
+    assert [t.id for t in fetched.tracks] == ["900000401", "900000402", "900000404"]
+    assert fetched.skipped == ["A track SoundCloud no longer shows (ID 900000403)"]
+    assert all(t.title for t in fetched.tracks)
+    assert "SetTok123" not in repr(fetched.skipped)
+
+
 # --- 2.3 errors ------------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("status", [401, 403, 404])

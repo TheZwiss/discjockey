@@ -270,9 +270,11 @@ def parse_track(obj: object, set_secret: str | None = None) -> SourceTrack | str
 
 
 def _is_stub(track: object) -> bool:
-    """A track the set lists by id only (SoundCloud fills in the first few of a set): no policy and no uploader. A
-    full track with an empty title is not one."""
-    return isinstance(track, dict) and bool(track.get("id")) and "policy" not in track and "user" not in track
+    """A track the set lists by id only: SoundCloud fills in the first few tracks of a set and leaves every other one
+    as `{id, kind, monetization_model, policy}`, so `policy` says nothing. A stub has no `title`, `user` or page link
+    (every full track has them, even with an empty title)."""
+    return (isinstance(track, dict) and bool(track.get("id"))
+            and not any(key in track for key in ("title", "user", "permalink_url")))
 
 
 class SoundCloudReader:
