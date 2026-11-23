@@ -89,20 +89,18 @@ absolute path of the program.
   deletes a file (a replaced file moves to `Superseded/`), writes rekordbox's library only while rekordbox is closed,
   takes a backup first, can be undone, and takes the library lock like the window. Never run a real sync, upgrade or
   download while working on the code: it changes the library and counts against the Qobuz daily limit.
-- **Not rebuilt yet:** the sync (no command), `setup` and `update` still run the old command line (`cli/legacy.py`).
-  `setup` asks Setup's questions in the Terminal, the music folder first (it needs a real Terminal window), and ends
-  with the line that lets you type just `discjockey`; `update` gets the newest yt-dlp (`discjockey setup --help` and
-  `discjockey update --help` print their flags). The words that are gone answer `bad_args` and say what to say instead:
-  `upgrades` (say `upgrade …`), `upgrade undo` (say `track undo`), `rekordbox checked` (say `check done`), `convert` and
-  `rename` (say `aiff convert …` and `aiff rename …`), `settings auto-upgrade` (say `settings set auto-upgrade on|off`;
-  `settings show` reads). The sync takes `--dry-run` (moves and downloads nothing, writes no report and saves no
-  `--extra`, but still stores the playlists it read in `library.db`), `--yes` (no question), `--limit N` (at most N
-  downloads), `--extra N` (N more Qobuz downloads today), `--verbose` and `--json` (needs `--yes` or `--dry-run`; one
-  object `{"ok", "exit_code", "dry_run", "report", "counts", "auto_upgrade"}`, or `{"ok": false, "kind", "message"}` for
-  a problem, every human line on stderr); exit 0 done, 1 errors in the run, a crash or `--json` without
-  `--yes`/`--dry-run`, 2 setup problem or no music folder, 3 another run holds the library or the support lock (for
-  `update` also a tools update that runs), 130 stopped (Ctrl-C once stops after the current step, twice stops at once).
-  Each word leaves with the group that builds its replacement.
+- **Not rebuilt yet:** `setup` and `update` still run the old command line (`cli/legacy.py`; `setup_cmd.py` holds
+  them). `setup` asks Setup's questions in the Terminal, the music folder first (it needs a real Terminal window), and
+  ends with the line that lets you type just `discjockey`; `update` gets the newest yt-dlp (`discjockey setup --help` and
+  `discjockey update --help` print what they take: no flags). Exit codes: 0 done, 2 setup problem or no music folder,
+  3 another run holds the library or the support lock (for `update` also a tools update that runs), 130 stopped.
+  The words that are gone answer `bad_args` and say what to say instead: the bare sync (`discjockey --dry-run`,
+  `--yes`, `--limit N`, `--extra N`: say `sync run`, `sync run --dry-run` to look first, `sync run --how-many N` for at
+  most N downloads, and `limits set qobuz <n> --extra-today N` for the extra downloads of today), `upgrades` (say
+  `upgrade …`), `upgrade undo` (say `track undo`), `rekordbox checked` (say `check done`), `convert` and `rename` (say
+  `aiff convert …` and `aiff rename …`), `settings auto-upgrade` (say `settings set auto-upgrade on|off`; `settings
+  show` reads). No argument prints the short help (`--json` the catalogue). Each old word leaves with the group that
+  builds its replacement.
 
 `help --json` layout: `data` is `{command, version, global_flags: [{flag, says}], commands: [...], call_methods: [...]}`
 (`call_methods`: every bridge method `call` accepts). Each command: `command` (`rekordbox status`), `kind` (`R` read,

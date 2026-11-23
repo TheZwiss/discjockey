@@ -65,8 +65,8 @@ repointed 38 rekordbox entries for the user with throwaway scripts of its own ra
 - **Pin it:** a test that fails when a bridge method has no command or no agent-docs entry.
 - The 33 work (rekordbox repoint) has its commands under the rule (phase 1): `rekordbox status | preview | backups |
   restore`, `upgrade list | apply | discard`, `track undo`, `batch list | show | resume | undo`, `check list | done`,
-  `aiff convert | rename`, `settings show | set auto-upgrade`, `sync run --auto-upgrade-only`. The sync's own `--json`
-  (`discjockey --yes --json`) stays the old command line's until V4.1.
+  `aiff convert | rename`, `settings show | set auto-upgrade`, `sync run --auto-upgrade-only`. The whole sync is `sync read`
+  then `sync run [--plan …] --json` (the bare `discjockey --yes --json` is gone, V4.1b).
 
 ## 33. Lossless AIFF for imported files, with rekordbox pointed at them (user, 2026-10-31) — stage E open (issue 40)
 
