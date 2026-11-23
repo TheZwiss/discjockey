@@ -1587,11 +1587,23 @@ Results:
         words `SYNC_IDS_NEED_PLAN`, `SYNC_IDS_OR_HOW_MANY`, `SYNC_NEEDS_READ`, `BAD_HOW_MANY`, `SYNC_READING`; the window's
         `start_sync(None, [])` now says the ids belong to a plan (Start is disabled without a plan). Notes for 5b passed
         on. Phase 4 so far 3 035k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 builds):** brief checks, row 4, row 5a done. `feat/cli-4-writes` from
-        main; row 5b (V4.1a part 2: §6 commit (3), Sonnet, worktree `.claude/worktrees/cli4-1` on `feat/cli-4-sync`)
-        running. Then merge into `feat/cli-4-writes` (--no-ff), push, CI, then row 6 V4.1b, … by
-        `.claude/issue39/phase4/phase4-dispatch.md`, one at a time, each measured at dispatch. Per agent: ps,
-        agent-cost (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 3 035k. No release.
+      - Row 5b V4.1a part 2 done (Sonnet, `a515a86e`): **219k** (exp. 170k, 1.29x; 68 calls, cache 10.6M, fresh 205k,
+        out 44k, advisor 0k). f1712915: catalogue `SWITCHES` + `switch_of` (`PHASE_ONLY` gone), `call._by_switch`, lock
+        word `scan` (T10 wraps `Jobs.scan_lock`), `SyncRunData.counts/failed` NotRequired, goldens (`sync_run.txt` the
+        whole sync, the phase page `git mv` to `sync_run_auto_upgrade_only.txt`), `PLANNED_CEILING` 52, test_cli_sync.py
+        8 tests, README. Suite 6932 passed / 4 skipped over all three commits. Root fix: `jobs.lock_free` opened the lock
+        with `O_CREAT` (a dry run left an empty `.lock`); pinned in test_library_ops. Deviation: `sync run --dry-run`
+        without a stored read answers ok with `plan_id` null (it is `sync plan`'s answer). Two no-owner gaps (scope-check:
+        NO OWNER) → row 9 (V4.1 fix round): `sync run`'s envelope lacks the phase's batch id / rekordbox check
+        `person_steps` / `next`; a finished `sync read` has `as_of` null. Merged `feat/cli-4-sync` into
+        `feat/cli-4-writes` b847de55 (V4.1a diff base 4e3e7fe5, tip f1712915), pushed; worktree cli4-1 + branch removed;
+        CI watched. Phase 4 so far 3 254k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 builds):** V4.1a merged (b847de55; review A diff 4e3e7fe5..f1712915).
+        Row 6 V4.1b (Sonnet, worktree `.claude/worktrees/cli4-2` on `feat/cli-4-legacy-sync` from b847de55) running.
+        Then merge it, push, CI; rows 7-8 V4.1 review A/B (`review-V4.1.md`, fill `<base>`/`<tip>`, measure each diff
+        ≤ ~40k), row 9 fix round (incl. the three no-owner carries in phase4-dispatch row 9), row 10 rehearsal, then
+        V4.2a … by `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost (advisor 0k),
+        log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 3 254k. No release.
       - RESUME HERE (superseded, 2026-11-23, phase 4 row 4): brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
         rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
         `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
