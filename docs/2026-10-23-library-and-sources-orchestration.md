@@ -1571,8 +1571,20 @@ Results:
         c10 amended), `--all` with `--plan` → `TIDY_PLAN_CHOSE`; I3 `help --json` names each paged dry run's list; a
         dry run through `call` no longer cut at 200; `--plan` with `--dry-run` → `conflicting_flags`; `undo_moves`
         catalogue row after `batch_undo`; the `--with-yours` refusal reworded. V4.4 build → ~224k. Brief checks done:
-        4 runs 337 + 275 + 267 + 209 + 257 = 1 345k. Phase 4 so far 2 659k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 row 4):** brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
+        5 runs 337 + 275 + 267 + 209 + 257 = 1 345k. Phase 4 so far 2 659k.
+      - Row 4 done (Sonnet, `abed29b9`): **183k** (exp. 195k; 33 calls, cache 3.6M, fresh 362k, out 60k, advisor 0k).
+        review-V4.1..V4.4.md (6 parts, placeholders `<base>`/`<tip>`/`<path>`) + rehearse-V4.1..V4.4.md (`SCR`/`WT` named
+        at dispatch). Decided by it: V4.1's rehearsal runs no real `sync read`/`sync run` (network; dry runs, refusals,
+        launcher only; `sync read` only on a clone with an emptied playlists.txt); V4.2/V4.3 rename steps SKIPPED without
+        a stored read; V4.4 makes out-of-place files with `playlist rename --files leave`. Gaps it saw (for the builds, no
+        owner needed): exit code of `partial`/`failed` (outcomes.py answers it); V4.2a's copy for ops other than a lines
+        save / `edit`. Phase 4 so far 2 842k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 builds):** brief checks and row 4 done. `feat/cli-4-writes` from main;
+        row 5a (V4.1a part 1: §6 commits (1)-(2), Sonnet, worktree `.claude/worktrees/cli4-1` on `feat/cli-4-sync`)
+        running. Then 5b (commit (3) on the same branch), merge into `feat/cli-4-writes` (--no-ff), push, CI, then row 6
+        V4.1b, … by `.claude/issue39/phase4/phase4-dispatch.md`, one at a time, each measured at dispatch. Per agent: ps,
+        agent-cost (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 2 842k. No release.
+      - RESUME HERE (superseded, 2026-11-23, phase 4 row 4): brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
         rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
         `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
         two parts, measured at dispatch), one at a time. Every prompt carries checklist rules 12 + 14. Phase 4 so far
