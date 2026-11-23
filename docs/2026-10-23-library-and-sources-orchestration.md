@@ -1552,7 +1552,23 @@ Results:
         TypedDict params + `NOT_OFFERED_YET` (V4.3 removes it and `WITHOUT_ITEMS`); V4.2b now needs no contract commit.
         V4.2b → ~200k; wave A builds 1 345k. Correction: phase 4 ≈ 13.1M (dispatch table; the V4.2a entry said 12.9M).
         Phase 4 so far 2 193k.
+      - Brief check V4.3 done (Opus, `ac02205b`): **209k** final context (exp. 270k; cut by the 5-hour usage limit at 49
+        calls with no file, resumed by message at 11:48 per rule 7; 59 calls in all, cache 7.7M, fresh 371k (the cold
+        resume re-read ~200k uncached), out 53k, advisor 0k). check-V4.3.md: 0 Critical, 4 Important, 8 Minor, nothing
+        handed back. Only here: I1 the plan's change id hashed the command words, so `playlist edit --file F --plan P`
+        ran after F changed (now a hash of the rows it leaves + playlists.txt's version); I2 a folder rename's plan entry
+        carries `files` (a rename that gained files since the dry run is skipped `changed`); I3 the command each of the
+        six plan-taking callers passes (`_aiff_plan_run` serves two); I4 refusal order `PLAN_OTHER_COMMAND` then
+        `PLAN_OTHER_CHANGE`; M3 `MOVES_PARTIAL` moves V4.4 → V4.3; M4 `--rename OLD=NEW` with `=` in a name. M8 carried
+        to the V4.4 check (dry-run paging cuts `items` and `tidy.rows` by the same slice though they hold different
+        files; its recommendation: page `items`, cut `tidy.rows` to that page's files). V4.3 build → ~218k. Phase 4 so
+        far 2 402k.
       - **RESUME HERE (LATEST, 2026-11-23, phase 4 brief checks):** run `.claude/issue39/phase4/phase4-dispatch.md` rows
+        in order, one at a time: 2a, 2b, 3a done; 3b (brief check V4.4, Opus fresh by `brief-check.md`, carries
+        check-V4.3.md M8) running. On its notice: ps, agent-cost (advisor 0k), log, a hand-back → one warm-cache question
+        at once. Then row 4 (Sonnet, review + rehearsal files), then `feat/cli-4-writes` from main and the builds (5a/5b
+        = V4.1a in two parts). Every prompt carries checklist rules 12 + 14. Phase 4 so far 2 402k. No release.
+      - RESUME HERE (superseded, 2026-11-23, phase 4 brief checks): run `.claude/issue39/phase4/phase4-dispatch.md` rows
         in order, one at a time: 2a, 2b done; 3a (brief check V4.3) running → 3b, each
         Opus fresh by `brief-check.md`, measured < ~250k. On each notice: ps, agent-cost (advisor 0k), log, a hand-back
         → one warm-cache question at once. Then row 4 (Sonnet, review + rehearsal files), then `feat/cli-4-writes` from
