@@ -1672,7 +1672,17 @@ Results:
         `.claude/issue39/phase4/handoff-V4.2b-1.md`. No hand-backs. Phase 4 so far 4 795k.
       - v1.4.0 PUBLISHED 2026-11-23 15:50 UTC on the user's "publish"; memory + open-scope updated. The user said
         "pause after that agent" (open-scope Decided): after V4.2b-2 only its loop, merge and CI, then nothing.
-      - **RESUME HERE (LATEST, 2026-11-23, V4.2b-2, then PAUSE):** v1.4.0 published. PAUSE after V4.2b-2 (user). V4.2b-2 (Sonnet, exp. 200k, WT
+      - V4.2b-2 done (Sonnet, `ab8cacd6`): **233k** (exp. 200k; 75 calls, cache 10.6M, fresh 218k, out 53k, advisor
+        0k). d2c7322b (resolvers, 9 entries, GUARD_FLAGS, `_apply_next`, goldens, PLANNED_CEILING 52→43), 0aecdbe0
+        (README, contract doc); suite 7143 passed. Pre-job: `prejob_save_playlists` + `prejob_add_liked_music` built
+        here (J entries; shared `_save_checked`/`_save_gate`/`_liked_music_checked`), so V4.3 needs none for
+        `save_playlists`; V4.4 still adds `prejob_tidy_up`. No hub-ui change. Merged into `feat/cli-4-writes`
+        60c59473; CI watched. V4.2b total 398k (2 parts). Phase 4 so far 5 028k.
+      - **RESUME HERE (LATEST, 2026-11-23, PAUSED by the user after V4.2b):** v1.4.0 published. V4.2 built and merged
+        (60c59473). PAUSED: dispatch nothing until the user says go on. Then rows 13-16 (V4.2 reviews A/B, fix,
+        rehearsal) by `.claude/issue39/phase4/phase4-dispatch.md`, measured first; V4.4 adds `prejob_tidy_up`. Rules
+        12 + 14 in every prompt. Phase 4 so far 5 028k. No release beyond v1.4.0.
+      - RESUME HERE (superseded, 2026-11-23, V4.2b-2, then PAUSE): v1.4.0 published. PAUSE after V4.2b-2 (user). V4.2b-2 (Sonnet, exp. 200k, WT
         cli4-2b on top of 47473ef1, brief V4.2b.md §2.2-2.6 + commits (2)-(3) + handoff-V4.2b-1.md) running; then
         merge `feat/cli-4-playlist-commands` into `feat/cli-4-writes`, CI, rows 13-16 (V4.2 reviews A/B, fix,
         rehearsal) by `.claude/issue39/phase4/phase4-dispatch.md`. V4.3/V4.4 add `prejob_save_playlists` /
