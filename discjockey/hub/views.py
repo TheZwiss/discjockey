@@ -2312,15 +2312,30 @@ def in_scope(row: Mapping, off: Collection[str], weekly_off: Collection[str]) ->
     return bool(folders) and _target_on(folders, folders[-1], off)
 
 
+def ticks(rows: Sequence[Mapping], n: int | None, off: Collection[str], weekly_off: Collection[str]) -> list[str]:
+    """The ids a "how many" choice ticks: every action of `rows` in scope that is no download, and the first `n`
+    downloads in run order (None: every download). `rows` as `how_many` takes them; the one rule of the window's presets
+    and of the command line's `sync run --how-many`."""
+    done = 0
+    out = []
+    for r in sorted((r for r in rows if in_scope(r, off, weekly_off)), key=lambda r: r["run"]):
+        if r["kind"] not in DOWNLOAD_KINDS:
+            out.append(r["id"])
+        elif n is None or done < n:
+            out.append(r["id"])
+            done += 1
+    return out
+
+
 def how_many(rows: Sequence[Mapping], left: int | None, off: Collection[str], weekly_off: Collection[str]
              ) -> tuple[list[dict], str | None]:
     """The "how many" choices of the plan's `rows` (every row with its `id`, `kind`, `in` and `run`): `([{key, label,
     downloads, selected}], default key)`. Downloads are the acquisitions and upgrade checks in scope (`total`); `left` is
     today's allowance (None: no daily limit). Offered: 5, 10, 25 and 50 below `total`; "fits today" when the allowance
     is more than nothing and less than `total` (the number preset that equals it is dropped); and all of them. Nothing
-    in scope: none. A preset ticks every action in scope that is no download and the first n downloads in run order;
-    the default is "fits" when it is offered, else "all"."""
-    scoped = sorted((r for r in rows if in_scope(r, off, weekly_off)), key=lambda r: r["run"])
+    in scope: none. A preset ticks every action in scope that is no download and the first n downloads in run order
+    (`ticks`); the default is "fits" when it is offered, else "all"."""
+    scoped = [r for r in rows if in_scope(r, off, weekly_off)]
     if not scoped:
         return [], None
     total = sum(1 for r in scoped if r["kind"] in DOWNLOAD_KINDS)
@@ -2329,18 +2344,7 @@ def how_many(rows: Sequence[Mapping], left: int | None, off: Collection[str], we
     if fits:
         offered.append(("fits", f"{left} · fits today", left))
     offered.append(("all", f"All {total}" if total else "All", total))
-
-    def ticks(n: int) -> list[str]:
-        done = 0
-        out = []
-        for r in scoped:
-            if r["kind"] not in DOWNLOAD_KINDS:
-                out.append(r["id"])
-            elif done < n:
-                out.append(r["id"])
-                done += 1
-        return out
-    return ([{"key": key, "label": label, "downloads": n, "selected": ticks(n)}
+    return ([{"key": key, "label": label, "downloads": n, "selected": ticks(scoped, n, off, weekly_off)}
              for key, label, n in sorted(offered, key=lambda o: o[2])], "fits" if fits else "all")
 
 

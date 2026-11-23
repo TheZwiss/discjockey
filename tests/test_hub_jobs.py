@@ -263,6 +263,72 @@ def test_refresh_is_refused_while_the_hubs_own_sync_runs(env):
     job.done.wait(5)
 
 
+def a_terminal_job(reg, paths, kind, method, **fields):
+    """A job of another process in `reg` (its `alive` claim held, so it counts as running)."""
+    files = reg.create(kind, "x", {}, "terminal", {"music": str(paths.root), "support": str(paths.support)})
+    files.update(method=method, status="running", **fields)
+    files.flush()
+    return files
+
+
+def test_an_adopted_refresh_runs_on_the_callers_thread_as_refresh_never_current_and_its_scan_marks_the_registry(env):
+    paths, _, rec, _ = env
+    reg = registry.Registry(paths.support)
+    files = reg.create("refresh", "sync read", {}, "terminal", {"music": str(paths.root), "support": str(paths.support)})
+    js = Jobs(paths.lock, rec.emit, inline=files, registry=reg)
+    seen = {}
+
+    def work(ctx):
+        seen["thread"] = threading.current_thread()
+        seen["status"] = files.state()["status"]
+        seen["before"] = files.state().get("library_lock")
+        with js.scan_lock() as held:  # a job running as `current` would never scan: the scan lock holds only while none runs
+            seen["held"], seen["marked"] = held, files.state().get("library_lock")
+            seen["others_see"] = js.console_holder()
+        seen["after"] = files.state().get("library_lock")
+        return {"actions": 1, "read_id": "read:1"}
+
+    with files.alive():
+        job = js.start_refresh(work)
+    assert job.done.is_set() and job.id == files.id  # returned after JobFinished, under the adopted id
+    assert js.refresh is job and js.current is None
+    assert seen["thread"] is threading.main_thread() and seen["status"] == "running"
+    assert (seen["before"], seen["held"], seen["marked"], seen["after"]) == (None, True, True, False)
+    assert seen["others_see"] is None  # this process's own scan is no foreign holder
+    assert files.state()["kind"] == "refresh" and rec.of(jobs.JobFinished)[-1].result == {"actions": 1, "read_id": "read:1"}
+
+
+def test_a_scan_that_finds_the_library_taken_marks_nothing_in_the_registry(env):
+    paths, _, rec, _ = env
+    reg = registry.Registry(paths.support)
+    files = reg.create("refresh", "sync read", {}, "terminal", {"music": str(paths.root), "support": str(paths.support)})
+    js = Jobs(paths.lock, rec.emit, inline=files, registry=reg)
+    with run_lock(paths.lock), js.scan_lock() as held:  # a terminal run has it
+        assert held is False and files.state().get("library_lock") is None
+
+
+def test_a_refresh_is_refused_while_a_sync_of_another_process_runs(env):
+    paths, _, rec, _ = env
+    reg = registry.Registry(paths.support)
+    for kind, method in (("sync", "start_sync"), ("start_sync", "start_sync")):  # running, or a queued one named by its method
+        sync = a_terminal_job(reg, paths, kind, method)
+        try:
+            for js in (Jobs(paths.lock, rec.emit, registry=reg),
+                       Jobs(paths.lock, rec.emit, registry=reg,
+                            inline=reg.create("refresh", "sync read", {}, "terminal", {"music": str(paths.root)}))):
+                with pytest.raises(Busy) as refused:
+                    js.start_refresh(lambda ctx: {"actions": 0, "read_id": "read:1"})
+                assert (refused.value.kind, refused.value.reason) == ("busy", "sync_running") and js.refresh is None
+        finally:
+            sync.release_claim()
+    other = a_terminal_job(reg, paths, "tidy", "tidy_up")  # any other job is no reason: a read is read only
+    try:
+        window = Jobs(paths.lock, rec.emit, registry=reg)
+        assert window.start_refresh(lambda ctx: {"actions": 0, "read_id": "read:1"}).done.wait(5)
+    finally:
+        other.release_claim()
+
+
 def wait_for(cond, timeout=3):
     end = time.monotonic() + timeout
     while time.monotonic() < end:

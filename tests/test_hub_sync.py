@@ -647,8 +647,11 @@ def test_a_ticked_action_whose_target_changed_under_the_same_plan_id_still_runs(
 
 def test_a_hub_sync_makes_its_own_read_the_plan_and_needs_a_stored_read_to_start(hub):
     api, rec, paths, derived, loads = hub
-    refused = api.start_sync(api.sync_preview()["plan_id"], [])  # no read yet: no plan id (null), nothing starts
-    assert (refused["ok"], refused["kind"]) == (False, "refused") and "Read your playlists first" in refused["message"]
+    assert api.sync_preview()["plan_id"] is None  # no read yet: no plan id (null), nothing starts
+    refused = api.start_sync()
+    assert (refused["ok"], refused["kind"], refused["reason"]) == (False, "refused", "not_set_up")
+    assert "have not been read yet" in refused["message"]
+    assert api.start_sync(None, [])["reason"] == "usage"  # ids belong to a plan
     refreshed(api, rec)
     assert api.sync_preview()["read_id"] == "read:1"
     plan_id, ids = sync_plan(api)

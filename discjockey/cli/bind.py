@@ -71,5 +71,6 @@ def job_token(api: CliApi) -> CancelToken:
 
 
 def last_job(api: CliApi) -> Job | None:
-    """The job the worker's `HubApi` ran last (its `finished` and `error` say how it ended)."""
-    return api._jobs.current
+    """The job the worker's `HubApi` ran last (its `finished` and `error` say how it ended): a write job, or a playlists
+    read (`refresh`, which never becomes `current`). A worker runs one job."""
+    return api._jobs.current or api._jobs.refresh

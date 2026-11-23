@@ -13,11 +13,14 @@ from hub_helpers import (LOSSY, PARKED, fake_import, fake_spotify, import_folder
                          refreshed, sync_plan, wait_job, write, window)
 
 from discjockey import db, importer, library, models, run
+from discjockey import words as engine_words
+from discjockey.hub import api as api_mod
+from discjockey.hub.api import CliApi
 from discjockey import report as report_mod
 from discjockey.sources import spotify
 from discjockey.acquire import AcquireResult, Ready
 from discjockey.align import Alignment
-from discjockey.events import ImportProgress, SourceChosen, Waiting
+from discjockey.events import ImportProgress, Result, SourceChosen, Waiting
 from discjockey.hub import jobs, plan_store, registry
 from discjockey.library import load_state, run_lock, save_state
 from discjockey.models import Candidate, ScanSummary, WatchedFolder
@@ -837,11 +840,123 @@ def test_stop_safely_from_the_page(root, monkeypatch):
     assert api.stop() == {"ok": True, "stopped": False}
 
 
-def test_start_sync_without_a_plan_id_asks_for_a_read_first(root):
+def test_start_sync_with_nothing_read_refuses_not_set_up_and_says_to_read(root):
     api, rec = make_api(root)
     answer = api.start_sync()
-    assert (answer["ok"], answer["kind"]) == (False, "refused") and "Read your playlists first" in answer["message"]
-    assert api.start_sync(None, [])["kind"] == "refused" and api.job_status()["job"] is None
+    assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "refused", "not_set_up")
+    assert answer["message"] == engine_words.SYNC_NEEDS_READ and [n["run"] for n in answer["next"]] == ["sync read"]
+    assert api.start_sync(how_many="all")["reason"] == "not_set_up" and api.job_status()["job"] is None
+
+
+def test_start_sync_takes_action_ids_only_with_a_plan_and_not_with_how_many(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    for answer, reason, message in (
+            (api.start_sync(None, []), "usage", engine_words.SYNC_IDS_NEED_PLAN),
+            (api.start_sync(None, ids[:1]), "usage", engine_words.SYNC_IDS_NEED_PLAN),
+            (api.start_sync(plan_id, ids[:1], "5"), "conflicting_flags", engine_words.SYNC_IDS_OR_HOW_MANY),
+            (api.start_sync(plan_id, [], "all"), "conflicting_flags", engine_words.SYNC_IDS_OR_HOW_MANY)):
+        assert (answer["ok"], answer["kind"], answer["reason"], answer["message"]) == (False, "bad_args", reason, message)
+    for bad in ("-1", "1.5", "", "many", "5 5", "fit", "١٢"):
+        answer = api.start_sync(plan_id, None, bad)
+        assert (answer["kind"], answer["reason"], answer["message"]) == ("bad_args", "usage", engine_words.BAD_HOW_MANY), bad
+    assert api.job_status()["job"] is None
+
+
+@pytest.fixture
+def started(monkeypatch):
+    """Every `start_sync` records what its job would run (`sync_work`'s plan and chosen ids) and ends at once."""
+    runs = []
+
+    def fake_sync_work(paths, planned, chosen, *rest, **kw):
+        runs.append((dict(planned), list(chosen)))
+        return lambda ctx: {"exit_code": 0, "report": str(paths.reports / "x.md"), "actions": len(chosen), "new_since_plan": []}
+    monkeypatch.setattr(api_mod, "sync_work", fake_sync_work)
+    return runs
+
+
+def test_start_sync_with_no_plan_id_plans_on_the_stored_read_and_runs_its_default_chip(root, started):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    assert len(ids) == 2 and api.sync_preview()["default_how_many"] == "all"
+    assert wait_job(api, rec, api.start_sync()).ok
+    assert started[-1][1] == ids and set(started[-1][0]) == set(ids)
+    assert plan_store.load(root.support, plan_id, str(root.root)).extra["command"] == "sync run"
+
+
+def test_start_sync_how_many_ticks_the_first_downloads_of_the_plan_in_run_order(root, started):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    for how_many, ticked in (("1", ids[:1]), (1, ids[:1]), ("2", ids), ("99", ids), ("0", []), ("all", ids),
+                             ("fits", ids), ("ALL", ids), (" 1 ", ids[:1])):  # `fits`: today's allowance (80) covers both
+        for plan in (None, plan_id):  # the preview's own plan, or the same plan named
+            assert wait_job(api, rec, api.start_sync(plan, None, how_many)).ok
+            assert started[-1][1] == ticked, (how_many, plan)
+    assert wait_job(api, rec, api.start_sync(plan_id, [])).ok and started[-1][1] == []  # a list, even empty, is the choice
+    assert wait_job(api, rec, api.start_sync(plan_id, ids[1:])).ok and started[-1][1] == ids[1:]
+
+
+def test_start_sync_how_many_only_ticks_the_actions_of_the_plan_it_is_given(root, started):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    smaller = plan_store.save(root.support, "sync", str(root.root),
+                              {ids[1]: {"kind": "acquire", "track_id": "t5", "to_dir": "Library/A"}})
+    assert wait_job(api, rec, api.start_sync(smaller, None, "all")).ok
+    assert started[-1][1] == [ids[1]] and set(started[-1][0]) == {ids[1]}
+    assert wait_job(api, rec, api.start_sync(smaller)).ok and started[-1][1] == [ids[1]]
+
+
+def test_start_sync_fits_follows_what_todays_allowance_leaves(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    preview = api.sync_preview()
+    planned = {a["id"]: ("acquire", a["track_id"], a["to_dir"]) for g in preview["groups"] for a in g["actions"]}
+    ids = list(planned)
+
+    def ticked(left, how_many="fits"):
+        shown = {**preview, "estimate": {**preview["estimate"], "left": left}}
+        return api._ticked_by_how_many(shown, planned, how_many, api._how_many_n(how_many))
+    assert (ticked(None), ticked(0), ticked(1), ticked(5)) == (ids, [], ids[:1], ids)
+    assert api._ticked_by_how_many({**preview, "presets": [], "default_how_many": None}, planned, None, None) == []
+
+
+def test_a_terminal_sync_records_the_plan_and_the_ids_it_runs_not_the_words_of_its_line(root, started):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    plan_id, ids = sync_plan(api)
+    reg = api._jobs.registry
+    files = reg.create("sync", "sync run --how-many 1", {"how_many": "1"}, "terminal",
+                       {"music": str(root.root), "support": str(root.support)})
+    api._jobs.adopt(files)
+    with files.alive():
+        assert api.start_sync(None, None, "1")["ok"]
+    state = files.state()
+    assert state["args"] == {"plan_id": plan_id, "selected": ids[:1], "how_many": "1"}
+    assert started[-1][1] == ids[:1] and api.job_status()["last_sync"]["args"] == {"plan_id": plan_id, "selected": ids[:1]}
+
+
+def test_sync_run_words_count_the_report_and_say_partial_or_failed_by_what_failed(root, tmp_path):
+    def words(*sections):
+        log = report_mod.RunLog(datetime(2026, 11, 23, 9, 0))
+        for i, (section, note) in enumerate(sections):
+            log.add(Result(section, "A", f"Artist {i}", f"Title {i}", f"t{i}", note))
+        path = report_mod.write_run(root, log, datetime(2026, 11, 23, 9, 5), 0)
+        return CliApi._sync_words({"report": str(path)})
+    clean = words(("new_lossless", ""), ("new_lossless", ""), ("queued", "later"))
+    assert clean == {"data": {"counts": {"new_lossless": 2, "queued": 1}, "failed": []}}  # no failure: no outcome
+    mixed = words(("new_lossless", ""), ("errors", "network down"), ("errors", "403"))
+    assert mixed["outcome"] == "partial" and mixed["data"]["counts"] == {"new_lossless": 1, "errors": 2}
+    assert mixed["data"]["failed"] == [{"track_id": "t1", "artist": "Artist 1", "title": "Title 1", "text": "network down"},
+                                       {"track_id": "t2", "artist": "Artist 2", "title": "Title 2", "text": "403"}]
+    assert words(("errors", "403"), ("queued", ""))["outcome"] == "failed"
+    assert words(("fake", ""), ("errors", "403"))["outcome"] == "failed"  # a fake is nothing done
+    assert CliApi._sync_words({"report": str(tmp_path / "gone.md")}) == {}  # a report that cannot be read says nothing
+    api = CliApi.__new__(CliApi)
+    assert CliApi.result_words.__wrapped__(api, "start_sync", {"exit_code": 0, "actions": 0, "new_since_plan": []}) == {}
 
 
 def test_start_sync_answers_an_unknown_plan_as_bad_args(root):

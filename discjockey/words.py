@@ -114,6 +114,13 @@ WOULD_MISSING = ("{n} of your rekordbox tracks would point at files that Discjoc
 AUTO_UPGRADE_OFF = "Auto-upgrade is off, so nothing was moved."
 AUTO_UPGRADE_NOTHING = "No upgrade was waiting, so nothing was moved."
 
+# `sync run` (`HubApi.start_sync`): what it refuses before a job starts.
+SYNC_IDS_NEED_PLAN = "Action ids belong to a plan: say --plan with the plan_id of the sync plan that showed them."
+SYNC_IDS_OR_HOW_MANY = "Say the actions or how many, not both."
+SYNC_NEEDS_READ = "Your playlists have not been read yet, so there is no plan to run."
+BAD_HOW_MANY = "--how-many takes 5, 10, 25, 50, fits, all or a number."
+SYNC_READING = "A sync is running; it reads your playlists itself."
+
 
 # What the openers say (`Opened.text`: `show_in_finder`, `reveal`, `open_report`, `open_licenses`, `open_external`,
 # `open_privacy_settings`; the command line's `open ...`).

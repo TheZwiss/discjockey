@@ -541,7 +541,8 @@ class Jobs:
         """For a read-only job that writes library.db when it can (the preview's scan, which reads files and can
         take minutes): yields True while it holds the engine lock, False when a write job, another scan or a
         terminal run has it. The mutex is held only to check and mark; meanwhile every write job and brief save
-        answers busy at once, and the other starts don't wait."""
+        answers busy at once, and the other starts don't wait. In a worker (`adopt`) the job's registry record says
+        `library_lock: true` while the scan holds."""
         if getattr(self._holder, "on", False):  # a write job's own thread holds the lock already
             yield True
             return
@@ -558,7 +559,20 @@ class Jobs:
                     except LockHeld:  # a terminal run: unmarked again at once (the mutex is held here)
                         stack.pop_all()
                         held = self._scanning = self._brief = False
+            if held and self.inline is not None:  # a worker's scan: the registry names the holder while it holds
+                self._mark_library_lock(True)
+                stack.callback(self._mark_library_lock, False)  # runs before the lock is let go: never claims one not held
             yield held
+
+    def _mark_library_lock(self, held: bool) -> None:
+        """The adopted job's registry record says whether it holds the library lock now (`library_lock`; a read holds it
+        only for its scan), so other processes name the holder (`words.holder_text`) and their `sync_running` is not
+        fooled by an unnamed one. Never fails the scan."""
+        try:
+            self.inline.update(library_lock=held)
+            self.inline.flush()
+        except Exception:  # noqa: BLE001  the registry only informs
+            log.warning("the registry could not say whether the scan holds the library", exc_info=True)
 
     def _end_scan(self) -> None:
         with self._mutex:
@@ -625,15 +639,21 @@ class Jobs:
         return job
 
     def start_refresh(self, work: Callable[[JobContext], dict | None]) -> Job:
-        """Read-only work (the Spotify read for the preview): no lock, its own Stop. Not while the hub's sync runs."""
+        """Read-only work (the Spotify read for the preview): no lock, its own Stop; it scans Library/ only when its work
+        takes `scan_lock`. Not while a sync runs (any process: `sync_running`). Adopted by a worker process (`adopt`): the
+        same refusals, then the work runs here, on the calling thread, and the job is finished when this returns. It is
+        `refresh`, never `current`: `scan_lock` holds only while no job is running."""
         with self._mutex:
             if self.refresh is not None and not self.refresh.done.is_set():
                 raise Busy("Your playlists are being read already.", "busy")
-            if (job := self.running()) is not None and job.kind == "sync":
-                raise Busy("A sync is running; it reads your playlists itself.", "busy")
+            if self.sync_running():
+                raise Busy(words.SYNC_READING, "busy", reason="sync_running")
             job = self.refresh = self._new("refresh", None)
-            threading.Thread(target=self._run, args=(job, work, False), name=f"hub-refresh-{job.id}",
-                             daemon=True).start()
+            if self.inline is None:
+                threading.Thread(target=self._run, args=(job, work, False), name=f"hub-refresh-{job.id}",
+                                 daemon=True).start()
+        if self.inline is not None:
+            self._run(job, work, False)  # outside the mutex: the work takes it again (scan_lock)
         return job
 
     def start_sign_in(self, kind: str, work: Callable[[JobContext], dict | None]) -> Job:
@@ -739,8 +759,8 @@ class Jobs:
                     finally:
                         self._holder.on, self._holder.job = False, None
             else:
-                if job.files is not None:
-                    job.files.update(status="running")
+                if (files := self.inline or job.files) is not None:  # an adopted job's record says it runs, as a write's
+                    files.update(status="running", kind=job.kind)
                 result = work(ctx)
             message = ctx.message
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
@@ -871,7 +891,7 @@ class PreviewStore:
 
 def refresh_work(paths: Paths, now: Callable[[], datetime] = datetime.now,
                  infos: dict | None = None, lock: Callable[[], AbstractContextManager[bool]] = run.lock_held):
-    """A dry run: run.prepare(dry_run=True). Changes no music file, report or download; it scans Library/ into
+    """A playlists read: run.prepare(read_only=True). Changes no music file, report or download; it scans Library/ into
     library.db first when `lock()` gets the library lock (Jobs.scan_lock), else it plans on the last scan. The read
     stores itself (`run.prepare`); one that fails with a SetupProblem stores its problem too, beside the last good
     tracks (a stopped one stores nothing). With `infos` (a dict the read fills), also reads each playlist's name,
@@ -881,7 +901,7 @@ def refresh_work(paths: Paths, now: Callable[[], datetime] = datetime.now,
     def work(ctx: JobContext) -> dict:
         started = datetime.now()  # the clock `prepare` stamps its reads with: the stored reads' order is by start
         try:
-            prep = run.prepare(paths, dry_run=True, emit=ctx.emit, token=ctx.token, lock=lock,
+            prep = run.prepare(paths, read_only=True, emit=ctx.emit, token=ctx.token, lock=lock,
                                want_info=infos is not None, scan=True)
         except run.SetupProblem as e:
             message = hub_message(e.kind, str(e), e.service)

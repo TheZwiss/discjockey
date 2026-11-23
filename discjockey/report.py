@@ -44,6 +44,10 @@ SECTIONS = [
     ("recovered", "Finished from an interrupted run"),
     ("errors", "Errors (tried again next run)"),
 ]
+# The sections whose results mean the sync got something done (the command line's `partial` outcome: a run with errors
+# and one of these is `partial`, with only errors it is `failed`)
+DONE_SECTIONS = frozenset({"new_lossless", "new_not_lossless", "swapped", "placed_missing", "added_new", "upgraded",
+                           "converted", "renamed", "bought", "replaced", "redownloaded"})
 # The titles of the end screen's Auto-upgrade parts that hold rows of more than one section (a placement that waits
 # is "still waiting" like an upgrade that waits): the window shows them as they come.
 PART_LABELS = {"upgraded": "Upgraded", "waiting": "Still waiting", "refused": "Couldn't go in"}

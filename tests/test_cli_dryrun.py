@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from hub_helpers import choose_music, make_root
+from hub_helpers import choose_music, make_root, services
 
 from discjockey import db, library, report as rep, run as run_mod
 from discjockey.cli import bind, call
@@ -363,19 +363,19 @@ def test_prepare_in_a_dry_run_stores_no_scan_unless_asked(lib):
     (lib.root / "Library" / "Hard_Bounce" / "New Artist - New Song.aiff").write_bytes(b"new audio")
     before = library_rows(lib)
     log = rep.RunLog(datetime.now())
-    state = run_mod._open(lib, log, lambda e: None, dry_run=True, scan=False)
+    state = run_mod._open(lib, log, lambda e: None, read_only=True, scan=False)
     assert not any("New Artist - New Song" in path for path in state["files"])  # the plan is on the last scan
     assert library_rows(lib) == before
-    run_mod._open(lib, log, lambda e: None, dry_run=True, scan=True)  # the window's refresh asks for the scan
+    run_mod._open(lib, log, lambda e: None, read_only=True, scan=True)  # the window's refresh asks for the scan
     after = library_rows(lib)
     assert any("New Artist - New Song" in row[1] for row in after[0]) and after != before
 
 
-def test_prepare_decides_the_scan_from_dry_run_unless_told(lib, monkeypatch):
+def test_prepare_decides_the_scan_from_read_only_unless_told(lib, monkeypatch):
     seen = []
-    monkeypatch.setattr(run_mod, "_open", lambda paths, log, emit, *, dry_run, scan: seen.append((dry_run, scan))
+    monkeypatch.setattr(run_mod, "_open", lambda paths, log, emit, *, read_only, scan: seen.append((read_only, scan))
                         or library.load_state(paths))
-    for kwargs in ({}, {"dry_run": True}, {"dry_run": True, "scan": True}):
+    for kwargs in ({}, {"read_only": True}, {"read_only": True, "scan": True}):
         try:
             run_mod.prepare(lib, **kwargs)
         except run_mod.SetupProblem:
@@ -550,6 +550,23 @@ def test_t9_a_dry_run_changes_no_byte_outside_plans_cache_and_jobs(upgrades, inl
         assert "plan_id" not in env["data"] and not (support / "plans").exists()
     else:
         assert [p.name for p in (support / "plans").iterdir()] == [f"{env['data']['plan_id'][5:]}.json"]
+
+
+def test_a_sync_preview_answer_saves_no_plan_of_its_own_and_the_phases_outcome_still_does(tmp_path):
+    """`sync run --dry-run` answers `sync_preview`, whose `auto_upgrade` is the summary `{on, ready, places, place_notes}`
+    (no rows) and whose `plan_id` is the stored sync plan the run takes: `save_plan` must neither crash on it nor make a
+    second plan. The phase alone's answer (`Outcome`: its `results` list) is its plan."""
+    root = make_root(tmp_path)
+    api = CliApi(root.support, None, services())
+    api._attach(root)
+    preview = {"groups": [], "plan_id": "plan:0123456789ab",
+               "auto_upgrade": {"on": True, "ready": [], "places": [], "place_notes": []}}
+    assert api.save_plan("sync run", preview, "sync run --dry-run") is None
+    assert api.save_plan("sync run", {**preview, "auto_upgrade": None}, "sync run --dry-run") is None
+    phase = {"auto_upgrade": {"results": [{"track": "t1", "state": "done"}, {"track": "t2", "state": "waiting"}]}}
+    plan_id = api.save_plan("sync run", phase, "sync run --auto-upgrade-only")
+    plan = plan_store.load(root.support, plan_id, str(root.root))
+    assert list(plan.items) == ["t1", "t2"] and plan.extra["command"] == "sync run --auto-upgrade-only"
 
 
 def test_t9_covers_every_built_entry_with_a_dry_run():
