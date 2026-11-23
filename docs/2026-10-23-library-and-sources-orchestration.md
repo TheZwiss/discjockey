@@ -1613,12 +1613,18 @@ Results:
         `scan_lock` marks `library_lock` true with no lock. PLANNED V4.3 (plan command check), V4.7b (issue 42). Its Write
         was refused ("subagents should return findings as text"): I saved `findings-V4.1A.md` from its message. CI green
         on 2c55338d. Record: a Sonnet review of a ~31k diff ≈ 230k (not 160k). Phase 4 so far 3 728k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 V4.1 review):** V4.1a + V4.1b merged (2c55338d, CI green). Review A
-        done (findings-V4.1A.md). Row 8 V4.1 review B (Sonnet, base b847de55, tip e864eba1, read-only worktree
-        `.claude/worktrees/cli4-rv` detached at the tip) running; then row 9 fix round (findings A+B + the three no-owner
-        carries in phase4-dispatch row 9), row 10 rehearsal, then V4.2a … by `.claude/issue39/phase4/phase4-dispatch.md`,
-        one at a time. Per agent: ps, agent-cost (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4
-        so far 3 728k. No release.
+      - Row 8 V4.1 review B done (Sonnet, `ae882676`): **176k** (exp. 230k; 58 calls, cache 6.4M, fresh 162k, out 41k,
+        advisor 0k). 0 Critical, 0 Important, 4 Minor (dead `report.render_plan` / `Prepared.import_waiting` /
+        `library.import_left`; nine stale comments; a test name claiming more than it pins; a one-element loop). Judged
+        good: routing, launcher + `RJ` caffeinate, `_problem` dropped (`setup`/`update` fine), every deleted test re-homed.
+        PLANNED V4.8a: until `limits set --extra-today` lands the Terminal cannot grant today's extra downloads. Wrote its
+        file by Bash heredoc (Write refused again). Phase 4 so far 3 904k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 V4.1 fix round):** V4.1 merged (2c55338d, CI green), reviews A + B
+        done. Row 9 fix round (Sonnet `fix-round`, worktree `.claude/worktrees/cli4-3` on `feat/cli-4-v41-fix` from
+        2c55338d: findings-V4.1A (6 Minor) + findings-V4.1B (4 Minor) + the three no-owner carries of phase4-dispatch row 9)
+        running. Then merge, push, CI; row 10 rehearsal (`rehearse-V4.1.md`, clone in the scratchpad); then V4.2a … by
+        `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost (advisor 0k), log. Every
+        prompt carries checklist rules 12 + 14. Phase 4 so far 3 904k. No release.
       - RESUME HERE (superseded, 2026-11-23, phase 4 row 4): brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
         rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
         `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
