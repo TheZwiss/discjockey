@@ -1670,8 +1670,9 @@ Results:
         `feat/cli-4-playlist-commands` (WT cli4-2b). V4.2b-1 done (Sonnet, `a14fc633`): **165k** (exp. 150k; 36 calls,
         cache 4.3M, fresh 163k, out 40k, advisor 0k). 47473ef1, suite 7075 passed. Hand-off for part 2 in
         `.claude/issue39/phase4/handoff-V4.2b-1.md`. No hand-backs. Phase 4 so far 4 795k.
-      - **RESUME HERE (LATEST, 2026-11-23, V4.2b-2):** v1.4.0 draft waits for the user's "publish" (then
-        `gh release edit v1.4.0 --draft=false` + memory `project_public_release.md`). V4.2b-2 (Sonnet, exp. 200k, WT
+      - v1.4.0 PUBLISHED 2026-11-23 15:50 UTC on the user's "publish"; memory + open-scope updated. The user said
+        "pause after that agent" (open-scope Decided): after V4.2b-2 only its loop, merge and CI, then nothing.
+      - **RESUME HERE (LATEST, 2026-11-23, V4.2b-2, then PAUSE):** v1.4.0 published. PAUSE after V4.2b-2 (user). V4.2b-2 (Sonnet, exp. 200k, WT
         cli4-2b on top of 47473ef1, brief V4.2b.md §2.2-2.6 + commits (2)-(3) + handoff-V4.2b-1.md) running; then
         merge `feat/cli-4-playlist-commands` into `feat/cli-4-writes`, CI, rows 13-16 (V4.2 reviews A/B, fix,
         rehearsal) by `.claude/issue39/phase4/phase4-dispatch.md`. V4.3/V4.4 add `prejob_save_playlists` /
