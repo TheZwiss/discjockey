@@ -1636,7 +1636,20 @@ Results:
         us. B2 clean. Then the user reported a live SoundCloud bug (private set: ~30 of 35 tracks nameless, Qobuz search
         400 x3): investigation agent (Sonnet, branch `fix/soundcloud-set-tracks` from main, worktree fix-sc) dispatched
         first. Phase 4 so far 4 198k.
-      - **RESUME HERE (LATEST, 2026-11-23, SoundCloud fix, then V4.1 pre-job fix):** the user's live SoundCloud bug
+      - SoundCloud set fix done (Sonnet, `a1010035`, outside phase 4): **103k** (exp. 180k; 35 calls, cache 2.6M, fresh
+        88k, out 19k, advisor 0k). Root cause `soundcloud._is_stub` counted a stub with a `policy` as full: 35 of 40
+        tracks of the user's private set came out nameless (one anonymous probe confirmed the shape; the fixture's
+        `{id, kind}` stubs hid it). Fix: stub = no title/user/permalink; `_fill` unchanged; unfillable stub skipped
+        ("no longer shows"); `SourceTrack.named` guards every name search (acquire, candidates, fallback: the empty
+        query's 400s counted toward the Qobuz 3-failure pause). 1e57d571, suite 6901 passed. Merged into main 1d3cc4e5
+        and main into `feat/cli-4-writes` 8a4d331b (touched tests 229 passed); CI watched on both. Reaches the user's
+        app only with a release (user's go).
+      - **RESUME HERE (LATEST, 2026-11-23, V4.1 pre-job fix):** SoundCloud fix merged (main 1d3cc4e5; release waits for
+        the user's go). Next: a Sonnet V4.1 fix round (engine-decided `sync run` refusals answered before the job: no
+        worker, no job record; `.claude/issue39/phase4/rehearsal-V4.1.md`), then V4.2a (row 11) by
+        `.claude/issue39/phase4/phase4-dispatch.md`. Every prompt carries checklist rules 12 + 14. Phase 4 so far
+        4 198k. No release.
+      - RESUME HERE (superseded, 2026-11-23, SoundCloud fix, then V4.1 pre-job fix): the user's live SoundCloud bug
         first: Sonnet investigation+fix on `fix/soundcloud-set-tracks` (worktree `.claude/worktrees/fix-sc`, from main)
         running. On its notice: ps, agent-cost, log; merge into main (public check, push, CI), then main into
         `feat/cli-4-writes`. Release only on the user's go. Next: a Sonnet V4.1 fix round (engine-decided `sync run`
