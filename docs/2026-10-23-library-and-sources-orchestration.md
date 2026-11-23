@@ -1606,12 +1606,19 @@ Results:
         (CI runs the full suite). Merged into `feat/cli-4-writes` 2c55338d (V4.1b diff base b847de55, tip e864eba1);
         worktree cli4-2 + branch removed. CI on b847de55 green; on 2c55338d watched. Review diffs measured: A 125 KB ≈
         31k, B 134 KB ≈ 33k (both ≤ ~40k). Phase 4 so far 3 497k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 V4.1 review):** V4.1a + V4.1b merged (2c55338d). Row 7 V4.1 review A
-        (Sonnet, `review-V4.1.md` part A, base 4e3e7fe5, tip f1712915, read-only worktree `.claude/worktrees/cli4-rv` at
-        the tip) running; then row 8 part B (base b847de55, tip e864eba1), row 9 fix round (findings A+B + the three
-        no-owner carries in phase4-dispatch row 9), row 10 rehearsal, then V4.2a … by
-        `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost (advisor 0k), log. Every
-        prompt carries checklist rules 12 + 14. Phase 4 so far 3 497k. No release.
+      - Row 7 V4.1 review A done (Sonnet, `a161f885`): **231k** (exp. 160k, 1.44x; 63 calls, cache 9.1M, fresh 214k, out
+        67k, advisor 0k; 879 touched tests + five scratch scenarios). 0 Critical, 0 Important, 6 Minor: M1 `help` usage
+        forms for `--how-many`/`act:ID`; M2 the fake's old `start_sync(null)` word; M3 a refused `start_sync --plan <bad>`
+        stores a fresh plan first; M4 unreadable report + exit ≠ 0 answers ok; M5 three pinned behaviours untested; M6
+        `scan_lock` marks `library_lock` true with no lock. PLANNED V4.3 (plan command check), V4.7b (issue 42). Its Write
+        was refused ("subagents should return findings as text"): I saved `findings-V4.1A.md` from its message. CI green
+        on 2c55338d. Record: a Sonnet review of a ~31k diff ≈ 230k (not 160k). Phase 4 so far 3 728k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 V4.1 review):** V4.1a + V4.1b merged (2c55338d, CI green). Review A
+        done (findings-V4.1A.md). Row 8 V4.1 review B (Sonnet, base b847de55, tip e864eba1, read-only worktree
+        `.claude/worktrees/cli4-rv` detached at the tip) running; then row 9 fix round (findings A+B + the three no-owner
+        carries in phase4-dispatch row 9), row 10 rehearsal, then V4.2a … by `.claude/issue39/phase4/phase4-dispatch.md`,
+        one at a time. Per agent: ps, agent-cost (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4
+        so far 3 728k. No release.
       - RESUME HERE (superseded, 2026-11-23, phase 4 row 4): brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
         rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
         `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
