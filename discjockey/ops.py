@@ -64,14 +64,33 @@ class Done:
     recovered: list[tuple[str, bool]]  # interrupted steps finished first: (message, ok)
 
 
-def log_operation(paths: Paths, now: datetime, track_id: str, entry: dict | None, operation: str, result: str,
-                  message: str) -> None:
+# The kinds of change `log_change` records (a line's `group`): `history` offers the undo of only the newest line of a group.
+GROUPS = ("playlists",)
+
+
+def _append_log(paths: Paths, line: dict) -> None:
     paths.reports.mkdir(parents=True, exist_ok=True)
-    line = {"time": now.isoformat(timespec="seconds"), "track_id": track_id,
-            "artist": (entry or {}).get("artist"), "title": (entry or {}).get("title"),
-            "operation": operation, "result": result, "message": message}
     with open(paths.operations_log, "a", encoding="utf-8") as f:
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
+def log_operation(paths: Paths, now: datetime, track_id: str, entry: dict | None, operation: str, result: str,
+                  message: str) -> None:
+    _append_log(paths, {"time": now.isoformat(timespec="seconds"), "track_id": track_id,
+                        "artist": (entry or {}).get("artist"), "title": (entry or {}).get("title"),
+                        "operation": operation, "result": result, "message": message})
+
+
+def log_change(paths: Paths, now: datetime, group: str, operation: str, message: str, undo: list[str] | None, *,
+               version: str | None = None) -> None:
+    """Logs a change that belongs to no song and moves no file (a change to playlists.txt): `undo` is the command
+    words of the opposite change (None: nothing undoes it), `version` the group's file as the change left it, so
+    `history` can tell the undo still fits. `group` is one of `GROUPS`."""
+    if group not in GROUPS:
+        raise ValueError(f"{group!r} is not a group of changes ({', '.join(GROUPS)})")
+    _append_log(paths, {"time": now.isoformat(timespec="seconds"), "track_id": "", "artist": None, "title": None,
+                        "operation": operation, "result": "done", "message": message, "group": group, "undo": undo,
+                        "version": version})
 
 
 def changed(track_id: str, entry: dict | None) -> OpProblem:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from discjockey import batches as batch_rule, folders, words
+from discjockey import batches as batch_rule, folders, ops, playlists_file as pf, words
 from discjockey.hub import history
 
 NOW = datetime(2026, 11, 13, 12, 0, 0)
@@ -40,8 +40,15 @@ def op(operation, track="t1", time="2026-11-12T10:00:00", result="done", artist=
             "message": ""}
 
 
+def change(operation="playlist_remove", undo=("playlist", "add", "L", "--folder", "X"), version="v1", time="2026-11-12T10:00:00",
+           message="Removed the playlist X."):
+    """A line `ops.log_change` wrote (a group's step)."""
+    return {"time": time, "track_id": "", "artist": None, "title": None, "operation": operation, "result": "done",
+            "message": message, "group": "playlists", "undo": None if undo is None else list(undo), "version": version}
+
+
 def make(runs=(), batches=(), operations=(), *, tracks=None, batch_tracks=None, batch_actions=None, undoable=None,
-         finished=None, built=BUILT, since=None):
+         finished=None, built=BUILT, since=None, current=None):
     """`operations` are the lines in order: line numbers are their positions. `finished`: track -> line, by default the
     last line of each upgrade-like step, as `batches.finished_order` reads the log. `undoable`: move batch number ->
     moves an undo could still make, by default every move it did."""
@@ -54,7 +61,8 @@ def make(runs=(), batches=(), operations=(), *, tracks=None, batch_tracks=None, 
     return history.entries(list(runs), list(batches), numbered, tracks={"t1": UNDOABLE} if tracks is None else tracks,
                            batch_tracks=batch_tracks or {}, batch_actions=batch_actions or {}, move_undoable=undoable,
                            finished_order=finished,
-                           built=lambda method, command: (method, command) in built, now=NOW, since=since)
+                           built=lambda method, command: (method, command) in built, now=NOW, since=since,
+                           current=current)
 
 
 def one(entry_list):
@@ -283,7 +291,8 @@ def _source_names() -> tuple[set[str], set[str]]:
             func = node.func
             called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
             argument = node.args[4] if called == "log_operation" and len(node.args) > 4 else (
-                node.args[0] if called == "_single" and node.args else None)
+                node.args[3] if called == "log_change" and len(node.args) > 3 else (
+                    node.args[0] if called == "_single" and node.args else None))
             if argument is None:
                 continue
             names = [argument.body, argument.orelse] if isinstance(argument, ast.IfExp) else [argument]
@@ -299,7 +308,8 @@ def test_history_knows_every_operation_name_the_code_writes():
     literals, dynamic = _source_names()
     written = {*batch_rule.OPERATIONS.values(), *batch_rule.UNDO_OPERATIONS.values(), folders.SUPERSEDE, *literals,
                "upgrade_add_new", "upgrade_discard",       # `f"upgrade_{mode}"`: `_each_work`'s two modes
-               "use_candidate", "use_link"}                 # `find.kind`: `_replace_with`'s two
+               "use_candidate", "use_link",                 # `find.kind`: `_replace_with`'s two
+               *pf.LOGGED.values(), pf.SAVED, pf.LIKED_ADDED}   # `operation` of `log_change`: `pf.change_log`'s
     assert written <= history.OPERATIONS
     assert history.OPERATIONS == set(words.OPERATION_WORDS)
     # a new call that builds its name some other way must be looked at, and its names added above
@@ -346,3 +356,86 @@ def test_a_report_of_an_unknown_kind_reads_as_a_sync():
 def test_an_auto_upgrade_only_run_points_at_its_batch_for_the_undo():
     e = one(make(runs=[run(kind="auto_upgrade_only", line="Upgraded 2 tracks.")]))
     assert (e["undo"], e["cant_text"]) == (None, words.RUN_CANT_AUTO)
+
+
+# --- the changes of a group (a playlists.txt change, `ops.log_change`)
+
+PLAYLISTS_BUILT = BUILT | {(None, "playlist add"), (None, "playlist remove")}
+
+
+def test_a_playlists_step_says_its_message_and_offers_its_undo_with_the_version_it_fits():
+    e = one(make(operations=[change(undo=["playlist", "remove", "playlist:Q"], version="v1")], built=PLAYLISTS_BUILT,
+                 current={"playlists": "v1"}))
+    assert (e["kind"], e["id"], e["text"], e["at"]) == ("operation", None, "Removed the playlist X.", "2026-11-12T10:00:00")
+    assert (e["track_id"], e["artist"], e["title"], e["cant_text"]) == (None, None, None, None)
+    assert e["undo"] == "playlist remove playlist:Q --if-version v1"
+
+
+def test_a_line_with_no_message_says_its_operation():
+    e = one(make(operations=[change(message="")], built=PLAYLISTS_BUILT, current={"playlists": "v1"}))
+    assert e["text"] == words.OPERATION_WORDS["playlist_remove"]
+
+
+def test_a_playlists_undo_that_is_planned_says_so_with_the_same_line():
+    e = one(make(operations=[change(undo=["playlist", "move", "playlist:Q", "--to", "2"])], built=BUILT,
+                 current={"playlists": "v1"}))
+    line = "playlist move playlist:Q --to 2 --if-version v1"
+    assert (e["undo"], e["cant_text"]) == (None, words.UNDO_NOT_YET.format(command=line))
+
+
+def test_a_built_command_shorter_than_the_words_offers_the_whole_line():
+    undo = ["playlist", "remove", "playlist:X"]
+    e = one(make(operations=[change(undo=undo)], built={(None, "playlist remove")}, current={"playlists": "v1"}))
+    assert e["undo"] == "playlist remove playlist:X --if-version v1"
+    e = one(make(operations=[change(undo=undo)], built={(None, "playlist")}, current={"playlists": "v1"}))
+    assert e["undo"] == "playlist remove playlist:X --if-version v1"  # any leading run of the words counts
+
+
+def test_only_the_newest_line_of_a_group_offers_its_undo_even_when_its_version_is_current():
+    older, newer = change(version="v1", time="2026-11-12T09:00:00"), change(version="v2")
+    listed = make(operations=[older, newer], built=PLAYLISTS_BUILT, current={"playlists": "v1"})
+    by_time = {e["at"]: e for e in listed}
+    assert by_time["2026-11-12T09:00:00"]["cant_text"] == words.LATER_CHANGE["playlists"]  # its version equals current
+    assert by_time["2026-11-12T10:00:00"]["cant_text"] == words.CHANGED_SINCE["playlists"]
+
+
+def test_the_newest_line_of_a_group_is_found_in_the_whole_log_not_in_what_since_lists():
+    old, new = change(time="2026-11-01T09:00:00"), change(time="2026-11-12T10:00:00")
+    listed = make(operations=[old, new], built=PLAYLISTS_BUILT, current={"playlists": "v1"}, since="2026-10-30T00:00:00")
+    assert {e["at"]: e["cant_text"] for e in listed}["2026-11-01T09:00:00"] == words.LATER_CHANGE["playlists"]
+    only_old = make(operations=[old, new], built=PLAYLISTS_BUILT, current={"playlists": "v1"}, since="2026-11-05T00:00:00")
+    assert [e["at"] for e in only_old] == ["2026-11-12T10:00:00"]
+
+
+def test_a_playlists_file_changed_since_offers_no_undo():
+    for current in ({"playlists": "other"}, None, {}):
+        e = one(make(operations=[change()], built=PLAYLISTS_BUILT, current=current))
+        assert (e["undo"], e["cant_text"]) == (None, words.CHANGED_SINCE["playlists"])
+
+
+def test_a_line_without_a_version_skips_the_version_check_and_the_guard():
+    e = one(make(operations=[change(version=None)], built=PLAYLISTS_BUILT, current={"playlists": "elsewhere"}))
+    assert e["undo"] == "playlist add L --folder X"
+
+
+def test_a_playlists_line_with_no_undo_cannot_be_undone():
+    for undo in (None, []):
+        e = one(make(operations=[change(undo=undo)], built=PLAYLISTS_BUILT, current={"playlists": "v1"}))
+        assert (e["undo"], e["cant_text"]) == (None, words.UNKNOWN_CANT)
+
+
+def test_a_line_of_a_group_this_version_does_not_know_cannot_be_undone():
+    odd = {**change(), "group": "colours"}
+    e = one(make(operations=[odd], built=PLAYLISTS_BUILT))
+    assert (e["undo"], e["cant_text"]) == (None, words.UNKNOWN_CANT)
+
+
+def test_an_undo_word_with_a_space_is_quoted_so_the_line_can_be_typed():
+    e = one(make(operations=[change(undo=["playlist", "remove", "playlist:My Mix"])], built=PLAYLISTS_BUILT,
+                 current={"playlists": "v1"}))
+    assert e["undo"] == "playlist remove 'playlist:My Mix' --if-version v1"
+
+
+def test_the_groups_are_the_same_everywhere():
+    assert set(words.LATER_CHANGE) == set(words.CHANGED_SINCE) == set(ops.GROUPS)
+    assert set(history.GUARD) <= set(ops.GROUPS)

@@ -4893,8 +4893,12 @@ class CliApi(HubApi):
         steps of the operations log that no AIFF batch made (`history.entries` holds the rule). `since` is an ISO time
         (the command line's `--since` resolves to one). An entry: `kind` (`run` | `batch` | `operation`), `id` (what the
         commands take; null for a step), `at`, `text`, `undo` (the command that undoes it) or `cant_text` (why nothing
-        does: exactly one is set), and for a step `track_id`, `artist`, `title`."""
-        def built(method: str, command: str) -> bool:
+        does: exactly one is set), and for a step `track_id`, `artist`, `title`. A change to playlists.txt is a step whose
+        `text` is its logged message and whose `undo` carries `--if-version <the file's version>`."""
+        def built(method: str | None, command: str) -> bool:
+            if method is None:  # the words of a change's undo name no method: a command the line runs, not a dry run alone
+                return any(" ".join(e.command) == command and not e.planned and e.kind not in ("W", "dropped")
+                           and not catalog.stands_in(e) for e in catalog.ENTRIES)
             entry = catalog.entry_of(method, command)
             return entry is not None and entry.planned is None
 
@@ -4908,7 +4912,8 @@ class CliApi(HubApi):
         found = history_mod.entries(
             views.runs(self._reports()), rows, self._operations(), tracks=self._state()["tracks"],
             batch_tracks=batch_tracks, batch_actions=batch_actions, move_undoable=move_undoable,
-            finished_order=batches.finished_order(paths), built=built, now=self._svc.now(), since=since)
+            finished_order=batches.finished_order(paths), built=built, now=self._svc.now(), since=since,
+            current={"playlists": pf.load(paths.playlists_file).version})
         return {"entries": found, "since": since}
 
     def _operations(self) -> list[tuple[int, dict]]:
