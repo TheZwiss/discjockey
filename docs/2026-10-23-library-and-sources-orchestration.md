@@ -1626,7 +1626,24 @@ Results:
         `_phase_words` and `_sync_words`, `SyncRunData.batch_id` (contract regenerated). C3 `envelope.as_of(api)` replaces
         the copies in call.py/worker.py. Suite 6913 passed / 4 skipped. Merged into `feat/cli-4-writes` 961aa499 (cli4-3
         worktree now holds `feat/cli-4-writes` for merges), CI watched. Phase 4 so far 4 085k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 V4.1 rehearsal):** V4.1 built, reviewed, fixed, merged (961aa499).
+      - Row 10 V4.1 rehearsal done (Sonnet, `a9729c56`, cut by the 5-hour limit once, resumed by SendMessage):
+        **113k** (exp. 120k; 46 calls, cache 3.2M, fresh 202k, out 35k, advisor 0k). CI green on 961aa499. 10 PASS, 3
+        SKIPPED (2, 6, 9: the clone has no stored read; an offline read can't be made), 5 FAIL = one finding: every
+        engine-decided `sync run` refusal (unknown plan, ids without `--plan`, bad `--how-many`, not read yet) starts a
+        `job _worker` and leaves a done job record; words/outcomes/exits right. Decided (mine, by review A M3 "a refused
+        write changes nothing" and V4.3's "before the job" pattern): validate before the job is made → a small V4.1 fix
+        round. B1 held during the steps; the real library changed meanwhile by the user's running app (pid 54193), not
+        us. B2 clean. Then the user reported a live SoundCloud bug (private set: ~30 of 35 tracks nameless, Qobuz search
+        400 x3): investigation agent (Sonnet, branch `fix/soundcloud-set-tracks` from main, worktree fix-sc) dispatched
+        first. Phase 4 so far 4 198k.
+      - **RESUME HERE (LATEST, 2026-11-23, SoundCloud fix, then V4.1 pre-job fix):** the user's live SoundCloud bug
+        first: Sonnet investigation+fix on `fix/soundcloud-set-tracks` (worktree `.claude/worktrees/fix-sc`, from main)
+        running. On its notice: ps, agent-cost, log; merge into main (public check, push, CI), then main into
+        `feat/cli-4-writes`. Release only on the user's go. Next: a Sonnet V4.1 fix round (engine-decided `sync run`
+        refusals before the job: no worker, no job record; rehearsal-V4.1.md), then V4.2a (row 11) by
+        `.claude/issue39/phase4/phase4-dispatch.md`. Every prompt carries checklist rules 12 + 14. Phase 4 so far
+        4 198k. No release.
+      - RESUME HERE (superseded, 2026-11-23, phase 4 V4.1 rehearsal): V4.1 built, reviewed, fixed, merged (961aa499).
         Row 10 rehearsal (Sonnet, `rehearse-V4.1.md`, WT `.claude/worktrees/cli4-rv` detached at 961aa499, clones in the
         session scratchpad) running. A FAIL → a fix round first. Then V4.2a (row 11) on `feat/cli-4-<topic>` from
         `feat/cli-4-writes` … by `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost
