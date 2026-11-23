@@ -1563,7 +1563,21 @@ Results:
         to the V4.4 check (dry-run paging cuts `items` and `tidy.rows` by the same slice though they hold different
         files; its recommendation: page `items`, cut `tidy.rows` to that page's files). V4.3 build → ~218k. Phase 4 so
         far 2 402k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 brief checks):** run `.claude/issue39/phase4/phase4-dispatch.md` rows
+      - Brief check V4.4 done (Opus, `a424598d`): **257k** (exp. 275k; 87 calls, cache 14.4M, fresh 243k, out 89k,
+        advisor 0k). check-V4.4.md: 0 Critical, 3 Important, 10 Minor, nothing handed back. I1 (V4.3's M8, decided
+        here): a playlist change pages `tidy.rows`, each move item rides on its row's page by `key`, renames on page 1
+        (M8's own fix would have hidden the rows that can't move from every `--json` page); `call.paged` reads
+        `PAGED_WITH` itself. Only here: I2 `tidy run <files> --plan P` runs that subset of the plan (design §7.1;
+        c10 amended), `--all` with `--plan` → `TIDY_PLAN_CHOSE`; I3 `help --json` names each paged dry run's list; a
+        dry run through `call` no longer cut at 200; `--plan` with `--dry-run` → `conflicting_flags`; `undo_moves`
+        catalogue row after `batch_undo`; the `--with-yours` refusal reworded. V4.4 build → ~224k. Brief checks done:
+        4 runs 337 + 275 + 267 + 209 + 257 = 1 345k. Phase 4 so far 2 659k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 row 4):** brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
+        rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
+        `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
+        two parts, measured at dispatch), one at a time. Every prompt carries checklist rules 12 + 14. Phase 4 so far
+        2 659k. No release.
+      - RESUME HERE (superseded, 2026-11-23, phase 4 brief checks): run `.claude/issue39/phase4/phase4-dispatch.md` rows
         in order, one at a time: 2a, 2b, 3a done; 3b (brief check V4.4, Opus fresh by `brief-check.md`, carries
         check-V4.3.md M8) running. On its notice: ps, agent-cost (advisor 0k), log, a hand-back → one warm-cache question
         at once. Then row 4 (Sonnet, review + rehearsal files), then `feat/cli-4-writes` from main and the builds (5a/5b
