@@ -329,6 +329,7 @@ Mixes = https://music.youtube.com/playlist?list=...
   only Go+ plays in full (everyone else gets a 30 s preview) is downloaded only through your Go+ login. If Go+ gives it
   at about 128 kbps only, that stream counts like any other source of that quality: a better one, or an equal one
   that costs no Go+ download, goes first.
+- **In the Terminal:** `playlist add <link> [--folder <name>] [--at <place>] [--off]`, `playlist remove <playlist>`, `playlist rename <playlist> <new folder>`, `playlist move <playlist> --to <place>`, `playlist enable <playlist>`, `playlist disable <playlist>` and `playlist edit --file <file>` (the whole list from a file) change `playlists.txt` as the **Playlists** page does. A place counts from 1 at the top. Add `--dry-run` to see what a change does first: its `Next:` lines include the command that makes it, with `--if-version`, so nothing is changed if `playlists.txt` changed in between. When a change would put files in another folder, say `--files move` to move them or `--files leave` to leave them where they are; without either, nothing is done. `playlist add` without `--folder` takes the playlist's own name once `playlist check <link>` has read it. `playlist add-liked` adds YouTube Music's Liked music when Settings reads it. `history` lists each change, the newest one with the command that undoes it.
 
 ## Your existing music
 
@@ -485,7 +486,7 @@ those tracks are tried again next time.
 the days, the signals, the zones, the suggestion), and `limits set <service> <n> [--extra-today <n>] --dry-run` says what
 another limit would do. Saving a limit from the Terminal is not there yet. `playlist list` lists your playlists;
 `playlist check <link>` reads a link the way **Add to the list** does, and shows the playlist it found, without adding it
-to `playlists.txt`. `login list` shows each download source's state, `login find <service>` the browsers that hold a login for it,
+to `playlists.txt`. The commands that change your playlists are in [playlists.txt](#playliststxt). `login list` shows each download source's state, `login find <service>` the browsers that hold a login for it,
 `tools status` whether the programs Discjockey needs are there, `setup status` what Setup still needs, and
 `setup music <folder> --dry-run` whether a folder can be your music folder.
 `doctor` is the one command for "something broke": it checks the setup (music folder, programs, logins), whether Discjockey can

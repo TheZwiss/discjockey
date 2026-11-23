@@ -14,7 +14,7 @@ from discjockey.hub.catalog import Arg, Entry
 # The ceiling of entries that may still be `planned` (their command not built). Every group that builds a command lowers
 # the number; nothing may raise it. Phase 3 is finished: every row left is phase 4's (`planned` names the group), and
 # phase 4 lowers the ceiling as it builds them.
-PLANNED_CEILING = 52
+PLANNED_CEILING = 43
 # The phases that are finished: no row may be planned for one of them.
 FINISHED_PHASES = 3
 
@@ -78,27 +78,52 @@ def effective(entry: Entry) -> dict[str, Arg]:
     return catalog.effective_params(entry, BRIDGE[entry.method])
 
 
+def typed_dict_parameters() -> set[tuple[str, str]]:
+    """Every (bridge method, parameter) whose annotation names a TypedDict."""
+    return {(name, pname) for name, signature in BRIDGE.items() for pname, p in signature.parameters.items()
+            if catalog.typed_dict_of(p.annotation)}
+
+
 @pytest.mark.parametrize("entry", [e for e in EXISTING if e.kind not in ("W", "dropped")],
                          ids=lambda e: f"{e.method}:{' '.join(e.command)}")
 def test_every_parameter_has_a_flag_or_positional_or_fixed_value(entry):
     signature = BRIDGE[entry.method]
     names = set(signature.parameters) - {"self"}
-    assert set(entry.params) <= names, "an override names a parameter the method does not have"
-    assert set(entry.fixed) <= names, "a fixed value names a parameter the method does not have"
+    heads = catalog.head_of
+    assert {heads(n) for n in entry.params} <= names, "an override names a parameter the method does not have"
+    assert {heads(n) for n in entry.fixed} <= names, "a fixed value names a parameter the method does not have"
     assert not set(entry.params) & set(entry.fixed)
+    for name in (*entry.params, *entry.fixed):  # a dotted name is a key of a TypedDict parameter
+        if "." in name:
+            assert catalog.key_of(name) in catalog.typed_dict_keys(signature.parameters[heads(name)].annotation), name
     words = effective(entry)
-    assert set(words) | set(entry.fixed) == names
+    assert {heads(n) for n in words} | {heads(n) for n in entry.fixed} == names
+    # a planned entry's words are its group's to write; an entry with no command takes its TypedDict whole (`call --args`)
+    whole_ok = not entry.command or entry.planned
     for name, arg in words.items():
+        annotation = signature.parameters[heads(name)].annotation
+        if "." not in name and catalog.typed_dict_of(annotation) and not arg.resolve:
+            assert whole_ok, f"{name} is a TypedDict: the command takes its keys as {name}.<key>"
+            continue
         assert arg.flag or arg.positional or arg.resolve, f"{name} has no word and nothing builds it"
         if arg.flag:
             assert arg.flag.startswith("--") and arg.flag == arg.flag.lower()
         if arg.type in ("dict", "list") and not arg.positional:
             assert arg.resolve, f"{name} is a {arg.type} nothing builds"
-        if str(signature.parameters[name].annotation).split("|")[0].strip() == "dict":
+        if "." not in name and str(annotation).split("|")[0].strip() == "dict":
             assert name in entry.params and arg.resolve, f"the dict {name} needs its entry to say how it is built"
+    if entry.command and not entry.planned:
+        for method, pname in typed_dict_parameters():
+            if method == entry.method:
+                assert any(heads(n) == pname and "." in n for n in (*entry.params, *entry.fixed)), (
+                    f"{pname} is a TypedDict: a command maps it through at least one {pname}.<key>")
     flags = [a.flag for a in words.values() if a.flag]
     assert len(flags) == len(set(flags)), "two parameters share a flag"
     assert catalog.LOCKS and entry.locks <= set(catalog.LOCKS)
+
+
+# What the window can say through a TypedDict parameter and no command offers yet: V4.3 offers it and deletes the row.
+NOT_OFFERED_YET = {("save_playlists", "files"): {"renames", "moves"}}
 
 
 def test_a_dict_parameters_typeddict_keys_are_mapped():
@@ -108,13 +133,60 @@ def test_a_dict_parameters_typeddict_keys_are_mapped():
 
     assert catalog.typed_dict_keys(Scope) == {"kind", "tracks"}
     assert catalog.typed_dict_keys(dict) == frozenset()
-    # no bridge parameter has a TypedDict today: when one does, its keys belong in `params` as "<param>.<key>"
-    for name, signature in BRIDGE.items():
-        for pname, p in signature.parameters.items():
-            if catalog.typed_dict_keys(p.annotation):
-                for entry in catalog.by_method(name):
-                    for key in catalog.typed_dict_keys(p.annotation):
-                        assert f"{pname}.{key}" in entry.params
+    op_keys = {"op", "url", "playlist", "folder", "at", "to", "off", "file"}
+    assert catalog.typed_dict_keys("PlaylistOp | None") == op_keys
+    assert catalog.typed_dict_keys("shapes.PlaylistOp | None") == op_keys
+    assert catalog.typed_dict_keys("SaveFiles | None") == {"choice", "renames", "moves"}  # a functional TypedDict
+    assert catalog.typed_dict_keys("dict | None") == frozenset() == catalog.typed_dict_keys("NoShape")
+    assert catalog.typed_dict_of("list | None") is None and catalog.typed_dict_of("Scope | None") is None
+    assert catalog._type_of("PlaylistOp | None") == "dict" and catalog._type_of(Scope) == "dict"
+    # the bridge's TypedDict parameters: when a method gets one, its entries map its keys as "<param>.<key>"
+    assert typed_dict_parameters() == {("save_playlists", "op"), ("save_playlists", "files"), ("preview_playlist_change", "op")}
+    for method, pname in typed_dict_parameters():
+        keys = catalog.typed_dict_keys(BRIDGE[method].parameters[pname].annotation)
+        commands = [e for e in catalog.by_method(method) if e.command and not e.planned]
+        if not commands:
+            continue  # no command of the method is built yet: nothing offered to compare
+        offered = {catalog.key_of(n) for e in commands for n in (*e.params, *e.fixed) if catalog.head_of(n) == pname and "." in n}
+        assert offered == keys - NOT_OFFERED_YET.get((method, pname), set()), (method, pname)
+
+
+def test_the_words_of_an_entry_with_a_typeddict_parameter_come_at_its_place_in_the_signature():
+    """`effective_params`: each dotted `params` key in the entry's order at the parameter's place, never the parameter
+    itself; `fixed` dotted keys are not words; a TypedDict parameter without dotted keys keeps its whole-dict word."""
+    entry = catalog._e("save_playlists", "playlist test", "J", built=True, fixed={"op.op": "rename", "lines": None}, params={
+        "op.playlist": catalog._positional(), "op.folder": catalog._positional(),
+        "files.choice": Arg("--files"), "loaded_version": Arg("--if-version")})
+    words = effective(entry)
+    assert list(words) == ["loaded_version", "files.choice", "op.playlist", "op.folder"]
+    plain = catalog._e("save_playlists", "playlist test", "J", built=True, fixed={"lines": None})
+    assert list(effective(plain)) == ["loaded_version", "files", "op"]
+    assert effective(plain)["op"] == Arg(type="dict")
+    keyless = catalog._e("preview_playlist_change", "", "R", built=True, fixed={"op.op": "add"})
+    assert list(effective(keyless)) == ["lines", "read_unread"]  # `op` is named through fixed keys alone: no word
+
+
+def test_required_is_the_entrys_word_or_a_parameter_without_a_default():
+    signature = BRIDGE["save_playlists"]
+    assert catalog.required("op.playlist", catalog._positional(), signature)
+    assert not catalog.required("op.playlist", catalog._positional(many=True), signature)
+    assert not catalog.required("op.at", Arg("--at", type="int"), signature)
+    assert catalog.required("op.to", Arg("--to", type="int", required=True), signature)
+    assert not catalog.required("lines", Arg(positional=True), signature)  # a plain name: its parameter has a default
+    assert catalog.required("lines", Arg("--lines", required=True), signature)
+    assert catalog.required("limit", Arg(positional=True), BRIDGE["limits_what_if"])  # no default
+
+
+def test_no_method_has_both_a_plain_entry_and_one_whose_fixed_values_are_their_defaults():
+    """`call._pick` lets a fixed value that is its parameter's default go unsaid: such an entry would shadow a plain one."""
+    for method in {e.method for e in catalog.ENTRIES}:
+        entries = catalog.by_method(method)
+        if method not in BRIDGE or not any(not e.fixed for e in entries):
+            continue
+        parameters = BRIDGE[method].parameters
+        for e in entries:
+            assert not (e.fixed and all(k in parameters and parameters[k].default == v for k, v in e.fixed.items())), (
+                f"{method} {e.command}: its fixed values are all defaults and the method has a plain entry")
 
 
 def test_flags_are_made_from_the_signature():

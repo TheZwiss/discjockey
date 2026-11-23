@@ -1,0 +1,34 @@
+1 file would sit in a different folder
+
+Kind           moves
+Renames        none
+Reroutes       none
+New downloads  0
+Days           0
+Stopped        0
+Unknown        none
+Checklist      No downloads, no Qobuz quota used, Nothing is deleted, Files move only if you choose to, Moves can be undone on this page
+Problem        none
+Version        9d8cfc514189ddd2cee8fe8b7d092ea539584c0f76fdac2d8f1f0decf3a6cd35
+
+Folders
+Folder       Before  After
+Powertrance  1       2
+Hard_Bounce  4       3
+2 of 2 shown
+
+Tidy
+Headline   1 file would sit in a different folder
+Rekordbox  rekordbox may show the moved tracks as missing. Its Relocate finds them again by file name: Discjockey never renames them.
+Undo note  You can undo this afterwards.
+
+Tidy › Rows
+Track id  Artist         Title        Folder       Duration s  Status        Quality  Quality label  Cutoff hz  Source   Source name  In playlists  Own  Hidden  Upgrade ready  Path                                                               Added                Cover url                   File id  From                      To                        From path                                                          Placed by  Ticked  Yours  Skip  By rename
+t2        Armin Hermann  Get Naughty  Hard_Bounce  268.0       not_lossless  weak     16.0 kHz       16000      youtube  YouTube      yes           no   no      no             Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff  2026-10-13T22:15:00  https://i.scdn.co/image/t2  2        Hard_Bounce/not_lossless  Powertrance/not_lossless  Library/Hard_Bounce/not_lossless/Armin Hermann - Get Naughty.aiff  app        yes     no     none  none
+1 of 1 shown
+
+Lines
+Folder       Link                                                      Enabled
+Powertrance  https://open.spotify.com/playlist/3DiscjockeyExampleList  yes
+Hard_Bounce  https://open.spotify.com/playlist/0DiscjockeyExampleList  yes
+2 of 2 shown

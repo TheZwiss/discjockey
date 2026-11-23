@@ -10,8 +10,9 @@ fixed). `kind` is design §5.2's: R read, RJ read that may use the network or ru
 Flags are not written here. `effective_params(entry)` makes them from the method's signature (`inspect.signature`):
 a parameter without a default is a positional, one with a default is `--its-name` (hyphens for underscores, a
 trailing `_id` dropped: `plan_id` is `--plan`), a list parameter is a positional that takes many, and a dict
-parameter has no word of its own (its entry says which `resolve` kind builds it). An entry's `params` overrides only
-what the design names differently. `fixed` binds arguments a command never takes from the user; `match` names the literal words (a login row's service) that pick
+parameter has no word of its own (its entry says which `resolve` kind builds it), or, when it is a TypedDict, each key
+the command takes has its word as `<param>.<key>` (`op.playlist`: `call._arguments` packs the given keys into the
+dict). An entry's `params` overrides only what the design names differently. `fixed` binds arguments a command never takes from the user (a key of a TypedDict parameter too: `{"op.op": "rename"}`); `match` names the literal words (a login row's service) that pick
 the entry when a command has several (`DISPATCH`).
 
 `planned` is "phase N: VN.x" (the phase and the agent group that builds it, a letter allowed after the number: "phase 4: V4.1") while
@@ -44,13 +45,16 @@ class Arg:
     """One argument of a command. `flag` is None for a positional (`positional=True`) or for an argument the command
     never asks for itself: its value is built from another argument by `resolve` (both False). `resolve` names the
     `HubApi.resolve` kind that turns what the user typed (a path, `last`, `folder:<path>`) into the method's argument;
-    the command line never looks anything up itself. A `secret` is refused inside `call --args`."""
+    the command line never looks anything up itself. A `secret` is refused inside `call --args`. `required` is "a flag
+    the command cannot do without" (`--to`, `--file`): a plain flag is generated from a parameter with a default, so
+    only an entry can say it (see `required()`)."""
     flag: str | None = None
     positional: bool = False
     type: str = "str"
     many: bool = False
     resolve: str | None = None
     secret: bool = False
+    required: bool = False
 
 
 @dataclass(frozen=True)
@@ -235,18 +239,29 @@ def _derived(resolve: str, type: str = "str") -> Arg:
 TRACKS = _positional("track", many=True)
 TRACK = _positional("track")
 SCOPE = {"scope": _derived("aiff_scope", "dict")}
-LINES = {"lines": _derived("playlist_lines", "list")}
+GUARDS = {"loaded_version": Arg("--if-version", resolve="playlist_version"),
+          "files.choice": Arg("--files", resolve="files_choice")}
+# the words of each change of playlists.txt (`playlist <op>`): the keys of `PlaylistOp` it takes, and its example
+PLAYLIST_OPS = {
+    "add": ({"op.url": _positional(), "op.folder": Arg("--folder"), "op.at": Arg("--at", type="int"),
+             "op.off": Arg("--off", type="bool")},
+            "playlist add https://soundcloud.com/someone/sets/a-set --folder A_set --dry-run"),
+    "remove": ({"op.playlist": _positional()}, "playlist remove Powertrance --dry-run"),
+    "rename": ({"op.playlist": _positional(), "op.folder": _positional()},
+               "playlist rename Powertrance Power_Trance --dry-run"),
+    "move": ({"op.playlist": _positional(), "op.to": Arg("--to", type="int", required=True)},
+             "playlist move Powertrance --to 1 --dry-run"),
+    "enable": ({"op.playlist": _positional()}, "playlist enable Powertrance --dry-run"),
+    "disable": ({"op.playlist": _positional()}, "playlist disable Powertrance --dry-run"),
+    "edit": ({"op.file": Arg("--file", resolve="local_path", required=True)},
+             "playlist edit --file my-playlists.txt --dry-run"),
+}
 
 
 def _playlist_edits() -> list[Entry]:
-    edits = ("add", "remove", "rename", "move", "enable", "disable", "edit")
-    out = []
-    for op in edits:
-        params = {"lines": _derived(f"playlist_lines:{op}", "list"), "loaded_version": _derived("playlist_version"),
-                  "files": _derived(f"playlist_files:{op}", "dict")}
-        out.append(_e("save_playlists", f"playlist {op}", "J", params=params, dry_run="preview_playlist_change",
-                      planned="phase 4: V4.2"))
-    return out
+    return [_e("save_playlists", f"playlist {op}", "J", example, params={**words, **GUARDS},
+               fixed={"op.op": op, "lines": None}, dry_run="preview_playlist_change", built=True, locks={"library"})
+            for op, (words, example) in PLAYLIST_OPS.items()]
 
 
 def _crate_entries() -> list[Entry]:
@@ -331,10 +346,10 @@ ENTRIES: tuple[Entry, ...] = (
     _e("playlists", "playlist list", "R", "playlist list", built=True),
     _e("add_playlist", "playlist check", "RJ", "playlist check https://soundcloud.com/someone/sets/a-set",
        params={"url": _positional()}, built=True),
-    _e("preview_playlist_change", "", "R", params={"lines": _derived("playlist_lines", "list")}, planned="phase 4: V4.2"),
+    _e("preview_playlist_change", "", "R", fixed={"read_unread": False}, built=True),  # a dry run reads no network (T9)
     *_playlist_edits(),
     _e("set_read_liked_music", "settings set read-liked-music", "J", params={"on": _positional(type="bool")}, planned="phase 4: V4.8"),
-    _e("add_liked_music", "playlist add-liked", "J", planned="phase 4: V4.2"),
+    _e("add_liked_music", "playlist add-liked", "J", "playlist add-liked", built=True, locks={"library"}),
     _e("tidy_up", "tidy run", "J", params={"moves": _positional("tidy_moves", many=True, type="list")},
        dry_run="tidy_preview", planned="phase 4: V4.4"),
     _e("undo_moves", "batch undo", "J", params={"batch_id": _positional("moves", type="int")}, needs_yes=True,
@@ -511,8 +526,31 @@ def holds_library(state: Mapping) -> bool:
     return any("library" in e.locks for e in by_method(state.get("method") or ""))
 
 
+def typed_dict_of(annotation: object) -> type | None:
+    """The TypedDict an annotation names, else None. A class is itself; an annotation is a string here (`api.py` has
+    `from __future__ import annotations`), read as its first `|` part after the last `.` (`"PlaylistOp | None"`,
+    `"shapes.PlaylistOp"`) looked up in `shapes.SHAPES`. Nothing is evaluated and no name of `api.py` is imported."""
+    if isinstance(annotation, type) and typing.is_typeddict(annotation):
+        return annotation
+    if isinstance(annotation, str):
+        found = shapes.SHAPES.get(annotation.split("|")[0].strip().rsplit(".", 1)[-1])
+        if isinstance(found, type) and typing.is_typeddict(found):
+            return found
+    return None
+
+
+def typed_dict_keys(annotation: object) -> frozenset[str]:
+    """The keys of the TypedDict an annotation names (`typed_dict_of`), else empty. `__required_keys__` and
+    `__optional_keys__` need no annotation evaluated, and a functional TypedDict (`SaveFiles`) has them too."""
+    found = typed_dict_of(annotation)
+    return frozenset(found.__required_keys__ | found.__optional_keys__) if found else frozenset()
+
+
 def _type_of(annotation: object) -> str:
-    """`str`, `int`, `bool`, `list` or `dict` from a parameter's annotation (a string here: `from __future__`)."""
+    """`str`, `int`, `bool`, `list` or `dict` from a parameter's annotation (a string here: `from __future__`); a
+    TypedDict is a `dict`."""
+    if typed_dict_of(annotation):
+        return "dict"
     text = annotation if isinstance(annotation, str) else getattr(annotation, "__name__", str(annotation))
     head = text.replace("typing.", "").split("|")[0].strip()
     for name in ("bool", "int", "list", "dict", "float"):
@@ -535,19 +573,41 @@ def generated_arg(name: str, parameter: inspect.Parameter) -> Arg:
     return Arg(flag="--" + word.replace("_", "-"), type=type_, resolve=resolve)
 
 
+def head_of(name: str) -> str:
+    """The parameter a name belongs to: `op` for `op.playlist`, the name itself when it has no key."""
+    return name.partition(".")[0]
+
+
+def key_of(name: str) -> str:
+    """The key part of a dotted name (`playlist` of `op.playlist`), the name itself when it has none."""
+    return name.partition(".")[2] or name
+
+
 def effective_params(entry: Entry, signature: inspect.Signature) -> dict[str, Arg]:
     """Every parameter of the method (`signature` without `self`) except those the entry fixes, with its word: the
-    entry's own where it names one, else the generated one."""
+    entry's own where it names one, else the generated one. A TypedDict parameter that the entry names through dotted
+    keys (in `params` or `fixed`) is never itself here: at its place in the signature come the entry's dotted `params`
+    keys, in the entry's order, under their dotted names (`op.playlist`). One without dotted keys keeps its
+    `generated_arg` (`Arg(type="dict")`: an entry with no command may have it, `call --args` sends the dict whole).
+    Dotted `fixed` keys are not words."""
+    keyed = {head_of(name) for name in (*entry.params, *entry.fixed) if "." in name}
     out = {}
     for name, parameter in signature.parameters.items():
         if name == "self" or name in entry.fixed:
             continue
-        out[name] = entry.params.get(name) or generated_arg(name, parameter)
+        if name in keyed and typed_dict_of(parameter.annotation):
+            out.update({key: arg for key, arg in entry.params.items() if head_of(key) == name and "." in key})
+        else:
+            out[name] = entry.params.get(name) or generated_arg(name, parameter)
     return out
 
 
-def typed_dict_keys(annotation: object) -> frozenset[str]:
-    """The keys of a TypedDict annotation, else empty (no bridge parameter has one today)."""
-    if isinstance(annotation, type) and typing.is_typeddict(annotation):
-        return frozenset(typing.get_type_hints(annotation))
-    return frozenset()
+def required(name: str, arg: Arg, signature: inspect.Signature) -> bool:
+    """Whether the command cannot run without this argument: `arg.required`, or a plain name whose parameter has no
+    default, or a dotted name (a key of a dict parameter, which has no default of its own) that is a positional taking
+    one word."""
+    if arg.required:
+        return True
+    if "." in name:
+        return arg.positional and not arg.many
+    return signature.parameters[name].default is inspect.Parameter.empty

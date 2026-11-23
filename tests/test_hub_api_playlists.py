@@ -10,10 +10,11 @@ import yt_dlp
 from hub_helpers import (ID1, ID2, PLAYLISTS, QOBUZ_ID, QOBUZ_LINK, QOBUZ_UNREADABLE, TRACKS, fake_qobuz, fake_spotify,
                          make_api, make_root, refreshed, store_sync_read, stored, track, wait_job, window)
 
+from discjockey.config import ConfigError
 from discjockey import db, playlist_words, sources, words
 from discjockey import playlists_file as pf
 from discjockey.hub import views
-from discjockey.hub.api import CliApi, PLAYLIST_COPIES
+from discjockey.hub.api import CliApi, HubApi, PLAYLIST_COPIES
 from discjockey.hub.history import GUARD
 from discjockey.events import CancelToken
 from discjockey.models import FetchedPlaylist, PlaylistInfo, PlaylistLine
@@ -605,6 +606,41 @@ def test_the_playlists_page_numbers_its_rows_from_one(root):
     assert [r["place"] for r in api.playlists()["rows"]] == [1, 2]
 
 
+def test_a_preview_with_a_change_ends_with_the_line_that_makes_it_guarded_by_the_version_it_read(root):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    version = api.playlists()["version"]
+    disabled = api.preview_playlist_change(op={"op": "disable", "playlist": "powertrance"})
+    assert disabled["tidy"] is None
+    assert disabled["next"] == [{"run": f"playlist disable powertrance --if-version {version}", "why": words.APPLY_WHY}]
+    moved = api.preview_playlist_change(op={"op": "move", "playlist": "Powertrance", "to": 1})
+    assert moved["tidy"] is not None  # files would move: one line for each answer to the question
+    base = f"playlist move Powertrance --to 1 --if-version {version}"
+    assert moved["next"] == [{"run": f"{base} --files move", "why": words.APPLY_MOVE_WHY},
+                             {"run": f"{base} --files leave", "why": words.APPLY_LEAVE_WHY}]
+    assert "next" not in api.preview_playlist_change(lines(POWER, HARD))  # the window's: no op, no line
+    assert "next" not in api.preview_playlist_change()
+    edited = api.preview_playlist_change(lines(POWER, HARD), op={"op": "disable", "playlist": "Powertrance"})
+    assert "next" not in edited  # a change made to edited lines is not a change of the file: nothing to offer
+
+
+def test_a_preview_whose_save_would_be_refused_offers_no_line(root, monkeypatch):
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    def refuse(rows):
+        raise ConfigError("not a list a save would write")
+    monkeypatch.setattr(pf, "validate", refuse)
+    answer = api.preview_playlist_change(op={"op": "remove", "playlist": "Hard_Bounce"})
+    assert answer["problem"] is not None and "next" not in answer
+
+
+def test_the_line_that_makes_a_change_has_no_guard_for_no_file():
+    op = {"op": "remove", "playlist": "Powertrance"}
+    assert HubApi._apply_next(op, "", None) == [{"run": "playlist remove Powertrance", "why": words.APPLY_WHY}]
+    [guarded] = HubApi._apply_next({"op": "add", "url": "https://a/b c", "folder": "X", "at": 2, "off": True}, "ab12", None)
+    assert guarded["run"] == "playlist add 'https://a/b c' --folder X --at 2 --off --if-version ab12"
+
+
 def test_a_preview_with_a_change_answers_the_lines_after_it_and_the_files_version(root):
     api, rec = make_api(root)
     refreshed(api, rec)
@@ -655,7 +691,10 @@ def test_a_preview_by_a_change_reads_nothing_either(root, monkeypatch):
     before = snapshot(root.root, root.support)
     answer = api.preview_playlist_change(op={"op": "add", "url": LINK3, "folder": "Fresh"})
     assert answer["kind"] == "unknown" and fetched == [] and snapshot(root.root, root.support) == before
-    assert [n["run"] for n in answer["next"]] == [f"playlist check https://open.spotify.com/playlist/{ID3}"]
+    version = api.playlists()["version"]
+    assert [n["run"] for n in answer["next"]] == [  # the check first, then the line that makes the change
+        f"playlist check https://open.spotify.com/playlist/{ID3}",
+        f"playlist add '{LINK3}' --folder Fresh --if-version {version}"]
 
 
 def test_a_preview_without_a_read_runs_next_to_a_sync_and_the_windows_read_does_not(root, monkeypatch):
@@ -773,9 +812,8 @@ def test_a_saved_change_is_logged_with_its_undo_and_history_offers_it(tmp_path, 
     assert logged["operation"] == operation and logged["message"] == message and logged["result"] == "done"
     assert (logged["group"], logged["track_id"], logged["version"]) == ("playlists", "", f.result["version"])
     entry = newest(api)
-    assert entry["text"] == message and entry["undo"] is None  # V4.2b builds the commands
-    assert entry["cant_text"] == words.UNDO_NOT_YET.format(
-        command=f"{' '.join(logged['undo'])} {GUARD['playlists']} {f.result['version']}")
+    assert entry["text"] == message and entry["cant_text"] is None
+    assert entry["undo"] == shlex.join([*logged["undo"], GUARD["playlists"], f.result["version"]])  # the built command, guarded
     assert copies(root) == []  # no copy: the undo is a change, not the file back
 
 
@@ -820,7 +858,7 @@ def test_the_windows_whole_list_save_is_logged_with_a_copy_of_the_file_as_it_was
     [copy] = copies(root)
     assert copy.read_text() == PLAYLISTS and copy.name == "2026-10-20_214700.txt"
     assert logged["undo"] == ["playlist", "edit", "--file", str(copy)] and logged["version"] == f.result["version"]
-    assert newest(api)["cant_text"].endswith(f"{GUARD['playlists']} {f.result['version']}).")
+    assert newest(api)["undo"] == shlex.join([*logged["undo"], GUARD["playlists"], f.result["version"]])
 
 
 def test_a_replacing_edit_keeps_a_copy_and_a_change_does_not(root, tmp_path):

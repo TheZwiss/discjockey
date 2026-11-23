@@ -383,6 +383,56 @@ def _opened(answer: dict) -> dict:
     return answer
 
 
+def _read_the_playlists(api):
+    """The playlists read the fixture's two lines hold, stored (without one no change has files to move); the take of
+    storing it is not the call's."""
+    from datetime import datetime
+
+    from hub_helpers import ID1, ID2, TRACKS, store_sync_read
+
+    from discjockey.models import FetchedPlaylist, PlaylistLine
+    store_sync_read(api._paths, [FetchedPlaylist(PlaylistLine("Hard_Bounce", ID1, 2), TRACKS[ID1], []),
+                                 FetchedPlaylist(PlaylistLine("Powertrance", ID2, 3), TRACKS[ID2], [])],
+                    when=datetime(2026, 10, 20, 21, 45))
+    api.lock_recorder.words.clear()
+
+
+def _saved(op: dict, *, files: dict | None = None, read: bool = False):
+    """A driver of `save_playlists` for the change `op`, through to the end of its job: `files` is the most the change
+    takes (a change that moves files), after the read it needs for them."""
+    def drive(api, rec):
+        if read:
+            _read_the_playlists(api)
+        answer = api.save_playlists(op=op, files=files)
+        assert answer["ok"], answer
+        assert wait_job(api, rec, answer).ok
+    return drive
+
+
+def _edit(api, rec):
+    """`playlist edit --file`: the box's two lines in the other order."""
+    from hub_helpers import PLAYLISTS
+    other = api._paths.root.parent / "my-playlists.txt"
+    first, second = PLAYLISTS.splitlines()[1:]
+    other.write_text(f"{second}\n{first}\n")
+    _saved({"op": "edit", "file": str(other)})(api, rec)
+
+
+def _liked_music(api, rec):
+    """`playlist add-liked` with the choice on and the YouTube login saved."""
+    from discjockey.settings import Account, Settings, save_settings
+    save_settings(api._paths.settings_file, Settings(accounts={"youtube": Account("chrome", 30)}, read_liked_music=True))
+    answer = api.add_liked_music()
+    assert answer["ok"], answer
+    assert wait_job(api, rec, answer).ok
+
+
+def _previewed_move(api, rec):
+    """The dry run of `playlist move`: the preview by a change, which reads no network and takes no lock."""
+    answer = api.preview_playlist_change(op={"op": "move", "playlist": "Powertrance", "to": 1})
+    assert answer["ok"], answer
+
+
 DRIVERS = {
     "rekordbox_preview": _preview,
     "batches": lambda api, rec: api.batches(),
@@ -466,6 +516,18 @@ DRIVERS = {
     "open_licenses": lambda api, rec: _opened(api.open_licenses(print_only=True)),
     "open_privacy_settings": lambda api, rec: _opened(api.open_privacy_settings(print_only=True)),
     "aiff_plan": _aiff_plan,  # the dry run of both aiff commands (a read: the shared hold only while master.db is open)
+    "save_playlists:playlist add": _saved({"op": "add", "url": "https://soundcloud.com/example-label/sets/example-set",
+                                           "folder": "A_set"}),  # the playlists file under the library lock
+    "save_playlists:playlist remove": _saved({"op": "remove", "playlist": "Powertrance"}),
+    "save_playlists:playlist rename": _saved({"op": "rename", "playlist": "Hard_Bounce", "folder": "Hard_Bounce_2"},
+                                             files={"choice": "move"}, read=True),  # the folder is renamed on disk
+    "save_playlists:playlist move": _saved({"op": "move", "playlist": "Powertrance", "to": 1},
+                                           files={"choice": "move"}, read=True),  # the files move
+    "save_playlists:playlist enable": _saved({"op": "enable", "playlist": "Powertrance"}),
+    "save_playlists:playlist disable": _saved({"op": "disable", "playlist": "Powertrance"}),
+    "save_playlists:playlist edit": _edit,
+    "add_liked_music": _liked_music,
+    "preview_playlist_change": _previewed_move,  # a dry run reads no network and writes nothing: no lock
 }
 BUILT = [e for e in catalog.ENTRIES if e.planned is None]
 

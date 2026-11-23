@@ -136,15 +136,18 @@ def reasons_of(entries: list[Entry]) -> list[str]:
 def _args_of(entries: list[Entry]) -> list[dict]:
     """The arguments of a command as a person types them: `word` is the form of a positional (`aiff:N`, `on|off`) or the
     flag, `id` the id kind a typed value is read as (a key of `ids.FORMS`, else None), `type` what is typed (`str` for
-    anything that is resolved)."""
+    anything that is resolved). `required` is `catalog.required`, except a flag of a command that offers `--all`: `--all`
+    stands in for it (`parse`), as `-`, `--all` and `--rows` stand in for the songs."""
     primary = choose(entries)
     signature = parser.signature_of(primary.method)
     selecting = parser.selects(primary)
+    params = catalog.effective_params(primary, signature)
+    all_stands_in = "--all" in parser.extra_flags(entries, {a.flag for a in params.values() if a.flag})
     out = []
-    for name, arg in catalog.effective_params(primary, signature).items():
+    for name, arg in params.items():
         if not (arg.positional or arg.flag):
             continue  # built by `resolve` from another argument: the person never types it
-        required = arg.positional and signature.parameters[name].default is signature.parameters[name].empty
+        required = catalog.required(name, arg, signature) and not (all_stands_in and not arg.positional)
         kind = arg.resolve.split(":")[0] if arg.resolve else None
         by_kind = catalog.BY_ID_KIND.get(" ".join(primary.command))  # `batch undo`: every id kind the command takes
         if by_kind and by_kind[0] == name:
@@ -180,7 +183,7 @@ def _songs(entries: list[Entry], args: list[dict], flags: list[str]) -> list[str
 
 def usage_of(command: tuple[str, ...], args: list[dict], flags: list[str], flag_values: dict[str, str] | None = None,
              songs: list[str] | None = None, required_flags: list[str] | None = None) -> str:
-    """The command as it is typed. A command that selects songs writes `(TRACK... | - | --all | --rows)` for them; a
+    """The command as it is typed: the positionals, the flags it cannot run without, the other flags. A command that selects songs writes `(TRACK... | - | --all | --rows)` for them; a
     flag with a value prints it (`[--in COLLECTION]`); a flag the command cannot run without prints no brackets."""
     values, songs, required = flag_values or {}, songs or [], required_flags or []
 
@@ -188,15 +191,22 @@ def usage_of(command: tuple[str, ...], args: list[dict], flags: list[str], flag_
         return f"{word} {values.get(word) or name.upper()}" if word in values or name else word
 
     words = [" ".join(command)]
-    for a in args:
-        if a["positional"]:
-            if songs and a["name"] == "track_ids":
-                words.append("(" + " | ".join(flag(f) if f == "--batch" else f for f in songs) + ")")
-                continue
-            word = a["word"] + ("..." if a["many"] else "")
-            words.append(word if a["required"] else f"[{word}]")
-        elif a["word"] not in songs:
-            words.append(f"[{a['word']}]" if a["type"] == "bool" else f"[{flag(a['word'], a['name'])}]")
+    for a in args:  # the positionals first
+        if not a["positional"]:
+            continue
+        if songs and a["name"] == "track_ids":
+            words.append("(" + " | ".join(flag(f) if f == "--batch" else f for f in songs) + ")")
+            continue
+        word = a["word"] + ("..." if a["many"] else "")
+        words.append(word if a["required"] else f"[{word}]")
+    # then the flags the command cannot run without, then the others, each in their order (the signature puts a dict
+    # parameter's keys last, after the guards)
+    for a in sorted((a for a in args if not a["positional"] and a["word"] not in songs), key=lambda a: not a["required"]):
+        if a["type"] == "bool":
+            words.append(a["word"] if a["required"] else f"[{a['word']}]")
+        else:
+            text = flag(a["word"], catalog.key_of(a["name"]))
+            words.append(text if a["required"] else f"[{text}]")
     for f in flags:
         if f in songs:
             continue
@@ -225,7 +235,7 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
     changes anything, `job` whether it runs as a job; `dry_run` whether `--dry-run` shows what it would do. `methods`
     are the bridge methods it runs (`call` takes their names), `dry_run_method` the one `--dry-run` runs; `songs` the
     ways to say which songs; `pages` the key of the list `--json` pages (null: the command's answer is never cut); `flag_values` the word of each flag's value; `required_flags` the flags it cannot run
-    without; `schema` the name of the shape of its data (null while none is mapped; `help <command> --json` adds it)."""
+    without (`--dry-run` of a command that can only be tried, and each flag argument that is `required`); `schema` the name of the shape of its data (null while none is mapped; `help <command> --json` adds it)."""
     primary = choose(entries)
     args = _args_of(entries)
     taken = {a["word"] for a in args if not a["positional"]}
@@ -233,7 +243,7 @@ def index_entry(command: tuple[str, ...], entries: list[Entry]) -> dict:
     values = _flag_values(entries, args, flags)
     songs = _songs(entries, args, flags)
     dry_only = catalog.dry_run_only(command)
-    required = [f for f in flags if dry_only and f == "--dry-run"]
+    required = [f for f in flags if dry_only and f == "--dry-run"] + [a["word"] for a in args if a["required"] and not a["positional"]]
     return {"command": " ".join(command), "kind": primary.kind, "writes": primary.kind in WRITES,
             "job": primary.kind in JOBS, "pages": primary.pages, "args": args, "flags": flags,
             "needs_yes": any(e.needs_yes for e in entries),

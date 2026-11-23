@@ -5,8 +5,8 @@ take is a usage error, never ignored. `route` decides whether a line belongs to 
 words in `legacy.py` (`setup`, `update`), which keep theirs until their replacements are built. The command line's own
 words (`help`, `where`, `app open`, `call`) are parsed here too but run no entry.
 
-Not offered in phase 1: `--sandbox`, `--if-version`; `--jsonl`, `--wait`, `--detach` and `--wait-busy` are
-read here; only job commands take them, a command that answers at once refuses them (`call.refuse_job_flags`)."""
+`--sandbox` is not offered; `--if-version` is the playlist writes' version check (`GUARD_FLAGS`). `--jsonl`, `--wait`,
+`--detach` and `--wait-busy` are read here; only job commands take them, a command that answers at once refuses them (`call.refuse_job_flags`)."""
 from __future__ import annotations
 
 import argparse
@@ -200,6 +200,9 @@ SYNC_DRY_RUN_WORDS = ("sync run --dry-run shows the whole plan, as sync plan doe
                       "would run. Say it without action ids, --plan or --how-many.")
 
 
+GUARD_FLAGS = ("--if-version",)  # the flags that guard a change against what it was read from: a dry run changes nothing
+IF_VERSION_ON_DRY_RUN = ("--if-version guards a change, and a dry run changes nothing: leave it out. The dry run's Next: "
+                         "lines give the command that makes the change, with its version.")
 DRY_RUN_ONLY_WORDS = "{command} can only be tried for now: say --dry-run."  # a command whose write is not built (`catalog.dry_run_only`)
 
 SELECTION_FLAGS = {"--rows": ("rows", True, None), "--in": ("where", False, "COLLECTION"),
@@ -215,7 +218,9 @@ def form_of(name: str, arg: catalog.Arg, command: tuple[str, ...] = ()) -> str:
     """What a person types for this argument (or for a flag's value), as `help` and the usage errors write it: the
     `--way` words, the id kind's form (`ids.FORMS`), `plan:ID` for a plan, `on|off` for a switch word, else the
     parameter's name. The positional of a command that dispatches by id kind (`catalog.BY_ID_KIND`) takes every form
-    the command has (`aiff:N|moves:N`), not the one of the entry that happens to be its primary."""
+    the command has (`aiff:N|moves:N`), not the one of the entry that happens to be its primary. A key of a dict
+    parameter (`op.playlist`) is read as its key (`PLAYLIST`)."""
+    name = catalog.key_of(name)
     if (by_kind := catalog.BY_ID_KIND.get(" ".join(command))) and by_kind[0] == name:
         return ids.FORMS[by_kind[1]]
     kind = arg.resolve.split(":")[0] if arg.resolve else None
@@ -278,7 +283,7 @@ def _add_arguments(leaf: argparse.ArgumentParser, entries: list[Entry]) -> None:
     taken = set()
     for name, arg in catalog.effective_params(primary, signature).items():
         if arg.positional:  # never an argparse-required positional: `parse` says what is missing, in the command line's words
-            leaf.add_argument(name, nargs="*" if arg.many else "?", metavar=name.upper(),
+            leaf.add_argument(name, nargs="*" if arg.many else "?", metavar=catalog.key_of(name).upper(),
                               default=argparse.SUPPRESS, **({"type": _switch} if arg.type == "bool" else {}))
         elif arg.flag:
             taken.add(arg.flag)
@@ -352,7 +357,9 @@ def _check_words(words: list[str]) -> None:
 
 
 def _what(name: str) -> str:
-    """`batch_id` as the word a person says: `batch`; `track_ids` as `track`; `client_id` as `client`."""
+    """`batch_id` as the word a person says: `batch`; `track_ids` as `track`; `client_id` as `client`; `op.playlist`
+    (a key of a dict parameter) as `playlist`."""
+    name = catalog.key_of(name)
     for tail in ("_ids", "_id"):
         if name.endswith(tail):
             name = name[:-len(tail)]
@@ -413,14 +420,16 @@ def parse(argv: list[str]) -> Parsed:
     if catalog.dry_run_only(command) and not flags.dry_run:
         raise UsageError(DRY_RUN_ONLY_WORDS.format(command=" ".join(command)))
     for name, arg in catalog.effective_params(primary, signature).items():
+        if flags.dry_run and arg.flag in GUARD_FLAGS and name in ns:
+            raise UsageError(IF_VERSION_ON_DRY_RUN, "conflicting_flags")
         if arg.positional and arg.many:
             if name in ns and not ns[name]:
                 del ns[name]
-        if (arg.positional and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
+        needed = catalog.required(name, arg, signature)
+        if (arg.positional and name not in ns and needed
                 and not (selected and name == "track_ids")):  # --all / --rows say which songs instead
             raise UsageError(_selection_words("batch_id" in signature.parameters) if name == "track_ids"
                              else "Say on or off." if arg.type == "bool" else f"Say which {_what(name)}: {form_of(name, arg, command)}.")
-        if (arg.flag and name not in ns and signature.parameters[name].default is inspect.Parameter.empty
-                and not flags.all):  # a flag the method cannot do without; the verb's own --all has its meaning without it
+        if arg.flag and name not in ns and needed and not flags.all:  # a flag the method cannot do without; the verb's own --all has its meaning without it
             raise UsageError(f"{arg.flag} is missing.")
     return Parsed(command, entries, ns, flags, words)

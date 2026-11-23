@@ -99,7 +99,19 @@ def _arguments(entry: Entry, args: Mapping, command: str, api, exact: bool,
                     value = value[name]
                 kwargs[name] = value
     kwargs.update(entry.fixed)
-    return kwargs, None
+    return _packed(kwargs), None
+
+
+def _packed(kwargs: Mapping) -> dict:
+    """`kwargs` with every dotted key (`op.playlist`, a key of a TypedDict parameter: the entry's words and its `fixed`
+    values) moved into its dict (`op`). A dict the caller gave whole (`call --args`) is copied, never changed in place;
+    a parameter none of whose keys was given stays out. This is transport: nothing is computed or checked here."""
+    out = {name: value for name, value in kwargs.items() if "." not in name}
+    for name, value in kwargs.items():
+        if "." in name:
+            head, key = name.split(".", 1)
+            out[head] = {**out.get(head, {}), key: value}  # `_pick` leaves no entry for a non-dict `head` that has fixed keys
+    return out
 
 
 NOTHING_LEFT = {"total": 0, "done": 0, "skipped": 0, "failed": 0, "results": []}  # the data of a run of no songs
@@ -449,14 +461,52 @@ def _by_id_kind(entries: list[Entry], command: str, args: Mapping, flags: Flags)
     return next(e for e in rows if catalog.stands_in(e))
 
 
+_MISSING = object()
+
+
+def _fixed_value(args: Mapping, key: str) -> tuple[bool, object]:
+    """Whether `args` gives the fixed key `key` and what it is. A dotted key (`op.op`) is read inside the dict argument
+    it names, if that is a dict."""
+    head, _, inner = key.partition(".")
+    value = args.get(head, _MISSING)
+    if inner and value is not _MISSING:
+        value = value.get(inner, _MISSING) if isinstance(value, Mapping) else _MISSING
+    return value is not _MISSING, None if value is _MISSING else value
+
+
+def _fixed_holds(entry: Entry, args: Mapping, key: str, parameters: Mapping) -> bool:
+    """Whether the entry's fixed value of `key` is the one `args` says, or, when `args` leaves the key out, the
+    parameter's default (`refresh`'s `auto: False` works without naming it)."""
+    given, value = _fixed_value(args, key)
+    if given:
+        return value == entry.fixed[key]
+    parameter = parameters.get(key)
+    return parameter is not None and parameter.default is not parameter.empty and parameter.default == entry.fixed[key]
+
+
 def _pick(entries: list[Entry], args: Mapping) -> Entry | None:
-    """The entry of a method that the arguments name: every fixed value present and equal; the one with the most fixed
-    values, else the first without any (`upgrade` with `mode: discard` is `upgrade discard`, else `upgrade apply`).
-    None when every entry fixes a value the arguments leave out or differ in (`never_download` without `never`)."""
-    matching = [e for e in entries if e.fixed and all(k in args and args[k] == v for k, v in e.fixed.items())]
+    """The entry of a method that the arguments name: every fixed value present and equal (or left out where it is the
+    parameter's default); the one with the most fixed values, else the first without any (`upgrade` with `mode:
+    discard` is `upgrade discard`, else `upgrade apply`). None when every entry fixes a value the arguments leave out
+    or differ in (`never_download` without `never`). No method has both an entry without `fixed` and one whose fixed
+    values all equal their defaults: that one would shadow the plain entry (a test pins it)."""
+    parameters = parameters_of(entries[0].method)
+    matching = [e for e in entries if e.fixed and all(_fixed_holds(e, args, k, parameters) for k in e.fixed)]
     if matching:
         return max(matching, key=lambda e: len(e.fixed))
     return next((e for e in entries if not e.fixed), None)
+
+
+def _pick_failed(method: str, entries: list[Entry], args: Mapping) -> str:
+    """Why no entry of `method` is picked, in words: the fixed keys that are missing and that no entry has as its
+    default; else the given keys whose value no entry takes; else every fixed key (they only fit together)."""
+    parameters = parameters_of(method)
+    keys = sorted({k for e in entries for k in e.fixed})
+    missing = [k for k in keys if not _fixed_value(args, k)[0]
+               and not any(k in e.fixed and _fixed_holds(e, args, k, parameters) for e in entries)]
+    given = [k for k in keys if _fixed_value(args, k)[0]
+             and not any(k in e.fixed and _fixed_holds(e, args, k, parameters) for e in entries)]
+    return f"{method} needs {', '.join(missing or given or keys)} with one of the values it takes."
 
 
 def run_method(method: str, args: object, flags: Flags, *, password: str | None = None, api=None) -> dict:
@@ -480,8 +530,7 @@ def run_method(method: str, args: object, flags: Flags, *, password: str | None 
     secrets = {name: password for name in secret_names} if password is not None else {}
     entry = _pick(entries, args)
     if entry is None:
-        fixed = sorted({k for e in entries for k in e.fixed})
-        return envelope.usage("call", f"{method} needs {', '.join(fixed)} with one of the values it takes.")
+        return envelope.usage("call", _pick_failed(method, entries, args))
     command = command_of(entry)
     if entry.planned:
         return envelope.usage(command, NOT_BUILT.format(command=command))

@@ -698,3 +698,123 @@ def test_a_usage_error_under_jsonl_still_ends_with_the_envelope_line(capsys):
     lines = out.splitlines()
     assert code == 2 and len(lines) == 1 and err == ""
     assert json.loads(lines[0])["outcome"] == "bad_args" and "--bogus" in json.loads(lines[0])["message"]
+
+
+# --- a TypedDict parameter's keys as words (`<param>.<key>`): the mechanism, on test-only entries ---
+
+TRIAL = catalog._e("save_playlists", "playlist trial", "J", "playlist trial A B --to 2", built=True, locks={"library"},
+                   dry_run="preview_playlist_change",
+                   params={"op.playlist": catalog._positional(), "op.folder": catalog._positional(),
+                           "op.to": catalog.Arg("--to", type="int", required=True),
+                           "op.off": catalog.Arg("--off", type="bool"), "files.choice": catalog.Arg("--files")},
+                   fixed={"op.op": "rename", "lines": None, "loaded_version": None})
+OTHER = catalog._e("save_playlists", "playlist other", "J", "playlist other A", built=True, locks={"library"},
+                   params={"op.playlist": catalog._positional()},
+                   fixed={"op.op": "remove", "lines": None, "loaded_version": None})
+
+
+@pytest.fixture
+def trial(monkeypatch):
+    """The catalogue with two test-only commands that map `save_playlists`' TypedDict parameters, in place of the method's
+    own (planned) entries."""
+    monkeypatch.setattr(catalog, "ENTRIES", (*(e for e in catalog.ENTRIES if e.method != "save_playlists"), TRIAL, OTHER))
+    return TRIAL
+
+
+def test_a_dotted_word_parses_into_its_dotted_name(trial):
+    parsed = parser.parse(shlex.split("playlist trial A B --to 2 --off --files move --dry-run"))
+    assert parsed.command == ("playlist", "trial") and parsed.flags.dry_run
+    assert parsed.args == {"op.playlist": "A", "op.folder": "B", "op.to": 2, "op.off": True, "files.choice": "move"}
+    assert parser.parse(shlex.split("playlist other A")).args == {"op.playlist": "A"}
+
+
+@pytest.mark.parametrize("line,message", [
+    ("playlist trial A B", "--to is missing."),  # a required flag
+    ("playlist trial A --to 2", "Say which folder: FOLDER."),  # a dotted positional is named by its key
+    ("playlist trial --to 2", "Say which playlist: PLAYLIST."),
+    ("playlist trial A B --to x", "--to takes a number, not x."),
+    ("playlist trial A B --to", "--to needs a value."),
+])
+def test_a_dotted_word_that_is_wrong_says_so_in_its_own_words(trial, line, message):
+    with pytest.raises(parser.UsageError) as e:
+        parser.parse(shlex.split(line))
+    assert e.value.message == message
+
+
+def test_help_says_which_flags_a_command_cannot_run_without(trial):
+    from discjockey.cli import housekeeping
+    row = housekeeping.index_entry(("playlist", "trial"), [trial])
+    assert {a["name"]: (a["word"], a["positional"], a["required"]) for a in row["args"]} == {
+        "files.choice": ("--files", False, False), "op.playlist": ("PLAYLIST", True, True),
+        "op.folder": ("FOLDER", True, True), "op.to": ("--to", False, True), "op.off": ("--off", False, False)}
+    assert row["required_flags"] == ["--to"]
+    assert row["flag_values"] == {"--files": "CHOICE", "--to": "TO"}
+    # the positionals first, then the flag it cannot run without (no brackets), then the others in their order
+    assert row["usage"] == "playlist trial PLAYLIST FOLDER --to TO [--files CHOICE] [--off] [--dry-run]"
+
+
+def test_a_flag_the_all_word_stands_in_for_is_not_required_in_help(capsys):
+    row = run_json(["help", "upgrade", "apply", "--json"], capsys)[1]["data"]["commands"][0]
+    way = next(a for a in row["args"] if a["word"] == "--way")
+    assert "--all" in row["flags"] and way["required"] is False and row["required_flags"] == []
+
+
+def test_the_arguments_of_a_command_pack_the_dotted_keys_into_their_dict(trial):
+    kwargs, failed = call._arguments(trial, {"op.playlist": "A", "op.folder": "B", "op.to": 2}, "playlist trial", None, False)
+    assert failed is None
+    assert kwargs == {"op": {"playlist": "A", "folder": "B", "to": 2, "op": "rename"}, "lines": None, "loaded_version": None}  # no `files`: no key given
+
+
+def test_a_dict_given_whole_is_copied_and_never_changed(trial):
+    whole = {"playlist": "A", "folder": "B", "to": 2}
+    kwargs, failed = call._arguments(trial, {"op": whole}, "playlist trial", None, True)
+    assert failed is None and kwargs["op"] == {**whole, "op": "rename"} and kwargs["op"] is not whole
+    assert whole == {"playlist": "A", "folder": "B", "to": 2}
+
+
+def test_packing_leaves_a_dict_out_when_none_of_its_keys_is_given():
+    assert call._packed({"lines": None, "loaded_version": "v"}) == {"lines": None, "loaded_version": "v"}
+    given = {"op": {"op": "add"}}
+    assert call._packed({**given, "op.url": "u", "files.choice": "move"}) == {
+        "op": {"op": "add", "url": "u"}, "files": {"choice": "move"}}
+    assert given == {"op": {"op": "add"}}
+
+
+def test_a_dotted_word_with_a_resolver_is_resolved_before_it_is_packed(monkeypatch):
+    entry = catalog._e("save_playlists", "playlist trial", "J", built=True, fixed={"op.op": "edit", "lines": None},
+                       params={"op.file": catalog.Arg("--file", resolve="local_path", required=True)})
+
+    class Api:
+        def resolve(self, kind, values):
+            return {"ok": True, "resolved": [f"{kind}:{v}" for v in values]}
+
+    kwargs, failed = call._arguments(entry, {"op.file": "my.txt"}, "playlist trial", Api(), False)
+    assert failed is None and kwargs["op"] == {"file": "local_path:my.txt", "op": "edit"}
+
+
+def test_a_method_call_picks_its_entry_by_a_fixed_key_inside_the_dict(trial):
+    entries = catalog.by_method("save_playlists")
+    pick = lambda args: (e := call._pick(entries, args)) and call.command_of(e)  # noqa: E731
+    assert pick({"op": {"op": "rename", "playlist": "A"}}) == "playlist trial"
+    assert pick({"op": {"op": "remove", "playlist": "A"}, "files": {"choice": "move"}}) == "playlist other"
+    assert pick({"op": {"op": "add", "url": "u"}}) is None  # no entry takes this value
+    assert pick({"lines": ["a = b"]}) is None  # the window's whole-list save is `playlist edit --file`
+    assert pick({"op": "rename"}) is None and pick({}) is None
+
+
+def test_a_method_call_that_names_no_entry_says_which_keys_it_needs(trial):
+    def said(method, args):
+        env = call.run_method(method, args, parser.Flags())
+        assert (env["outcome"], env["reason"]) == ("bad_args", "usage"), env
+        return env["message"]
+
+    assert said("save_playlists", {"lines": []}) == "save_playlists needs op.op with one of the values it takes."
+    assert said("save_playlists", {"op": {"op": "add"}}) == "save_playlists needs op.op with one of the values it takes."
+    assert said("refresh", {"auto": True}) == "refresh needs auto with one of the values it takes."
+    assert said("never_download", {"track_id": ["a"]}) == "never_download needs never with one of the values it takes."
+
+
+def test_a_fixed_value_that_is_its_default_goes_unsaid_in_a_method_call():
+    refresh = catalog.by_method("refresh")
+    assert call.command_of(call._pick(refresh, {})) == "sync read"  # `auto: False` is the default
+    assert call._pick(refresh, {"auto": True}) is None
