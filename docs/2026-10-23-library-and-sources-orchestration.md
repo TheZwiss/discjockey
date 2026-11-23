@@ -1598,12 +1598,20 @@ Results:
         `person_steps` / `next`; a finished `sync read` has `as_of` null. Merged `feat/cli-4-sync` into
         `feat/cli-4-writes` b847de55 (V4.1a diff base 4e3e7fe5, tip f1712915), pushed; worktree cli4-1 + branch removed;
         CI watched. Phase 4 so far 3 254k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 builds):** V4.1a merged (b847de55; review A diff 4e3e7fe5..f1712915).
-        Row 6 V4.1b (Sonnet, worktree `.claude/worktrees/cli4-2` on `feat/cli-4-legacy-sync` from b847de55) running.
-        Then merge it, push, CI; rows 7-8 V4.1 review A/B (`review-V4.1.md`, fill `<base>`/`<tip>`, measure each diff
-        ≤ ~40k), row 9 fix round (incl. the three no-owner carries in phase4-dispatch row 9), row 10 rehearsal, then
-        V4.2a … by `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost (advisor 0k),
-        log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 3 254k. No release.
+      - Row 6 V4.1b done (Sonnet, `a7afb031`): **243k** (exp. 208k; 84 calls, cache 13.9M, fresh 228k, out 51k, advisor
+        0k). Five commits f17eccb5..e864eba1: bare sync gone (`parse` answers `SYNC_MOVED_WORDS` for a line with no
+        command), console sync lines / `prepare(extra=, scan=)` / launcher `caffeinate` out, docs, `rehearse-sync` on
+        `sync read` + `sync run`, scan tests re-pinned. Every deleted legacy test re-homed (list in its report); `--extra`
+        not re-pinned (V4.8a owns `limits set --extra-today`). Suite 6904 passed / 2 failed → fixed, file re-run green
+        (CI runs the full suite). Merged into `feat/cli-4-writes` 2c55338d (V4.1b diff base b847de55, tip e864eba1);
+        worktree cli4-2 + branch removed. CI on b847de55 green; on 2c55338d watched. Review diffs measured: A 125 KB ≈
+        31k, B 134 KB ≈ 33k (both ≤ ~40k). Phase 4 so far 3 497k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 V4.1 review):** V4.1a + V4.1b merged (2c55338d). Row 7 V4.1 review A
+        (Sonnet, `review-V4.1.md` part A, base 4e3e7fe5, tip f1712915, read-only worktree `.claude/worktrees/cli4-rv` at
+        the tip) running; then row 8 part B (base b847de55, tip e864eba1), row 9 fix round (findings A+B + the three
+        no-owner carries in phase4-dispatch row 9), row 10 rehearsal, then V4.2a … by
+        `.claude/issue39/phase4/phase4-dispatch.md`, one at a time. Per agent: ps, agent-cost (advisor 0k), log. Every
+        prompt carries checklist rules 12 + 14. Phase 4 so far 3 497k. No release.
       - RESUME HERE (superseded, 2026-11-23, phase 4 row 4): brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
         rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
         `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
