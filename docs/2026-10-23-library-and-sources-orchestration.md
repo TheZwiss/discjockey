@@ -1579,11 +1579,19 @@ Results:
         a stored read; V4.4 makes out-of-place files with `playlist rename --files leave`. Gaps it saw (for the builds, no
         owner needed): exit code of `partial`/`failed` (outcomes.py answers it); V4.2a's copy for ops other than a lines
         save / `edit`. Phase 4 so far 2 842k.
-      - **RESUME HERE (LATEST, 2026-11-23, phase 4 builds):** brief checks and row 4 done. `feat/cli-4-writes` from main;
-        row 5a (V4.1a part 1: §6 commits (1)-(2), Sonnet, worktree `.claude/worktrees/cli4-1` on `feat/cli-4-sync`)
-        running. Then 5b (commit (3) on the same branch), merge into `feat/cli-4-writes` (--no-ff), push, CI, then row 6
-        V4.1b, … by `.claude/issue39/phase4/phase4-dispatch.md`, one at a time, each measured at dispatch. Per agent: ps,
-        agent-cost (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 2 842k. No release.
+      - Row 5a V4.1a part 1 done (Sonnet, `ab24e303`): **193k** (exp. 190k; 82 calls, cache 10.4M, fresh 192k, out 54k,
+        advisor 0k). `feat/cli-4-sync` 60090f41 (engine: `views.ticks`, `prepare(read_only)`, adopted `start_refresh`,
+        `scan_lock` registry mark, `start_sync(how_many)`, `save_plan` guard, `_sync_words`) + cf548988 (contract:
+        `SyncRunData`, client.ts, fake, shapes, doc). Suite 6905 passed / 1 failed → test fixed by amend, file re-run green
+        (full suite again in 5b). Decided: `dry_run` → `read_only` through `_open`/`record_signs`/`record_pending` too; new
+        words `SYNC_IDS_NEED_PLAN`, `SYNC_IDS_OR_HOW_MANY`, `SYNC_NEEDS_READ`, `BAD_HOW_MANY`, `SYNC_READING`; the window's
+        `start_sync(None, [])` now says the ids belong to a plan (Start is disabled without a plan). Notes for 5b passed
+        on. Phase 4 so far 3 035k.
+      - **RESUME HERE (LATEST, 2026-11-23, phase 4 builds):** brief checks, row 4, row 5a done. `feat/cli-4-writes` from
+        main; row 5b (V4.1a part 2: §6 commit (3), Sonnet, worktree `.claude/worktrees/cli4-1` on `feat/cli-4-sync`)
+        running. Then merge into `feat/cli-4-writes` (--no-ff), push, CI, then row 6 V4.1b, … by
+        `.claude/issue39/phase4/phase4-dispatch.md`, one at a time, each measured at dispatch. Per agent: ps,
+        agent-cost (advisor 0k), log. Every prompt carries checklist rules 12 + 14. Phase 4 so far 3 035k. No release.
       - RESUME HERE (superseded, 2026-11-23, phase 4 row 4): brief checks (rows 1-3b) all done. Row 4 (Sonnet, review +
         rehearsal files from the checked briefs) running. On its notice: ps, agent-cost (advisor 0k), log. Then create
         `feat/cli-4-writes` from main and run the builds by `.claude/issue39/phase4/phase4-dispatch.md` (5a/5b = V4.1a in
