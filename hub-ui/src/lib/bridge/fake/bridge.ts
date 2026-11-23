@@ -1117,7 +1117,7 @@ export function createFakeBridge(scenario: string, opts: FakeOptions = {}): Hand
       return later(300, () => ok(changePreview(lines)));
     },
 
-    async start_sync(plan_id, selected) {
+    async start_sync(plan_id, selected, _how_many) {   // `how_many` is the command line's: the window sends its ticks
       if (plan_id === null) return fail('refused', 'Read your playlists first (↻), so you can check the plan before it starts.');
       if (plan_id !== shownPlan?.id) return badArgs(`There is no plan ${plan_id}. A dry run makes one: its answer says its id.`);
       if (!Array.isArray(selected)) return fail('refused', 'Pick at least one thing to do.');

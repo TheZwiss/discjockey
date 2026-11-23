@@ -4457,6 +4457,24 @@ export type UpgradeRunData = Omit<AiffBatchResult, 'results'> & {
   /** The batch, `aiff:<n>`; missing when no batch was made (a New track or Discard list). */
   batch_id?: string;
 };
+/** One song `sync run` could not finish (the report's Errors section). */
+export type SyncFailed = {
+  /** The song's key; null for an error that is no song's. */
+  track_id: string | null;
+  /** The artist, empty for an error that is no song's. */
+  artist: string;
+  /** The title, empty for an error that is no song's. */
+  title: string;
+  /** What went wrong, in the report's words. */
+  text: string;
+};
+/** The `data` of `sync run`: the result with what the report counted and which songs failed. */
+export type SyncRunData = SyncResult & {
+  /** Each report section with at least one result (its key, as `report show` says them): how many. */
+  counts: Record<string, number>;
+  /** The songs that failed, empty when none did. */
+  failed: SyncFailed[];
+};
 /** One track of `check done`. */
 export type CheckDoneRow = {
   /** The song's key. */
