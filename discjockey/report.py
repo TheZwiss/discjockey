@@ -1,4 +1,4 @@
-"""Plan text for the terminal, the run report, and not_lossless.md."""
+"""The run report, the plan's labels and not_lossless.md."""
 from __future__ import annotations
 
 import json
@@ -12,7 +12,7 @@ from urllib.parse import quote_plus
 from .events import Result
 from .library import Paths
 from . import models
-from .models import SERVICE_NAMES, SOURCE_NAMES, Action, Plan
+from .models import SERVICE_NAMES, SOURCE_NAMES, Action
 from .names import expected_stem
 
 SECTIONS = [
@@ -327,8 +327,8 @@ def _plural(n: int, one: str, many: str) -> str:
 
 
 def auto_upgrade_line(block: dict | None) -> str | None:
-    """The run's one-line account of its Auto-upgrade phase (plan stage C §3; the console's summary, the report and
-    the end screen). `block` is `auto_upgrade.Outcome.to_dict()`; None when nothing ran or was left to say. Clauses:
+    """The run's one-line account of its Auto-upgrade phase (plan stage C §3; the report's and the run page's
+    summary and the end screen). `block` is `auto_upgrade.Outcome.to_dict()`; None when nothing ran or was left to say. Clauses:
     upgraded; waiting for rekordbox; waiting for the next sync (Stop, another window); refused. The placements for
     missing files (issue 43, D9: a row with `action` `place`) are counted apart, after the upgrades' clauses: put in,
     waiting, couldn't go in."""
@@ -439,39 +439,3 @@ def render_not_lossless(state: dict) -> str:
 def write_not_lossless(paths: Paths, state: dict) -> None:
     paths.not_lossless_md.parent.mkdir(parents=True, exist_ok=True)
     paths.not_lossless_md.write_text(render_not_lossless(state), encoding="utf-8")
-
-
-def render_plan(plan: Plan, full: bool, where: Callable[[str], str] | None = None) -> str:
-    """The console's plan (the dry run's list, the lines before a run). Each song under the folder its run report
-    files it under (`result_folder`): an own song's by the folder its file sits in (`where`, as Sync names it)."""
-    groups: dict[str, list] = {}
-    for a in plan.actions:
-        groups.setdefault(f"acquire:{a.reason}" if a.kind == "acquire" else a.kind, []).append(a)
-    out: list[str] = []
-    for key, label in PLAN_LABELS:
-        items = groups.get(key, [])
-        if not items:
-            continue
-        out.append(f"{label}: {len(items)}")
-        shown = items if full else items[:20]
-        for a in shown:
-            folder = result_folder(a, plan.state["tracks"].get(a.track_id), where)
-            out.append(f"    [{folder_label(folder)}] {a.track.first_artist} - {a.track.title}")
-        if len(shown) < len(items):
-            out.append(f"    ... and {len(items) - len(shown)} more")
-    if plan.ambiguous:
-        out.append(f"Several matching files, skipped: {len(plan.ambiguous)}")
-        for _key, t, folder, files in plan.ambiguous:
-            out.append(f"    [{folder}] {t.first_artist} - {t.title}: {', '.join(files)}")
-    if plan.dropped:
-        out.append(f"No longer in any playlist (files stay): {len(plan.dropped)}")
-        for key in plan.dropped[: None if full else 20]:
-            e = plan.state["tracks"][key]
-            out.append(f"    [{e['folder']}] {e['artist']} - {e['title']}")
-    for note in plan.notes:
-        out.append(f"Note: {note}")
-    if plan.never:
-        out.append(f"Never download (your choice in the hub): {len(plan.never)}")
-    if not out:
-        out.append("Library is up to date.")
-    return "\n".join(out)

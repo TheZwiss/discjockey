@@ -29,7 +29,8 @@ KINDS = ("track", "file", "aiff", "moves", "job", "report", "plan", "folder", "p
 BATCH_KINDS = ("aiff", "moves")
 FORMS = {"track": "TRACK", "file": "file:N", "aiff": "aiff:N", "moves": "moves:N", "batch": "aiff:N|moves:N",
          "job": "job:ID|current", "report": "report:STAMP|last", "plan": "plan:ID", "folder": "FOLDER",
-         "playlist": "PLAYLIST", "collection": "COLLECTION"}  # kind -> what the person types (`help`, usage errors)
+         "playlist": "PLAYLIST", "collection": "COLLECTION",
+         "action": "act:ID", "how_many": "5|10|25|50|fits|all|N"}  # kind -> what the person types (`help`, usage errors); the last two are `sync run`'s words, not id kinds
 SERVICE_PREFIXES = tuple(f"{service}:" for service in SERVICE_NAMES if service != "spotify")  # a Spotify id is bare
 
 NUMBER = re.compile(r"\d+")

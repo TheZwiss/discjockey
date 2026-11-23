@@ -225,7 +225,7 @@ class Busy(Problem):
 
 @contextmanager
 def keep_awake(reason: str):
-    """Keeps App Nap and idle sleep from slowing or pausing a long job (the console has caffeinate)."""
+    """Keeps App Nap and idle sleep from slowing or pausing a long job (a terminal job's worker has its own `caffeinate`, cli/worker.py)."""
     info = activity = None
     try:
         from Foundation import NSProcessInfo
@@ -392,7 +392,7 @@ class Jobs:
         self.sign_in: Job | None = None  # a sign-in waiting for the browser (its own slot: it changes no library)
         self._watch: threading.Thread | None = None
         self._closed = threading.Event()
-        self._holder = threading.local()  # .on: this thread is a write job's and holds the engine lock
+        self._holder = threading.local()  # .on: this thread is a write job's and holds the engine lock; .files: this thread is a read job's (`scan_lock` marks its record)
         self.on_locked: Callable[[], None] | None = None  # called in a write job's thread once it holds the lock
         self.record_of: Callable[[], Mapping] | None = None  # `{method, command, args, roots}` of the call that starts a job (HubApi)
         self.on_finished: Callable[[Job], Mapping] | None = None  # the envelope of a registered job at its end (HubApi)
@@ -542,8 +542,8 @@ class Jobs:
         """For a read-only job that writes library.db when it can (the preview's scan, which reads files and can
         take minutes): yields True while it holds the engine lock, False when a write job, another scan or a
         terminal run has it. The mutex is held only to check and mark; meanwhile every write job and brief save
-        answers busy at once, and the other starts don't wait. In a worker (`adopt`) the job's registry record says
-        `library_lock: true` while the scan holds."""
+        answers busy at once, and the other starts don't wait. In a worker (`adopt`) and in the window's registered
+        refresh, the job's registry record says `library_lock: true` while the scan holds."""
         if getattr(self._holder, "on", False):  # a write job's own thread holds the lock already
             yield True
             return
@@ -560,18 +560,20 @@ class Jobs:
                     except LockHeld:  # a terminal run: unmarked again at once (the mutex is held here)
                         stack.pop_all()
                         held = self._scanning = self._brief = False
-            if held and self.inline is not None:  # a worker's scan: the registry names the holder while it holds
-                self._mark_library_lock(True)
-                stack.callback(self._mark_library_lock, False)  # runs before the lock is let go: never claims one not held
+            files = getattr(self._holder, "files", None) or self.inline  # the registered job that scans: a worker's or the window's refresh
+            if held and self.lock is not None and files is not None:  # the registry names the holder while it holds
+                self._mark_library_lock(files, True)
+                stack.callback(self._mark_library_lock, files, False)  # runs before the lock is let go: never claims one not held
             yield held
 
-    def _mark_library_lock(self, held: bool) -> None:
-        """The adopted job's registry record says whether it holds the library lock now (`library_lock`; a read holds it
+    @staticmethod
+    def _mark_library_lock(files: registry.JobFiles, held: bool) -> None:
+        """The scanning job's registry record says whether it holds the library lock now (`library_lock`; a read holds it
         only for its scan), so other processes name the holder (`words.holder_text`) and their `sync_running` is not
         fooled by an unnamed one. Never fails the scan."""
         try:
-            self.inline.update(library_lock=held)
-            self.inline.flush()
+            files.update(library_lock=held)
+            files.flush()
         except Exception:  # noqa: BLE001  the registry only informs
             log.warning("the registry could not say whether the scan holds the library", exc_info=True)
 
@@ -760,9 +762,14 @@ class Jobs:
                     finally:
                         self._holder.on, self._holder.job = False, None
             else:
-                if (files := self.inline or job.files) is not None:  # an adopted job's record says it runs, as a write's
+                files = self.inline or job.files
+                if files is not None:  # an adopted job's record says it runs, as a write's
                     files.update(status="running", kind=job.kind)
-                result = work(ctx)
+                self._holder.files = files  # this thread's `scan_lock` says in that record that it holds the library
+                try:
+                    result = work(ctx)
+                finally:
+                    self._holder.files = None
             message = ctx.message
         except BaseException as e:  # noqa: BLE001 - every outcome becomes a JobFinished for the window
             ok = False

@@ -213,7 +213,7 @@ def _dry_run(entry: Entry, command: str, kwargs: Mapping, api) -> dict:
     `catalog.STAND_INS_ON_SCAN`: a limit's what-if or a folder check does not)."""
     method = entry.dry_run or entry.method
     answer = getattr(api, method)(**{k: v for k, v in kwargs.items() if k in parameters_of(method)})
-    env = envelope.from_answer(command, answer, as_of=_as_of(api))
+    env = envelope.from_answer(command, answer, as_of=envelope.as_of(api))
     if env["outcome"] == "ok":
         if not catalog.stands_in(entry):
             line = f"{command} {flag}" if (flag := catalog.switch_of(entry)) else command
@@ -302,7 +302,7 @@ def run(entry: Entry, args: Mapping, flags: Flags, *, api=None, exact: bool = Fa
     if (refused := refuse_job_flags(flags, command)) is not None:  # an R or B method answers at once
         return refused
     answer = getattr(api, entry.method)(**kwargs)
-    env = envelope.noted(envelope.from_answer(command, answer, as_of=_as_of(api) if entry.kind in ("R", "RJ") else None),
+    env = envelope.noted(envelope.from_answer(command, answer, as_of=envelope.as_of(api) if entry.kind in ("R", "RJ") else None),
                          entry.method)
     return paged(entry, env, flags) if flags.json and not exact else env
 
@@ -389,13 +389,6 @@ def start_job(entry: Entry, kwargs: Mapping, command: str, flags: Flags, *,
     answer = follow.attach(reader, command, flags)
     _reap(process, reader)
     return answer
-
-
-def _as_of(api) -> dict | None:
-    """How fresh the index and the playlist read are (`HubApi.freshness`, from the stored records), for the envelope of
-    a read. A freshness that cannot be had (a damaged library.db) leaves both null: it never fails the answer."""
-    fresh = api.freshness()
-    return {key: fresh[key] for key in ("scanned_at", "read_at")} if fresh.get("ok") else None
 
 
 def choose(entries: list[Entry], flags: Flags, args: Mapping | None = None) -> Entry:

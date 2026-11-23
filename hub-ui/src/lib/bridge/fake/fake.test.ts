@@ -405,7 +405,7 @@ describe('fake backend', () => {
     expect(p.presets.length).toBeGreaterThan(0);
     expect(p.presets.some((x) => x.key === p.default_how_many)).toBe(true);
     expect((await f.sync_preview() as SyncPreview & { ok: true }).plan_id).toBe(p.plan_id);   // the same plan twice: the same id
-    expect(await f.start_sync(null, [])).toMatchObject({ ok: false, kind: 'refused' });
+    expect(await f.start_sync(null, [])).toMatchObject({ ok: false, kind: 'bad_args' });   // ids belong to a plan
     expect(await f.start_sync('plan:000000000000', [])).toMatchObject({ ok: false, kind: 'bad_args' });
     expect(await f.start_sync(p.plan_id, ['act:acquire:nope:1'])).toMatchObject({ ok: false, kind: 'refused' });
     expect(((await f.job_status()) as { last_sync: unknown }).last_sync).toBeNull();

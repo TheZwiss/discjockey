@@ -864,6 +864,17 @@ def test_start_sync_takes_action_ids_only_with_a_plan_and_not_with_how_many(root
     assert api.job_status()["job"] is None
 
 
+def test_start_sync_with_an_unknown_plan_stores_no_plan_of_its_own(root):
+    """A refused start changes nothing: the plan it was given is looked up before anything is planned."""
+    api, rec = make_api(root)
+    refreshed(api, rec)
+    assert not (root.support / "plans").exists()  # a read stores a read, no plan yet
+    for how_many in (None, "all"):
+        answer = api.start_sync("plan:000000000000", None, how_many)
+        assert (answer["ok"], answer["kind"], answer["reason"]) == (False, "bad_args", "unknown_id"), answer
+    assert not (root.support / "plans").exists() and api.job_status()["job"] is None
+
+
 @pytest.fixture
 def started(monkeypatch):
     """Every `start_sync` records what its job would run (`sync_work`'s plan and chosen ids) and ends at once."""
@@ -940,12 +951,14 @@ def test_a_terminal_sync_records_the_plan_and_the_ids_it_runs_not_the_words_of_i
 
 
 def test_sync_run_words_count_the_report_and_say_partial_or_failed_by_what_failed(root, tmp_path):
+    sync_words = make_api(root)[0]._sync_words
+
     def words(*sections):
         log = report_mod.RunLog(datetime(2026, 11, 23, 9, 0))
         for i, (section, note) in enumerate(sections):
             log.add(Result(section, "A", f"Artist {i}", f"Title {i}", f"t{i}", note))
         path = report_mod.write_run(root, log, datetime(2026, 11, 23, 9, 5), 0)
-        return CliApi._sync_words({"report": str(path)})
+        return sync_words({"report": str(path)})
     clean = words(("new_lossless", ""), ("new_lossless", ""), ("queued", "later"))
     assert clean == {"data": {"counts": {"new_lossless": 2, "queued": 1}, "failed": []}}  # no failure: no outcome
     mixed = words(("new_lossless", ""), ("errors", "network down"), ("errors", "403"))
@@ -954,7 +967,9 @@ def test_sync_run_words_count_the_report_and_say_partial_or_failed_by_what_faile
                                        {"track_id": "t2", "artist": "Artist 2", "title": "Title 2", "text": "403"}]
     assert words(("errors", "403"), ("queued", ""))["outcome"] == "failed"
     assert words(("fake", ""), ("errors", "403"))["outcome"] == "failed"  # a fake is nothing done
-    assert CliApi._sync_words({"report": str(tmp_path / "gone.md")}) == {}  # a report that cannot be read says nothing
+    gone = str(tmp_path / "gone.md")  # a report that cannot be read says nothing, but a failing exit code is not `ok`
+    assert sync_words({"report": gone}) == sync_words({"report": gone, "exit_code": 0}) == {}
+    assert sync_words({"report": gone, "exit_code": 1}) == {"outcome": "failed"}
     api = CliApi.__new__(CliApi)
     assert CliApi.result_words.__wrapped__(api, "start_sync", {"exit_code": 0, "actions": 0, "new_since_plan": []}) == {}
 

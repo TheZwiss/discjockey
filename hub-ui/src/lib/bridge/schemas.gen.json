@@ -14110,6 +14110,11 @@
           "type": "integer",
           "x-shown": true
         },
+        "batch_id": {
+          "description": "The batch the run's Auto-upgrade phase made, `aiff:<n>`; missing when it made none (the steps for you in rekordbox are the envelope's `person_steps`).",
+          "type": "string",
+          "x-shown": true
+        },
         "counts": {
           "additionalProperties": {
             "type": "integer"

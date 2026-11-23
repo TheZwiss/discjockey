@@ -3,6 +3,7 @@ Report          <tmp>/music/.discjockey/reports/<stamp>.md
 Actions         0
 New since plan  none
 Failed          none
+Batch id        aiff:1
 
 Counts
 Upgraded         2

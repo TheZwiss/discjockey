@@ -298,6 +298,63 @@ def test_an_adopted_refresh_runs_on_the_callers_thread_as_refresh_never_current_
     assert files.state()["kind"] == "refresh" and rec.of(jobs.JobFinished)[-1].result == {"actions": 1, "read_id": "read:1"}
 
 
+def test_a_scan_of_a_worker_that_raises_lets_the_registry_say_it_holds_nothing_again(env):
+    paths, _, rec, _ = env
+    reg = registry.Registry(paths.support)
+    files = reg.create("refresh", "sync read", {}, "terminal", {"music": str(paths.root), "support": str(paths.support)})
+    js = Jobs(paths.lock, rec.emit, inline=files, registry=reg)
+    with pytest.raises(RuntimeError):
+        with js.scan_lock() as held:
+            assert held and files.state()["library_lock"] is True
+            raise RuntimeError("the scan broke")
+    assert files.state()["library_lock"] is False
+    with run_lock(paths.lock):  # and the lock itself was let go
+        pass
+
+
+def test_a_scan_without_a_library_lock_marks_nothing_in_the_registry(env):
+    paths, _, rec, _ = env
+    reg = registry.Registry(paths.support)
+    files = reg.create("refresh", "sync read", {}, "terminal", {"music": str(paths.root), "support": str(paths.support)})
+    js = Jobs(None, rec.emit, inline=files, registry=reg)  # no music folder bound: no library lock to hold
+    with js.scan_lock() as held:
+        assert held is True and files.state().get("library_lock") is None
+    assert files.state().get("library_lock") is None
+
+
+def test_the_windows_refresh_says_in_the_registry_that_it_holds_the_library_only_while_its_scan_does(hub, monkeypatch):
+    """Another process (a Terminal) sees the window's scan as a named holder, so its `sync_running` is not fooled by an
+    unnamed one; the mark ends with the scan, an exception in it too."""
+    api, paths, reg = hub
+    other = Jobs(paths.lock, lambda event: None, registry=reg)  # the view of another process: it owns none of these jobs
+    seen = {}
+
+    def start(g):
+        def refresh(self, auto: bool = False):
+            def work(ctx):
+                try:
+                    with self._jobs.scan_lock() as held:
+                        seen["held"] = held
+                        holder = other.console_holder()
+                        seen["holder"] = holder and (holder["kind"], holder["via"])
+                        seen["sync_running"] = other.sync_running()
+                        seen["state"] = reg.get(ctx.job_id).state()["library_lock"]
+                        raise RuntimeError("the scan broke")
+                except RuntimeError:
+                    pass
+                seen["after"] = reg.get(ctx.job_id).state()["library_lock"]
+                g.running.set()
+            return {"job_id": self._jobs.start_refresh(work).id}
+        return refresh
+    g = Gated(monkeypatch, "refresh", start)
+    answer = api.refresh()
+    assert g.running.wait(10)
+    files = reg.get(answer["job_id"])
+    assert seen == {"held": True, "holder": ("refresh", "window"), "sync_running": False, "state": True, "after": False}
+    wait_ended(api._jobs.refresh, files)
+    assert other.console_holder() is None
+
+
 def test_a_scan_that_finds_the_library_taken_marks_nothing_in_the_registry(env):
     paths, _, rec, _ = env
     reg = registry.Registry(paths.support)

@@ -193,7 +193,7 @@ def plural(n: int, one: str, many: str) -> str:
 
 
 def before_start_line(n: int) -> str:
-    """Plan stage C §3's Sync before-start Hint: said before a sync starts (the Sync page, the console's plan). The
+    """Plan stage C §3's Sync before-start Hint: said before a sync starts (the Sync page). The
     check happens when the phase begins, at the end of the sync, so rekordbox may still be quit until then. The phase
     itself, which meets rekordbox open at that moment, says `waiting_line` instead."""
     return (f"rekordbox is open: quit it before the sync ends, so the sync can put {n} "

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from hub_helpers import fake_spotify
+from hub_helpers import cmd, fake_spotify
 
 from batch_helpers import needs_ffmpeg
 from discjockey import library
@@ -16,6 +16,7 @@ from discjockey import words
 from discjockey.hub import api as api_mod
 from discjockey.hub import registry
 from discjockey.models import SourceTrack
+from discjockey.settings import Settings, save_settings
 from test_cli_upgrade import STOP, batches_of, inline_workers, lib, run, run_json  # noqa: F401 - fixtures
 
 pytestmark = needs_ffmpeg
@@ -101,6 +102,22 @@ def test_sync_read_says_in_the_registry_that_it_holds_the_library_only_while_its
     assert [s["library_lock"] for s in job_states(found)] == [False]  # and let go of it again
 
 
+def test_a_finished_sync_read_says_how_fresh_the_read_and_the_scan_are(synced, capsys):
+    synced(["mp3", "aiff"])
+    code, env = run_json(["sync", "read"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert env["as_of"]["read_at"] and env["as_of"]["scanned_at"], env["as_of"]  # as every read's envelope does
+    assert env["as_of"] == run_json(["sync", "plan"], capsys)[1]["as_of"]  # from the same stored records
+
+
+def test_sync_read_without_playlists_to_read_is_refused_not_set_up_and_holds_no_lock(synced, capsys):
+    found = synced(["mp3", "aiff"])
+    found.paths.playlists_file.unlink()
+    code, env = run_json(["sync", "read"], capsys)
+    assert (code, env["outcome"], env["reason"]) == (7, "refused", "not_set_up"), env
+    assert [s["library_lock"] for s in job_states(found)] == [False]
+
+
 # --- sync run ---
 
 def test_sync_run_reads_nothing_and_runs_nothing_without_a_read(synced, capsys):
@@ -161,6 +178,65 @@ def test_sync_run_with_action_ids_runs_those_of_the_plan_it_names(two_to_downloa
     assert (code, env["reason"], env["message"]) == (2, "conflicting_flags", words.SYNC_IDS_OR_HOW_MANY)
     code, env = run_json(["sync", "run", "--how-many", "many"], capsys)
     assert (code, env["reason"], env["message"]) == (2, "usage", words.BAD_HOW_MANY)
+
+
+def test_a_whole_sync_whose_phase_upgraded_songs_says_its_batch_and_the_steps_for_rekordbox(synced, capsys):
+    """The phase's words are the phase alone's (`sync run --auto-upgrade-only`, test_cli_sync_phase): its batch in `data`,
+    what to run next and the steps only a person can do in rekordbox."""
+    found = synced(["mp3", "aiff"])
+    assert run_json(["sync", "read"], capsys)[0] == OK
+    code, env = run_json(["sync", "run"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert env["data"]["counts"]["upgraded"] == 2 and env["data"]["batch_id"] == f"aiff:{batches_of(found)[0].id}"
+    assert [n["run"] for n in env["next"]] == [cmd(f"batch show {env['data']['batch_id']}"), cmd("check list")]
+    assert env["person_steps"] and all(s["id"].startswith("step:") for s in env["person_steps"]), env["person_steps"]
+
+
+def test_a_whole_sync_whose_phase_did_nothing_carries_no_batch_and_no_steps(synced, capsys):
+    found = synced(["mp3", "aiff"])
+    assert run_json(["sync", "read"], capsys)[0] == OK
+    save_settings(found.paths.settings_file, Settings(auto_upgrade=False))  # the phase moves nothing
+    code, env = run_json(["sync", "run"], capsys)
+    assert (code, env["outcome"]) == (OK, "ok"), env
+    assert "batch_id" not in env["data"] and env["next"] == [] and env["person_steps"] == [] and not batches_of(found), env
+
+
+# --- what a failed whole sync answers ---
+
+def written_report(paths, *sections, exit_code=0):
+    """A sync whose work ended at once, leaving a real report with a result in each of `sections`."""
+    from datetime import datetime
+
+    from discjockey import report
+    from discjockey.events import Result
+    log = report.RunLog(datetime(2026, 11, 23, 9, 0))
+    for i, section in enumerate(sections):
+        log.add(Result(section, "A", f"Artist {i}", f"Title {i}", f"t{i}", "went wrong" if section == "errors" else ""))
+    path = report.write_run(paths, log, datetime(2026, 11, 23, 9, 5), exit_code)
+    return {"exit_code": exit_code, "report": str(path), "actions": len(sections), "new_since_plan": []}
+
+
+@pytest.mark.parametrize("sections, exit_code, outcome, code", [
+    (("new_lossless", "errors"), 1, "partial", 6), (("errors",), 1, "failed", 1), (("new_lossless",), 0, "ok", 0)])
+def test_a_sync_that_failed_songs_is_partial_or_failed_with_what_failed(synced, monkeypatch, capsys, sections, exit_code,
+                                                                       outcome, code):
+    found = synced(["mp3", "aiff"])
+    assert run_json(["sync", "read"], capsys)[0] == OK
+    monkeypatch.setattr(api_mod, "sync_work", lambda paths, *rest, **kw: (
+        lambda ctx: written_report(paths, *sections, exit_code=exit_code)))
+    got, env = run_json(["sync", "run"], capsys)
+    assert (got, env["outcome"]) == (code, outcome), env
+    assert env["data"]["counts"] == {s: 1 for s in sections}
+    assert [f["text"] for f in env["data"]["failed"]] == (["went wrong"] if "errors" in sections else [])
+
+
+def test_a_sync_whose_report_cannot_be_read_and_exit_code_is_1_is_failed(synced, monkeypatch, capsys):
+    synced(["mp3", "aiff"])
+    assert run_json(["sync", "read"], capsys)[0] == OK
+    monkeypatch.setattr(api_mod, "sync_work", lambda paths, *rest, **kw: (
+        lambda ctx: {"exit_code": 1, "report": str(paths.reports / "gone.md"), "actions": 0, "new_since_plan": []}))
+    code, env = run_json(["sync", "run"], capsys)
+    assert (code, env["outcome"]) == (1, "failed"), env
 
 
 # --- the page ---

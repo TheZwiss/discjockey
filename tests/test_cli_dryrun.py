@@ -249,7 +249,6 @@ def test_reads_leave_no_wal_shm_or_new_database_beside_library_db(lib):
     api.freshness()
     api.rekordbox_status()
     library.load_state(lib)
-    library.import_left(lib)
     assert data_files(lib) == files
     assert lib.db_file.read_bytes() == bytes_before
 
@@ -259,7 +258,6 @@ def test_a_library_without_library_db_gets_none_from_a_read(tmp_path):
     paths.data.mkdir(parents=True)
     library.open_state(paths, read_only=True)
     library.load_state(paths)
-    library.import_left(paths)
     assert not paths.db_file.exists() and data_files(paths) == []
 
 
@@ -359,9 +357,9 @@ def library_rows(paths) -> tuple:
                 conn.execute("SELECT MAX(last_scan) FROM watched_folders").fetchone()[0])
 
 
-def test_a_read_stores_the_scan_the_plans_that_only_look_do_not(lib):
-    """`prepare(read_only=True)` (the window's refresh, `sync read`) scans Library/ and stores it; `sync plan` and the other
-    previews never call it: they plan on the last scan (issue 39 design §7.1)."""
+def test_a_read_scans_the_library_and_stores_what_it_found(lib):
+    """`prepare(read_only=True)` (the window's refresh, `sync read`) scans Library/ and stores it (issue 39 design §7.1).
+    The previews that only look never call it: T9 pins that they change nothing."""
     (lib.root / "Library" / "Hard_Bounce" / "New Artist - New Song.aiff").write_bytes(b"new audio")
     before = library_rows(lib)
     run_mod._open(lib, rep.RunLog(datetime.now()), lambda e: None, read_only=True)

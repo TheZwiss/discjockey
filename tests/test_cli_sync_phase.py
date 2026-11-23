@@ -262,7 +262,8 @@ def test_help_lists_the_sync_run_with_its_switch_and_its_locks(capsys):
     [entry] = [c for c in env["data"]["commands"] if c["command"] == "sync run"]
     assert entry["kind"] == "J" and entry["dry_run"] and not entry["needs_yes"]
     assert {"--auto-upgrade-only", "--dry-run"} <= set(entry["flags"]) and entry["required_flags"] == []
-    assert {a["word"] for a in entry["args"]} == {"--plan", "SELECTED", "--how-many"}
+    assert {a["word"] for a in entry["args"]} == {"--plan", "act:ID", "--how-many"}
+    assert "[--how-many 5|10|25|50|fits|all|N]" in entry["usage"] and "act:ID" in entry["usage"]  # what to type, not HOW_MANY
     assert set(entry["locks"]) == {"library", "rekordbox_r", "rekordbox_w"} and entry["example"] == "sync run --dry-run"
     assert set(entry["methods"]) == {"start_sync", "auto_upgrade_run"} and entry["dry_run_method"] == "sync_preview"
     assert catalog.entry_of("auto_upgrade_run", "sync run").example == "sync run --auto-upgrade-only --dry-run"

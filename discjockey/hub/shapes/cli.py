@@ -476,6 +476,9 @@ class SyncRunData(SyncResult):
                                                     "cannot be read (a run that crashed before it wrote one).")]]
     failed: NotRequired[Annotated[list[SyncFailed], F("The songs that failed, empty when none did. Left out with "
                                                       "`counts`.")]]
+    batch_id: NotRequired[Annotated[str, F("The batch the run's Auto-upgrade phase made, `aiff:<n>`; missing when it "
+                                           "made none (the steps for you in rekordbox are the envelope's "
+                                           "`person_steps`).")]]
 
 
 @shape
