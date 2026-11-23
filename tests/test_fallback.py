@@ -32,6 +32,14 @@ def test_queries_without_isrc():
     assert [s for s, _, _ in FallbackSource().queries(t)] == ["youtube_music", "soundcloud", "youtube"]
 
 
+def test_a_track_without_a_title_has_no_name_queries():
+    nameless = SourceTrack("soundcloud:9", "", (), "", None, 0, None, service="soundcloud")
+    assert FallbackSource().queries(nameless) == []
+    assert FallbackSource().search(nameless) == ([], [])  # nothing is asked, so no pool of zero workers
+    with_isrc = SourceTrack("soundcloud:9", "", (), "", None, 0, "DE1", service="soundcloud")
+    assert [s for s, _, _ in FallbackSource().queries(with_isrc)] == ["youtube_music"]
+
+
 class FakeSource(FallbackSource):
     def __init__(self, pages, full=None, fail=(), check=lambda: None):
         super().__init__(check=check)
