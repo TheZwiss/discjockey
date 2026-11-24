@@ -1,6 +1,6 @@
 # Contributing to Discjockey
 
-Notes for running Discjockey from its source code, changing it and releasing it. [README.md](README.md) is the
+Notes for running Discjockey from its source code, changing it and releasing it. [docs/manual.md](docs/manual.md) is the
 user's manual: read it for how a feature behaves from the user's side. The binding project rules (invariants,
 layout, commands, how docs and plans are kept) are in [CLAUDE.md](CLAUDE.md); this file doesn't repeat them.
 

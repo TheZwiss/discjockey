@@ -216,7 +216,7 @@ export function keptLine(kept: string[] | undefined | null): string {
 /** design §8's result note for a file rekordbox doesn't have, shortened to a row's sub-line (the same meaning). */
 export const NOT_IN_REKORDBOX = 'Not in your rekordbox collection, so there was nothing to keep there';
 
-/** The steps in rekordbox after a swap, an added file or Same track's new AIFF (README "Upgrades"); null for any
+/** The steps in rekordbox after a swap, an added file or Same track's new AIFF (docs/manual.md "Upgrades"); null for any
  *  other check (its `text`), and for a new AIFF rekordbox doesn't have (its text says so). Reload Tag only where
  *  Discjockey couldn't write rekordbox's text itself (`reload_tag`): where it could, Reload Tag would only overwrite
  *  the user's own edits. */

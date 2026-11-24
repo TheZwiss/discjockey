@@ -2,7 +2,7 @@
 
 Discjockey keeps a lossless DJ library in step with the user's Spotify, Qobuz, SoundCloud and YouTube Music playlists: Qobuz as 16-bit AIFF first, then the
 best fallback (YouTube Music, SoundCloud, YouTube), and it never deletes a music file. Two front ends share one engine:
-the console (`discjockey`) and the hub, a Mac window (pywebview + Svelte). `README.md` is the user's manual — read it for
+the console (`discjockey`) and the hub, a Mac window (pywebview + Svelte). `docs/manual.md` is the user's manual — read it for
 how a feature behaves from the user's side. `CONTRIBUTING.md` holds the developer notes (checkout, UI workflow,
 building, releasing).
 
@@ -171,7 +171,7 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 - **Bridge methods never reject:** `{"ok": true, …}` or `{"ok": false, "kind", "message"}`; write methods return a
   `job_id` and finish with a `JobFinished` event, except the brief saves above, which answer their result at once
   and start no job.
-- User-facing text is plain English for a non-technical DJ — no jargon, no stack traces (see README's tone).
+- User-facing text is plain English for a non-technical DJ — no jargon, no stack traces (see the manual's tone).
 
 ---
 
@@ -249,7 +249,8 @@ their Qobuz daily limit. Long commands run in the background with a status line.
 - **Design language:** any change to `hub-ui/src/lib/styles/tokens.css`, a frame or a block updates
   `docs/hub-design-language.md` (and the gallery) in the same commit; a system-level design decision goes into its
   decision log with its reason.
-- **README:** update it when user-visible behaviour, commands or folders change. Not for internal refactors.
+- **Manual:** update `docs/manual.md` when user-visible behaviour, commands or folders change. Not for internal refactors.
+  `README.md` is the short landing page (what it is, download, install, quick start); touch it only when one of those changes.
 - **Issues:** a bug or wish you find but don't fix goes into `docs/issues.md` (newest on top); remove the entry in
   the commit that fixes it.
 - **New specs and plans** go in `docs/` as `YYYY-MM-DD-<topic>-design.md` / `-plan.md`.

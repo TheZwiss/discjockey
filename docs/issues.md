@@ -39,11 +39,11 @@ rekordbox runs is queued and done once it is closed, and Relocate still works me
 Needs its own short design round (where the queue shows, what an undo of the move does to the repoint).
 
 **Not for moves the user makes by hand** in Finder: those stay with rekordbox's own (Auto) Relocate. Instead, an
-audit of what Discjockey itself does, written down and pinned by tests, then said in plain words in the README: a file
+audit of what Discjockey itself does, written down and pinned by tests, then said in plain words in the manual (docs/manual.md): a file
 moved or renamed inside one watched folder, between watched folders, to another drive, out of every watched folder
-(waits as missing in To-do, never downloaded by itself: issue 43, README "Missing files"), copied instead of moved (a duplicate), and a whole watched
+(waits as missing in To-do, never downloaded by itself: issue 43, manual "Missing files"), copied instead of moved (a duplicate), and a whole watched
 folder moved or renamed (today it waits as "Folder not found"). Today's behaviour: inside `Library/` and the watched
-folders a file is found again by its content key, with no new download or import (README, `scanner.py`).
+folders a file is found again by its content key, with no new download or import (manual, `scanner.py`).
 
 ## 39. Discjockey fully usable by an AI agent: audit, agent docs, commands (user, 2026-11-07)
 
