@@ -3,6 +3,20 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
+## 48. Discjockey keeps rekordbox's playlists in step with the synced playlists (user, 2026-11-24; to discuss and plan)
+
+The user's flow today: after a sync, drag a playlist's `Library/<Folder>/` into the rekordbox playlist of the same name
+with "skip duplicates". That can't stay complete or free of doubles: rekordbox tells tracks apart by path only, a song
+that is in several playlists has its one file in only one folder (40 of the user's 546 playlist songs), and a song the
+user owns in another version than the service's (an extended mix with cue points beside the downloaded edit) leaves two
+files of it. Wish: Discjockey updates rekordbox's playlists itself after a sync, each holding exactly its playlist's
+songs, pointing at the file that carries the cue points, with the master.db writer of issue 33 (backup, journal, undo,
+rekordbox closed). Open questions for the design round: which rekordbox playlists it manages (the user's own of the
+same name, adding only, or its own in a "Discjockey" folder that mirrors exactly, removals included); whether a version
+the user owns counts as the playlist song (no download of the service's edit) or both are kept; songs removed from a
+playlist; the CLI command (agent-ready). Found while cleaning up a real library: until it exists, the second versions
+were moved out by hand and those playlist songs wait as missing (don't Download again).
+
 ## 46. The Playlists change panel words the rekordbox and undo notes itself (issue 39 phase 3 fix round, 2026-11-22)
 
 `ChangePanel.svelte` (the save question's warning card) joins the window's own constants `R1`, `R2`, `U1` from
