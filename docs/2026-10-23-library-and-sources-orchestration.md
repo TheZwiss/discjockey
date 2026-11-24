@@ -1678,7 +1678,21 @@ Results:
         here (J entries; shared `_save_checked`/`_save_gate`/`_liked_music_checked`), so V4.3 needs none for
         `save_playlists`; V4.4 still adds `prejob_tidy_up`. No hub-ui change. Merged into `feat/cli-4-writes`
         60c59473; CI watched. V4.2b total 398k (2 parts). Phase 4 so far 5 028k.
-      - **RESUME HERE (LATEST, 2026-11-23, PAUSED by the user after V4.2b):** v1.4.0 published. V4.2 built and merged
+      - 2026-11-24, docs pulled forward on the user's request (their gig agent had to read the code): A `AGENTS.md`
+        (Sonnet, exp. 150k, logged 188k; 58 calls, cache 6.3M, fresh 186k, out 46k, advisor 0k), CONTRIBUTING's agent
+        section moved into it; B short README + `docs/manual.md` + `llms.txt` (Sonnet, exp. 160k, logged 80k; 24 calls,
+        cache 1.5M, fresh 65k, out 17k, advisor 0k), `gh repo edit` description + 20 topics applied; C screenshots back
+        in the README + CLAUDE.md rows + link test for AGENTS.md/llms.txt (Sonnet fix-round, exp. 90k, logged 109k;
+        12 calls, cache 0.8M, fresh 95k, out 8k, advisor 0k). A+B ran in parallel (user allowed 2). Merged into main
+        (9cc9ca2e, f1d2f947, this merge). Docs total 377k. Also: bash-guard.py SUBCOMMANDS gained doctor, history,
+        call, sync (need overrides), where (free); `sync run` without --dry-run refused.
+      - **RESUME HERE (LATEST, 2026-11-24, PAUSED by the user after V4.2b; docs done):** v1.4.0 published. AGENTS.md,
+        short README, docs/manual.md, llms.txt on main (no release needed). V4.2 built and merged into
+        `feat/cli-4-writes` (60c59473). PAUSED: dispatch nothing until the user says go on. Then merge main into
+        `feat/cli-4-writes` (docs moves), rows 13-16 (V4.2 reviews A/B, fix, rehearsal) by
+        `.claude/issue39/phase4/phase4-dispatch.md`, measured first; V4.4 adds `prejob_tidy_up`; V8.1 keeps AGENTS.md
+        current. Rules 12 + 14 in every prompt. Phase 4 so far 5 028k. No release beyond v1.4.0.
+      - RESUME HERE (superseded, 2026-11-23, PAUSED by the user after V4.2b): v1.4.0 published. V4.2 built and merged
         (60c59473). PAUSED: dispatch nothing until the user says go on. Then rows 13-16 (V4.2 reviews A/B, fix,
         rehearsal) by `.claude/issue39/phase4/phase4-dispatch.md`, measured first; V4.4 adds `prejob_tidy_up`. Rules
         12 + 14 in every prompt. Phase 4 so far 5 028k. No release beyond v1.4.0.
