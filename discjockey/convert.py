@@ -13,8 +13,9 @@ session's open library: `not_analysed`, `timing`, `cloud`, an unreadable library
 since the batch began) is `rekordbox.RekordboxOpened`, which stops the batch. Then the journaled op `convert`
 (library.db `pending`) runs design §5.8's steps, each marked:
 
-1. render `build_staged(parked, .tmp/<track>/convert.aiff, L − d)` (the download's tags), hash it, plan the rekordbox
-   rows (`write.row_change`: the text columns against the old file's tags) and the `PPTH` splices;
+1. render `build_staged(parked, .tmp/<track>/convert.aiff, L − d)` (the download's own tags, its cover included: the
+   art of the source the audio came from; the old file's and the song record's pictures play no part), hash it, plan
+   the rekordbox rows (`write.row_change`: the text columns against the old file's tags) and the `PPTH` splices;
 2. journal; 3. the batch's backup (`backed_up`, with each analysis file's copy); 4. `move_path(staged → new)`
    (`placed`); 5. `Writer.repoint`, the undo record journaled just before its `COMMIT` (`committed`); 6.
    `move_path(old → Superseded/)` under the old name (`superseded`); 7. the entry (`upgrades.upgraded_entry`), the
