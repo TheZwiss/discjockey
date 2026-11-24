@@ -27,8 +27,8 @@ from socketserver import ThreadingMixIn
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 
 import bottle
-import mutagen
 
+from .. import audio
 from ..library import Paths, SupportPaths
 from ..names import fold
 
@@ -181,19 +181,13 @@ class MediaServer:
         return response
 
 
-# --- covers (spec 6.9): from the file's embedded cover, cached in .cache/covers/ by path, size and mtime ---
+# --- covers (spec 6.9): from the file's embedded cover (`audio.embedded_cover`, every format), cached in cache/covers/
+# by path, size and mtime ---
+
+COVER_CACHE_VERSION = 2  # in every cached name: raise it when what a file's cover is read from changes (2: M4A, FLAC and
+# Ogg pictures too, so a "no cover" marker written before it is not trusted)
 
 IMAGE_TYPES = ((b"\xff\xd8\xff", ".jpg"), (b"\x89PNG", ".png"))
-
-
-def _embedded_cover(path: Path) -> bytes | None:
-    try:
-        tags = getattr(mutagen.File(str(path)), "tags", None)
-    except Exception:  # not audio, or tags mutagen can't read: no cover
-        return None
-    frames = tags.getall("APIC") if tags is not None and hasattr(tags, "getall") else []
-    front = sorted(frames, key=lambda f: f.type != 3)  # the front cover first
-    return front[0].data if front else None
 
 
 def cover_file(paths: Paths, rel: str) -> str | None:
@@ -203,13 +197,13 @@ def cover_file(paths: Paths, rel: str) -> str | None:
     except OSError:
         return None
     folder = paths.cache / "covers"
-    stem = f"{hashlib.sha1(fold(rel).encode()).hexdigest()}-{st.st_size}-{st.st_mtime_ns}"
+    stem = f"{hashlib.sha1(fold(rel).encode()).hexdigest()}-v{COVER_CACHE_VERSION}-{st.st_size}-{st.st_mtime_ns}"
     for _, ext in IMAGE_TYPES:
         if (folder / f"{stem}{ext}").exists():
             return cache_address(paths, folder / f"{stem}{ext}")
     if (folder / f"{stem}.none").exists():
         return None
-    data = _embedded_cover(paths.root / rel)
+    data = audio.embedded_cover(paths.root / rel)
     folder.mkdir(parents=True, exist_ok=True)
     for old in folder.glob(f"{stem.split('-')[0]}-*"):  # an older version of the file (e.g. before a swap)
         old.unlink(missing_ok=True)

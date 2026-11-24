@@ -1,8 +1,9 @@
+import hashlib
 import http.client
 import urllib.parse
 
 import pytest
-from audio_helpers import TINY_JPEG, needs_ffmpeg, write_aiff
+from audio_helpers import TINY_JPEG, music, needs_ffmpeg, to_aac, write_aiff
 
 from discjockey import audio
 from discjockey.hub import media
@@ -123,12 +124,12 @@ def test_cover_from_the_embedded_tag_is_cached(tmp_path):
     assert got.startswith("cache/covers/") and got.endswith(".jpg")
     assert (paths.cache / got.removeprefix("cache/")).read_bytes() == JPEG
     calls = []
-    real = media._embedded_cover
-    media._embedded_cover = lambda p: calls.append(p) or real(p)
+    real = audio.embedded_cover
+    audio.embedded_cover = lambda p: calls.append(p) or real(p)
     try:
         assert media.cover_file(paths, rel) == got and calls == []  # from the cache
     finally:
-        media._embedded_cover = real
+        audio.embedded_cover = real
 
 
 def test_no_cover_is_remembered_too(tmp_path, monkeypatch):
@@ -137,10 +138,46 @@ def test_no_cover_is_remembered_too(tmp_path, monkeypatch):
     (tmp_path / rel).parent.mkdir(parents=True)
     (tmp_path / rel).write_bytes(b"not really audio")
     calls = []
-    monkeypatch.setattr(media, "_embedded_cover", lambda p: calls.append(p) or None)
+    monkeypatch.setattr(audio, "embedded_cover", lambda p: calls.append(p) or None)
     assert media.cover_file(paths, rel) is None and media.cover_file(paths, rel) is None
     assert len(calls) == 1
     assert media.cover_file(paths, "Library/A/missing.aiff") is None
+
+
+@needs_ffmpeg
+def test_an_m4a_shows_its_covr_picture_and_one_without_shows_none(tmp_path):
+    from mutagen.mp4 import MP4, MP4Cover
+    paths = Paths(tmp_path, support=tmp_path / ".support")
+    (tmp_path / "Library/A").mkdir(parents=True)
+    with_cover = to_aac(write_aiff(tmp_path / "scratch.aiff", music(1)), tmp_path / "Library/A/with.m4a")
+    f = MP4(str(with_cover))
+    f["covr"] = [MP4Cover(JPEG, imageformat=MP4Cover.FORMAT_JPEG)]
+    f.save()
+    without = to_aac(tmp_path / "scratch.aiff", tmp_path / "Library/A/without.m4a")
+    got = media.cover_file(paths, "Library/A/with.m4a")
+    assert got.startswith("cache/covers/") and got.endswith(".jpg")
+    assert (paths.cache / got.removeprefix("cache/")).read_bytes() == JPEG
+    assert media.cover_file(paths, "Library/A/without.m4a") is None and without.exists()
+
+
+@needs_ffmpeg
+def test_a_no_cover_marker_from_before_m4a_covers_were_read_is_not_trusted(tmp_path):
+    """The marker is named by size and mtime; the cache version in the name makes every pre-M4A marker a miss, so an
+    M4A that already showed a placeholder is read again."""
+    from mutagen.mp4 import MP4, MP4Cover
+    paths = Paths(tmp_path, support=tmp_path / ".support")
+    rel = "Library/A/with.m4a"
+    (tmp_path / rel).parent.mkdir(parents=True)
+    m4a = to_aac(write_aiff(tmp_path / "scratch.aiff", music(1)), tmp_path / rel)
+    f = MP4(str(m4a))
+    f["covr"] = [MP4Cover(JPEG, imageformat=MP4Cover.FORMAT_JPEG)]
+    f.save()
+    st, folder = m4a.stat(), paths.cache / "covers"
+    folder.mkdir(parents=True)
+    (folder / f"{hashlib.sha1(rel.lower().encode()).hexdigest()}-{st.st_size}-{st.st_mtime_ns}.none").touch()
+    got = media.cover_file(paths, rel)
+    assert got is not None and (paths.cache / got.removeprefix("cache/")).read_bytes() == JPEG
+    assert not list(folder.glob("*.none"))  # the old marker is cleared away
 
 
 def test_nothing_is_served_before_a_library_is_bound(tmp_path):
