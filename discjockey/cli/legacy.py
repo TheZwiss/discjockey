@@ -9,7 +9,7 @@ The sync (no command) prints its plan, with Auto-upgrade's part (how many upgrad
 run), runs, and ends with the report's summary and Auto-upgrade's summary line. With `--json` (needs `--yes` or
 `--dry-run`: a command never prompts) stdout holds exactly one object, `{"ok", "exit_code", "dry_run", "report",
 "counts", "auto_upgrade"}` or `{"ok": false, "kind", "message"}` for a problem, and every human line goes to stderr
-(CONTRIBUTING.md > "Commands for scripts and agents" > "Not rebuilt yet"). Exit codes: 0 done (also when upgrades wait for rekordbox), 1
+(AGENTS.md > "Sync"). Exit codes: 0 done (also when upgrades wait for rekordbox), 1
 errors in the run, a crash or `needs_yes`, 2 setup problem or no music folder, 3 another run holds the library lock,
 130 stopped. The other commands live in `setup_cmd.py`."""
 from __future__ import annotations
