@@ -321,3 +321,51 @@ def test_genre_and_year_are_read_from_any_format_and_set_on_an_aiff(tmp_path):
     set_genre_year(wav, "House", "")  # a genre alone leaves the year a v2.3 frame
     assert genre_year(wav) == ("House", "2019") and b"TDRC" not in wav.read_bytes()
     assert genre_year(tmp_path / "nothing.mp3") == ("", "")
+
+
+class Served:
+    """What urllib.request.urlopen returns for a picture url: a context manager whose read() gives `data`."""
+
+    def __init__(self, data: bytes):
+        self.data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self) -> bytes:
+        return self.data
+
+
+def serve(monkeypatch, data: bytes) -> None:
+    monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout=None: Served(data))
+
+
+def test_fetch_cover_makes_any_picture_cdj_safe(monkeypatch):
+    from discjockey.audio import COVER_MAX_BYTES, COVER_MAX_PX, _baseline_jpeg_size, fetch_cover
+    serve(monkeypatch, picture(1200, 1200, "png"))  # a PNG, bigger than CDJs load
+    cover = fetch_cover("https://example.com/cover.png")
+    assert cover[:3] == b"\xff\xd8\xff" and len(cover) <= COVER_MAX_BYTES
+    assert max(_baseline_jpeg_size(cover)) <= COVER_MAX_PX
+    small = picture(300, 300)
+    serve(monkeypatch, small)
+    assert fetch_cover("https://example.com/cover.jpg") == small  # already safe: byte for byte
+
+
+def test_fetch_cover_gives_none_and_never_raises(monkeypatch):
+    import http.client
+
+    from discjockey.audio import fetch_cover
+    assert fetch_cover(None) is None and fetch_cover("") is None
+    for garbage in (b"", b"<html>not a picture</html>", b"\xff\xd8\xffgarbage"):
+        serve(monkeypatch, garbage)
+        assert fetch_cover("https://example.com/cover") is None, garbage
+
+    for failure in (OSError("offline"), TimeoutError(), http.client.IncompleteRead(b""), ValueError("unknown url type")):
+        def broken(url, timeout=None, failure=failure):
+            raise failure
+
+        monkeypatch.setattr("urllib.request.urlopen", broken)
+        assert fetch_cover("https://example.com/cover") is None, failure

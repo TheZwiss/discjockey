@@ -13,8 +13,9 @@ session's open library: `not_analysed`, `timing`, `cloud`, an unreadable library
 since the batch began) is `rekordbox.RekordboxOpened`, which stops the batch. Then the journaled op `convert`
 (library.db `pending`) runs design §5.8's steps, each marked:
 
-1. render `build_staged(parked, .tmp/<track>/convert.aiff, L − d)` (the download's tags), hash it, plan the rekordbox
-   rows (`write.row_change`: the text columns against the old file's tags) and the `PPTH` splices;
+1. render `build_staged(parked, .tmp/<track>/convert.aiff, L − d)` (the download's own tags, its cover included: the
+   art of the source the audio came from; the old file's and the song record's pictures play no part), hash it, plan
+   the rekordbox rows (`write.row_change`: the text columns against the old file's tags) and the `PPTH` splices;
 2. journal; 3. the batch's backup (`backed_up`, with each analysis file's copy); 4. `move_path(staged → new)`
    (`placed`); 5. `Writer.repoint`, the undo record journaled just before its `COMMIT` (`committed`); 6.
    `move_path(old → Superseded/)` under the old name (`superseded`); 7. the entry (`upgrades.upgraded_entry`), the
@@ -518,13 +519,9 @@ def _tag_file(e: dict, old_file: Path, staged: Path, facts: audio.FileFacts) -> 
 
 
 def _cover(e: dict, old_file: Path) -> bytes | None:
-    """The record's picture (a playlist song's `image_url`, fetched as downloads fetch it), else, or when the fetch
-    fails, the old file's own; the caller's `write_tags` makes either CDJ-safe."""
-    try:
-        fetched = audio.fetch_cover(e.get("image_url"))
-    except Exception:  # a cover must never fail a batch
-        fetched = None
-    return fetched or audio.embedded_cover(old_file)
+    """The record's picture (a playlist song's `image_url`, fetched as downloads fetch it: `audio.fetch_cover` never
+    raises), else, or when there is none, the old file's own; the caller's `write_tags` makes either CDJ-safe."""
+    return audio.fetch_cover(e.get("image_url")) or audio.embedded_cover(old_file)
 
 
 def _execute(paths: Paths, state: dict, op: dict, session: Session, entries: list[rekordbox.Entry],

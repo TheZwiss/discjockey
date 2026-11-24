@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from mutagen.aiff import AIFF
 
-from audio_helpers import music, needs_ffmpeg, pcm, write_aiff
+from audio_helpers import music, needs_ffmpeg, pcm, picture, write_aiff
 from convert_helpers import (
     NOW, PARKED, TID, Env, PowerOff, batch_row, file_rows, make_env, never, next_start, power_off, session, song,
 )
-from discjockey import convert, db, library, rbstep
+from discjockey import audio, convert, db, library, rbstep
 from discjockey.align import Alignment
 from discjockey.library import load_state
 from discjockey.rekordbox import backup, eligible, master
@@ -149,6 +150,21 @@ def test_the_parked_version_is_placed_and_the_track_follows_it_with_its_cues_and
     assert (b.batches, b.tracks) == ([], 1)
     assert r.note == "Its better version is in, at Artist - Song.aiff; rekordbox's track plays it with its cues."
     assert r.section == "placed_missing"
+
+
+@pytest.mark.parametrize("alignment", [SHIFTED, None])
+def test_the_placed_file_has_the_downloads_cover_not_the_records(tmp_path, monkeypatch, alignment):
+    """The placement has no old file; the picture is the one the download carries (the source's art, written when
+    it was downloaded), shifted audio or copied, and the record's image_url is never fetched for it."""
+    source = picture(300, 300)
+    env = make_missing(tmp_path, monkeypatch, alignment=alignment, entry={"image_url": "https://example.com/s.jpg"})
+    audio.write_tags(env.paths.root / PARKED, title="Song", artists=("Artist",), album="Album", isrc=None, label=None,
+                     cover=source, comment="Qobuz FLAC · verified lossless")
+    fetched = []
+    monkeypatch.setattr(audio, "fetch_cover", lambda url: (fetched.append(url), None)[1])
+    r, _state = place(env)
+    frames = AIFF(str(env.paths.root / r.path)).tags.getall("APIC")
+    assert [bytes(f.data) for f in frames] == [source] and fetched == []
 
 
 def test_no_rekordbox_track_for_the_file_places_it_lined_up_and_writes_nothing_of_rekordbox(tmp_path, monkeypatch):

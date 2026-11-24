@@ -7,11 +7,11 @@ import numpy as np
 import pytest
 from mutagen.aiff import AIFF
 
-from audio_helpers import needs_ffmpeg, pcm
+from audio_helpers import TINY_JPEG, needs_ffmpeg, pcm, picture
 from convert_helpers import (
     NEW, PARKED, TID, batch_row, exact, file_rows, make_env, never, run, session, start_batch,
 )
-from discjockey import convert, library, rbstep
+from discjockey import audio, convert, library, rbstep
 from discjockey.align import Alignment
 from discjockey.library import load_state
 from discjockey.rekordbox import anlz, backup, master
@@ -321,3 +321,28 @@ def test_plan_names_and_space_needed_answer_the_dry_run_without_writing(tmp_path
     assert env.music() == music and load_state(env.paths)["pending"] == []        # nothing written, nothing reserved
     r, _state = run(env)                                                           # and the step names the same
     assert (r.path, env.superseded) == (new, superseded)
+
+
+def give_the_download_a_cover(env, cover: bytes) -> None:
+    """The parked download as acquire writes it: the cover of the source it came from (qobuz album art ...)."""
+    root = env.paths.root
+    audio.write_tags(root / PARKED, title="Song", artists=("Artist",), album="Album", isrc="ISRC00000001",
+                     label="Label", cover=cover, comment="Qobuz FLAC · verified lossless")
+
+
+def cover_of(path) -> bytes | None:
+    frames = AIFF(str(path)).tags.getall("APIC")
+    return bytes(frames[0].data) if frames else None
+
+
+@pytest.mark.parametrize("kind", ["lame", "wav48", "m4a"])
+def test_the_new_aiff_has_the_downloads_cover_not_the_records_or_the_old_files(tmp_path, monkeypatch, kind):
+    """An upgrade of a file that isn't an AIFF keeps the download's own cover (the source's art), whether the audio
+    is shifted (lame: retagged) or copied (wav48); the song record's image_url is never fetched for it."""
+    source = picture(300, 300)
+    env = make_env(tmp_path, monkeypatch, kind, entry={"image_url": "https://example.com/spotify.jpg"})
+    give_the_download_a_cover(env, source)
+    fetched = []
+    monkeypatch.setattr(audio, "fetch_cover", lambda url: (fetched.append(url), TINY_JPEG)[1])
+    r, _state = run(env)
+    assert cover_of(env.paths.root / r.path) == source and fetched == []

@@ -274,6 +274,33 @@ def test_make_ready_converts_tags_and_judges(tmp_path):
 
 
 @needs_ffmpeg
+def test_the_download_carries_the_sources_cover_even_when_it_is_a_png(tmp_path, monkeypatch):
+    """A source whose artwork is a PNG (or a progressive or oversized picture) still gets a baseline JPEG cover."""
+    from audio_helpers import picture
+    from discjockey import audio
+    src = tmp_path / "qobuz_1.flac"
+    noise_flac(src, 10)
+
+    class Served:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return picture(1000, 1000, "png")
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda url, timeout=None: Served())
+    track = SourceTrack("t1", "Song", ("Artist",), "Album", None, 10000, "DE1")
+    r = make_ready(src, track, Candidate("qobuz", "1", "Song", "Artist", 10.0, image_url="https://example.com/a.png"),
+                   tmp_path)
+    (frame,) = AIFF(str(r.path)).tags.getall("APIC")
+    assert frame.mime == "image/jpeg" and frame.data[:3] == b"\xff\xd8\xff" and len(frame.data) <= audio.COVER_MAX_BYTES
+    assert max(audio._baseline_jpeg_size(frame.data)) <= audio.COVER_MAX_PX
+
+
+@needs_ffmpeg
 def test_make_ready_rejects_preview_length_file(tmp_path):
     src = tmp_path / "qobuz_1.flac"
     noise_flac(src, 30)

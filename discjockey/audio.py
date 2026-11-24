@@ -5,6 +5,7 @@ eligibility rules)."""
 from __future__ import annotations
 
 import base64
+import http.client
 import re
 import struct
 import subprocess
@@ -87,14 +88,18 @@ def render_aiff(src: Path, dst: Path, shift_samples: int) -> None:
 
 
 def fetch_cover(url: str | None) -> bytes | None:
+    """The picture at `url` as a CDJ-safe baseline JPEG (`cdj_cover`: a PNG, WebP, progressive or oversized picture is
+    converted, one that is already safe comes back byte for byte), else None: no url, nothing fetched, or no picture
+    that can be made safe. Never raises: a cover must not fail a download or a step. Callers write it with
+    `write_tags`, whose own `cdj_cover` returns an already safe picture at once (no second ffmpeg run)."""
     if not url:
         return None
     try:
         with urllib.request.urlopen(url, timeout=20) as r:
             data = r.read()
-    except OSError:
+        return cdj_cover(data)
+    except (OSError, ValueError, http.client.HTTPException, subprocess.SubprocessError):
         return None
-    return data if data[:3] == b"\xff\xd8\xff" else None
 
 
 COVER_MAX_PX = 600  # artwork CDJs load without trouble (plan rekordbox stage D §0.11; no official limit was found)
