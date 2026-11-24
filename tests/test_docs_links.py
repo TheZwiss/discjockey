@@ -1,5 +1,5 @@
-"""README.md (the landing page), docs/manual.md (the user manual) and CONTRIBUTING.md (developer notes) as they go
-public (spec public-release §9):
+"""README.md (the landing page), docs/manual.md (the user manual), CONTRIBUTING.md (developer notes), AGENTS.md (the
+guide for AI agents) and llms.txt (the index for LLM tools) as they go public (spec public-release §9):
 every relative link and image resolves to a tracked file, every in-page anchor to a heading, the sections the
 spec names exist, the download link is the public repo's, and every secret the workflows read is named in
 CONTRIBUTING.md."""
@@ -13,9 +13,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 MANUAL = "docs/manual.md"
-DOCS = ("README.md", MANUAL, "CONTRIBUTING.md")
+DOCS = ("README.md", MANUAL, "CONTRIBUTING.md", "AGENTS.md")
 USER_DOCS = ("README.md", MANUAL)
 RELEASES = "https://github.com/TheZwiss/discjockey/releases/latest"
+BLOB = "https://github.com/TheZwiss/discjockey/blob/main/"
 
 # [text](target) and ![alt](target); an optional "title" after the target is dropped. Code spans and fenced blocks
 # are removed first, so a bracket inside an example is never read as a link.
@@ -108,12 +109,28 @@ def test_user_docs_keep_developer_commands_out(name):
 
 def test_readme_is_a_short_landing_page_that_links_into_the_manual():
     text = _text("README.md")
+    # 150 lines: the prose is about 100; the rest is the screenshot gallery's HTML table and the four Open Anyway
+    # images, which the README shows itself so a visitor sees the app and the install steps without opening the manual
     assert len(text.splitlines()) <= 150, "README.md is the landing page; the details belong in docs/manual.md"
     anchors = _anchors(_text(MANUAL))
     deep = [t.split("#", 1)[1] for t in LINK.findall(_prose(text)) if t.startswith(f"{MANUAL}#")]
     assert deep, "README.md links to no section of the manual"
     for anchor in deep:
         assert anchor in anchors, f"README.md links to {MANUAL}#{anchor}, but the manual has no such heading"
+
+
+@pytest.mark.parametrize("name", ("README.md", "llms.txt"))
+def test_absolute_blob_links_point_at_a_tracked_file_and_heading(name):
+    """llms.txt (and the README's AGENTS.md link) can't use relative links, so each absolute link into the public
+    repo's main branch must name a file this tree tracks and, with an anchor, a heading in that file."""
+    tracked = _tracked()
+    links = [t for t in LINK.findall(_prose(_text(name))) if t.startswith(BLOB)]
+    assert links, f"{name} has no links into the repo; the pattern is broken"
+    for link in links:
+        path, _, anchor = link[len(BLOB):].partition("#")
+        assert path in tracked, f"{name} links to {link}, but {path} is not a tracked file"
+        if anchor:
+            assert anchor in _anchors(_text(path)), f"{name} links to {link}, but {path} has no heading with that anchor"
 
 
 def test_contributing_names_every_secret_the_workflows_read():
