@@ -28,7 +28,26 @@ it in the folder of its playlist and does it again every time a playlist changes
 - **Converts your own music to AIFF** (16-bit, 44.1 kHz, the format every CDJ plays) when you ask, with undo.
 - **Never deletes a music file.** Anything it replaces goes to `Superseded/`.
 
-<img src="docs/readme/app-sync.png" alt="The Sync page: playlists with switches on the left, the plan with 228 tracks in five kinds in the middle, today's amount, the weekly checks and Start sync on the right">
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/readme/app-sync.png" alt="The Sync page: playlists with switches on the left, the plan with 228 tracks in five kinds in the middle, today's amount, the weekly checks and Start sync on the right"><br><sub><b>Sync</b>: the whole plan before anything downloads.</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-sync-running.png" alt="A sync running: track 3 of 5 downloading from YouTube Music, with the steps search, download, check, convert and analyse"><br><sub><b>A sync you can follow</b>, and stop safely at any time.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/readme/app-library.png" alt="The Library: a playlist's tracks with their quality badges, and the details of a lossless track with its spectrum, player, format and source"><br><sub><b>Library</b>: every track with its quality, spectrum and source.</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-todo.png" alt="The To-do page: upgrades ready, songs not found and weak versions, with an upgrade open on the right comparing the current file and the lossless one"><br><sub><b>To-do</b>: upgrades ready, songs not found, weak versions.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/readme/app-playlists.png" alt="The Playlists page with ten playlists in priority order and the Tidy up files panel listing the files that would move"><br><sub><b>Playlists</b>: drag to set the priority; tidy up with a preview.</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-library-folders.png" alt="The Library showing a watched folder of the user's own music with its subfolders as crates"><br><sub><b>Music you already have</b>: your own folders, read where they are.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/readme/app-settings.png" alt="Settings: where your music comes from, best first: Qobuz lossless, the artist's own file, premium streams at about 256 kbps, free streams at about 130 kbps"><br><sub><b>Settings</b>: the order it tries for every song, and your logins.</sub></td>
+    <td width="50%" valign="top"><img src="docs/readme/app-limits.png" alt="The Download limits page: Qobuz at 37 of 80 today, the daily limit of 60 and the last 14 days"><br><sub><b>Download limits</b>: your own daily limit per service.</sub></td>
+  </tr>
+</table>
 
 ## Questions DJs ask
 
@@ -59,10 +78,18 @@ later.
    open it and drag **Discjockey** onto **Applications**.
 2. Open Discjockey. Discjockey isn't registered with Apple, so macOS shows a warning and doesn't open it. Click
    **Done**.
-3. Open **System Settings**, then **Privacy & Security**, scroll to the line about Discjockey and click **Open Anyway**.
-   Confirm with your password or Touch ID. You do this once for every version you download.
 
-The same steps with screenshots, and what to do if the line is gone, are in the
+   <img src="docs/readme/open-anyway-1-warning.png" width="274" alt="The warning: Discjockey Not Opened, with Move to Trash and Done">
+
+3. Open **System Settings**, then **Privacy & Security**, scroll to the line about Discjockey.
+
+   <img src="docs/readme/open-anyway-2-privacy.png" width="560" alt="Privacy &amp; Security: Discjockey was blocked to protect your Mac, with Open Anyway">
+
+4. Click **Open Anyway**. Confirm with your password or Touch ID. You do this once for every version you download.
+
+   <img src="docs/readme/open-anyway-3-confirm.png" width="269" alt="The second warning, with Open Anyway"> <img src="docs/readme/open-anyway-4-password.png" width="278" alt="macOS asks for Touch ID or the password">
+
+What to do if the line is gone is in the
 [manual](docs/manual.md#install-and-open-anyway).
 
 ## Quick start

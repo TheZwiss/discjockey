@@ -93,6 +93,9 @@ A user's data never sits in the repo and none of it is in git — never test aga
 | `docs/hub-bridge-contract.md` | The rules between `discjockey/hub` and `hub-ui` (shapes are generated), pinned by tests |
 | `docs/issues.md` | Open bugs, wishes and pending live checks |
 | `docs/hub-mockups/` | Approved HTML mockups; `hub-ui/scripts/shots.mjs --compare` renders against them |
+| `README.md` | The public landing page (what it is, screenshots, DJ questions, install with the Open Anyway steps, quick start); the user's full manual is `docs/manual.md`. `tests/test_docs_links.py` keeps its links, anchors and length |
+| `AGENTS.md` | The guide for AI agents to the command line: the contract (`help --json`, the envelope, exit codes), a task map and the safety rules. Keep it current with every change to the command line (issue 39, V8.1) |
+| `llms.txt` | The llmstxt.org index of the public docs for LLM tools: absolute links into the repo's `main` branch; the link test checks that each file and anchor exists |
 | `CONTRIBUTING.md` | Developer notes: checkout, the Terminal version, tests, the UI workflow, building, the public check, releasing and the CI secrets |
 | `docs/archive/` | Finished specs, plans and handovers. `pre-public/` holds everything archived before the repo went public (gitignored, on the maintainer's disk only); plans archived from now on go into `docs/archive/` itself and are public. See "Docs and plans" |
 
