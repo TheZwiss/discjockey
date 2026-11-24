@@ -1,0 +1,31 @@
+# Discjockey
+
+> Discjockey is a free, open-source Mac app (Apple Silicon, macOS 12 or later, GPL-3.0) for DJs. It turns Spotify, Qobuz, SoundCloud and YouTube Music playlists into a library of verified lossless AIFF files, ready for rekordbox, and keeps that library in step as the playlists change. It looks for each track on Qobuz first, falls back to the artist's own file, a premium stream or a free stream, checks every file's quality, can swap lossy files for lossless ones while rekordbox keeps the cue points, and never deletes a music file. It has a window and a command-line interface that an AI agent can run.
+
+## Start here
+
+- [README](https://github.com/TheZwiss/discjockey/blob/main/README.md): what Discjockey is, what it does, answers to common DJ questions, install and quick start.
+- [Latest release](https://github.com/TheZwiss/discjockey/releases/latest): the .dmg download for Mac (Apple Silicon).
+- [AGENTS.md](https://github.com/TheZwiss/discjockey/blob/main/AGENTS.md): for AI agents: the safety rules to keep and every command, starting with `/Applications/Discjockey.app/Contents/MacOS/Discjockey help --json`.
+
+## User manual
+
+- [Manual](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md): the full user manual with a table of contents.
+- [Requirements](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#requirements): which Mac, which subscriptions (Qobuz for lossless, Spotify Premium for Spotify playlists).
+- [Install and "Open Anyway"](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#install-and-open-anyway): opening the app the first time, with screenshots.
+- [One-time setup](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#one-time-setup): music folder, logins and the first playlist.
+- [Settings](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#settings): every login and option in one place, and the order Discjockey tries sources for each song.
+- [playlists.txt](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#playliststxt): how playlists are listed and ordered, and what the order decides.
+- [Your existing music](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#your-existing-music): watch folders you already have; no re-downloads, duplicates pointed out.
+- [Daily use](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#daily-use): reviewing the plan and syncing.
+- [The Library page](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#the-library-page): every track with its quality, source and spectrum.
+- [Upgrades](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#upgrades): replacing lossy files with lossless ones and keeping rekordbox cue points.
+- [Making files AIFF](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#making-files-aiff): converting your own music to the AIFF format CDJs play.
+- [rekordbox](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#rekordbox): what Discjockey changes in rekordbox's library and what it never touches.
+- [When something breaks](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#when-something-breaks): common failures and how to recover, including restoring a rekordbox backup.
+- [Account risk](https://github.com/TheZwiss/discjockey/blob/main/docs/manual.md#account-risk): the terms-of-use risk of downloading from the services, and how Discjockey limits it.
+
+## Project
+
+- [CONTRIBUTING.md](https://github.com/TheZwiss/discjockey/blob/main/CONTRIBUTING.md): running Discjockey from source, changing it and releasing it.
+- [LICENSE](https://github.com/TheZwiss/discjockey/blob/main/LICENSE): GNU General Public License, version 3.

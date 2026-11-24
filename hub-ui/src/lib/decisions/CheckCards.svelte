@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The rekordbox check a replace left (mockup todo-decisions, "After the step"; README "Upgrades"), the same in To-do's
+  // The rekordbox check a replace left (mockup todo-decisions, "After the step"; docs/manual.md "Upgrades"), the same in To-do's
   // and the Library's details: "In rekordbox"
   // (yellow: it waits for the user) as numbered steps in place of a paragraph, then "Replaced with lossless" with where
   // each file is now and what Undo puts back (only while it can); it follows the steps card, or the info note of a check

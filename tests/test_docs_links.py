@@ -1,4 +1,5 @@
-"""README.md (the user manual) and CONTRIBUTING.md (developer notes) as they go public (spec public-release §9):
+"""README.md (the landing page), docs/manual.md (the user manual) and CONTRIBUTING.md (developer notes) as they go
+public (spec public-release §9):
 every relative link and image resolves to a tracked file, every in-page anchor to a heading, the sections the
 spec names exist, the download link is the public repo's, and every secret the workflows read is named in
 CONTRIBUTING.md."""
@@ -11,7 +12,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-DOCS = ("README.md", "CONTRIBUTING.md")
+MANUAL = "docs/manual.md"
+DOCS = ("README.md", MANUAL, "CONTRIBUTING.md")
+USER_DOCS = ("README.md", MANUAL)
 RELEASES = "https://github.com/TheZwiss/discjockey/releases/latest"
 
 # [text](target) and ![alt](target); an optional "title" after the target is dropped. Code spans and fenced blocks
@@ -79,26 +82,38 @@ def test_slug_matches_github():
     assert _slug("Where things live") == "where-things-live"
 
 
-def test_readme_has_the_sections_the_spec_names():
-    sections = _headings(_text("README.md"), 2)
+def test_manual_has_the_sections_the_spec_names():
+    sections = _headings(_text(MANUAL), 2)
     for heading in ("Download", "Requirements", 'Install and "Open Anyway"', "Updates", "One-time setup",
                     "Legal note", "Account risk", "Licence"):
-        assert heading in sections, f"README.md has no '## {heading}'"
+        assert heading in sections, f"{MANUAL} has no '## {heading}'"
     # the legal note comes before the manual's details, so nobody downloads without having seen it
     assert sections.index("Legal note") < sections.index("One-time setup")
 
 
-def test_readme_downloads_from_the_public_repo_only():
-    text = _text("README.md")
+@pytest.mark.parametrize("name", USER_DOCS)
+def test_user_docs_download_from_the_public_repo_only(name):
+    text = _text(name)
     assert f"]({RELEASES})" in text
     repos = set(re.findall(r"github\.com/([\w.-]+/[\w.-]+)", text))
-    assert repos == {"TheZwiss/discjockey"}, f"README.md points at other GitHub repos: {sorted(repos)}"
+    assert repos == {"TheZwiss/discjockey"}, f"{name} points at other GitHub repos: {sorted(repos)}"
 
 
-def test_readme_keeps_developer_commands_out():
-    prose = FENCE.sub("", _text("README.md"))
+@pytest.mark.parametrize("name", USER_DOCS)
+def test_user_docs_keep_developer_commands_out(name):
+    prose = FENCE.sub("", _text(name))
     for word in ("bin/discjockey", "uv sync", "uv run", "npm ", "pytest"):
-        assert word not in prose, f"README.md says '{word}': developer notes belong in CONTRIBUTING.md"
+        assert word not in prose, f"{name} says '{word}': developer notes belong in CONTRIBUTING.md"
+
+
+def test_readme_is_a_short_landing_page_that_links_into_the_manual():
+    text = _text("README.md")
+    assert len(text.splitlines()) <= 150, "README.md is the landing page; the details belong in docs/manual.md"
+    anchors = _anchors(_text(MANUAL))
+    deep = [t.split("#", 1)[1] for t in LINK.findall(_prose(text)) if t.startswith(f"{MANUAL}#")]
+    assert deep, "README.md links to no section of the manual"
+    for anchor in deep:
+        assert anchor in anchors, f"README.md links to {MANUAL}#{anchor}, but the manual has no such heading"
 
 
 def test_contributing_names_every_secret_the_workflows_read():
