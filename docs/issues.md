@@ -61,7 +61,9 @@ repointed 38 rekordbox entries for the user with throwaway scripts of its own ra
 - **Agent docs:** what Discjockey is, the safety rules an agent must keep (the invariants: lock, Qobuz protection,
   never delete, never move outside a batch the user started, dry run first), and every command with an example. Put
   them where agents look (e.g. `AGENTS.md` at the repo root, plus a README section for users who point their agent
-  at the app).
+  at the app). Hand-written `AGENTS.md` for v1.4.0 done 2026-11-24 (Commands for scripts and agents moved out of
+  CONTRIBUTING.md into it); V8.1 generates the rest (`help agents`, `help concepts`, `help --markdown`, T11) and keeps
+  AGENTS.md current.
 - **Pin it:** a test that fails when a bridge method has no command or no agent-docs entry.
 - The 33 work (rekordbox repoint) has its commands under the rule (phase 1): `rekordbox status | preview | backups |
   restore`, `upgrade list | apply | discard`, `track undo`, `batch list | show | resume | undo`, `check list | done`,
