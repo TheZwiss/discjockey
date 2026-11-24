@@ -1691,9 +1691,8 @@ Results:
         `feat/cli-4-writes` (60c59473). PAUSED: dispatch nothing until the user says go on. Then merge main into
         `feat/cli-4-writes` (docs moves), rows 13-16 (V4.2 reviews A/B, fix, rehearsal) by
         `.claude/issue39/phase4/phase4-dispatch.md`, measured first; V4.4 adds `prejob_tidy_up`; V8.1 keeps AGENTS.md
-        current. Rules 12 + 14 in every prompt. Phase 4 so far 5 028k. v1.4.1 (cover fixes) tagged dc726309 2026-11-24 on
-        the user's word; a detached watch publishes it when release.yml is green: first check `gh release view v1.4.1`
-        (draft? → publish it). Phase 4 → v1.5.0 later.
+        current. Rules 12 + 14 in every prompt. Phase 4 so far 5 028k. v1.4.1 (cover fixes, tag dc726309) PUBLISHED
+        2026-11-24. Phase 4 → v1.5.0 later.
       - RESUME HERE (superseded, 2026-11-23, PAUSED by the user after V4.2b): v1.4.0 published. V4.2 built and merged
         (60c59473). PAUSED: dispatch nothing until the user says go on. Then rows 13-16 (V4.2 reviews A/B, fix,
         rehearsal) by `.claude/issue39/phase4/phase4-dispatch.md`, measured first; V4.4 adds `prejob_tidy_up`. Rules
