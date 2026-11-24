@@ -519,13 +519,9 @@ def _tag_file(e: dict, old_file: Path, staged: Path, facts: audio.FileFacts) -> 
 
 
 def _cover(e: dict, old_file: Path) -> bytes | None:
-    """The record's picture (a playlist song's `image_url`, fetched as downloads fetch it), else, or when the fetch
-    fails, the old file's own; the caller's `write_tags` makes either CDJ-safe."""
-    try:
-        fetched = audio.fetch_cover(e.get("image_url"))
-    except Exception:  # a cover must never fail a batch
-        fetched = None
-    return fetched or audio.embedded_cover(old_file)
+    """The record's picture (a playlist song's `image_url`, fetched as downloads fetch it: `audio.fetch_cover` never
+    raises), else, or when there is none, the old file's own; the caller's `write_tags` makes either CDJ-safe."""
+    return audio.fetch_cover(e.get("image_url")) or audio.embedded_cover(old_file)
 
 
 def _execute(paths: Paths, state: dict, op: dict, session: Session, entries: list[rekordbox.Entry],

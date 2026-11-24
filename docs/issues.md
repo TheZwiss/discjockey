@@ -3,14 +3,6 @@
 Bugs, wishes and open checks that are noted but not done yet. The newest go at the top. Remove an entry once its fix is
 committed. Moved here from `docs/archive/pre-public/2026-10-16-hub-plan.md` when that plan was archived (2026-10-20).
 
-## 47. A download whose cover art is not a JPEG gets no cover at all (found in the covers fix, 2026-11-24)
-
-`audio.fetch_cover` returns the picture only when it starts with the JPEG marker; a PNG (or WebP) from a source's
-`image_url` is dropped without a word, so `acquire` writes the download with
-no cover, and every later step keeps that (Same track and the AIFF swap copy the download's tags). Fix: return any
-picture `audio.cdj_cover` can make safe (it already converts PNG and the like through ffmpeg), None only when that
-fails; test with a PNG served for the url.
-
 ## 46. The Playlists change panel words the rekordbox and undo notes itself (issue 39 phase 3 fix round, 2026-11-22)
 
 `ChangePanel.svelte` (the save question's warning card) joins the window's own constants `R1`, `R2`, `U1` from

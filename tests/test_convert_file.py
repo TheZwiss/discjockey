@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import urllib.request
 from datetime import datetime
 
 import numpy as np
@@ -293,11 +294,17 @@ def test_the_cover_is_the_songs_image_when_it_has_one_and_falls_back_when_the_fe
     env = make_own(tmp_path, monkeypatch, entry={"image_url": "https://example.com/cover.jpg"})
     edit_old_tags(env, APIC(encoding=3, mime="image/jpeg", type=3, desc="", data=picture(300, 300)))
     fetched = []
+    real_fetch = audio.fetch_cover
     monkeypatch.setattr(audio, "fetch_cover", lambda url: (fetched.append(url), TINY_JPEG)[1])
     r, _state = run_file(env)
     assert fetched == ["https://example.com/cover.jpg"] and apic(env.paths.root / r.path) == TINY_JPEG
-    # a failing fetch (None, or raising) leaves the old file's picture
-    for attempt, failing in enumerate((lambda url: None, lambda url: (_ for _ in ()).throw(OSError("offline")))):
+
+    def offline(*args, **kwargs):
+        raise OSError("offline")
+
+    # a failing fetch (nothing fetched, or the network down) leaves the old file's picture
+    for attempt, failing in enumerate((lambda url: None, real_fetch)):
+        monkeypatch.setattr(urllib.request, "urlopen", offline)
         sub = tmp_path / f"again{attempt}"
         sub.mkdir()
         env = make_own(sub, monkeypatch, entry={"image_url": "https://example.com/cover.jpg"})
